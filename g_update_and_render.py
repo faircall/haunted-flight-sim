@@ -17,11 +17,11 @@ def get_or_set(arena, variable_name, default_value):
         arena[variable_name] = default_value
         return default_value
     
-def get_or_invoke(arena, variable_name, default_func, default_vals):
+def get_or_invoke(arena, variable_name, default_func):
     if variable_name in arena:
         return arena[variable_name]
     else:
-        arena[variable_name] = default_func(default_vals)
+        arena[variable_name] = default_func()
         return arena[variable_name]
 
 
@@ -107,6 +107,10 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world):
 
             pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
 
+def make_default_camera():
+    game_camera = pr.Camera3D(pr.Vector3(0,0,0), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_PERSPECTIVE)
+    return game_camera
+
 def update_and_render(main_arena):
     # arena initialisation
     dt = pr.get_frame_time()
@@ -114,12 +118,7 @@ def update_and_render(main_arena):
     time_elapsed = get_or_set(main_arena, "time_elapsed", 0.0)
     ui_button_states = get_or_set(main_arena, "ui_button_states", {})
     use_mouse_screen_navigation =  get_or_set(ui_button_states, "use_mouse_screen_navigation", True)
-    #game_camera = get_or_invoke(main_arena, "camera_3d", pr.Camera3D, (pr.Vector3(0,0,0), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_PERSPECTIVE))    
-    if "camera_3d" in main_arena:
-        game_camera = main_arena["camera_3d"]
-    else:
-        game_camera = pr.Camera3D(pr.Vector3(0,0,0), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_PERSPECTIVE)
-        main_arena["camera_3d"] = game_camera
+    game_camera = get_or_invoke(main_arena, "camera_3d", make_default_camera)        
     screen_width = main_arena["screen_width"]
     screen_height = main_arena["screen_height"]
     tile_size = 32
