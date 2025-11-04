@@ -112,6 +112,8 @@ def make_default_camera():
     return game_camera
 
 def do_button(pos, width = 50, height = 20, name = "some buttons"):
+    font_width = 6
+    width = len(name) * font_width
     base_rect = pr.Rectangle(int(pos.x), int(pos.y), width, height)
     rect_col = pr.WHITE
     
@@ -124,6 +126,21 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
 
+def update_camera(game_camera, dt):
+    camera_speed = 10
+    if pr.is_key_down(pr.KeyboardKey.KEY_W):
+        game_camera.position.y -= dt*camera_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_A):
+        game_camera.position.x -= dt*camera_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_S):
+        game_camera.position.y += dt*camera_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_D):
+        game_camera.position.x += dt*camera_speed
+
+    if pr.is_key_down(pr.KeyboardKey.KEY_SPACE):
+        game_camera.position.z += dt*camera_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL):
+        game_camera.position.z -= dt*camera_speed
 
 
 
@@ -142,21 +159,9 @@ def update_and_render(main_arena):
         
 
     #input handling
-    camera_speed = 10
-    if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        game_camera.position.y -= dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        game_camera.position.x -= dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        game_camera.position.y += dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        game_camera.position.x += dt*camera_speed
-
-    if pr.is_key_down(pr.KeyboardKey.KEY_SPACE):
-        game_camera.position.z += dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL):
-        game_camera.position.z -= dt*camera_speed
-
+    update_camera(game_camera, dt)
+    
+    
     print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F1):
         main_arena["auto_reload"] = not main_arena["auto_reload"]
@@ -168,10 +173,14 @@ def update_and_render(main_arena):
     color_to_draw = pr.Color(20, 120, 250, 255)    
     pr.begin_drawing()
     pr.clear_background(color_to_draw)    
-    if do_button(pr.Vector2(10, 10), name="reset camera"):
+    
+
+    if do_button(pr.Vector2(10, 10), name="reset cameras"):
         game_camera = make_default_camera()        
 
     pr.begin_mode_3d(game_camera)
+    pr.draw_plane(pr.Vector3(0,0,0), pr.Vector2(100,100), pr.BROWN)
+
     pr.draw_triangle_3d(pr.Vector3(1,1,1), pr.Vector3(0,0,1), pr.Vector3(2,0,1), pr.GREEN)
     pr.end_mode_3d()
     pr.end_drawing()
