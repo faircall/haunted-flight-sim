@@ -108,8 +108,25 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world):
             pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
 
 def make_default_camera():
-    game_camera = pr.Camera3D(pr.Vector3(0,0,0), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_PERSPECTIVE)
+    game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_PERSPECTIVE)
     return game_camera
+
+def do_button(pos, width = 50, height = 20, name = "some buttons"):
+    base_rect = pr.Rectangle(int(pos.x), int(pos.y), width, height)
+    rect_col = pr.WHITE
+    
+    result = False
+    if pr.check_collision_point_rec(pr.get_mouse_position(), base_rect):
+        rect_col = pr.YELLOW
+        if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
+            result = True
+    pr.draw_rectangle(int(pos.x), int(pos.y), width, height, rect_col)
+    pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
+    return result
+
+
+
+
 
 def update_and_render(main_arena):
     # arena initialisation
@@ -151,6 +168,9 @@ def update_and_render(main_arena):
     color_to_draw = pr.Color(20, 120, 250, 255)    
     pr.begin_drawing()
     pr.clear_background(color_to_draw)    
+    if do_button(pr.Vector2(10, 10), name="reset camera"):
+        game_camera = make_default_camera()        
+
     pr.begin_mode_3d(game_camera)
     pr.draw_triangle_3d(pr.Vector3(1,1,1), pr.Vector3(0,0,1), pr.Vector3(2,0,1), pr.GREEN)
     pr.end_mode_3d()
