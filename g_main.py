@@ -50,7 +50,9 @@ def render_error_message(msg):
 def g_main():
     program_name = "Horror Flightsim"
     pr.set_config_flags(pr.ConfigFlags.FLAG_WINDOW_RESIZABLE)
+    
     pr.init_window(g_screen_width, g_screen_height, program_name)
+    pr.rl_disable_backface_culling()
     pr.set_target_fps(60)
 
     main_arena = {}

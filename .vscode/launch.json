@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Debug g_main.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/g_main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

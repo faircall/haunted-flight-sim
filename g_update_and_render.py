@@ -126,7 +126,8 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
 
-def update_camera(game_camera, dt):
+def update_camera(camera, dt):
+    game_camera = camera.get("camera_3d")    
     camera_speed = 10
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
         game_camera.position.y -= dt*camera_speed
@@ -152,17 +153,19 @@ def update_and_render(main_arena):
     time_elapsed = get_or_set(main_arena, "time_elapsed", 0.0)
     ui_button_states = get_or_set(main_arena, "ui_button_states", {})
     use_mouse_screen_navigation =  get_or_set(ui_button_states, "use_mouse_screen_navigation", True)
-    game_camera = get_or_invoke(main_arena, "camera_3d", make_default_camera)        
+    camera_3d = get_or_invoke(main_arena, "camera_3d", make_default_camera)        
+    player_camera = get_or_set(main_arena, "player_camera", {"camera_3d" : camera_3d})        
+
     screen_width = main_arena["screen_width"]
-    screen_height = main_arena["screen_height"]
+    screen_height = main_arena["screen_height"]    
     tile_size = 32
         
 
     #input handling
-    update_camera(game_camera, dt)
+    update_camera(player_camera, dt)
     
     
-    print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
+    # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F1):
         main_arena["auto_reload"] = not main_arena["auto_reload"]
         draw_variable_state("auto reload", main_arena["auto_reload"], 10, 10, 20, pr.WHITE)            
@@ -176,9 +179,10 @@ def update_and_render(main_arena):
     
 
     if do_button(pr.Vector2(10, 10), name="reset cameras"):
-        game_camera = make_default_camera()        
+        camera_3d = make_default_camera()   
+        player_camera["camera_3d"] = camera_3d
 
-    pr.begin_mode_3d(game_camera)
+    pr.begin_mode_3d(camera_3d)
     pr.draw_plane(pr.Vector3(0,0,0), pr.Vector2(100,100), pr.BROWN)
 
     pr.draw_triangle_3d(pr.Vector3(1,1,1), pr.Vector3(0,0,1), pr.Vector3(2,0,1), pr.GREEN)
@@ -187,5 +191,5 @@ def update_and_render(main_arena):
 
     # update persistent variables here
     main_arena["time_elapsed"] = time_elapsed
-    main_arena["camera_3d"] = game_camera
+    main_arena["camera_3d"] = camera_3d
     main_arena["ui_button_states"] = ui_button_states
