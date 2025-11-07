@@ -23,6 +23,13 @@ def get_or_invoke(arena, variable_name, default_func):
     else:
         arena[variable_name] = default_func()
         return arena[variable_name]
+    
+def get_or_invoke_args(arena, variable_name, default_func, args):
+    if variable_name in arena:
+        return arena[variable_name]
+    else:
+        arena[variable_name] = default_func(*args)
+        return arena[variable_name]
 
 
 def normalized_sin(t):
@@ -108,7 +115,7 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world):
             pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
 
 def make_default_camera():
-    game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_PERSPECTIVE)
+    game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_PERSPECTIVE)    
     return game_camera
 
 def do_button(pos, width = 50, height = 20, name = "some buttons"):
@@ -126,24 +133,52 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
 
-def update_camera(camera, dt):
+def update_camera(player_position, player_heading, camera, dt):
     game_camera = camera.get("camera_3d")    
     camera_speed = 10
-    if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        game_camera.position.y -= dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        game_camera.position.x -= dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        game_camera.position.y += dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        game_camera.position.x += dt*camera_speed
 
+    # print(f"player heading: {player_heading.x},  {player_heading.y}")
+    rotate_speed = 3    
+
+    if pr.is_key_down(pr.KeyboardKey.KEY_UP):
+        player_heading.y += dt * rotate_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_DOWN):
+        player_heading.y -= dt * rotate_speed
+
+    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT):
+        player_heading.x -= dt * rotate_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_RIGHT):
+        player_heading.x += dt * rotate_speed
+
+    heading_xz = pr.Vector2(math.cos(player_heading.x), math.sin(player_heading.x))
+    
+    heading_to_add = pr.Vector3(heading_xz.x, 0, heading_xz.y)
+    
+    
     if pr.is_key_down(pr.KeyboardKey.KEY_SPACE):
-        game_camera.position.z += dt*camera_speed
+        player_position.y += dt*camera_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_A):
+        player_position.x -= dt*camera_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL):
-        game_camera.position.z -= dt*camera_speed
+        player_position.y -= dt*camera_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_D):
+        player_position.x += dt*camera_speed
 
+    if pr.is_key_down(pr.KeyboardKey.KEY_W):
+        player_position.z -= dt*camera_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_S):
+        player_position.z += dt*camera_speed
+    
+    target_position = pr.vector3_add(player_position, heading_to_add)
+    print(f"target heading is {target_position.x} {target_position.y} {target_position.z}")
+        
+    game_camera.position = player_position
+    game_camera.target = target_position
+    
+    return player_position, player_heading
 
+def make_default_position(x,y,z):
+    return pr.Vector3(x,y,z)
 
 
 def update_and_render(main_arena):
@@ -155,6 +190,8 @@ def update_and_render(main_arena):
     use_mouse_screen_navigation =  get_or_set(ui_button_states, "use_mouse_screen_navigation", True)
     camera_3d = get_or_invoke(main_arena, "camera_3d", make_default_camera)        
     player_camera = get_or_set(main_arena, "player_camera", {"camera_3d" : camera_3d})        
+    player_position = get_or_invoke_args(main_arena, "player_position", make_default_position, (0,0,0))        
+    player_heading = get_or_invoke_args(main_arena, "player_heading", make_default_position, (0,0,1))        
 
     screen_width = main_arena["screen_width"]
     screen_height = main_arena["screen_height"]    
@@ -162,7 +199,7 @@ def update_and_render(main_arena):
         
 
     #input handling
-    update_camera(player_camera, dt)
+    player_position , player_heading = update_camera(player_position, player_heading, player_camera, dt)
     
     
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
@@ -173,7 +210,7 @@ def update_and_render(main_arena):
 
     # rendering code
     # this seems to be about the shade of the sky
-    color_to_draw = pr.Color(20, 120, 250, 255)    
+    color_to_draw = pr.Color(60, 160, 250, 255)    
     pr.begin_drawing()
     pr.clear_background(color_to_draw)    
     
@@ -184,12 +221,15 @@ def update_and_render(main_arena):
 
     pr.begin_mode_3d(camera_3d)
     pr.draw_plane(pr.Vector3(0,0,0), pr.Vector2(100,100), pr.BROWN)
+    pr.draw_cube(pr.Vector3(10,50,0), 100, 10, 10, pr.RED)
 
     pr.draw_triangle_3d(pr.Vector3(1,1,1), pr.Vector3(0,0,1), pr.Vector3(2,0,1), pr.GREEN)
     pr.end_mode_3d()
     pr.end_drawing()
 
     # update persistent variables here
+    main_arena["player_heading"] = player_heading
+    main_arena["player_position"] = player_position
     main_arena["time_elapsed"] = time_elapsed
     main_arena["camera_3d"] = camera_3d
     main_arena["ui_button_states"] = ui_button_states
