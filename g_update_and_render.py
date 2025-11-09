@@ -138,6 +138,9 @@ def update_camera(player_position, player_heading, camera, dt):
     camera_speed = 10
 
     # print(f"player heading: {player_heading.x},  {player_heading.y}")
+
+    # move to a forward and up system
+
     rotate_speed = 3    
 
     if pr.is_key_down(pr.KeyboardKey.KEY_UP):
@@ -150,9 +153,11 @@ def update_camera(player_position, player_heading, camera, dt):
     if pr.is_key_down(pr.KeyboardKey.KEY_RIGHT):
         player_heading.x += dt * rotate_speed
 
-    heading_xz = pr.Vector2(math.cos(player_heading.x), math.sin(player_heading.x))
+    spherical_cos = math.cos(player_heading.y)
+    heading_xyz = pr.Vector3(math.cos(player_heading.x)*spherical_cos, math.sin(player_heading.y),math.sin(player_heading.x)*spherical_cos)
+    heading_xyz = pr.vector3_normalize(heading_xyz)
+    heading_to_add = pr.Vector3(heading_xyz.x, heading_xyz.y, heading_xyz.z)
     
-    heading_to_add = pr.Vector3(heading_xz.x, 0, heading_xz.y)
     
     
     if pr.is_key_down(pr.KeyboardKey.KEY_SPACE):
@@ -165,9 +170,11 @@ def update_camera(player_position, player_heading, camera, dt):
         player_position.x += dt*camera_speed
 
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        player_position.z -= dt*camera_speed
+        player_position = pr.vector3_add(player_position, pr.vector3_scale(heading_to_add, dt*camera_speed)) # yeah nice
+        # player_position.z -= dt*camera_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        player_position.z += dt*camera_speed
+        player_position = pr.vector3_add(player_position, pr.vector3_scale(heading_to_add, -dt*camera_speed)) # yeah nice
+        #player_position.z += dt*camera_speed
     
     target_position = pr.vector3_add(player_position, heading_to_add)
     print(f"target heading is {target_position.x} {target_position.y} {target_position.z}")
@@ -217,6 +224,8 @@ def update_and_render(main_arena):
 
     if do_button(pr.Vector2(10, 10), name="reset cameras"):
         camera_3d = make_default_camera()   
+        player_heading = make_default_position(0,0,1)
+        player_position = make_default_position(0,0,0)
         player_camera["camera_3d"] = camera_3d
 
     pr.begin_mode_3d(camera_3d)
