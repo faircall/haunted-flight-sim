@@ -153,11 +153,22 @@ def update_camera(player_position, player_heading, camera, dt):
     if pr.is_key_down(pr.KeyboardKey.KEY_RIGHT):
         player_heading.x += dt * rotate_speed
 
-    slide_heading = pr.vector3_normalize(pr.Vector3(math.cos(player_heading.x + math.pi/2.0), 0, math.sin((player_heading.x + math.pi/2.0))))
+    
+
+    # slide_heading = pr.vector3_normalize(pr.Vector3(math.cos(player_heading.x + math.pi/2.0), 0, math.sin((player_heading.x + math.pi/2.0))))
 
     spherical_cos = math.cos(player_heading.y)
-    heading_xyz = pr.Vector3(math.cos(player_heading.x)*spherical_cos, math.sin(player_heading.y),math.sin(player_heading.x)*spherical_cos)
-    heading_xyz = pr.vector3_normalize(heading_xyz)    
+    forward = pr.Vector3(math.cos(player_heading.x)*spherical_cos, math.sin(player_heading.y),math.sin(player_heading.x)*spherical_cos)
+    forward = pr.vector3_normalize(forward)
+    old_up = game_camera.up
+    slide_heading = pr.vector3_cross_product(forward, old_up)
+    slide_heading = pr.vector3_normalize(slide_heading)
+    #new_up = pr.vector3_cross_product(forward, slide_heading)
+    new_up = pr.vector3_cross_product(slide_heading, forward)
+    new_up = pr.vector3_normalize(new_up)
+    game_camera.up = new_up
+
+    #heading_xyz = pr.vector3_normalize(heading_xyz)    
     
     
     
@@ -173,13 +184,13 @@ def update_camera(player_position, player_heading, camera, dt):
         #player_position.x += dt*camera_speed
 
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        player_position = pr.vector3_add(player_position, pr.vector3_scale(heading_xyz, dt*camera_speed)) # yeah nice
+        player_position = pr.vector3_add(player_position, pr.vector3_scale(forward, dt*camera_speed)) # yeah nice
         # player_position.z -= dt*camera_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        player_position = pr.vector3_add(player_position, pr.vector3_scale(heading_xyz, -dt*camera_speed)) # yeah nice
+        player_position = pr.vector3_add(player_position, pr.vector3_scale(forward, -dt*camera_speed)) # yeah nice
         #player_position.z += dt*camera_speed
     
-    target_position = pr.vector3_add(player_position, heading_xyz)
+    target_position = pr.vector3_add(player_position, forward)
     print(f"target heading is {target_position.x} {target_position.y} {target_position.z}")
         
     game_camera.position = player_position
