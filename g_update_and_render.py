@@ -143,22 +143,26 @@ def update_camera(player_position, player_heading, camera, dt):
 
     rotate_speed = 3    
 
+    yaw = 0.0
+    pitch = 0.0
+
     if pr.is_key_down(pr.KeyboardKey.KEY_UP):
-        player_heading.y += dt * rotate_speed
+        pitch = dt * rotate_speed        
     if pr.is_key_down(pr.KeyboardKey.KEY_DOWN):
-        player_heading.y -= dt * rotate_speed
-    
+        pitch = -dt * rotate_speed                    
     if pr.is_key_down(pr.KeyboardKey.KEY_LEFT):
-        player_heading.x -= dt * rotate_speed
+        yaw = dt * rotate_speed
+        # player_heading.x -= dt * rotate_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_RIGHT):
-        player_heading.x += dt * rotate_speed
+        yaw = -dt * rotate_speed
+        # player_heading.x += dt * rotate_speed
 
     
 
-    # slide_heading = pr.vector3_normalize(pr.Vector3(math.cos(player_heading.x + math.pi/2.0), 0, math.sin((player_heading.x + math.pi/2.0))))
+    
 
-    spherical_cos = math.cos(player_heading.y)
-    forward = pr.Vector3(math.cos(player_heading.x)*spherical_cos, math.sin(player_heading.y),math.sin(player_heading.x)*spherical_cos)
+    
+    forward = pr.vector3_subtract(game_camera.target, game_camera.position)
     forward = pr.vector3_normalize(forward)
     old_up = game_camera.up
     slide_heading = pr.vector3_cross_product(forward, old_up)
@@ -166,9 +170,19 @@ def update_camera(player_position, player_heading, camera, dt):
     #new_up = pr.vector3_cross_product(forward, slide_heading)
     new_up = pr.vector3_cross_product(slide_heading, forward)
     new_up = pr.vector3_normalize(new_up)
-    game_camera.up = new_up
+    
+    
 
-    #heading_xyz = pr.vector3_normalize(heading_xyz)    
+    if yaw != 0.0: #is that a necessary check?
+        world_up = pr.Vector3(0,1,0) #always world up, world basis
+        forward = pr.vector3_rotate_by_axis_angle(forward, world_up, yaw)
+        slide_heading = pr.vector3_rotate_by_axis_angle(slide_heading, world_up, yaw)
+        new_up = pr.vector3_rotate_by_axis_angle(new_up, world_up, yaw)
+
+    if pitch != 0.0:
+        forward = pr.vector3_rotate_by_axis_angle(forward, slide_heading, pitch)
+        new_up = pr.vector3_rotate_by_axis_angle(new_up, slide_heading, pitch)
+
     
     
     
@@ -176,11 +190,11 @@ def update_camera(player_position, player_heading, camera, dt):
         player_position.y += dt*camera_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_A):
         #player_position.x -= dt*camera_speed
-        player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, dt*camera_speed)) # yeah nice
+        player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, -dt*camera_speed)) # yeah nice
     if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL):
         player_position.y -= dt*camera_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, -dt*camera_speed)) # yeah niec
+        player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, dt*camera_speed)) # yeah niec
         #player_position.x += dt*camera_speed
 
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
@@ -195,6 +209,7 @@ def update_camera(player_position, player_heading, camera, dt):
         
     game_camera.position = player_position
     game_camera.target = target_position
+    game_camera.up = new_up
     
     return player_position, player_heading
 
