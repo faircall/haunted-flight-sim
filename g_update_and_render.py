@@ -1,6 +1,7 @@
 import math
 
 import pyray as pr
+from pyrsistent import m, pmap, v
 
 def draw_variable_state(name, state, posx, posy, size, color):
     on_off = "off"
@@ -133,8 +134,7 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
 
-def update_camera(player_position, player_heading, camera, dt):
-    game_camera = camera.get("camera_3d")    
+def update_camera(player_position, player_heading, game_camera, dt):    
     camera_speed = 10
 
     # print(f"player heading: {player_heading.x},  {player_heading.y}")
@@ -211,37 +211,49 @@ def update_camera(player_position, player_heading, camera, dt):
     game_camera.target = target_position
     game_camera.up = new_up
     
-    return player_position, player_heading
+    return player_position, player_heading, game_camera
 
 def make_default_position(x,y,z):
     return pr.Vector3(x,y,z)
 
 
-def update_and_render(main_arena):
+def update_and_render(main_arena, game_assets):
+    # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
     dt = pr.get_frame_time()
     mouse_pos = pr.get_mouse_position()
-    time_elapsed = get_or_set(main_arena, "time_elapsed", 0.0)
-    ui_button_states = get_or_set(main_arena, "ui_button_states", {})
-    use_mouse_screen_navigation =  get_or_set(ui_button_states, "use_mouse_screen_navigation", True)
-    camera_3d = get_or_invoke(main_arena, "camera_3d", make_default_camera)        
-    player_camera = get_or_set(main_arena, "player_camera", {"camera_3d" : camera_3d})        
-    player_position = get_or_invoke_args(main_arena, "player_position", make_default_position, (0,0,0))        
-    player_heading = get_or_invoke_args(main_arena, "player_heading", make_default_position, (0,0,1))        
+    time_elapsed = main_arena.get("time_elapsed", 0.0) 
+    ui_button_states = main_arena.get("ui_button_states")
+    if not ui_button_states:
+        ui_button_states = pmap()
 
-    screen_width = main_arena["screen_width"]
-    screen_height = main_arena["screen_height"]    
+    use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
+
+    # this is 'mutable' or at least expensive since it's a raylib/opengl call I think, don't want to spam it
+    camera_3d = get_or_invoke(game_assets, "camera_3d", make_default_camera)        
+    
+    player_position = main_arena.get("player_position")
+    if not player_position:
+        player_position = make_default_position(0,0,0)
+
+    player_heading = main_arena.get("player_heading") 
+    if not player_heading:
+        player_heading = make_default_position(0,0,1)
+    
+
+    screen_width = main_arena.get("screen_width")
+    screen_height = main_arena.get("screen_height")
     tile_size = 32
         
 
     #input handling
-    player_position , player_heading = update_camera(player_position, player_heading, player_camera, dt)
+    player_position , player_heading, camera_3d = update_camera(player_position, player_heading, camera_3d, dt)
     
-    
+    auto_reload = main_arena.get("auto_reload", True)
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F1):
-        main_arena["auto_reload"] = not main_arena["auto_reload"]
-        draw_variable_state("auto reload", main_arena["auto_reload"], 10, 10, 20, pr.WHITE)            
+        auto_reload = not auto_reload    
+        draw_variable_state("auto reload", auto_reload, 10, 10, 20, pr.WHITE)            
                 
 
     # rendering code
@@ -254,8 +266,8 @@ def update_and_render(main_arena):
     if do_button(pr.Vector2(10, 10), name="reset cameras"):
         camera_3d = make_default_camera()   
         player_heading = make_default_position(0,0,1)
-        player_position = make_default_position(0,0,0)
-        player_camera["camera_3d"] = camera_3d
+        player_position = make_default_position(0,0,0)        
+        
 
     pr.begin_mode_3d(camera_3d)
     pr.draw_plane(pr.Vector3(0,0,0), pr.Vector2(100,100), pr.BROWN)
@@ -266,8 +278,16 @@ def update_and_render(main_arena):
     pr.end_drawing()
 
     # update persistent variables here
-    main_arena["player_heading"] = player_heading
-    main_arena["player_position"] = player_position
-    main_arena["time_elapsed"] = time_elapsed
-    main_arena["camera_3d"] = camera_3d
-    main_arena["ui_button_states"] = ui_button_states
+    changes = main_arena.evolver()
+
+    changes["time_elapsed"] = time_elapsed + dt
+    changes["auto_reload"] = auto_reload
+    changes["player_heading"] = player_heading
+    changes["player_position"] = player_position
+    changes["ui_button_states"] = ui_button_states
+
+    result = changes.persistent()    
+    game_assets["camera_3d"] = camera_3d
+
+    return result
+    

@@ -4,6 +4,7 @@ import sys
 import os
 import importlib
 import time
+from pyrsistent import m, pmap, v
 
 g_screen_width = 1280
 g_screen_height = 720
@@ -55,10 +56,10 @@ def g_main():
     pr.rl_disable_backface_culling()
     pr.set_target_fps(60)
 
-    main_arena = {}
-    main_arena["screen_width"] = g_screen_width
-    main_arena["screen_height"] = g_screen_height
+    game_assets = {}
 
+    main_arena = m(screen_width = g_screen_width, screen_height = g_screen_height)    
+    backup_arena = pmap()
     show_error_message = False
     skip_update = False
 
@@ -73,7 +74,7 @@ def g_main():
     update_error_message = ""
 
     auto_reload = True
-    main_arena["auto_reload"] = auto_reload
+    main_arena = main_arena.set("auto_reload", auto_reload)
 
     while not pr.window_should_close():                
         reload_timer += pr.get_frame_time()
@@ -88,9 +89,9 @@ def g_main():
             reload_timer = 0.0
             reload_modules_if_needed(module_write_times)
         if pr.is_key_released(pr.KeyboardKey.KEY_F5):                                    
-            main_arena = {}
-            main_arena["screen_width"] = g_screen_width
-            main_arena["screen_height"] = g_screen_height                        
+            main_arena = pmap()
+            main_arena = main_arena.set("screen_width", g_screen_width)
+            main_arena = main_arena.set("screen_height",  g_screen_height)                        
             # NOTE (Cooper) : I think we'd also want to do this, or at least there'd be times where you'd want to do both like this
             skip_update = False
             update_timer = 0.0
@@ -98,8 +99,9 @@ def g_main():
         
         if not skip_update:
             try:
-                update_and_render_module.update_and_render(main_arena)                        
-                auto_reload = main_arena["auto_reload"]
+                backup_arena = main_arena
+                main_arena = update_and_render_module.update_and_render(main_arena, game_assets)                        
+                auto_reload = main_arena.get("auto_reload", True)
             except Exception as e:
                 skip_update = True
                 error_type = type(e).__name__
@@ -113,6 +115,7 @@ def g_main():
                 if relevant_line is None:
                     relevant_line = tb_frames[0].lineno if tb_frames else "unknown"                
                 update_error_message = f"Issue with update and render: {error_type} at line {relevant_line}: {error_message}"                
+                main_arena = backup_arena
         else:
             update_timer += max(pr.get_frame_time(), 0.016)
             if update_timer >= update_refresh_interval:
