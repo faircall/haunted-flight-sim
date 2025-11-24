@@ -95,7 +95,7 @@ def draw_screen_boundary_rect(rect, off_color, on_color, button_states, button_i
     return mouse_collides
 
 
-def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world):
+def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection):
     # use logical 1920 x 1080 'screen'
     map_height = tile_map["map_height"]
     map_width = tile_map["map_width"]
@@ -121,10 +121,17 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world):
             tile_color = tile_to_draw["color"]
             if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                 is_highlight = True
-                if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
+                if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
                     tile_map["tiles"][y*map_width + x]["number"] = (tile_map["tiles"][y*map_width + x]["number"] + 1) % tile_map["tile_types_amount"]
                     tile_map["tiles"][y*map_width + x]["type"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][0]
                     tile_map["tiles"][y*map_width + x]["color"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][1]            
+
+                if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
+                    tile_map["tiles"][y*map_width + x]["number"] = current_tile_selection
+                    tile_map["tiles"][y*map_width + x]["type"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][0]
+                    tile_map["tiles"][y*map_width + x]["color"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][1]            
+
+
                 
 
             pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
@@ -184,6 +191,15 @@ def update_camera(player_position, player_heading, game_camera, dt):
 def make_default_position(x,y,z):
     return pr.Vector3(x,y,z)
 
+def update_tile_selection(current_tile_selection, tile_types_amount):
+    mouse_wheel =  pr.get_mouse_wheel_move()
+    if mouse_wheel < 0:
+        current_tile_selection = (current_tile_selection - 1) % tile_types_amount
+    elif mouse_wheel > 0:
+        current_tile_selection = (current_tile_selection + 1) % tile_types_amount
+    return current_tile_selection        
+    
+
 
 def update_and_render(main_arena, game_assets):
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
@@ -202,6 +218,11 @@ def update_and_render(main_arena, game_assets):
     
 
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
+    current_tile_selection = main_arena.get("current_tile_selection")
+
+
+    if not current_tile_selection:
+        current_tile_selection = 0
 
     # this is 'mutable' or at least expensive since it's a raylib/opengl call I think, don't want to spam it
     camera_3d = get_or_invoke(game_assets, "camera_3d", make_default_camera)        
@@ -239,12 +260,17 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position())
-    
-    if do_button(pr.Vector2(10, 10), name="reset all"):        
+    update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection)
+
+    if do_button(pr.Vector2(10, 10), name="reset all"):
         player_heading = make_default_position(0,0,1)
         player_position = make_default_position(0,0,0)        
         game_assets["tile_map"] = None
+
+    if do_button(pr.Vector2(10, 30), name=f"sel:{current_tile_selection}"):
+        current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
+
+    current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
 
     
 
@@ -255,6 +281,7 @@ def update_and_render(main_arena, game_assets):
     changes = main_arena.evolver()
 
     changes["time_elapsed"] = time_elapsed + dt
+    changes["current_tile_selection"] = current_tile_selection
     changes["auto_reload"] = auto_reload
     changes["player_heading"] = player_heading
     changes["player_position"] = player_position
