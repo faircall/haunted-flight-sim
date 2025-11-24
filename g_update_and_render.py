@@ -96,13 +96,26 @@ def draw_screen_boundary_rect(rect, off_color, on_color, button_states, button_i
 
 
 def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world):
+    # use logical 1920 x 1080 'screen'
     map_height = tile_map["map_height"]
     map_width = tile_map["map_width"]
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
-    mouse_tile_pos = pr.Vector2(int(mouse_pos_world.x/tile_width), int(mouse_pos_world.y/tile_height))
-    for y in range(map_height):
-        for x in range(map_width):
+
+    map_tiles_across = map_width / tile_width
+    map_tiles_down = map_height / tile_height
+
+    visible_tiles_across = int(1920 / tile_width)
+    visible_tiles_down = int(1080 / tile_width)
+
+    mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera.x)/tile_width), int((mouse_pos_world.y + game_camera.y)/tile_height))
+
+    top_left_pos = pr.Vector2(int(game_camera.x/tile_width), int(game_camera.y/tile_height))
+    # let's try be slightly quicker about this!
+    # we could think about where the camera *is*
+    # and just draw the ones around that..?    
+    for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down)):
+        for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across)):
             tile_to_draw = tile_map["tiles"][y*map_width + x]
             if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                 tile_color = pr.RED
@@ -116,7 +129,7 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world):
             pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
 
 def make_default_camera():
-    game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_PERSPECTIVE)    
+    game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_ORTHOGRAPHIC)    
     return game_camera
 
 def do_button(pos, width = 50, height = 20, name = "some buttons"):
@@ -134,82 +147,34 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
 
+
+
 def update_camera(player_position, player_heading, game_camera, dt):    
-    camera_speed = 10
-
-    # print(f"player heading: {player_heading.x},  {player_heading.y}")
-
-    # move to a forward and up system
-
-    rotate_speed = 3    
-
-    yaw = 0.0
-    pitch = 0.0
-
-    if pr.is_key_down(pr.KeyboardKey.KEY_UP):
-        pitch = dt * rotate_speed        
-    if pr.is_key_down(pr.KeyboardKey.KEY_DOWN):
-        pitch = -dt * rotate_speed                    
-    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT):
-        yaw = dt * rotate_speed
-        # player_heading.x -= dt * rotate_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_RIGHT):
-        yaw = -dt * rotate_speed
-        # player_heading.x += dt * rotate_speed
-
-    
-
-    
-
-    
-    forward = pr.vector3_subtract(game_camera.target, game_camera.position)
-    forward = pr.vector3_normalize(forward)
-    old_up = game_camera.up
-    slide_heading = pr.vector3_cross_product(forward, old_up)
-    slide_heading = pr.vector3_normalize(slide_heading)
-    #new_up = pr.vector3_cross_product(forward, slide_heading)
-    new_up = pr.vector3_cross_product(slide_heading, forward)
-    new_up = pr.vector3_normalize(new_up)
-    
-    
-
-    if yaw != 0.0: #is that a necessary check?
-        world_up = pr.Vector3(0,1,0) #always world up, world basis
-        forward = pr.vector3_rotate_by_axis_angle(forward, world_up, yaw)
-        slide_heading = pr.vector3_rotate_by_axis_angle(slide_heading, world_up, yaw)
-        new_up = pr.vector3_rotate_by_axis_angle(new_up, world_up, yaw)
-
-    if pitch != 0.0:
-        forward = pr.vector3_rotate_by_axis_angle(forward, slide_heading, pitch)
-        new_up = pr.vector3_rotate_by_axis_angle(new_up, slide_heading, pitch)
-
-    
-    
-    
-    if pr.is_key_down(pr.KeyboardKey.KEY_SPACE):
-        player_position.y += dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        #player_position.x -= dt*camera_speed
-        player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, -dt*camera_speed)) # yeah nice
-    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL):
-        player_position.y -= dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, dt*camera_speed)) # yeah niec
-        #player_position.x += dt*camera_speed
-
-    if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        player_position = pr.vector3_add(player_position, pr.vector3_scale(forward, dt*camera_speed)) # yeah nice
-        # player_position.z -= dt*camera_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        player_position = pr.vector3_add(player_position, pr.vector3_scale(forward, -dt*camera_speed)) # yeah nice
-        #player_position.z += dt*camera_speed
-    
-    target_position = pr.vector3_add(player_position, forward)
-    print(f"target heading is {target_position.x} {target_position.y} {target_position.z}")
+    camera_speed = 500
+    up = 0
+    across = 0
         
-    game_camera.position = player_position
-    game_camera.target = target_position
-    game_camera.up = new_up
+    # if pr.is_key_down(pr.KeyboardKey.KEY_SPACE):
+    #     player_position.y += dt*camera_speed
+    # if pr.is_key_down(pr.KeyboardKey.KEY_A):
+    #     #player_position.x -= dt*camera_speed
+    #     player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, -dt*camera_speed)) # yeah nice
+    # if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL):
+    #     player_position.y -= dt*camera_speed
+    camera_direction = pr.Vector3(0.0, 0.0, 0.0)
+    if pr.is_key_down(pr.KeyboardKey.KEY_A):
+        camera_direction.x = -1         
+    if pr.is_key_down(pr.KeyboardKey.KEY_D):
+        camera_direction.x = 1                
+    if pr.is_key_down(pr.KeyboardKey.KEY_W):
+        camera_direction.y = -1                        
+    if pr.is_key_down(pr.KeyboardKey.KEY_S):
+        camera_direction.y = 1                        
+    
+    
+        
+    game_camera.position = pr.vector3_add(game_camera.position, pr.vector3_scale(camera_direction, camera_speed * dt))
+    
     
     return player_position, player_heading, game_camera
 
@@ -226,6 +191,12 @@ def update_and_render(main_arena, game_assets):
     ui_button_states = main_arena.get("ui_button_states")
     if not ui_button_states:
         ui_button_states = pmap()
+
+    tile_map = game_assets.get("tile_map")
+    if not tile_map:
+        tile_map = make_tile_map(1000, 1000, 32, 32)
+        game_assets["tile_map"] = tile_map
+    
 
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
 
@@ -263,18 +234,16 @@ def update_and_render(main_arena, game_assets):
     pr.clear_background(color_to_draw)    
     
 
-    if do_button(pr.Vector2(10, 10), name="reset cameras"):
-        camera_3d = make_default_camera()   
+    if do_button(pr.Vector2(10, 10), name="reset all"):        
         player_heading = make_default_position(0,0,1)
         player_position = make_default_position(0,0,0)        
-        
+        game_assets["tile_map"] = None
 
-    pr.begin_mode_3d(camera_3d)
-    pr.draw_plane(pr.Vector3(0,0,0), pr.Vector2(100,100), pr.BROWN)
-    pr.draw_cube(pr.Vector3(10,50,0), 100, 10, 10, pr.RED)
+    update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position())
 
-    pr.draw_triangle_3d(pr.Vector3(1,1,1), pr.Vector3(0,0,1), pr.Vector3(2,0,1), pr.GREEN)
-    pr.end_mode_3d()
+    
+
+    
     pr.end_drawing()
 
     # update persistent variables here
