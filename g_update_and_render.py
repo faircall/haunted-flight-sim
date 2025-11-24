@@ -42,7 +42,7 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["map_height"] = height
     result["tile_width"] = tile_width
     result["tile_height"] = tile_height    
-    result["tile_types"] = [("blank_tile", pr.RED), ("carpet",pr.BLUE), ("bed", pr.GREEN), ("wall", pr.PURPLE)]
+    result["tile_types"] = [("blank_tile", pr.RED), ("carpet",pr.BLUE), ("bed", pr.GREEN), ("wall", pr.PURPLE), ("wood", pr.BROWN)]
     result["tile_types_amount"] = len(result["tile_types"])
     tiles = []
     for y in range(height):
@@ -117,16 +117,19 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world):
     for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down)):
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across)):
             tile_to_draw = tile_map["tiles"][y*map_width + x]
+            is_highlight = False
+            tile_color = tile_to_draw["color"]
             if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
-                tile_color = pr.RED
+                is_highlight = True
                 if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
                     tile_map["tiles"][y*map_width + x]["number"] = (tile_map["tiles"][y*map_width + x]["number"] + 1) % tile_map["tile_types_amount"]
                     tile_map["tiles"][y*map_width + x]["type"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][0]
-                    tile_map["tiles"][y*map_width + x]["color"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][1]
-            else:
-                tile_color = tile_to_draw["color"]
+                    tile_map["tiles"][y*map_width + x]["color"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][1]            
+                
 
             pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+            if is_highlight:
+                pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
 def make_default_camera():
     game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_ORTHOGRAPHIC)    
@@ -234,12 +237,14 @@ def update_and_render(main_arena, game_assets):
     pr.clear_background(color_to_draw)    
     
 
+    
+
+    update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position())
+    
     if do_button(pr.Vector2(10, 10), name="reset all"):        
         player_heading = make_default_position(0,0,1)
         player_position = make_default_position(0,0,0)        
         game_assets["tile_map"] = None
-
-    update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position())
 
     
 
