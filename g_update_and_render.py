@@ -1,7 +1,12 @@
 import math
+import pickle
+import os
+import time
 
 import pyray as pr
 from pyrsistent import m, pmap, v
+
+
 
 def draw_variable_state(name, state, posx, posy, size, color):
     on_off = "off"
@@ -164,7 +169,7 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
 
 
 
-def update_camera(player_position, player_heading, game_camera, dt):    
+def update_camera(game_camera, dt):    
     camera_speed = 500
     up = 0
     across = 0
@@ -192,7 +197,7 @@ def update_camera(player_position, player_heading, game_camera, dt):
     game_camera.position.x = max(0, game_camera.position.x)
     game_camera.position.y = max(0, game_camera.position.y)
     
-    return player_position, player_heading, game_camera
+    return game_camera
 
 def make_default_position(x,y,z):
     return pr.Vector3(x,y,z)
@@ -206,6 +211,29 @@ def update_tile_selection(current_tile_selection, tile_types_amount):
     return current_tile_selection        
     
 
+g_save_directory = "saved_editor_states"
+def save_state(arena):
+    directory = g_save_directory   
+    os.makedirs(directory, exist_ok=True)
+    file_name = f"editor_state_{int(time.time())}.pkl"
+    file_path = os.path.join(directory, file_name)        
+    try:
+        with open(file_path, "wb") as f:
+            pickle.dump(arena, f)
+        pr.draw_text(f"saved editor state {file_path}", 400, 40, 30, pr.WHITE)        
+        print(f"saved editor state")
+    except Exception as e:
+        print(f"issue saving state {e}")        
+
+def get_saved_files():    
+    directory = g_save_directory   
+    saved_files = []
+    all_files = os.listdir(directory)
+    saved_files = [f for f in all_files if f.endswith(".pkl")]
+    saved_files.sort(reverse=True)
+    return saved_files
+    
+    
 
 def update_and_render(main_arena, game_assets):
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
@@ -213,6 +241,18 @@ def update_and_render(main_arena, game_assets):
     dt = pr.get_frame_time()
     mouse_pos = pr.get_mouse_position()
     time_elapsed = main_arena.get("time_elapsed", 0.0) 
+    save_interval = 200
+    save_elapsed = main_arena.get("save_elapsed", 0.0) 
+    save_elapsed += dt
+    saved_files = main_arena.get("saved_files") 
+    if not saved_files:
+        saved_files = get_saved_files()
+
+    if save_elapsed >= save_interval or pr.is_key_pressed(pr.KeyboardKey.KEY_F5):
+        save_state(main_arena)
+        save_elapsed = 0.0
+        saved_files = get_saved_files()
+
     ui_button_states = main_arena.get("ui_button_states")
     if not ui_button_states:
         ui_button_states = pmap()
@@ -233,13 +273,7 @@ def update_and_render(main_arena, game_assets):
     # this is 'mutable' or at least expensive since it's a raylib/opengl call I think, don't want to spam it
     camera_3d = get_or_invoke(game_assets, "camera_3d", make_default_camera)        
     
-    player_position = main_arena.get("player_position")
-    if not player_position:
-        player_position = make_default_position(0,0,0)
-
-    player_heading = main_arena.get("player_heading") 
-    if not player_heading:
-        player_heading = make_default_position(0,0,1)
+    
     
 
     screen_width = main_arena.get("screen_width")
@@ -248,7 +282,7 @@ def update_and_render(main_arena, game_assets):
         
 
     #input handling
-    player_position , player_heading, camera_3d = update_camera(player_position, player_heading, camera_3d, dt)
+    camera_3d = update_camera(camera_3d, dt)
     
     auto_reload = main_arena.get("auto_reload", True)
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
@@ -268,9 +302,7 @@ def update_and_render(main_arena, game_assets):
 
     update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection)
 
-    if do_button(pr.Vector2(10, 10), name="reset all"):
-        player_heading = make_default_position(0,0,1)
-        player_position = make_default_position(0,0,0)        
+    if do_button(pr.Vector2(10, 10), name="reset all"):        
         game_assets["tile_map"] = None
 
     if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
@@ -288,10 +320,10 @@ def update_and_render(main_arena, game_assets):
 
     changes["time_elapsed"] = time_elapsed + dt
     changes["current_tile_selection"] = current_tile_selection
-    changes["auto_reload"] = auto_reload
-    changes["player_heading"] = player_heading
-    changes["player_position"] = player_position
+    changes["auto_reload"] = auto_reload    
     changes["ui_button_states"] = ui_button_states
+    changes["save_elapsed"] = save_elapsed
+    changes["saved_files"] = saved_files
 
     result = changes.persistent()    
     game_assets["camera_3d"] = camera_3d
