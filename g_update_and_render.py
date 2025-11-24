@@ -43,6 +43,10 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["tile_width"] = tile_width
     result["tile_height"] = tile_height    
     result["tile_types"] = [("blank_tile", pr.RED), ("carpet",pr.BLUE), ("bed", pr.GREEN), ("wall", pr.PURPLE), ("wood", pr.BROWN)]
+    result["tile_names"] = {}
+    for i, tup in enumerate(result["tile_types"]):
+        result["tile_names"][i] = tup[0]
+
     result["tile_types_amount"] = len(result["tile_types"])
     tiles = []
     for y in range(height):
@@ -110,7 +114,8 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_t
 
     mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera.x)/tile_width), int((mouse_pos_world.y + game_camera.y)/tile_height))
 
-    top_left_pos = pr.Vector2(int(game_camera.x/tile_width), int(game_camera.y/tile_height))
+    top_left_pos = pr.Vector2(int(game_camera.x/tile_width), int(game_camera.y/tile_height))    
+    
     # let's try be slightly quicker about this!
     # we could think about where the camera *is*
     # and just draw the ones around that..?    
@@ -164,8 +169,8 @@ def update_camera(player_position, player_heading, game_camera, dt):
     up = 0
     across = 0
         
-    # if pr.is_key_down(pr.KeyboardKey.KEY_SPACE):
-    #     player_position.y += dt*camera_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+        camera_speed *= 3
     # if pr.is_key_down(pr.KeyboardKey.KEY_A):
     #     #player_position.x -= dt*camera_speed
     #     player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, -dt*camera_speed)) # yeah nice
@@ -183,8 +188,9 @@ def update_camera(player_position, player_heading, game_camera, dt):
     
     
         
-    game_camera.position = pr.vector3_add(game_camera.position, pr.vector3_scale(camera_direction, camera_speed * dt))
-    
+    game_camera.position = pr.vector3_add(game_camera.position, pr.vector3_scale(camera_direction, camera_speed * dt))    
+    game_camera.position.x = max(0, game_camera.position.x)
+    game_camera.position.y = max(0, game_camera.position.y)
     
     return player_position, player_heading, game_camera
 
@@ -267,7 +273,7 @@ def update_and_render(main_arena, game_assets):
         player_position = make_default_position(0,0,0)        
         game_assets["tile_map"] = None
 
-    if do_button(pr.Vector2(10, 30), name=f"sel:{current_tile_selection}"):
+    if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
         current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
 
     current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
