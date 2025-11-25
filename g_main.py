@@ -6,8 +6,8 @@ import importlib
 import time
 from pyrsistent import m, pmap, v
 
-g_screen_width = 1280
-g_screen_height = 720
+g_screen_width = 1920
+g_screen_height = 1080 
 
 
 update_and_render_file = "g_update_and_render"

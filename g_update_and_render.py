@@ -104,7 +104,7 @@ def draw_screen_boundary_rect(rect, off_color, on_color, button_states, button_i
     return mouse_collides
 
 
-def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection):
+def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets):
     # use logical 1920 x 1080 'screen'
     map_height = tile_map["map_height"]
     map_width = tile_map["map_width"]
@@ -145,6 +145,9 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_t
                 
 
             pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+            if tile_to_draw.get("type") == "wood":
+                #pr.draw_texture(game_assets.get("textures",{}).get("wood_texture"), int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), pr.WHITE)
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y)), 0.0, 2, pr.WHITE)
             if is_highlight:
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
@@ -233,7 +236,12 @@ def get_saved_files():
     saved_files.sort(reverse=True)
     return saved_files
     
-    
+def load_textures():
+    result = {}
+    wood_texture = pr.load_texture("art/WoodTest.png")
+    result["wood_texture"] = wood_texture
+
+    return result
 
 def update_and_render(main_arena, game_assets):
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
@@ -247,6 +255,11 @@ def update_and_render(main_arena, game_assets):
     saved_files = main_arena.get("saved_files") 
     if not saved_files:
         saved_files = get_saved_files()
+
+    textures = game_assets.get("textures")
+    if not textures:
+        textures = load_textures()
+        game_assets["textures"] = textures
 
     if save_elapsed >= save_interval or pr.is_key_pressed(pr.KeyboardKey.KEY_F5):
         save_state(main_arena)
@@ -300,7 +313,7 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection)
+    update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets)
 
     if do_button(pr.Vector2(10, 10), name="reset all"):        
         game_assets["tile_map"] = None
