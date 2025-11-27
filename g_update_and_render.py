@@ -165,6 +165,9 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_t
             if tile_to_draw.get("type") == "wood":
                 #pr.draw_texture(game_assets.get("textures",{}).get("wood_texture"), int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), pr.WHITE)
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y)), 0.0, 2, pr.WHITE)
+            elif tile_to_draw.get("type") == "wall":
+                #pr.draw_texture(game_assets.get("textures",{}).get("wood_texture"), int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), pr.WHITE)
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
             if is_highlight:
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
@@ -254,10 +257,9 @@ def get_saved_files():
     return saved_files
     
 def load_textures():
-    result = {}
-    wood_texture = pr.load_texture("art/WoodTest.png")
-    result["wood_texture"] = wood_texture
-
+    result = {}    
+    result["wood_texture"] = pr.load_texture("art/WoodTest.png")
+    result["wall_texture"] = pr.load_texture("art/Wall.png")
     return result
 
 def update_and_render(main_arena, game_assets):
@@ -334,6 +336,7 @@ def update_and_render(main_arena, game_assets):
 
     if do_button(pr.Vector2(10, 10), name="reset all"):        
         game_assets["tile_map"] = None
+        game_assets["textures"] = None
 
     if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
         current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
