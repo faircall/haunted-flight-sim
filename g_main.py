@@ -88,14 +88,14 @@ def g_main():
             update_timer = 0.0
             reload_timer = 0.0
             reload_modules_if_needed(module_write_times)
-        if pr.is_key_released(pr.KeyboardKey.KEY_F5):                                    
-            main_arena = pmap()
-            main_arena = main_arena.set("screen_width", g_screen_width)
-            main_arena = main_arena.set("screen_height",  g_screen_height)                        
-            # NOTE (Cooper) : I think we'd also want to do this, or at least there'd be times where you'd want to do both like this
-            skip_update = False
-            update_timer = 0.0
-            reload_modules_if_needed(module_write_times)
+        # if pr.is_key_released(pr.KeyboardKey.KEY_F5):                                    
+        #     main_arena = pmap()
+        #     main_arena = main_arena.set("screen_width", g_screen_width)
+        #     main_arena = main_arena.set("screen_height",  g_screen_height)                        
+        #     # NOTE (Cooper) : I think we'd also want to do this, or at least there'd be times where you'd want to do both like this
+        #     skip_update = False
+        #     update_timer = 0.0
+        #     reload_modules_if_needed(module_write_times)
         
         if not skip_update:
             try:

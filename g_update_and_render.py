@@ -6,6 +6,12 @@ import time
 import pyray as pr
 from pyrsistent import m, pmap, v
 
+from enum import Enum
+
+MyColor = Enum('MyColor', ['RED','GREEN','BLUE','PURPLE','BROWN'])
+
+
+
 
 
 def draw_variable_state(name, state, posx, posy, size, color):
@@ -42,12 +48,13 @@ def normalized_sin(t):
     return 0.5 *math.sin(t) + 0.5
 
 def make_tile_map(width, height, tile_width, tile_height):
+    # to be able to serialize this we should change the types here
     result = {}
     result["map_width"] = width
     result["map_height"] = height
     result["tile_width"] = tile_width
     result["tile_height"] = tile_height    
-    result["tile_types"] = [("blank_tile", pr.RED), ("carpet",pr.BLUE), ("bed", pr.GREEN), ("wall", pr.PURPLE), ("wood", pr.BROWN)]
+    result["tile_types"] = [("blank_tile", MyColor.RED), ("carpet",MyColor.BLUE), ("bed", MyColor.GREEN), ("wall", MyColor.PURPLE), ("wood", MyColor.BROWN)]
     result["tile_names"] = {}
     for i, tup in enumerate(result["tile_types"]):
         result["tile_names"][i] = tup[0]
@@ -59,11 +66,11 @@ def make_tile_map(width, height, tile_width, tile_height):
             blank_tile = {}
             blank_tile["number"] = 0
             blank_tile["type"] = "blank_tile"
-            blank_tile["color"] = pr.BLUE
+            blank_tile["color"] = MyColor.RED
             if x % 2 == 0 and y % 2 == 0:
-                blank_tile["color"] = pr.GREEN
+                blank_tile["color"] = MyColor.GREEN
             if x % 2 == 0 and y % 2 != 0:
-                blank_tile["color"] = pr.PURPLE
+                blank_tile["color"] = MyColor.PURPLE
             tiles.append(blank_tile)
     result["tiles"] = tiles
     return result
@@ -104,6 +111,16 @@ def draw_screen_boundary_rect(rect, off_color, on_color, button_states, button_i
     return mouse_collides
 
 
+def color_map(color_enum):
+    lookup = {
+        MyColor.BROWN : pr.BROWN,
+        MyColor.BLUE : pr.BLUE,
+        MyColor.RED : pr.RED,
+        MyColor.GREEN : pr.GREEN,
+        MyColor.PURPLE : pr.PURPLE
+    }
+    return lookup.get(color_enum, pr.WHITE)
+
 def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets):
     # use logical 1920 x 1080 'screen'
     map_height = tile_map["map_height"]
@@ -128,7 +145,7 @@ def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_t
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across)):
             tile_to_draw = tile_map["tiles"][y*map_width + x]
             is_highlight = False
-            tile_color = tile_to_draw["color"]
+            tile_color = color_map(tile_to_draw["color"])
             if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                 is_highlight = True
                 if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
@@ -270,7 +287,7 @@ def update_and_render(main_arena, game_assets):
     if not ui_button_states:
         ui_button_states = pmap()
 
-    tile_map = game_assets.get("tile_map")
+        tile_map = game_assets.get("tile_map")
     if not tile_map:
         tile_map = make_tile_map(1000, 1000, 32, 32)
         game_assets["tile_map"] = tile_map
