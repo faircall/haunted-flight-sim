@@ -137,8 +137,8 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
     # let's try be slightly quicker about this!
     # we could think about where the camera *is*
     # and just draw the ones around that..?    
-    for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down)):
-        for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across)):
+    for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)):
+        for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
             tile_to_draw = tile_map["tiles"][y*map_width + x]
             is_highlight = False
             tile_color = color_map(tile_to_draw["color"])
@@ -228,9 +228,61 @@ def update_tile_selection(current_tile_selection, tile_types_amount):
     elif mouse_wheel > 0:
         current_tile_selection = (current_tile_selection + 1) % tile_types_amount
     return current_tile_selection        
+
+def draw_load_level(arena, assets):    
+    if not arena.get("do_load_level", False):
+        return -1
+        
+    saved_files = arena.get("saved_files")
+    if not saved_files:
+        return -1
+    
+    items_per_page = 20
+    start_index = arena.get("load_level_index_start", 0)
+    end_index = arena.get("load_level_end_start", 20)
+
+    selected_file = arena.get("selected_save_index", -1)
+
+    start_index = max(0, start_index)
+    end_index = min(len(saved_files), end_index)
+
+
+
+    dropdown_x = 100
+    dropdown_y = 40
+    height = 20
+    drawn = 0
+    width = 120
+    for i in range(start_index, end_index):
+        saved_file = saved_files[i]
+        if do_button(pr.Vector2(dropdown_x, dropdown_y + drawn*height), width, height, f"{saved_file}"):
+            selected_file = i
+        drawn += 1    
+
+    do_load = False
+    if do_button(pr.Vector2(dropdown_x + 200, dropdown_y), 100, 40, f"load {saved_files[selected_file]}"):
+        do_load = True
+    return selected_file, do_load
+
+
+    
+
     
 
 g_save_directory = "saved_editor_states"
+
+def load_state(file_name):
+    directory = g_save_directory           
+    file_path = os.path.join(directory, file_name)        
+    try:
+        with open(file_path, "rb") as f:
+            new_arena = pickle.load(f)
+        pr.draw_text(f"loaded editor state {file_path}", 400, 40, 30, pr.WHITE)        
+        return new_arena
+        print(f"saved editor state")
+    except Exception as e:
+        print(f"issue saving state {e}")        
+
 def save_state(arena):
     directory = g_save_directory   
     os.makedirs(directory, exist_ok=True)
@@ -268,6 +320,11 @@ def update_and_render(main_arena, game_assets):
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
     save_elapsed += dt
     saved_files = main_arena.get("saved_files") 
+    do_load_level = main_arena.get("do_load_level", False) 
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F6):
+        do_load_level = not do_load_level
+
     if not saved_files:
         saved_files = get_saved_files()
 
@@ -285,10 +342,9 @@ def update_and_render(main_arena, game_assets):
     if not ui_button_states:
         ui_button_states = pmap()
 
-        tile_map = game_assets.get("tile_map")
+    tile_map = main_arena.get("tile_map")
     if not tile_map:
-        tile_map = make_tile_map(1000, 1000, 32, 32)
-        game_assets["tile_map"] = tile_map
+        tile_map = make_tile_map(1000, 1000, 32, 32)        
     
 
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
@@ -331,28 +387,32 @@ def update_and_render(main_arena, game_assets):
     do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets)
 
     if do_button(pr.Vector2(10, 10), name="reset all"):        
-        game_assets["tile_map"] = None
+        tile_map = None
         game_assets["textures"] = None
-
-    if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
-        current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
-
-    current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
+    if tile_map:
+        if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
+            current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
+        current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
 
     
+    selected_save_index, load_saved_data = draw_load_level(main_arena, game_assets)
+    if load_saved_data:
+        main_arena = load_state(saved_files[selected_save_index])
 
     
     pr.end_drawing()
 
     # update persistent variables here
     changes = main_arena.evolver()
-
+    changes["do_load_level"] = do_load_level
     changes["time_elapsed"] = time_elapsed + dt
     changes["current_tile_selection"] = current_tile_selection
     changes["auto_reload"] = auto_reload    
     changes["ui_button_states"] = ui_button_states
     changes["save_elapsed"] = save_elapsed
     changes["saved_files"] = saved_files
+    changes["tile_map"] = tile_map
+    changes["selected_save_index"] = selected_save_index
 
     result = changes.persistent()    
     game_assets["camera_3d"] = camera_3d
