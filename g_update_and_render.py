@@ -6,10 +6,6 @@ import time
 import pyray as pr
 from pyrsistent import m, pmap, v
 
-from enum import Enum
-
-MyColor = Enum('MyColor', ['RED','GREEN','BLUE','PURPLE','BROWN'])
-
 
 
 
@@ -54,7 +50,7 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["map_height"] = height
     result["tile_width"] = tile_width
     result["tile_height"] = tile_height    
-    result["tile_types"] = [("blank_tile", MyColor.RED), ("carpet",MyColor.BLUE), ("bed", MyColor.GREEN), ("wall", MyColor.PURPLE), ("wood", MyColor.BROWN)]
+    result["tile_types"] = [("blank_tile", "RED"), ("carpet","BLUE"), ("bed", "GREEN"), ("wall", "PURL"), ("wood", "BROWN")]
     result["tile_names"] = {}
     for i, tup in enumerate(result["tile_types"]):
         result["tile_names"][i] = tup[0]
@@ -66,11 +62,11 @@ def make_tile_map(width, height, tile_width, tile_height):
             blank_tile = {}
             blank_tile["number"] = 0
             blank_tile["type"] = "blank_tile"
-            blank_tile["color"] = MyColor.RED
+            blank_tile["color"] = "RED"
             if x % 2 == 0 and y % 2 == 0:
-                blank_tile["color"] = MyColor.GREEN
+                blank_tile["color"] = "GREEN"
             if x % 2 == 0 and y % 2 != 0:
-                blank_tile["color"] = MyColor.PURPLE
+                blank_tile["color"] = "PURPLE"
             tiles.append(blank_tile)
     result["tiles"] = tiles
     return result
@@ -113,15 +109,15 @@ def draw_screen_boundary_rect(rect, off_color, on_color, button_states, button_i
 
 def color_map(color_enum):
     lookup = {
-        MyColor.BROWN : pr.BROWN,
-        MyColor.BLUE : pr.BLUE,
-        MyColor.RED : pr.RED,
-        MyColor.GREEN : pr.GREEN,
-        MyColor.PURPLE : pr.PURPLE
+        "BROWN" : pr.BROWN,
+        "BLUE" : pr.BLUE,
+        "RED" : pr.RED,
+        "GREEN" : pr.GREEN,
+        "PURPLE" : pr.PURPLE
     }
     return lookup.get(color_enum, pr.WHITE)
 
-def update_and_render_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets):
+def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets):
     # use logical 1920 x 1080 'screen'
     map_height = tile_map["map_height"]
     map_width = tile_map["map_width"]
@@ -332,7 +328,7 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    update_and_render_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets)
+    do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets)
 
     if do_button(pr.Vector2(10, 10), name="reset all"):        
         game_assets["tile_map"] = None
