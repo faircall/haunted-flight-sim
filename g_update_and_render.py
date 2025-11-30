@@ -117,7 +117,10 @@ def color_map(color_enum):
     }
     return lookup.get(color_enum, pr.WHITE)
 
-def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets):
+def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets, ignore):
+    if ignore:
+        return
+
     # use logical 1920 x 1080 'screen'
     map_height = tile_map["map_height"]
     map_width = tile_map["map_width"]
@@ -231,11 +234,11 @@ def update_tile_selection(current_tile_selection, tile_types_amount):
 
 def draw_load_level(arena, assets):    
     if not arena.get("do_load_level", False):
-        return -1
+        return -1, arena.get("do_load_level", False)
         
     saved_files = arena.get("saved_files")
     if not saved_files:
-        return -1
+        return -1, arena.get("do_load_level", False)
     
     items_per_page = 20
     start_index = arena.get("load_level_index_start", 0)
@@ -384,7 +387,10 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets)
+    do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level)
+
+    if do_button(pr.Vector2(10, 100), name="reload assets"):        
+        game_assets["textures"] = None
 
     if do_button(pr.Vector2(10, 10), name="reset all"):        
         tile_map = None
@@ -398,6 +404,7 @@ def update_and_render(main_arena, game_assets):
     selected_save_index, load_saved_data = draw_load_level(main_arena, game_assets)
     if load_saved_data:
         main_arena = load_state(saved_files[selected_save_index])
+        tile_map = main_arena.get("tile_map")
 
     
     pr.end_drawing()
