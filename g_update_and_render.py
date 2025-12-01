@@ -50,23 +50,22 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["map_height"] = height
     result["tile_width"] = tile_width
     result["tile_height"] = tile_height    
-    result["tile_types"] = [("blank_tile", "RED"), ("carpet","BLUE"), ("bed", "GREEN"), ("wall", "PURL"), ("wood", "BROWN")]
-    result["tile_names"] = {}
-    for i, tup in enumerate(result["tile_types"]):
-        result["tile_names"][i] = tup[0]
-
+    result["tile_types"] = [{"type" : "blank_tile", "color" : "BLACK"}, 
+                            {"type" : "carpet", "color" : "BLUE"}, 
+                            {"type" : "door", "color" : "RED"}, 
+                            {"type" : "wall", "color" : "PURPLE"}, 
+                            {"type" : "wood", "color" : "BROWN"}, 
+                            {"type" : "grass", "color" : "GREEN"}, 
+                            {"type" : "stone", "color" : "GREY"}]
+    result["tile_names"] = {}    
     result["tile_types_amount"] = len(result["tile_types"])
     tiles = []
     for y in range(height):
         for x in range(width):
             blank_tile = {}
-            blank_tile["number"] = 0
-            blank_tile["type"] = "blank_tile"
-            blank_tile["color"] = "RED"
-            if x % 2 == 0 and y % 2 == 0:
-                blank_tile["color"] = "GREEN"
-            if x % 2 == 0 and y % 2 != 0:
-                blank_tile["color"] = "PURPLE"
+            blank_tile["index"] = 0
+            # blank_tile["type"] = "blank_tile"
+            # blank_tile["color"] = "BLACK"            
             tiles.append(blank_tile)
     result["tiles"] = tiles
     return result
@@ -113,11 +112,16 @@ def color_map(color_enum):
         "BLUE" : pr.BLUE,
         "RED" : pr.RED,
         "GREEN" : pr.GREEN,
-        "PURPLE" : pr.PURPLE
+        "PURPLE" : pr.PURPLE,
+        "GREY" : pr.GRAY,        
+        "BLACK" : pr.BLACK        
     }
     return lookup.get(color_enum, pr.WHITE)
 
 def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets, ignore):
+    # Todo:
+    # tiles are tiles,
+    # items are items, they can sit on top of tiles
     if ignore:
         return
 
@@ -144,27 +148,27 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
             tile_to_draw = tile_map["tiles"][y*map_width + x]
             is_highlight = False
-            tile_color = color_map(tile_to_draw["color"])
+            tile_index = tile_to_draw.get("index",0)
+            color_to_draw = tile_map["tile_types"][tile_index].get("color")
+            tile_color = color_map(color_to_draw)
+            
+            tile_type = tile_map["tile_types"][tile_index]
             if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                 is_highlight = True
                 if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
-                    tile_map["tiles"][y*map_width + x]["number"] = (tile_map["tiles"][y*map_width + x]["number"] + 1) % tile_map["tile_types_amount"]
-                    tile_map["tiles"][y*map_width + x]["type"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][0]
-                    tile_map["tiles"][y*map_width + x]["color"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][1]            
+                    tile_map["tiles"][y*map_width + x]["index"] = (tile_index + 1) % tile_map["tile_types_amount"]                    
 
                 if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
-                    tile_map["tiles"][y*map_width + x]["number"] = current_tile_selection
-                    tile_map["tiles"][y*map_width + x]["type"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][0]
-                    tile_map["tiles"][y*map_width + x]["color"] = tile_map["tile_types"][tile_map["tiles"][y*map_width + x]["number"]][1]            
+                    tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
 
 
                 
-
+            
             pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
-            if tile_to_draw.get("type") == "wood":
+            if tile_type.get("type") == "wood":
                 #pr.draw_texture(game_assets.get("textures",{}).get("wood_texture"), int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), pr.WHITE)
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y)), 0.0, 2, pr.WHITE)
-            elif tile_to_draw.get("type") == "wall":
+            elif tile_type.get("type") == "wall":
                 #pr.draw_texture(game_assets.get("textures",{}).get("wood_texture"), int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), pr.WHITE)
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
             if is_highlight:
