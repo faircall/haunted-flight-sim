@@ -177,10 +177,9 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
     # draw the player also
-    player_cam_offset_x = max((game_camera.x - pr.get_screen_width()/2), 0)
-    player_cam_offset_y = max((game_camera.x - pr.get_screen_height()/2), 0)
-    pr.draw_circle(int(player_pos["x"] - player_cam_offset_x), int(player_pos["y"] - player_cam_offset_y), 20, pr.RED)
-    pr.draw_circle(int(player_pos["x"] - player_cam_offset_x), int(player_pos["y"] - player_cam_offset_y), 10, pr.WHITE)
+    
+    pr.draw_circle(int(player_pos["x"] - game_camera.x), int(player_pos["y"] - game_camera.y), 20, pr.RED)
+    pr.draw_circle(int(player_pos["x"] - game_camera.x), int(player_pos["y"] - game_camera.y), 10, pr.WHITE)
 
 def transition_editor_state(current):
     state_transitions = {
@@ -239,8 +238,11 @@ def update_camera(game_camera, mode, player_pos, dt):
         game_camera.position.x = max(0, game_camera.position.x)
         game_camera.position.y = max(0, game_camera.position.y)
     else:
-        game_camera.position.x = player_pos["x"]
-        game_camera.position.y = player_pos["y"]
+        game_camera.position.x = player_pos["x"] - pr.get_screen_width()/2
+        game_camera.position.x = max(0, game_camera.position.x)
+        game_camera.position.y = player_pos["y"] - pr.get_screen_height()/2
+        game_camera.position.y = max(0, game_camera.position.y)
+        
     
     return game_camera
 
