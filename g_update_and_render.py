@@ -118,7 +118,7 @@ def color_map(color_enum):
     }
     return lookup.get(color_enum, pr.WHITE)
 
-def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets, ignore):
+def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets, ignore, player_pos, mode):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
@@ -153,13 +153,15 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
             tile_color = color_map(color_to_draw)
             
             tile_type = tile_map["tile_types"][tile_index]
-            if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
-                is_highlight = True
-                if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
-                    tile_map["tiles"][y*map_width + x]["index"] = (tile_index + 1) % tile_map["tile_types_amount"]                    
 
-                if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
-                    tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
+            if mode == "editing":
+                if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
+                    is_highlight = True
+                    if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                        tile_map["tiles"][y*map_width + x]["index"] = (tile_index + 1) % tile_map["tile_types_amount"]                    
+
+                    if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
+                        tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
 
 
                 
@@ -173,6 +175,19 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
             if is_highlight:
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
+
+    # draw the player also
+    
+
+    pr.draw_circle(int(player_pos["x"] - game_camera.x), int(player_pos["y"] - game_camera.y), 20, pr.RED)
+    pr.draw_circle(int(player_pos["x"] - game_camera.x), int(player_pos["y"] - game_camera.y), 10, pr.WHITE)
+
+def transition_editor_state(current):
+    state_transitions = {
+        "play" : "editing",
+        "editing" : "play",
+    }
+    return state_transitions.get(current)
 
 def make_default_camera():
     game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_ORTHOGRAPHIC)    
@@ -195,38 +210,53 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
 
 
 
-def update_camera(game_camera, dt):    
+def update_camera(game_camera, mode, player_pos, dt):    
     camera_speed = 500
     up = 0
     across = 0
-        
-    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
-        camera_speed *= 3
-    # if pr.is_key_down(pr.KeyboardKey.KEY_A):
-    #     #player_position.x -= dt*camera_speed
-    #     player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, -dt*camera_speed)) # yeah nice
-    # if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL):
-    #     player_position.y -= dt*camera_speed
-    camera_direction = pr.Vector3(0.0, 0.0, 0.0)
-    if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        camera_direction.x = -1         
-    if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        camera_direction.x = 1                
-    if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        camera_direction.y = -1                        
-    if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        camera_direction.y = 1                        
+    
+    if mode == "editing":
+        if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+            camera_speed *= 3
+        # if pr.is_key_down(pr.KeyboardKey.KEY_A):
+        #     #player_position.x -= dt*camera_speed
+        #     player_position = pr.vector3_add(player_position, pr.vector3_scale(slide_heading, -dt*camera_speed)) # yeah nice
+        # if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL):
+        #     player_position.y -= dt*camera_speed
+        camera_direction = pr.Vector3(0.0, 0.0, 0.0)
+        if pr.is_key_down(pr.KeyboardKey.KEY_A):
+            camera_direction.x = -1         
+        if pr.is_key_down(pr.KeyboardKey.KEY_D):
+            camera_direction.x = 1                
+        if pr.is_key_down(pr.KeyboardKey.KEY_W):
+            camera_direction.y = -1                        
+        if pr.is_key_down(pr.KeyboardKey.KEY_S):
+            camera_direction.y = 1                        
     
     
         
-    game_camera.position = pr.vector3_add(game_camera.position, pr.vector3_scale(camera_direction, camera_speed * dt))    
-    game_camera.position.x = max(0, game_camera.position.x)
-    game_camera.position.y = max(0, game_camera.position.y)
+        game_camera.position = pr.vector3_add(game_camera.position, pr.vector3_scale(camera_direction, camera_speed * dt))    
+        game_camera.position.x = max(0, game_camera.position.x)
+        game_camera.position.y = max(0, game_camera.position.y)
+    else:
+        game_camera.position.x = player_pos["x"]
+        game_camera.position.y = player_pos["y"]
     
     return game_camera
 
 def make_default_position(x,y,z):
     return pr.Vector3(x,y,z)
+
+def make_default_player_position(x,y,z):
+    pos = {}
+    pos["x"] = x
+    pos["y"] = y
+    pos["z"] = z
+    # should do the offset thing too, just store tile coord and an offset
+    pos["tile_x"] = 0
+    pos["tile_y"] = 0
+
+    return pos
 
 def update_tile_selection(current_tile_selection, tile_types_amount):
     mouse_wheel =  pr.get_mouse_wheel_move()
@@ -317,6 +347,23 @@ def load_textures():
     result["wall_texture"] = pr.load_texture("art/Wall.png")
     return result
 
+def update_player_position(player_pos, mode, dt):
+    if mode == "editing":
+        return player_pos
+    player_speed = 200
+    if pr.is_key_down(pr.KeyboardKey.KEY_A):
+        player_pos["x"] -= dt*player_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_D):
+        player_pos["x"] += dt*player_speed
+
+    if pr.is_key_down(pr.KeyboardKey.KEY_W):
+        player_pos["y"] -= dt*player_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_S):
+        player_pos["y"] += dt*player_speed
+    
+
+    return player_pos
+
 def update_and_render(main_arena, game_assets):
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
@@ -325,12 +372,24 @@ def update_and_render(main_arena, game_assets):
     time_elapsed = main_arena.get("time_elapsed", 0.0) 
     save_interval = 200
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
+    player_position = main_arena.get("player_position") 
+
+    if not player_position:
+        player_position = make_default_player_position(0,0,0)
+                                     
+    frame_arena = {} # this will be useful, to have a mutable per frame arena
+
     save_elapsed += dt
     saved_files = main_arena.get("saved_files") 
+    
     do_load_level = main_arena.get("do_load_level", False) 
+    editor_mode = main_arena.get("editor_mode", "editing")
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F6):
         do_load_level = not do_load_level
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F8):
+        editor_mode = transition_editor_state(editor_mode)
 
     if not saved_files:
         saved_files = get_saved_files()
@@ -352,6 +411,8 @@ def update_and_render(main_arena, game_assets):
     tile_map = main_arena.get("tile_map")
     if not tile_map:
         tile_map = make_tile_map(1000, 1000, 32, 32)        
+
+    
     
 
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
@@ -371,9 +432,8 @@ def update_and_render(main_arena, game_assets):
     screen_height = main_arena.get("screen_height")
     tile_size = 32
         
-
     #input handling
-    camera_3d = update_camera(camera_3d, dt)
+    camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_position, dt=dt)
     
     auto_reload = main_arena.get("auto_reload", True)
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
@@ -391,7 +451,8 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level)
+    do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_position, editor_mode)
+    player_position = update_player_position(player_pos=player_position, mode=editor_mode, dt=dt)
 
     if do_button(pr.Vector2(10, 100), name="reload assets"):        
         game_assets["textures"] = None
@@ -415,6 +476,7 @@ def update_and_render(main_arena, game_assets):
 
     # update persistent variables here
     changes = main_arena.evolver()
+    changes["editor_mode"] = editor_mode
     changes["do_load_level"] = do_load_level
     changes["time_elapsed"] = time_elapsed + dt
     changes["current_tile_selection"] = current_tile_selection
@@ -423,6 +485,7 @@ def update_and_render(main_arena, game_assets):
     changes["save_elapsed"] = save_elapsed
     changes["saved_files"] = saved_files
     changes["tile_map"] = tile_map
+    changes["player_position"] = player_position
     changes["selected_save_index"] = selected_save_index
 
     result = changes.persistent()    
