@@ -162,24 +162,19 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
 
                     if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
                         tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
-
-
-                
-            
-            pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
-            if tile_type.get("type") == "wood":
-                #pr.draw_texture(game_assets.get("textures",{}).get("wood_texture"), int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), pr.WHITE)
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y)), 0.0, 2, pr.WHITE)
-            elif tile_type.get("type") == "wall":
-                #pr.draw_texture(game_assets.get("textures",{}).get("wood_texture"), int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), pr.WHITE)
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
+                            
+                pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+            if tile_type.get("type") == "wood":                
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 2, pr.WHITE)
+            elif tile_type.get("type") == "wall":                
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
             if is_highlight:
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
     # draw the player also
-    
-    pr.draw_circle(int(player_pos["x"] - game_camera.x), int(player_pos["y"] - game_camera.y), 20, pr.RED)
-    pr.draw_circle(int(player_pos["x"] - game_camera.x), int(player_pos["y"] - game_camera.y), 10, pr.WHITE)
+    pr.draw_texture_ex(game_assets.get("textures",{}).get("red_head_texture"), pr.Vector2((player_pos["x"] - game_camera.x), (player_pos["y"] - game_camera.y)), 0.0, 2, pr.WHITE)    
+
+
 
 def transition_editor_state(current):
     state_transitions = {
@@ -347,6 +342,7 @@ def load_textures():
     result = {}    
     result["wood_texture"] = pr.load_texture("art/WoodTest.png")
     result["wall_texture"] = pr.load_texture("art/Wall.png")
+    result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     return result
 
 def update_player_position(player_pos, mode, dt):
@@ -435,6 +431,7 @@ def update_and_render(main_arena, game_assets):
     tile_size = 32
         
     #input handling
+    player_position = update_player_position(player_pos=player_position, mode=editor_mode, dt=dt)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_position, dt=dt)
     
     auto_reload = main_arena.get("auto_reload", True)
@@ -454,7 +451,7 @@ def update_and_render(main_arena, game_assets):
     
 
     do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_position, editor_mode)
-    player_position = update_player_position(player_pos=player_position, mode=editor_mode, dt=dt)
+    
 
     if do_button(pr.Vector2(10, 100), name="reload assets"):        
         game_assets["textures"] = None
