@@ -202,12 +202,22 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
 
-
+def update_projectiles():
+    # this should be something like
+    # for each projectile
+    # test against the environment (easy, since it's a tilemap)
+    # test against the entities (couple hundred at most?)
+    # resolve collision to environment or entity
+    # or advance along the velocity line
+    # bullet drop is just a time limit, in a sense
+    pass
 
 def update_camera(game_camera, mode, player_pos, dt):    
     camera_speed = 500
     up = 0
     across = 0
+
+    # let's go for a bounded box camera
     
     if mode == "editing":
         if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
