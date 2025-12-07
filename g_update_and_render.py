@@ -183,6 +183,13 @@ def transition_editor_state(current):
     }
     return state_transitions.get(current)
 
+def transition_collision_state(current):
+    state_transitions = {
+        "normal" : "noclip",
+        "noclip" : "normal",
+    }
+    return state_transitions.get(current)
+
 def make_default_camera():
     game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_ORTHOGRAPHIC)    
     return game_camera
@@ -202,7 +209,7 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
 
-def update_projectiles():
+def update_projectiles(main_arena):
     # this should be something like
     # for each projectile
     # test against the environment (easy, since it's a tilemap)
@@ -210,7 +217,37 @@ def update_projectiles():
     # resolve collision to environment or entity
     # or advance along the velocity line
     # bullet drop is just a time limit, in a sense
+    # could also get bullets to collide with themselves?
+    # note that collisions need to be checked between frames,
+    # via raycasting/line intersection
+    # is a point on a line or not should just resolve to
+    # same direction vector with smaller magnitude?
+
+
+
+    # tile map collision
+    
+    # entity collision
+
+    # bullet-to-bullet collision
+
+    # then there is a question about which came first
+
+    # list of projectiles seems to make sense
+
+    projectile_list = []
+
+    for projectile in projectile_list:
+        velocity = projectile.get("velocity") # direction and speed
+        velocity = projectile.get("velocity")
+
     pass
+
+def spawn_projectile(main_arena, origin, bullet_speed):
+    projectile_list = []
+
+
+
 
 def update_camera(game_camera, mode, player_pos, dt):    
     camera_speed = 500
@@ -355,22 +392,60 @@ def load_textures():
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     return result
 
-def update_player_position(player_pos, mode, dt):
-    if mode == "editing":
+def new_pos_from_old(old):
+    new_pos = {
+        "x" : old.get("x",0),
+        "y" : old.get("y",0),
+    }
+    return new_pos
+
+def get_tile_type_from_pos(pos, tile_map):    
+    map_width = tile_map["map_width"]
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]
+
+    tile_x = int(pos.get("x",0) / tile_width)
+    tile_y = int(pos.get("y",0) / tile_height)
+
+    tile_index_to_test = tile_map["tiles"][tile_y*map_width + tile_x].get("index",0)
+    tile_type = tile_map["tile_types"][tile_index_to_test]
+    return tile_type.get("type","blank")
+
+def tile_type_is_collidable(tile_type):
+    collision_map = {
+        "blank_tile" : False,
+        "carpet" : False,
+        "wall" : True
+    }
+    return collision_map.get(tile_type, False)
+
+def update_player_position(tile_map, player_pos, editor_mode, collision_mode, dt):
+    if editor_mode == "editing":
         return player_pos
+    
     player_speed = 200
+
+    new_pos = new_pos_from_old(player_pos)
+    
+    # we should probably address rebindable keys somewhat early on
     if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        player_pos["x"] -= dt*player_speed
+        new_pos["x"] -= dt*player_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        player_pos["x"] += dt*player_speed
+        new_pos["x"] += dt*player_speed
 
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        player_pos["y"] -= dt*player_speed
+        new_pos["y"] -= dt*player_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        player_pos["y"] += dt*player_speed
-    
+        new_pos["y"] += dt*player_speed
 
-    return player_pos
+    # now check for collision
+    if collision_mode == "noclip":
+        return new_pos
+    
+    tile_at_pos = get_tile_type_from_pos(new_pos, tile_map)
+    if tile_type_is_collidable(tile_at_pos):
+        new_pos = player_pos        
+    return new_pos
 
 def update_and_render(main_arena, game_assets):
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
@@ -392,12 +467,18 @@ def update_and_render(main_arena, game_assets):
     
     do_load_level = main_arena.get("do_load_level", False) 
     editor_mode = main_arena.get("editor_mode", "editing")
+    collision_mode = main_arena.get("collision_mode", "regular")
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F6):
         do_load_level = not do_load_level
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F8):
         editor_mode = transition_editor_state(editor_mode)
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F9):
+        collision_mode = transition_collision_state(collision_mode)
+    
+    
 
     if not saved_files:
         saved_files = get_saved_files()
@@ -441,7 +522,7 @@ def update_and_render(main_arena, game_assets):
     tile_size = 32
         
     #input handling
-    player_position = update_player_position(player_pos=player_position, mode=editor_mode, dt=dt)
+    player_position = update_player_position(player_pos=player_position, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_position, dt=dt)
     
     auto_reload = main_arena.get("auto_reload", True)
@@ -485,6 +566,7 @@ def update_and_render(main_arena, game_assets):
 
     # update persistent variables here
     changes = main_arena.evolver()
+    changes["collision_mode"] = collision_mode
     changes["editor_mode"] = editor_mode
     changes["do_load_level"] = do_load_level
     changes["time_elapsed"] = time_elapsed + dt
