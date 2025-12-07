@@ -426,25 +426,37 @@ def update_player_position(tile_map, player_pos, editor_mode, collision_mode, dt
     player_speed = 200
 
     new_pos = new_pos_from_old(player_pos)
+    new_pos_x_direction = new_pos_from_old(player_pos)
+    new_pos_y_direction = new_pos_from_old(player_pos)
     
     # we should probably address rebindable keys somewhat early on
+    
     if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        new_pos["x"] -= dt*player_speed
+        new_pos_x_direction["x"] -= dt*player_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        new_pos["x"] += dt*player_speed
+        new_pos_x_direction["x"] += dt*player_speed
 
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        new_pos["y"] -= dt*player_speed
+        new_pos_y_direction["y"] -= dt*player_speed
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        new_pos["y"] += dt*player_speed
+        new_pos_y_direction["y"] += dt*player_speed
+
+    # I think what we should do is resolve the vector into two components
+    # that are perpendicular
+    # and check each of those for collisions
+    # return either 0 or motion vectors,
+    # then sum thhem
 
     # now check for collision
     if collision_mode == "noclip":
         return new_pos
     
-    tile_at_pos = get_tile_type_from_pos(new_pos, tile_map)
-    if tile_type_is_collidable(tile_at_pos):
-        new_pos = player_pos        
+    tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map)
+    tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map)
+    if not tile_type_is_collidable(tile_at_pos_x):
+        new_pos["x"] = new_pos_x_direction["x"]        
+    if not tile_type_is_collidable(tile_at_pos_y):
+        new_pos["y"] = new_pos_y_direction["y"]        
     return new_pos
 
 def update_and_render(main_arena, game_assets):
