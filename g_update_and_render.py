@@ -291,8 +291,10 @@ def update_camera(game_camera, mode, player_pos, dt):
 def make_default_position(x,y,z):
     return pr.Vector3(x,y,z)
 
-def make_default_player_position(x,y,z):
+def make_default_player(x,y,z):
+    player = {}
     pos = {}
+
     pos["x"] = x
     pos["y"] = y
     pos["z"] = z
@@ -300,7 +302,12 @@ def make_default_player_position(x,y,z):
     pos["tile_x"] = 0
     pos["tile_y"] = 0
 
-    return pos
+    player["player_width"] = 32 #drawing at double scale
+    player["player_height"] = 32
+
+    player["position"] = pos
+
+    return player
 
 def update_tile_selection(current_tile_selection, tile_types_amount):
     mouse_wheel =  pr.get_mouse_wheel_move()
@@ -419,44 +426,90 @@ def tile_type_is_collidable(tile_type):
     }
     return collision_map.get(tile_type, False)
 
-def update_player_position(tile_map, player_pos, editor_mode, collision_mode, dt):
+def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt):
     if editor_mode == "editing":
-        return player_pos
+        return player_info.get("position",{})
     
+    player_pos = player_info.get("position",{})
+    player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
+                            "y" : player_pos.get("y",0) 
+                            }
+    
+    player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
+                            "y" : player_pos.get("y",0) + player_info.get("player_height",0)
+                            }
+    
+    player_pos_bottom_left = {"x" : player_pos.get("x",0),
+                            "y" : player_pos.get("y",0) + player_info.get("player_height",0)
+                            }
+
+    player_points = {
+        "top_left" : player_pos,
+        "top_right" : player_pos_top_right,
+        "bottom_left" : player_pos_bottom_left,
+        "bottom_right" : player_pos_bottom_right,
+    }
+
+    collisions = { "x" : False, "y" : False}
+
+    
+
+    #need to test 4 corners I believe
     player_speed = 200
 
-    new_pos = new_pos_from_old(player_pos)
-    new_pos_x_direction = new_pos_from_old(player_pos)
-    new_pos_y_direction = new_pos_from_old(player_pos)
     
-    # we should probably address rebindable keys somewhat early on
-    
-    if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        new_pos_x_direction["x"] -= dt*player_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        new_pos_x_direction["x"] += dt*player_speed
-
-    if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        new_pos_y_direction["y"] -= dt*player_speed
-    if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        new_pos_y_direction["y"] += dt*player_speed
-
     # I think what we should do is resolve the vector into two components
     # that are perpendicular
     # and check each of those for collisions
     # return either 0 or motion vectors,
     # then sum thhem
+    new_pos = new_pos_from_old(player_pos)
 
-    # now check for collision
-    if collision_mode == "noclip":
-        return new_pos
+
+    # assume we CAN move
+    if pr.is_key_down(pr.KeyboardKey.KEY_A):
+        new_pos["x"] -= dt*player_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_D):
+        new_pos["x"] += dt*player_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_W):
+        new_pos["y"] -= dt*player_speed
+    if pr.is_key_down(pr.KeyboardKey.KEY_S):
+        new_pos["y"] += dt*player_speed
+        
+
+
+    if collision_mode != "noclip":
+        # apply collision detection if needed
+        for potential_pos in player_points.values():    
+            new_pos_x_direction = new_pos_from_old(potential_pos)
+            new_pos_y_direction = new_pos_from_old(potential_pos)
+            
+            # we should probably address rebindable keys somewhat early on        
+            if pr.is_key_down(pr.KeyboardKey.KEY_A):
+                new_pos_x_direction["x"] -= dt*player_speed
+            if pr.is_key_down(pr.KeyboardKey.KEY_D):
+                new_pos_x_direction["x"] += dt*player_speed
+            if pr.is_key_down(pr.KeyboardKey.KEY_W):
+                new_pos_y_direction["y"] -= dt*player_speed
+            if pr.is_key_down(pr.KeyboardKey.KEY_S):
+                new_pos_y_direction["y"] += dt*player_speed
+            
+            # now check for collision
+            
+            
+            tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map)
+            tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map)
+            if tile_type_is_collidable(tile_at_pos_x):
+                collisions["x"] = True
+            if tile_type_is_collidable(tile_at_pos_y):
+                collisions["y"] = True
+
     
-    tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map)
-    tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map)
-    if not tile_type_is_collidable(tile_at_pos_x):
-        new_pos["x"] = new_pos_x_direction["x"]        
-    if not tile_type_is_collidable(tile_at_pos_y):
-        new_pos["y"] = new_pos_y_direction["y"]        
+    if collisions["x"]:
+        new_pos["x"] = player_pos["x"]
+    if collisions["y"]:
+        new_pos["y"] = player_pos["y"]    
+    
     return new_pos
 
 def update_and_render(main_arena, game_assets):
@@ -467,10 +520,10 @@ def update_and_render(main_arena, game_assets):
     time_elapsed = main_arena.get("time_elapsed", 0.0) 
     save_interval = 200
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
-    player_position = main_arena.get("player_position") 
+    player_info = main_arena.get("player_info") # really more info
 
-    if not player_position:
-        player_position = make_default_player_position(0,0,0)
+    if not player_info:
+        player_info = make_default_player(0,0,0)
                                      
     frame_arena = {} # this will be useful, to have a mutable per frame arena
 
@@ -534,8 +587,8 @@ def update_and_render(main_arena, game_assets):
     tile_size = 32
         
     #input handling
-    player_position = update_player_position(player_pos=player_position, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map)
-    camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_position, dt=dt)
+    player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map)
+    camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
     
     auto_reload = main_arena.get("auto_reload", True)
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
@@ -553,13 +606,14 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_position, editor_mode)
+    do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_info.get("position",{}), editor_mode)
     
 
     if do_button(pr.Vector2(10, 100), name="reload assets"):        
         game_assets["textures"] = None
 
     if do_button(pr.Vector2(10, 10), name="reset all"):        
+        player_info = None
         tile_map = None
         game_assets["textures"] = None
     if tile_map:
@@ -588,7 +642,7 @@ def update_and_render(main_arena, game_assets):
     changes["save_elapsed"] = save_elapsed
     changes["saved_files"] = saved_files
     changes["tile_map"] = tile_map
-    changes["player_position"] = player_position
+    changes["player_info"] = player_info
     changes["selected_save_index"] = selected_save_index
 
     result = changes.persistent()    
