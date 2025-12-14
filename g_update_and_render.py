@@ -173,6 +173,10 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
 
     # draw the player also
     pr.draw_texture_ex(game_assets.get("textures",{}).get("red_head_texture"), pr.Vector2((player_pos["x"] - game_camera.x), (player_pos["y"] - game_camera.y)), 0.0, 2, pr.WHITE)    
+    # and a dot at his center for debug purposes
+    player_width_that_i_am_using = 16
+    player_height_that_i_am_using = 16
+    pr.draw_circle(int(player_pos["x"] + player_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + player_height_that_i_am_using - game_camera.y), 5, pr.RED)
 
 
 
@@ -302,8 +306,8 @@ def make_default_player(x,y,z):
     pos["tile_x"] = 0
     pos["tile_y"] = 0
 
-    player["player_width"] = 32 #drawing at double scale
-    player["player_height"] = 32
+    player["player_width"] = 24 #drawing at double scale
+    player["player_height"] = 24
 
     player["position"] = pos
 
@@ -611,6 +615,10 @@ def update_and_render(main_arena, game_assets):
 
     if do_button(pr.Vector2(10, 100), name="reload assets"):        
         game_assets["textures"] = None
+
+    if do_button(pr.Vector2(10, 140), name="reset player"):        
+        player_info = None
+
 
     if do_button(pr.Vector2(10, 10), name="reset all"):        
         player_info = None
