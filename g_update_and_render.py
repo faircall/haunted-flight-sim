@@ -168,6 +168,8 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 2, pr.WHITE)
             elif tile_type.get("type") == "wall":                
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
+            elif tile_type.get("type") == "stone":                
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
             if is_highlight:
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
@@ -401,6 +403,7 @@ def load_textures():
     result["wood_texture"] = pr.load_texture("art/WoodTest.png")
     result["wall_texture"] = pr.load_texture("art/Wall.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
+    result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
     return result
 
 def new_pos_from_old(old):
