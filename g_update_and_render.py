@@ -176,7 +176,7 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
     # draw the player also
-    pr.draw_texture_ex(game_assets.get("textures",{}).get("red_head_texture"), pr.Vector2((player_pos["x"] - game_camera.x), (player_pos["y"] - game_camera.y)), 0.0, 2, pr.WHITE)    
+    pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), pr.Vector2((player_pos["x"] - game_camera.x), (player_pos["y"] - game_camera.y)), 0.0, 2, pr.WHITE)    
     # and a dot at his center for debug purposes
     player_width_that_i_am_using = 16
     player_height_that_i_am_using = 16
@@ -405,6 +405,7 @@ def load_textures():
     result["wood_texture"] = pr.load_texture("art/WoodTest.png")
     result["wall_texture"] = pr.load_texture("art/Wall.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
+    result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
     result["orange_tile_texture"] = pr.load_texture("art/orange_tile_32x.png")
     return result
