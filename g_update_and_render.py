@@ -157,7 +157,7 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
     # we could think about where the camera *is*
     # and just draw the ones around that..?    
 
-    tile_select_modes = {"editing", "item_placing"}
+    tile_select_modes = {"editing", "entity_placing"}
 
     for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)):
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
@@ -180,7 +180,7 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
 
-            if mode == "item_placing":
+            if mode == "entity_placing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     is_highlight = True
                     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
@@ -227,8 +227,8 @@ def transition_editor_state(current):
     state_transitions = {
         "play" : "editing",
         "editing" : "play",
-        "editing" : "item_placing",
-        "item_placing" : "play",
+        "editing" : "entity_placing",
+        "entity_placing" : "play",
     }
     return state_transitions.get(current)
 
@@ -305,7 +305,7 @@ def update_camera(game_camera, mode, player_pos, dt):
 
     # let's go for a bounded box camera
 
-    free_nav_modes = {"editing", "item_placing"}
+    free_nav_modes = {"editing", "entity_placing"}
     
     if mode in free_nav_modes:
         if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
