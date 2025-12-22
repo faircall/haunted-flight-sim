@@ -183,13 +183,18 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
             if mode == "item_placing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     is_highlight = True
-                    if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
                         new_entity = {}
                         new_entity["type"] = "buddha"
                         new_entity["position"] = {"x" : mouse_pos_world.x + game_camera.x, "y" : mouse_pos_world.y + game_camera.y}
                         id = len(entities)
                         new_entity["id"] = id
                         entities[id] = new_entity
+
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                        latest_id = max(len(entities) - 1,0)
+                        if latest_id in entities:
+                            del entities[latest_id]
 
                     
                             
