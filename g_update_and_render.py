@@ -118,7 +118,18 @@ def color_map(color_enum):
     }
     return lookup.get(color_enum, pr.WHITE)
 
-def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, game_assets, ignore, player_pos, mode):
+def draw_tile_texture_from_type(game_assets, tile_type, x, y):
+    if tile_type.get("type") == "wood":                
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2((x), (y)), 0.0, 2, pr.WHITE)
+    elif tile_type.get("type") == "wall":                
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+    elif tile_type.get("type") == "stone":                
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+    elif tile_type.get("type") == "carpet":  #change to other tile               
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+    
+
+def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, game_assets, ignore, player_pos, mode):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
@@ -144,6 +155,9 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
     # let's try be slightly quicker about this!
     # we could think about where the camera *is*
     # and just draw the ones around that..?    
+
+    tile_select_modes = {"editing", "item_placing"}
+
     for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)):
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
             tile_to_draw = tile_map["tiles"][y*map_width + x]
@@ -155,6 +169,17 @@ def do_tile_map(game_camera, tile_map, mouse_pos_world, current_tile_selection, 
             tile_type = tile_map["tile_types"][tile_index]
 
             if mode == "editing":
+                if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
+                    is_highlight = True
+                    if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                        tile_map["tiles"][y*map_width + x]["index"] = (tile_index + 1) % tile_map["tile_types_amount"]                    
+
+                    if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
+                        tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
+                            
+                pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+
+            if mode == "item_placing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     is_highlight = True
                     if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
@@ -188,6 +213,8 @@ def transition_editor_state(current):
     state_transitions = {
         "play" : "editing",
         "editing" : "play",
+        "editing" : "item_placing",
+        "item_placing" : "play",
     }
     return state_transitions.get(current)
 
@@ -263,8 +290,10 @@ def update_camera(game_camera, mode, player_pos, dt):
     across = 0
 
     # let's go for a bounded box camera
+
+    free_nav_modes = {"editing", "item_placing"}
     
-    if mode == "editing":
+    if mode in free_nav_modes:
         if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
             camera_speed *= 3
         # if pr.is_key_down(pr.KeyboardKey.KEY_A):
@@ -574,8 +603,14 @@ def update_and_render(main_arena, game_assets):
         ui_button_states = pmap()
 
     tile_map = main_arena.get("tile_map")
+
+    entities = main_arena.get("entities")
+
     if not tile_map:
         tile_map = make_tile_map(1000, 1000, 32, 32)        
+
+    if not entities:
+        entities = {}
 
     
     
@@ -617,7 +652,15 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    do_tile_map(camera_3d.position, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_info.get("position",{}), editor_mode)
+    do_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_info.get("position",{}), editor_mode)
+
+    pr.draw_text(editor_mode, 1700, 50, 20, pr.WHITE)
+    if editor_mode == "editing":
+        tile_type = tile_map["tile_types"][current_tile_selection]
+        tile_width = tile_map["tile_width"]
+        tile_height = tile_map["tile_height"]
+        draw_tile_texture_from_type(game_assets, tile_type, 1700, 100)
+
     
 
     if do_button(pr.Vector2(10, 100), name="reload assets"):        
@@ -657,6 +700,7 @@ def update_and_render(main_arena, game_assets):
     changes["save_elapsed"] = save_elapsed
     changes["saved_files"] = saved_files
     changes["tile_map"] = tile_map
+    changes["entities"] = entities
     changes["player_info"] = player_info
     changes["selected_save_index"] = selected_save_index
 
