@@ -129,6 +129,7 @@ def draw_tile_texture_from_type(game_assets, tile_type, x, y):
         pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
     
 
+
 def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, game_assets, ignore, player_pos, mode):
     # Todo:
     # tiles are tiles,
@@ -182,11 +183,15 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
             if mode == "item_placing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     is_highlight = True
-                    if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
-                        tile_map["tiles"][y*map_width + x]["index"] = (tile_index + 1) % tile_map["tile_types_amount"]                    
-
                     if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
-                        tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
+                        new_entity = {}
+                        new_entity["type"] = "buddha"
+                        new_entity["position"] = {"x" : mouse_pos_world.x + game_camera.x, "y" : mouse_pos_world.y + game_camera.y}
+                        id = len(entities)
+                        new_entity["id"] = id
+                        entities[id] = new_entity
+
+                    
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
             if tile_type.get("type") == "wood":                
@@ -206,6 +211,10 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
     player_width_that_i_am_using = 16
     player_height_that_i_am_using = 16
     pr.draw_circle(int(player_pos["x"] + player_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + player_height_that_i_am_using - game_camera.y), 5, pr.RED)
+
+    for entity in entities.values():
+        if entity.get("type","") == "buddha":
+            pr.draw_texture_ex(game_assets.get("textures",{}).get("buddha_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 1.5, pr.WHITE)
 
 
 
@@ -437,6 +446,8 @@ def load_textures():
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
     result["orange_tile_texture"] = pr.load_texture("art/orange_tile_32x.png")
+
+    result["buddha_texture"] = pr.load_texture("art/buddha_128.png")
     return result
 
 def new_pos_from_old(old):
