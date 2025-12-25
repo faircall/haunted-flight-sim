@@ -670,12 +670,13 @@ def update_and_render(main_arena, game_assets):
 
     do_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_info.get("position",{}), editor_mode)
 
-    pr.draw_text(editor_mode, 1700, 50, 20, pr.WHITE)
+    pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
     if editor_mode == "editing":
         tile_type = tile_map["tile_types"][current_tile_selection]
         tile_width = tile_map["tile_width"]
         tile_height = tile_map["tile_height"]
         draw_tile_texture_from_type(game_assets, tile_type, 1700, 100)
+        pr.draw_text(tile_type.get("type",""), 1700, 50, 20, pr.WHITE)
 
     
 
