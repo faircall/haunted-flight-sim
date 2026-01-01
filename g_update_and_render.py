@@ -226,8 +226,7 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
 def transition_editor_state(current):
     state_transitions = {
         "play" : "editing",
-        "editing" : "play",
-        "editing" : "entity_placing",
+        "editing" : "entity_placing",        
         "entity_placing" : "play",
     }
     return state_transitions.get(current)
