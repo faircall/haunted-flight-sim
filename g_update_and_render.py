@@ -211,7 +211,8 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
     # draw the player also
-    pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), pr.Vector2((player_pos["x"] - game_camera.x), (player_pos["y"] - game_camera.y)), 0.0, 2, pr.WHITE)    
+    player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x, tile_width * player_pos["tile_y"] + player_pos["y"] - game_camera.y)    
+    pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
     # and a dot at his center for debug purposes
     player_width_that_i_am_using = 16
     player_height_that_i_am_using = 16
@@ -458,16 +459,38 @@ def new_pos_from_old(old):
     new_pos = {
         "x" : old.get("x",0),
         "y" : old.get("y",0),
+        "z" : old.get("z",0),
+        "tile_x" : old.get("tile_x", 0),
+        "tile_y" : old.get("tile_y", 0)
     }
     return new_pos
 
 def get_tile_type_from_pos(pos, tile_map):    
     map_width = tile_map["map_width"]
+    map_height = tile_map["map_height"]
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
 
-    tile_x = int(pos.get("x",0) / tile_width)
-    tile_y = int(pos.get("y",0) / tile_height)
+    additional_x_tiles = 0
+    additional_y_tiles = 0
+    if pos["x"] > tile_width:
+        additional_x_tiles = int(pos.get("x",0) / tile_width)        
+
+    if pos["x"] < 0:
+        additional_x_tiles = -int((tile_width + abs(pos.get("x",0))) / tile_width)
+        
+
+    if pos["y"] < 0:
+        additional_y_tiles = -int((tile_height + abs(pos.get("y",0))) / tile_height)
+        # I think this will do us?                
+
+    if pos["y"] > tile_height:
+        additional_y_tiles = int(pos.get("y",0) / tile_height)        
+
+    tile_x = pos.get("tile_x") + additional_x_tiles
+    tile_x = tile_x % map_width
+    tile_y = pos.get("tile_y") + additional_y_tiles
+    tile_y = tile_y  % map_height
 
     tile_index_to_test = tile_map["tiles"][tile_y*map_width + tile_x].get("index",0)
     tile_type = tile_map["tile_types"][tile_index_to_test]
@@ -482,10 +505,14 @@ def tile_type_is_collidable(tile_type):
     return collision_map.get(tile_type, False)
 
 def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt):
+    # i think the offset should be relative to _actual_ tile width
+    # and so our world position is always a sum of the tile start pos + offset
+
     if editor_mode == "editing":
         return player_info.get("position",{})
     
     player_pos = player_info.get("position",{})
+    # true if we think in terms of offset
     player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
                             "y" : player_pos.get("y",0) 
                             }
@@ -564,6 +591,44 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         new_pos["x"] = player_pos["x"]
     if collisions["y"]:
         new_pos["y"] = player_pos["y"]    
+    
+    
+    tile_height = tile_map["tile_height"]
+    tile_width = tile_map["tile_width"]
+    
+
+    if new_pos["x"] > tile_width:
+        additional_x_tiles = int(new_pos.get("x",0) / tile_width)
+        new_pos["tile_x"] += additional_x_tiles
+        new_pos["x"] = new_pos["x"] % tile_width
+
+    if new_pos["x"] < 0:
+        additional_x_tiles = int((tile_width + abs(new_pos.get("x",0))) / tile_width)
+        new_pos["tile_x"] -= additional_x_tiles
+
+        new_pos["x"] = tile_width + new_pos["x"]
+
+    if new_pos["y"] < 0:
+        additional_y_tiles = int((tile_height + abs(new_pos.get("y",0))) / tile_height)
+        # I think this will do us?
+        
+        new_pos["tile_y"] -= additional_y_tiles    
+        new_pos["y"] = new_pos["y"] + tile_height
+
+    if new_pos["y"] > tile_height:
+        additional_y_tiles = int(new_pos.get("y",0) / tile_height)
+        # I think this will do us?
+        
+        new_pos["tile_y"] += additional_y_tiles    
+
+        new_pos["y"] = new_pos["y"] % tile_height
+
+    
+
+    
+    
+    
+
     
     return new_pos
 
