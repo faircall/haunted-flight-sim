@@ -214,12 +214,12 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
     # draw the player also
-    player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x, tile_width * player_pos["tile_y"] + player_pos["y"] - game_camera.y)    
+    player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16)    
     pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
     # and a dot at his center for debug purposes
-    player_width_that_i_am_using = 16
-    player_height_that_i_am_using = 16
-    pr.draw_circle(int(player_pos["x"] + player_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + player_height_that_i_am_using - game_camera.y), 5, pr.RED)
+    # player_width_that_i_am_using = 16
+    # player_height_that_i_am_using = 16
+    # pr.draw_circle(int(player_pos["x"] + player_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + player_height_that_i_am_using - game_camera.y), 5, pr.RED)
 
     for entity in entities.values():
         if entity.get("type","") == "buddha":
@@ -494,7 +494,7 @@ def get_tile_type_from_pos(pos, tile_map, debug_queue = None):
     tile_x = tile_x % map_width
     tile_y = pos.get("tile_y") + additional_y_tiles
     tile_y = tile_y  % map_height
-    if debug_queue:
+    if debug_queue is not None:
         debug_item = {
             "type" : "tile",
             "tile_x" : tile_x,
@@ -502,9 +502,11 @@ def get_tile_type_from_pos(pos, tile_map, debug_queue = None):
             "tile_width" : tile_width,
             "tile_height" : tile_height,
             "color" : "PINK",
-            "drawing_function" : draw_debug_tile
+            "drawing_function" : draw_debug_tile,
+            "z_sort" : 1
+
         }    
-        debug_queue.put(debug_item)
+        debug_queue.append(debug_item)
 
     tile_index_to_test = tile_map["tiles"][tile_y*map_width + tile_x].get("index",0)
     tile_type = tile_map["tile_types"][tile_index_to_test]
@@ -522,21 +524,30 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     # i think the offset should be relative to _actual_ tile width
     # and so our world position is always a sum of the tile start pos + offset
 
+    tile_height = tile_map["tile_height"]
+    tile_width = tile_map["tile_width"]
+
     if editor_mode == "editing":
         return player_info.get("position",{})
     
-    player_pos = player_info.get("position",{})
+    player_pos = player_info.get("position",{}) # top left
     # true if we think in terms of offset
     player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
-                            "y" : player_pos.get("y",0) 
+                            "y" : player_pos.get("y",0),
+                            "tile_x" : player_pos.get("tile_x", 0),
+                            "tile_y" : player_pos.get("tile_y", 0)  
                             }
     
     player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
-                            "y" : player_pos.get("y",0) + player_info.get("player_height",0)
+                            "y" : player_pos.get("y",0) + player_info.get("player_height",0),
+                            "tile_x" : player_pos.get("tile_x", 0),
+                            "tile_y" : player_pos.get("tile_y", 0) 
                             }
     
     player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + player_info.get("player_height",0)
+                            "y" : player_pos.get("y",0) + player_info.get("player_height",0),
+                            "tile_x" : player_pos.get("tile_x", 0),
+                            "tile_y" : player_pos.get("tile_y", 0) 
                             }
 
     player_points = {
@@ -577,6 +588,20 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     if collision_mode != "noclip":
         # apply collision detection if needed
         for potential_pos in player_points.values():    
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle,
+                    "pos" : potential_pos,                    
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "radius" : 2,
+                    "color" : "RED",
+                    "z_sort" : 0,
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height
+                }
+                debug_queue.append(debug_item)
             new_pos_x_direction = new_pos_from_old(potential_pos)
             new_pos_y_direction = new_pos_from_old(potential_pos)
             
@@ -607,8 +632,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         new_pos["y"] = player_pos["y"]    
     
     
-    tile_height = tile_map["tile_height"]
-    tile_width = tile_map["tile_width"]
+    
     
 
     if new_pos["x"] > tile_width:
@@ -645,6 +669,15 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
     
     return new_pos
+
+def draw_debug_circle(debug_item, camera):
+    x = debug_item.get("pos", {}).get("x") + debug_item.get("pos",{}).get("tile_x", 0) * debug_item.get("tile_width")
+    y = debug_item.get("pos", {}).get("y") + debug_item.get("pos",{}).get("tile_y", 0) * debug_item.get("tile_height")    
+    cx = int(x - camera.position.x)
+    cy = int(y - camera.position.y)
+    rad = debug_item.get("radius", 0)
+    color = color_map(debug_item.get("color", ""))
+    pr.draw_circle(cx, cy, rad, color)
 
 def draw_debug_tile(debug_item, camera):
     tile_width = debug_item.get("tile_width", 0)
@@ -688,7 +721,8 @@ def update_and_render(main_arena, game_assets):
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
     player_info = main_arena.get("player_info") # really more info
 
-    debug_queue = queue.Queue()
+    #debug_queue = [] # queue.Queue()
+    debug_queue = None
 
     if not player_info:
         player_info = make_default_player(0,0,0)
@@ -815,10 +849,12 @@ def update_and_render(main_arena, game_assets):
         tile_map = main_arena.get("tile_map")
 
     
-
-    if not debug_queue.empty():
-        debug_item = debug_queue.get()
-        draw_debug_item(debug_item, camera=camera_3d)
+    #if debug_queue:
+        
+    if debug_queue:
+        debug_queue = sorted(debug_queue, key=lambda x : x.get("z_sort", 0), reverse=True)
+        for debug_item in debug_queue:
+            draw_debug_item(debug_item, camera=camera_3d)
 
     pr.end_drawing()
 
