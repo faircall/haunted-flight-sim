@@ -226,6 +226,13 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
             pr.draw_texture_ex(game_assets.get("textures",{}).get("buddha_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 1.5, pr.WHITE)
 
 
+def transition_debug_state(current):
+    state_transitions = {
+        "clear" : "player_debug",
+        "player_debug" : "clear",                
+    }
+    return state_transitions.get(current)
+
 
 def transition_editor_state(current):
     state_transitions = {
@@ -720,9 +727,16 @@ def update_and_render(main_arena, game_assets):
     save_interval = 200
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
     player_info = main_arena.get("player_info") # really more info
+    debug_state = main_arena.get("debug_state", "clear") 
 
-    #debug_queue = [] # queue.Queue()
-    debug_queue = None
+    
+
+
+    if debug_state == "clear":
+        debug_queue = None
+    else:
+        debug_queue = [] # queue.Queue()
+    
 
     if not player_info:
         player_info = make_default_player(0,0,0)
@@ -741,6 +755,9 @@ def update_and_render(main_arena, game_assets):
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F8):
         editor_mode = transition_editor_state(editor_mode)
+    
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F7):
+        debug_state = transition_debug_state(debug_state)
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F9):
         collision_mode = transition_collision_state(collision_mode)
@@ -817,6 +834,10 @@ def update_and_render(main_arena, game_assets):
     do_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_info.get("position",{}), editor_mode)
 
     pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
+
+    if debug_state != "clear":
+        pr.draw_text(debug_state, 1700, 50, 20, pr.WHITE)
+
     if editor_mode == "editing":
         tile_type = tile_map["tile_types"][current_tile_selection]
         tile_width = tile_map["tile_width"]
@@ -860,6 +881,7 @@ def update_and_render(main_arena, game_assets):
 
     # update persistent variables here
     changes = main_arena.evolver()
+    changes["debug_state"] = debug_state
     changes["collision_mode"] = collision_mode
     changes["editor_mode"] = editor_mode
     changes["do_load_level"] = do_load_level
