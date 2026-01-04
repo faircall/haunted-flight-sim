@@ -3,6 +3,8 @@ import pickle
 import os
 import time
 
+import queue
+
 import pyray as pr
 from pyrsistent import m, pmap, v
 
@@ -114,7 +116,8 @@ def color_map(color_enum):
         "GREEN" : pr.GREEN,
         "PURPLE" : pr.PURPLE,
         "GREY" : pr.GRAY,        
-        "BLACK" : pr.BLACK        
+        "BLACK" : pr.BLACK,
+        "PINK" : pr.PINK                
     }
     return lookup.get(color_enum, pr.WHITE)
 
@@ -465,7 +468,7 @@ def new_pos_from_old(old):
     }
     return new_pos
 
-def get_tile_type_from_pos(pos, tile_map):    
+def get_tile_type_from_pos(pos, tile_map, debug_queue = None):    
     map_width = tile_map["map_width"]
     map_height = tile_map["map_height"]
     tile_width = tile_map["tile_width"]
@@ -491,6 +494,17 @@ def get_tile_type_from_pos(pos, tile_map):
     tile_x = tile_x % map_width
     tile_y = pos.get("tile_y") + additional_y_tiles
     tile_y = tile_y  % map_height
+    if debug_queue:
+        debug_item = {
+            "type" : "tile",
+            "tile_x" : tile_x,
+            "tile_y" : tile_y,
+            "tile_width" : tile_width,
+            "tile_height" : tile_height,
+            "color" : "PINK",
+            "drawing_function" : draw_debug_tile
+        }    
+        debug_queue.put(debug_item)
 
     tile_index_to_test = tile_map["tiles"][tile_y*map_width + tile_x].get("index",0)
     tile_type = tile_map["tile_types"][tile_index_to_test]
@@ -504,7 +518,7 @@ def tile_type_is_collidable(tile_type):
     }
     return collision_map.get(tile_type, False)
 
-def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt):
+def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
     # i think the offset should be relative to _actual_ tile width
     # and so our world position is always a sum of the tile start pos + offset
 
@@ -579,8 +593,8 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             # now check for collision
             
             
-            tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map)
-            tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map)
+            tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
+            tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
             if tile_type_is_collidable(tile_at_pos_x):
                 collisions["x"] = True
             if tile_type_is_collidable(tile_at_pos_y):
@@ -632,6 +646,38 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
     return new_pos
 
+def draw_debug_tile(debug_item, camera):
+    tile_width = debug_item.get("tile_width", 0)
+    tile_height = debug_item.get("tile_height", 0)
+    color = color_map(debug_item.get("color", "PINK"))
+    x = debug_item.get("tile_x", 0) * tile_width
+    y = debug_item.get("tile_y", 0) * tile_height
+    camera_x = camera.position.x
+    camera_y = camera.position.y
+    draw_x = int(x - camera_x)
+    draw_y = int(y - camera_y)
+
+    pr.draw_rectangle(draw_x, draw_y, tile_width, tile_height, color)
+    
+
+def draw_debug_item(debug_item, camera):
+    # two ways we could do this
+    # have a map of types to functions
+    # or, add the drawing function on the argument
+    # I kind of feel like it's ok to make a function that does the thing,
+    # and attach it as a field in the map...
+    # just make sure the function takes all required fields rather than 'self'
+
+    # drawing_functions = {
+    #     "tile" : draw_debug_tile
+    # }
+
+    # drawing_functions.get(debug_item.get("type",""), lambda x : x)(debug_item)
+    # OR
+    debug_item.get("drawing_function", lambda x, y : x)(debug_item, camera)
+    
+    
+
 def update_and_render(main_arena, game_assets):
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
@@ -641,6 +687,8 @@ def update_and_render(main_arena, game_assets):
     save_interval = 200
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
     player_info = main_arena.get("player_info") # really more info
+
+    debug_queue = queue.Queue()
 
     if not player_info:
         player_info = make_default_player(0,0,0)
@@ -713,7 +761,7 @@ def update_and_render(main_arena, game_assets):
     tile_size = 32
         
     #input handling
-    player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map)
+    player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
     
     auto_reload = main_arena.get("auto_reload", True)
@@ -767,6 +815,11 @@ def update_and_render(main_arena, game_assets):
         tile_map = main_arena.get("tile_map")
 
     
+
+    if not debug_queue.empty():
+        debug_item = debug_queue.get()
+        draw_debug_item(debug_item, camera=camera_3d)
+
     pr.end_drawing()
 
     # update persistent variables here
