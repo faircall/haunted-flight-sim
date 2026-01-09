@@ -527,6 +527,15 @@ def tile_type_is_collidable(tile_type):
     }
     return collision_map.get(tile_type, False)
 
+def vec2_normalize(vector):
+    mag = math.sqrt(vector["x"]**2 + vector["y"]**2)
+    if mag > 0:
+        vector["x"] /= mag
+        vector["y"] /= mag
+    return vector
+    
+
+
 def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
     # i think the offset should be relative to _actual_ tile width
     # and so our world position is always a sum of the tile start pos + offset
@@ -581,14 +590,25 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
 
     # assume we CAN move
+
+    # need a direction vector to first normalize...
+
+    direction_vector = {"x" : 0.0, "y" : 0.0}
+
+
     if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        new_pos["x"] -= dt*player_speed
+        direction_vector["x"] = -1.0        
     if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        new_pos["x"] += dt*player_speed
+        direction_vector["x"] = 1.0        
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        new_pos["y"] -= dt*player_speed
+        direction_vector["y"] = -1.0        
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        new_pos["y"] += dt*player_speed
+        direction_vector["y"] = 1.0        
+
+    direction_vector = vec2_normalize(direction_vector)    
+
+    new_pos["x"] += direction_vector["x"] * dt * player_speed
+    new_pos["y"] += direction_vector["y"] * dt * player_speed
         
 
 
