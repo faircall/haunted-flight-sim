@@ -133,7 +133,7 @@ def draw_tile_texture_from_type(game_assets, tile_type, x, y):
     
 
 
-def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, game_assets, ignore, player_pos, mode):
+def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_pos, mode):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
@@ -188,7 +188,10 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
                     is_highlight = True
                     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
                         new_entity = {}
-                        new_entity["type"] = "buddha"
+                        entity_types = game_assets.get("entity_types", [])
+                        if current_entity_selection < len(entity_types):
+                            entity_type = entity_types[current_entity_selection]
+                        new_entity["type"] = entity_type
                         new_entity["position"] = {"x" : mouse_pos_world.x + game_camera.x, "y" : mouse_pos_world.y + game_camera.y}
                         id = len(entities)
                         new_entity["id"] = id
@@ -224,6 +227,8 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
     for entity in entities.values():
         if entity.get("type","") == "buddha":
             pr.draw_texture_ex(game_assets.get("textures",{}).get("buddha_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 1.5, pr.WHITE)
+        elif entity.get("type","") == "red head":
+            pr.draw_texture_ex(game_assets.get("textures",{}).get("red_head_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 1.5, pr.WHITE)
 
 
 def transition_debug_state(current):
@@ -378,6 +383,14 @@ def update_tile_selection(current_tile_selection, tile_types_amount):
         current_tile_selection = (current_tile_selection + 1) % tile_types_amount
     return current_tile_selection        
 
+def update_mousewheel_selection(current_selection, types_amount):
+    mouse_wheel =  pr.get_mouse_wheel_move()
+    if mouse_wheel < 0:
+        current_selection = (current_selection - 1) % types_amount
+    elif mouse_wheel > 0:
+        current_selection = (current_selection + 1) % types_amount
+    return current_selection        
+
 def draw_load_level(arena, assets):    
     if not arena.get("do_load_level", False):
         return -1, arena.get("do_load_level", False)
@@ -452,6 +465,14 @@ def get_saved_files():
     saved_files = [f for f in all_files if f.endswith(".pkl")]
     saved_files.sort(reverse=True)
     return saved_files
+
+def load_entity_types():
+    entity_types = [
+        "buddha",
+        "red head"
+    ]
+
+    return entity_types
     
 def load_textures():
     result = {}    
@@ -543,7 +564,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
 
-    if editor_mode == "editing":
+    if editor_mode != "play":
         return player_info.get("position",{})
     
     player_pos = player_info.get("position",{}) # top left
@@ -751,6 +772,8 @@ def update_and_render(main_arena, game_assets):
 
     
 
+    
+
 
     if debug_state == "clear":
         debug_queue = None
@@ -792,6 +815,11 @@ def update_and_render(main_arena, game_assets):
         textures = load_textures()
         game_assets["textures"] = textures
 
+    entity_types = game_assets.get("entity_types")
+    if not entity_types:
+        entity_types = load_entity_types()
+        game_assets["entity_types"] = entity_types
+
     if save_elapsed >= save_interval or pr.is_key_pressed(pr.KeyboardKey.KEY_F5):
         save_state(main_arena)
         save_elapsed = 0.0
@@ -815,11 +843,13 @@ def update_and_render(main_arena, game_assets):
     
 
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
-    current_tile_selection = main_arena.get("current_tile_selection")
+    current_tile_selection = main_arena.get("current_tile_selection", 0)
 
+    current_entity_selection = main_arena.get("current_entity_selection", 0)
 
-    if not current_tile_selection:
-        current_tile_selection = 0
+    
+
+    
 
     # this is 'mutable' or at least expensive since it's a raylib/opengl call I think, don't want to spam it
     camera_3d = get_or_invoke(game_assets, "camera_3d", make_default_camera)        
@@ -851,7 +881,7 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    do_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, game_assets, do_load_level, player_info.get("position",{}), editor_mode)
+    do_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info.get("position",{}), editor_mode)
 
     pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
 
@@ -864,6 +894,9 @@ def update_and_render(main_arena, game_assets):
         tile_height = tile_map["tile_height"]
         draw_tile_texture_from_type(game_assets, tile_type, 1700, 100)
         pr.draw_text(tile_type.get("type",""), 1700, 50, 20, pr.WHITE)
+
+    if editor_mode == "entity_placing":
+        pr.draw_text(entity_types[current_entity_selection], 1700, 50, 20, pr.WHITE)
 
     
 
@@ -878,10 +911,13 @@ def update_and_render(main_arena, game_assets):
         player_info = None
         tile_map = None
         game_assets["textures"] = None
-    if tile_map:
+    if tile_map and editor_mode == "editing":
         if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
             current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
         current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
+
+    if tile_map and editor_mode == "entity_placing":        
+        current_entity_selection = update_mousewheel_selection(current_entity_selection, len(entity_types))
 
     
     selected_save_index, load_saved_data = draw_load_level(main_arena, game_assets)
@@ -907,6 +943,7 @@ def update_and_render(main_arena, game_assets):
     changes["do_load_level"] = do_load_level
     changes["time_elapsed"] = time_elapsed + dt
     changes["current_tile_selection"] = current_tile_selection
+    changes["current_entity_selection"] = current_entity_selection
     changes["auto_reload"] = auto_reload    
     changes["ui_button_states"] = ui_button_states
     changes["save_elapsed"] = save_elapsed
