@@ -228,7 +228,7 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
         if entity.get("type","") == "buddha":
             pr.draw_texture_ex(game_assets.get("textures",{}).get("buddha_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 1.5, pr.WHITE)
         elif entity.get("type","") == "red head":
-            pr.draw_texture_ex(game_assets.get("textures",{}).get("red_head_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 1.5, pr.WHITE)
+            pr.draw_texture_ex(game_assets.get("textures",{}).get("red_head_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 2.0, pr.WHITE)
 
 
 def transition_debug_state(current):
@@ -556,6 +556,14 @@ def vec2_normalize(vector):
     return vector
     
 
+def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
+    tile_height = tile_map["tile_height"]
+    tile_width = tile_map["tile_width"]
+    if editor_mode != "play":
+        return
+    
+    player_pos = player_info.get("position",{}) # top left
+    
 
 def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
     # i think the offset should be relative to _actual_ tile width
@@ -863,6 +871,7 @@ def update_and_render(main_arena, game_assets):
         
     #input handling
     player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
+    update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
     
     auto_reload = main_arena.get("auto_reload", True)
