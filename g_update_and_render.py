@@ -556,6 +556,31 @@ def vec2_normalize(vector):
     return vector
     
 
+def get_or_set(map, key, val):
+    if key in map:
+        return map[key]
+    map[key] = val
+    return val
+
+def vec2_distance_tile(a, b):
+    # TODO (Cooper) : make this also use the tiles they're on!
+    return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
+
+def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+    next_state = current_state
+    if current_state == "idle":
+        entity_pos = entity.get("position",{})
+        entity_collide_distance = 5
+        if vec2_distance_tile(entity_pos, player_pos) < entity_collide_distance:
+            next_state = "angry and attacking"
+        # can we see the player? 
+        # is there a sound to respond to?
+        # is there food or something nearby that might interest us?
+
+    return next_state
+
+    
+
 def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
@@ -563,6 +588,23 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         return
     
     player_pos = player_info.get("position",{}) # top left
+
+    for entity in entities.values():        
+        # TODO (Cooper) : move this stuff into an update function later
+        if entity.get("type","") == "red head":
+            # he needs to know about the environment (the tilemap)
+            # he needs to know about potentially other entities...
+            # he definitely needs to know about the player
+            # the 'other entities' is interesting because it opens up
+            # bioshock like interactions where one monster could do something with another
+            # I kind of like that potential
+            
+            current_state = get_or_set(entity, "current state", "idle")
+            next_state = transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+
+
+
+        
     
 
 def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
