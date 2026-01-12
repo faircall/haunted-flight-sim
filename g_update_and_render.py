@@ -566,16 +566,27 @@ def vec2_distance_tile(a, b):
     # TODO (Cooper) : make this also use the tiles they're on!
     return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
 
+def vec2_distance(a, b):    
+    return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
+
 def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     next_state = current_state
+    tile_width = tile_map.get("tile_width", 0)
+    tile_height = tile_map.get("tile_height", 0)
     if current_state == "idle":
         entity_pos = entity.get("position",{})
         entity_collide_distance = 5
-        if vec2_distance_tile(entity_pos, player_pos) < entity_collide_distance:
+        player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
+                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
+        if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
             next_state = "angry and attacking"
         # can we see the player? 
         # is there a sound to respond to?
         # is there food or something nearby that might interest us?
+
+        # @STARTHERE 13/1/26
+        # and handle the angle and attacking transition
+        # (also, beforehand, draw up the behaviour tree)
 
     return next_state
 
