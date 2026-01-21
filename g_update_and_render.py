@@ -496,6 +496,26 @@ def new_pos_from_old(old):
     }
     return new_pos
 
+def get_tile_index_from_pos(pos, tile_map, debug_queue = None):    
+    map_width = tile_map["map_width"]
+    map_height = tile_map["map_height"]
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]    
+    tile_pos_x = int((pos.get("x",0))/tile_width)
+    tile_pos_y =  int((pos.get("y",0))/tile_height)
+    tile_x = tile_pos_x % map_width
+    tile_y = tile_pos_y  % map_height
+
+    return {"x" : tile_x, "y" : tile_y}
+                  
+
+
+def get_tile_type_from_indices(tile_x, tile_y, tile_map):
+    map_width = tile_map.get("width", 0)
+    tile_index_to_test = tile_map["tiles"][tile_y*map_width + tile_x].get("index",0)
+    tile_type = tile_map["tile_types"][tile_index_to_test]
+    return tile_type
+
 def get_tile_type_from_pos(pos, tile_map, debug_queue = None):    
     map_width = tile_map["map_width"]
     map_height = tile_map["map_height"]
@@ -548,6 +568,18 @@ def tile_type_is_collidable(tile_type):
     }
     return collision_map.get(tile_type, False)
 
+def vec2_add(a, b):
+    return {"x": a.get("x",0) + b.get("x",0),
+            "y": a.get("y",0) + b.get("y",0)}
+
+def vec2_scale(v, s):
+    return {"x": v.get("x",0) * s,
+            "y": v.get("y",0) * s}
+
+def vec2_subtract(a, b):
+    return {"x": a.get("x",0) - b.get("x",0),
+            "y": a.get("y",0) - b.get("y",0)}
+
 def vec2_normalize(vector):
     mag = math.sqrt(vector["x"]**2 + vector["y"]**2)
     if mag > 0:
@@ -569,22 +601,149 @@ def vec2_distance_tile(a, b):
 def vec2_distance(a, b):    
     return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
 
+
+def vec2_dot(a, b):
+    # remember a dot b is |a||b|cos(theta)
+    # therefore if we use normalized and b
+    # it is just the cosine of the angle
+    # and hence...
+    # well there it is
+    return a.get("x", 0) * b.get("x", 0) + a.get("y", 0) * b.get("y", 0)
+
+#def point_in_circle_of_radius_at_x_y(pos, circle):
+
+
+def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
+    # a does need a direction
+    # should have a size of object too obviously
+    line_to_bob = vec2_normalize(vec2_subtract(bob_position, alice))
+    # you could model bob as a sphere
+    # then just trace down the line of sight?
+
+    bob_tiles = get_tile_index_from_pos(bob_position, tile_map)
+
+    alice_direction_of_sight = alice.get("sight_direction", {"x": 1, "y" : 0})
+    alice_direction_of_sight_normalized = vec2_normalize(alice_direction_of_sight)
+
+    sight_range = 200
+
+    bob_radius = 20
+    for i in range(0, sight_range, int(bob_radius/2)):
+        
+        dist_to_push = i
+        ray = vec2_scale(alice_direction_of_sight_normalized, dist_to_push)
+        pos_test = vec2_add(ray, alice.get("position"))
+        
+
+        test_tiles = get_tile_index_from_pos(pos_test, tile_map)
+
+        if debug_queue is not None:
+            debug_item = {
+                "type" : "tile",
+                "tile_x" : test_tiles.get("x",0),
+                "tile_y" : test_tiles.get("x",0),
+                "tile_width" : 10,
+                "tile_height" : 10,
+                "color" : "PINK",
+                "drawing_function" : draw_debug_tile,
+                "z_sort" : 1
+
+            }    
+            debug_queue.append(debug_item)
+
+        found_tile = get_tile_type_from_indices(test_tiles.get("x",0), test_tiles.get("y",0), tile_map)
+
+
+        if tile_type_is_collidable(found_tile.get("type","")):
+            return False
+        
+        if tiles_equal(pos_test, bob_tiles):
+            return True
+    return False           
+
+def tiles_equal(a, b):
+    return a.get("x",0) == b.get("x",0) and a.get("y",0) == b.get("y",0)
+        
+
+
+
+
+
+
+
+
+
+
+    # draw a
+    pass
+
+def copy_entity_pos(existing):
+    return {
+        "x" : existing.get("x",0),
+        "y" : existing.get("y",0),
+        "z" : existing.get("z",0),
+        "tile_x" : existing.get("tile_x",0),
+        "tile_y" : existing.get("tile_y",0),
+    }
+
+def move_entity_towards_target(entity, target_position, dt):
+    # start with a straight line
+    # returns an updated position, doesn't     
+    vec2_between = vec2_subtract(target_position, entity.get("position",{}))
+    # obviously we should move to 'proper' velocity but it's just a tad harder
+    default_speed = 30
+    entity_speed = entity.get("speed", default_speed)
+    new_entity_velocity = vec2_scale(vec2_between, entity_speed * dt)
+    new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)
+    return new_entity_position
+
+    
+
 def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     next_state = current_state
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)
+    entity_pos = entity.get("position",{})
+    player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
+                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
+    
+    
+
     if current_state == "idle":
         entity_pos = entity.get("position",{})
         entity_collide_distance = 5
-        player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
-                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
+        
         if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
             next_state = "angry and attacking"
+        elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+            next_state = "angry chase"
+            entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+
+    elif current_state == "angry chase":
+        new_position = move_entity_towards_target(entity, entity.get("last_seen_player_pos"), )
+        entity.get("position",{})["x"] = new_position.get("x", 0)
+        entity.get("position",{})["y"] = new_position.get("y", 0)        
+
+    elif current_state == "angry and attacking":
+
+        if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+            pass
+        else:
+            current_state == "go to last known position"
+        
+    elif current_state == "go to last known position":
+
+        if vec2_distance():
+            pass        
+
+
         # can we see the player? 
         # is there a sound to respond to?
         # is there food or something nearby that might interest us?
 
         # @STARTHERE 13/1/26
+
+    
         # and handle the angle and attacking transition
         # (also, beforehand, draw up the behaviour tree)
 
