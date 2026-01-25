@@ -791,6 +791,17 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             current_state = get_or_set(entity, "current state", "idle")
             next_state = transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
             entity["current state"] = next_state
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "text",
+                    "drawing_function" : draw_debug_text,
+                    "pos" : {"x" : entity.get("position",{}).get("x"), "y" : entity.get("position",{}).get("y")},                                        
+                    "font_size" : 16,
+                    "text" : f"{entity["current state"]}",
+                    "color" : "WHITE",
+                    "z_sort" : 0,                    
+                }
+                debug_queue.append(debug_item)
 
 
 
@@ -865,6 +876,13 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         direction_vector["y"] = -1.0        
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
         direction_vector["y"] = 1.0        
+
+    run_multiplier = 0
+    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+        run_multiplier = 4
+
+    if run_multiplier:
+        player_speed *= run_multiplier
 
     direction_vector = vec2_normalize(direction_vector)    
 
@@ -979,6 +997,17 @@ def draw_debug_tile(debug_item, camera):
     draw_y = int(y - camera_y)
 
     pr.draw_rectangle(draw_x, draw_y, tile_width, tile_height, color)
+
+def draw_debug_text(debug_item, camera):
+    x = debug_item.get("pos", {}).get("x") 
+    y = debug_item.get("pos", {}).get("y") 
+    text_to_draw = debug_item.get("text", "")
+    font_size = debug_item.get("font_size", "")
+    cx = int(x - camera.position.x)
+    cy = int(y - camera.position.y)
+    
+    color = color_map(debug_item.get("color", ""))
+    pr.draw_text(text_to_draw, cx, cy, font_size, color)
     
 
 def draw_debug_item(debug_item, camera):
