@@ -507,6 +507,17 @@ def get_tile_index_from_pos(pos, tile_map, debug_queue = None):
     tile_y = tile_pos_y  % map_height
 
     return {"tile_x" : tile_x, "tile_y" : tile_y}
+
+def get_abs_pos_from_index(pos, tile_map, debug_queue = None):    
+    map_width = tile_map["map_width"]
+    map_height = tile_map["map_height"]
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]    
+
+    abs_x = tile_map["tile_width"] * pos.get("tile_x",0) + pos.get("x",0)
+    abs_y = tile_map["tile_height"] * pos.get("tile_y",0) + pos.get("y",0)
+    
+    return {"x" : abs_x, "y" : abs_y}
                   
 
 
@@ -686,10 +697,10 @@ def copy_entity_pos(existing):
         "tile_y" : existing.get("tile_y",0),
     }
 
-def move_entity_towards_target(entity, target_position, dt):
+def move_entity_towards_target_abs(entity, target_position, dt):
     # start with a straight line
     # returns an updated position, doesn't     
-    vec2_between = vec2_normalize(vec2_subtract(entity.get("position",{}), target_position))
+    vec2_between = vec2_normalize(vec2_subtract(target_position, entity.get("position",{})))
     # obviously we should move to 'proper' velocity but it's just a tad harder
     default_speed = 30
     entity_speed = entity.get("speed", default_speed)
@@ -700,6 +711,8 @@ def move_entity_towards_target(entity, target_position, dt):
     
 
 def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+    # TODO in addition to line of sight
+    # need like a line of sound / within earshot function
     next_state = current_state
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)
@@ -707,11 +720,10 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
     player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
                           "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
     
-    
+    entity_collide_distance = 5
 
     if current_state == "idle":
-        entity_pos = entity.get("position",{})
-        entity_collide_distance = 5
+        entity_pos = entity.get("position",{})        
         
         if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
             next_state = "angry and attacking"
@@ -720,12 +732,19 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
             entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
 
     elif current_state == "angry chase":
-        new_position = move_entity_towards_target(entity, entity.get("last_seen_player_pos"), dt)
+        alice_can_see_bob(entity, player_pos, tile_map, debug_queue)
+        target_pos = get_abs_pos_from_index(entity.get("last_seen_player_pos"), tile_map, debug_queue)
+        new_position = move_entity_towards_target_abs(entity, target_pos, dt)
+        
         entity.get("position",{})["x"] = new_position.get("x", 0)
         entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    elif current_state == "angry and attacking":
+        if vec2_distance(new_position, player_pos_abs) < entity_collide_distance:
+            next_state = "angry and attacking"
 
+
+    elif current_state == "angry and attacking":
+        alice_can_see_bob(entity, player_pos, tile_map, debug_queue)
         if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
             pass
         else:
@@ -1133,6 +1152,7 @@ def update_and_render(main_arena, game_assets):
         player_info = None
         tile_map = None
         game_assets["textures"] = None
+        entities = None
     if tile_map and editor_mode == "editing":
         if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
             current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
