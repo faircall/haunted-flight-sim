@@ -506,7 +506,7 @@ def get_tile_index_from_pos(pos, tile_map, debug_queue = None):
     tile_x = tile_pos_x % map_width
     tile_y = tile_pos_y  % map_height
 
-    return {"x" : tile_x, "y" : tile_y}
+    return {"tile_x" : tile_x, "tile_y" : tile_y}
                   
 
 
@@ -620,7 +620,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # you could model bob as a sphere
     # then just trace down the line of sight?
 
-    bob_tiles = get_tile_index_from_pos(bob_position, tile_map)
+    bob_tiles = bob_position
 
     alice_direction_of_sight = alice.get("sight_direction", {"x": 1, "y" : 0})
     alice_direction_of_sight_normalized = vec2_normalize(alice_direction_of_sight)
@@ -640,29 +640,29 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
         if debug_queue is not None:
             debug_item = {
                 "type" : "tile",
-                "tile_x" : test_tiles.get("x",0),
-                "tile_y" : test_tiles.get("x",0),
-                "tile_width" : 10,
-                "tile_height" : 10,
-                "color" : "PINK",
+                "tile_x" : test_tiles.get("tile_x",0),
+                "tile_y" : test_tiles.get("tile_y",0),
+                "tile_width" : tile_map.get("tile_width",5),
+                "tile_height" : tile_map.get("tile_height",5),
+                "color" : "RED",
                 "drawing_function" : draw_debug_tile,
                 "z_sort" : 1
 
             }    
             debug_queue.append(debug_item)
 
-        found_tile = get_tile_type_from_indices(test_tiles.get("x",0), test_tiles.get("y",0), tile_map)
+        found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
 
 
         if tile_type_is_collidable(found_tile.get("type","")):
             return False
         
-        if tiles_equal(pos_test, bob_tiles):
+        if tiles_equal(test_tiles, bob_tiles):
             return True
     return False           
 
 def tiles_equal(a, b):
-    return a.get("x",0) == b.get("x",0) and a.get("y",0) == b.get("y",0)
+    return a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0)
         
 
 
@@ -689,7 +689,7 @@ def copy_entity_pos(existing):
 def move_entity_towards_target(entity, target_position, dt):
     # start with a straight line
     # returns an updated position, doesn't     
-    vec2_between = vec2_subtract(target_position, entity.get("position",{}))
+    vec2_between = vec2_normalize(vec2_subtract(entity.get("position",{}), target_position))
     # obviously we should move to 'proper' velocity but it's just a tad harder
     default_speed = 30
     entity_speed = entity.get("speed", default_speed)
@@ -720,7 +720,7 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
             entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
 
     elif current_state == "angry chase":
-        new_position = move_entity_towards_target(entity, entity.get("last_seen_player_pos"), )
+        new_position = move_entity_towards_target(entity, entity.get("last_seen_player_pos"), dt)
         entity.get("position",{})["x"] = new_position.get("x", 0)
         entity.get("position",{})["y"] = new_position.get("y", 0)        
 
@@ -771,6 +771,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
             current_state = get_or_set(entity, "current state", "idle")
             next_state = transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+            entity["current state"] = next_state
 
 
 
