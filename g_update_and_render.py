@@ -131,6 +131,34 @@ def draw_tile_texture_from_type(game_assets, tile_type, x, y):
     elif tile_type.get("type") == "carpet":  #change to other tile               
         pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
     
+def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen):    
+    if (x,y) in seen or x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] == current_tile_selection):
+        return
+    
+    seen[(x,y)] = True
+    tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection
+    do_flood_fill(current_tile_selection, x, y+1, tile_map, map_width, seen)    
+    do_flood_fill(current_tile_selection, x, y-1, tile_map, map_width, seen)    
+    do_flood_fill(current_tile_selection, x+1, y, tile_map, map_width, seen)        
+    do_flood_fill(current_tile_selection, x-1, y, tile_map, map_width, seen)    
+
+def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen):    
+    if x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] != initial) or (x,y) in seen:
+        return
+    seen[(x,y)] = True
+    tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection
+    do_flood_fill_replace(initial, current_tile_selection, x, y+1, tile_map, map_width, seen)    
+    do_flood_fill_replace(initial, current_tile_selection, x, y-1, tile_map, map_width, seen)    
+    do_flood_fill_replace(initial, current_tile_selection, x+1, y, tile_map, map_width, seen)        
+    do_flood_fill_replace(initial, current_tile_selection, x-1, y, tile_map, map_width, seen)    
+
+        
+        
+
+
+
+    
+    
 
 
 def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_pos, mode):
@@ -145,9 +173,7 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
     map_width = tile_map["map_width"]
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
-
-    map_tiles_across = map_width / tile_width
-    map_tiles_down = map_height / tile_height
+    
 
     visible_tiles_across = int(1920 / tile_width)
     visible_tiles_down = int(1080 / tile_width)
@@ -175,8 +201,17 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
             if mode == "editing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     is_highlight = True
-                    if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT):
-                        tile_map["tiles"][y*map_width + x]["index"] = (tile_index + 1) % tile_map["tile_types_amount"]                    
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                        # do a flood fill
+                        seen = {}
+                        do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen)
+
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_MIDDLE):
+                        # do a flood fill
+                        # get the initial tile
+                        initial = tile_map["tiles"][y*map_width + x]["index"]
+                        seen = {}
+                        do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen)
 
                     if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
                         tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
@@ -708,6 +743,24 @@ def move_entity_towards_target_abs(entity, target_position, dt):
     new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)
     return new_entity_position
 
+
+
+def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+    entity_pos = entity.get("position",{})        
+    next_state = current_state
+    tile_width = tile_map.get("tile_width", 0)
+    tile_height = tile_map.get("tile_height", 0)
+    entity_pos = entity.get("position",{})
+    player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
+                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
+    
+    entity_collide_distance = 5
+        
+    if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
+        next_state = "angry and attacking"
+    elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+        next_state = "angry chase"
+        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
     
 
 def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
