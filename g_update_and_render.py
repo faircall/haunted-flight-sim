@@ -190,7 +190,9 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
 
     for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)):
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
-            tile_to_draw = tile_map["tiles"][y*map_width + x]
+
+            index = min(y*map_width + x, len(tile_map["tiles"])-1)
+            tile_to_draw = tile_map["tiles"][index]
             is_highlight = False
             tile_index = tile_to_draw.get("index",0)
             color_to_draw = tile_map["tile_types"][tile_index].get("color")
@@ -785,7 +787,14 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
             entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
 
     elif current_state == "angry chase":
-        alice_can_see_bob(entity, player_pos, tile_map, debug_queue)
+        can_see = True
+        if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+            entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+        else:
+            can_see = False
+            
+            
+            
         target_pos = get_abs_pos_from_index(entity.get("last_seen_player_pos"), tile_map, debug_queue)
         new_position = move_entity_towards_target_abs(entity, target_pos, dt)
         
@@ -794,6 +803,15 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
 
         if vec2_distance(new_position, player_pos_abs) < entity_collide_distance:
             next_state = "angry and attacking"
+
+        dest_threshold = 5
+        give_up_threshold = 3
+        if not can_see and vec2_distance(new_position, target_pos) < dest_threshold:
+            get_or_set(entity, "give_up_time", 0)
+            entity["give_up_time"] += dt
+            if entity["give_up_time"] > give_up_threshold:
+                next_state = "idle"
+
 
 
     elif current_state == "angry and attacking":
@@ -1229,12 +1247,14 @@ def update_and_render(main_arena, game_assets):
     if do_button(pr.Vector2(10, 140), name="reset player"):        
         player_info = None
 
-
+    reset_all = False
     if do_button(pr.Vector2(10, 10), name="reset all"):        
         player_info = None
         tile_map = None
         game_assets["textures"] = None
         entities = None
+        reset_all = True
+        
     if tile_map and editor_mode == "editing":
         if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
             current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
@@ -1278,7 +1298,10 @@ def update_and_render(main_arena, game_assets):
     changes["selected_save_index"] = selected_save_index
 
     result = changes.persistent()    
+    
     game_assets["camera_3d"] = camera_3d
+    if reset_all:
+        del game_assets["camera_3d"]
 
     return result
     
