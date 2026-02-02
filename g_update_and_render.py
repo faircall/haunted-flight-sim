@@ -661,6 +661,17 @@ def vec2_dot(a, b):
 #def point_in_circle_of_radius_at_x_y(pos, circle):
 
 
+def update_sight_direction(entity, player_pos, tile_map):
+    # zzz todo
+    # we probably want to do something like
+    # if we hear something, take a look
+    # if something is in our peripheral vision, take a look
+    # if we're bored, look at something interesting...? i.e not a wall
+    # in which case, look opposite direction of something boring...?
+    
+    pass
+
+
 def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # a does need a direction
     # should have a size of object too obviously
