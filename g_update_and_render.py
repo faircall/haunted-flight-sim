@@ -559,7 +559,7 @@ def get_abs_pos_from_index(pos, tile_map, debug_queue = None):
 
 
 def get_tile_type_from_indices(tile_x, tile_y, tile_map):
-    map_width = tile_map.get("width", 0)
+    map_width = tile_map.get("map_width", 0)
     tile_index_to_test = tile_map["tiles"][tile_y*map_width + tile_x].get("index",0)
     tile_type = tile_map["tile_types"][tile_index_to_test]
     return tile_type
@@ -685,25 +685,41 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
         test_tiles = get_tile_index_from_pos(pos_test, tile_map)
 
-        if debug_queue is not None:
-            debug_item = {
-                "type" : "tile",
-                "tile_x" : test_tiles.get("tile_x",0),
-                "tile_y" : test_tiles.get("tile_y",0),
-                "tile_width" : tile_map.get("tile_width",5),
-                "tile_height" : tile_map.get("tile_height",5),
-                "color" : "RED",
-                "drawing_function" : draw_debug_tile,
-                "z_sort" : 1
-
-            }    
-            debug_queue.append(debug_item)
+        
 
         found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
 
 
         if tile_type_is_collidable(found_tile.get("type","")):
-            return False
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "tile",
+                    "tile_x" : test_tiles.get("tile_x",0),
+                    "tile_y" : test_tiles.get("tile_y",0),
+                    "tile_width" : tile_map.get("tile_width",5),
+                    "tile_height" : tile_map.get("tile_height",5),
+                    "color" : "PINK",
+                    "drawing_function" : draw_debug_tile,
+                    "z_sort" : 1
+
+                }    
+                debug_queue.append(debug_item)
+            return False        
+        else:
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "tile",
+                    "tile_x" : test_tiles.get("tile_x",0),
+                    "tile_y" : test_tiles.get("tile_y",0),
+                    "tile_width" : tile_map.get("tile_width",5),
+                    "tile_height" : tile_map.get("tile_height",5),
+                    "color" : "RED",
+                    "drawing_function" : draw_debug_tile,
+                    "z_sort" : 1
+
+                }    
+                debug_queue.append(debug_item)
+
         
         if tiles_equal(test_tiles, bob_tiles):
             return True
