@@ -1196,7 +1196,7 @@ def update_and_render(main_arena, game_assets):
         entity_types = load_entity_types()
         game_assets["entity_types"] = entity_types
 
-    if save_elapsed >= save_interval or pr.is_key_pressed(pr.KeyboardKey.KEY_F5):
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F5): # save_elapsed >= save_interval or 
         save_state(main_arena)
         save_elapsed = 0.0
         saved_files = get_saved_files()
