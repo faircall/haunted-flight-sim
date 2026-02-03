@@ -3,6 +3,8 @@ import pickle
 import os
 import time
 
+import random
+
 import queue
 
 import pyray as pr
@@ -661,14 +663,14 @@ def vec2_dot(a, b):
 #def point_in_circle_of_radius_at_x_y(pos, circle):
 
 
-def update_sight_direction(entity, player_pos, tile_map):
+def update_sight_direction(entity, player_pos, tile_map, new_direction):
     # zzz todo
     # we probably want to do something like
     # if we hear something, take a look
     # if something is in our peripheral vision, take a look
     # if we're bored, look at something interesting...? i.e not a wall
     # in which case, look opposite direction of something boring...?
-    
+
     pass
 
 
@@ -784,12 +786,36 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
                           "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
     
     entity_collide_distance = 5
+    bored_timer = entity.get("bored_timer", 0)
+
+    bored_threshold = 5
         
     if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
         next_state = "angry and attacking"
     elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
         next_state = "angry chase"
         entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+    else:
+        bored_timer += dt
+        if bored_timer >= bored_threshold:
+            bored_timer = 0
+            new_angle = random.randint(0,360)
+            new_angle = new_angle % 360
+            new_vec = vector_from_angle(new_angle)
+            entity["sight_direction"] = new_vec
+            # pick a new random direction...?
+    entity["bored_timer"] = bored_timer
+
+    return next_state
+
+def deg_to_rad(deg):
+    return math.pi * (deg / 180.0)
+
+def vector_from_angle(angle_deg):
+    angle = deg_to_rad(angle_deg)
+    x = math.cos(angle)
+    y = math.sin(angle)
+    return {"x" : x, "y" : y}
     
 
 def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
@@ -805,13 +831,14 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
     entity_collide_distance = 5
 
     if current_state == "idle":
-        entity_pos = entity.get("position",{})        
+        next_state = idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+        # entity_pos = entity.get("position",{})        
         
-        if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
-            next_state = "angry and attacking"
-        elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
-            next_state = "angry chase"
-            entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+        # if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
+        #     next_state = "angry and attacking"
+        # elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+        #     next_state = "angry chase"
+        #     entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
 
     elif current_state == "angry chase":
         can_see = True
