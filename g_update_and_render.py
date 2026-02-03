@@ -816,6 +816,41 @@ def vector_from_angle(angle_deg):
     x = math.cos(angle)
     y = math.sin(angle)
     return {"x" : x, "y" : y}
+
+def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+    next_state = current_state
+    can_see = True
+    if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+    else:
+        can_see = False
+    entity_collide_distance = 5
+    tile_width = tile_map.get("tile_width", 0)
+    tile_height = tile_map.get("tile_height", 0)
+    entity_pos = entity.get("position",{})
+    player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
+                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
+        
+        
+    target_pos = get_abs_pos_from_index(entity.get("last_seen_player_pos"), tile_map, debug_queue)
+    new_position = move_entity_towards_target_abs(entity, target_pos, dt)
+    
+    entity.get("position",{})["x"] = new_position.get("x", 0)
+    entity.get("position",{})["y"] = new_position.get("y", 0)        
+
+    if vec2_distance(new_position, player_pos_abs) < entity_collide_distance:
+        next_state = "angry and attacking"
+
+    dest_threshold = 5
+    give_up_threshold = 3
+    if not can_see and vec2_distance(new_position, target_pos) < dest_threshold:
+        get_or_set(entity, "give_up_time", 0)
+        entity["give_up_time"] += dt
+        if entity["give_up_time"] > give_up_threshold:
+            next_state = "idle"
+    return next_state
+
+
     
 
 def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
@@ -823,73 +858,20 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
     # need like a line of sound / within earshot function
     next_state = current_state
     tile_width = tile_map.get("tile_width", 0)
-    tile_height = tile_map.get("tile_height", 0)
-    entity_pos = entity.get("position",{})
-    player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
-                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
-    
-    entity_collide_distance = 5
+    tile_height = tile_map.get("tile_height", 0)    
 
     if current_state == "idle":
-        next_state = idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
-        # entity_pos = entity.get("position",{})        
-        
-        # if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
-        #     next_state = "angry and attacking"
-        # elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
-        #     next_state = "angry chase"
-        #     entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
-
-    elif current_state == "angry chase":
-        can_see = True
+        next_state = idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
+    elif current_state == "angry chase":        
+        # this is essentially a 'go to last position' state
+        # with maybe a different animation and / or speed
+        next_state = angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+    elif current_state == "angry and attacking":        
         if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
-            entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
-        else:
-            can_see = False
-            
-            
-            
-        target_pos = get_abs_pos_from_index(entity.get("last_seen_player_pos"), tile_map, debug_queue)
-        new_position = move_entity_towards_target_abs(entity, target_pos, dt)
-        
-        entity.get("position",{})["x"] = new_position.get("x", 0)
-        entity.get("position",{})["y"] = new_position.get("y", 0)        
-
-        if vec2_distance(new_position, player_pos_abs) < entity_collide_distance:
-            next_state = "angry and attacking"
-
-        dest_threshold = 5
-        give_up_threshold = 3
-        if not can_see and vec2_distance(new_position, target_pos) < dest_threshold:
-            get_or_set(entity, "give_up_time", 0)
-            entity["give_up_time"] += dt
-            if entity["give_up_time"] > give_up_threshold:
-                next_state = "idle"
-
-
-
-    elif current_state == "angry and attacking":
-        alice_can_see_bob(entity, player_pos, tile_map, debug_queue)
-        if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+            # keep attacking
             pass
         else:
-            current_state == "go to last known position"
-        
-    elif current_state == "go to last known position":
-
-        if vec2_distance():
-            pass        
-
-
-        # can we see the player? 
-        # is there a sound to respond to?
-        # is there food or something nearby that might interest us?
-
-        # @STARTHERE 13/1/26
-
-    
-        # and handle the angle and attacking transition
-        # (also, beforehand, draw up the behaviour tree)
+            next_state = "idle"            
 
     return next_state
 
