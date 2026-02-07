@@ -688,6 +688,10 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     sight_range = 200
 
+    # to turn it into a radius,
+    # we could a) shoot more rays
+    # b) have an outline then floodfill?a
+
     bob_radius = 20
     for i in range(0, sight_range, int(bob_radius/2)):
         
@@ -735,6 +739,57 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
         
         if tiles_equal(test_tiles, bob_tiles):
+            return True
+    return False           
+
+def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
+
+    for i in range(0, end_range, int(step_size/2)):
+        
+        dist_to_push = i
+        ray = vec2_scale(normalized_ray_direction, dist_to_push)
+        pos_test = vec2_add(ray, original_position)
+        
+
+        test_tiles = get_tile_index_from_pos(pos_test, tile_map)
+
+        
+
+        found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
+
+
+        if tile_type_is_collidable(found_tile.get("type","")):
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "tile",
+                    "tile_x" : test_tiles.get("tile_x",0),
+                    "tile_y" : test_tiles.get("tile_y",0),
+                    "tile_width" : tile_map.get("tile_width",5),
+                    "tile_height" : tile_map.get("tile_height",5),
+                    "color" : "PINK",
+                    "drawing_function" : draw_debug_tile,
+                    "z_sort" : 1
+
+                }    
+                debug_queue.append(debug_item)
+            return False        
+        else:
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "tile",
+                    "tile_x" : test_tiles.get("tile_x",0),
+                    "tile_y" : test_tiles.get("tile_y",0),
+                    "tile_width" : tile_map.get("tile_width",5),
+                    "tile_height" : tile_map.get("tile_height",5),
+                    "color" : "RED",
+                    "drawing_function" : draw_debug_tile,
+                    "z_sort" : 1
+
+                }    
+                debug_queue.append(debug_item)
+
+        
+        if tiles_equal(test_tiles, target_tile):
             return True
     return False           
 
