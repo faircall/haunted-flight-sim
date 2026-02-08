@@ -683,66 +683,47 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     bob_tiles = bob_position
 
-    alice_direction_of_sight = alice.get("sight_direction", {"x": 1, "y" : 0})
-    alice_direction_of_sight_normalized = vec2_normalize(alice_direction_of_sight)
+    
+    alice_pos = alice.get("position")
+    alice_sight_angle = alice.get("sight_angle")
+
+    main_direction = vector_from_angle(alice_sight_angle)
+
+    main_direction_scaled = vec2_scale(main_direction, 100)
+    if debug_queue:
+        debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : alice_pos.get("x"), "y" : alice_pos.get("y")},                                        
+                    "pos_end" : {"x" : alice_pos.get("x") + main_direction_scaled.get("x"), "y" : alice_pos.get("y") + main_direction_scaled.get("y")},                                        
+                    "line_width" : 1,                    
+                    "color" : "PURPLE",
+                    "z_sort" : -1,                    
+                }
+        debug_queue.append(debug_item)
 
     sight_range = 200
-
-    # to turn it into a radius,
-    # we could a) shoot more rays
-    # b) have an outline then floodfill?a
-
     bob_radius = 20
-    for i in range(0, sight_range, int(bob_radius/2)):
-        
-        dist_to_push = i
-        ray = vec2_scale(alice_direction_of_sight_normalized, dist_to_push)
-        pos_test = vec2_add(ray, alice.get("position"))
-        
 
-        test_tiles = get_tile_index_from_pos(pos_test, tile_map)
+    alice_fov = 180
 
-        
+    angle_start = alice_sight_angle - int(alice_fov/2)
+    angle_end = alice_sight_angle + int(alice_fov/2)
 
-        found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
+    step_size = 10
+
+    for angle in range(angle_start, angle_end, step_size):        
+        alice_direction_of_sight_normalized = vector_from_angle(angle)
+        can_see = ray_along_tiles_hits_target_tile(alice_pos, bob_tiles, sight_range, int(bob_radius)/2, alice_direction_of_sight_normalized, tile_map, debug_queue)
+        if can_see:
+            return True        
+    result = False
+
+    return result
 
 
-        if tile_type_is_collidable(found_tile.get("type","")):
-            if debug_queue is not None:
-                debug_item = {
-                    "type" : "tile",
-                    "tile_x" : test_tiles.get("tile_x",0),
-                    "tile_y" : test_tiles.get("tile_y",0),
-                    "tile_width" : tile_map.get("tile_width",5),
-                    "tile_height" : tile_map.get("tile_height",5),
-                    "color" : "PINK",
-                    "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
-
-                }    
-                debug_queue.append(debug_item)
-            return False        
-        else:
-            if debug_queue is not None:
-                debug_item = {
-                    "type" : "tile",
-                    "tile_x" : test_tiles.get("tile_x",0),
-                    "tile_y" : test_tiles.get("tile_y",0),
-                    "tile_width" : tile_map.get("tile_width",5),
-                    "tile_height" : tile_map.get("tile_height",5),
-                    "color" : "RED",
-                    "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
-
-                }    
-                debug_queue.append(debug_item)
-
-        
-        if tiles_equal(test_tiles, bob_tiles):
-            return True
-    return False           
-
-def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
+    
+def     ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
 
     for i in range(0, end_range, int(step_size/2)):
         
@@ -857,7 +838,7 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
             new_angle = random.randint(0,360)
             new_angle = new_angle % 360
             new_vec = vector_from_angle(new_angle)
-            entity["sight_direction"] = new_vec
+            entity["sight_angle"] = new_angle            
             # pick a new random direction...?
     entity["bored_timer"] = bored_timer
 
@@ -871,6 +852,14 @@ def vector_from_angle(angle_deg):
     x = math.cos(angle)
     y = math.sin(angle)
     return {"x" : x, "y" : y}
+
+
+
+def angle_from_vector(v):
+    # TODO angle from Vector...
+    result = 0
+
+    return result
 
 def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     next_state = current_state
@@ -1159,6 +1148,19 @@ def draw_debug_tile(debug_item, camera):
     draw_y = int(y - camera_y)
 
     pr.draw_rectangle(draw_x, draw_y, tile_width, tile_height, color)
+
+def draw_debug_line(debug_item, camera):
+    color = color_map(debug_item.get("color", "PINK"))
+
+    start_x = debug_item.get("pos_start").get("x") - camera.position.x
+    start_y = debug_item.get("pos_start").get("y") - camera.position.y
+
+    end_x = debug_item.get("pos_end").get("x") - camera.position.x
+    end_y = debug_item.get("pos_end").get("y") - camera.position.y
+    
+
+    pr.draw_line_ex(pr.Vector2(start_x, start_y), pr.Vector2(end_x, end_y), debug_item.get("line_width"), color)
+
 
 def draw_debug_text(debug_item, camera):
     x = debug_item.get("pos", {}).get("x") 
