@@ -267,7 +267,12 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
         if entity.get("type","") == "buddha":
             pr.draw_texture_ex(game_assets.get("textures",{}).get("buddha_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 1.5, pr.WHITE)
         elif entity.get("type","") == "red head":
-            pr.draw_texture_ex(game_assets.get("textures",{}).get("red_head_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 2.0, pr.WHITE)
+            texture_to_use = game_assets.get("textures",{}).get("red_head_texture")
+            texture_scale = 2
+            texture_x = (entity.get("position",{}).get("x",0) - game_camera.x) - (texture_to_use.width*texture_scale) / 2
+            texture_y = (entity.get("position",{}).get("y",0) - game_camera.y) - (texture_to_use.height*texture_scale) / 2            
+
+            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
 
 
 def transition_debug_state(current):
