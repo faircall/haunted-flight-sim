@@ -690,7 +690,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     
     alice_pos = alice.get("position")
-    alice_sight_angle = alice.get("sight_angle")
+    alice_sight_angle = alice.get("sight_angle", 0)
 
     main_direction = vector_from_angle(alice_sight_angle)
 
@@ -850,6 +850,8 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
     return next_state
 
 def deg_to_rad(deg):
+    if not deg:
+        deg = 0
     return math.pi * (deg / 180.0)
 
 def vector_from_angle(angle_deg):
