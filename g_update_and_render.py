@@ -726,9 +726,42 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     return result
 
+def get_neighbouring_tiles(tile, tile_map):
+    # the idea here is we return the neighbouring tiles
+    # which is like our 'adjacency matrix', I suppose
+    # we could in fact generate them when the tilemap is initially made?
+    # we want the i,j form    
+    tile_x = tile.get("tile_x")
+    tile_y = tile.get("tile_x")
+    
+
+    # our max case is eight
+
+    # easy to add all then remove the ones we don't want...?    
+    #tileH tileA tileB
+    #tileG tile  tileC
+    #tileF tileE tileD       
+    
+
+    adjacent_tiles = [
+    {"tile_x" : tile_x,  "tile_y" : tile_y - 1}, #A
+    {"tile_x" : tile_x+1,  "tile_y" : tile_y - 1}, #B
+    {"tile_x" : tile_x+1,  "tile_y" : tile_y}, #C
+    {"tile_x" : tile_x+1,  "tile_y" : tile_y+1}, #D
+    {"tile_x" : tile_x,  "tile_y" : tile_y+1}, #E
+    {"tile_x" : tile_x-1,  "tile_y" : tile_y+1}, #F
+    {"tile_x" : tile_x-1,  "tile_y" : tile_y}, #G
+    {"tile_x" : tile_x-1,  "tile_y" : tile_y-1}] #H
+
+    for new_tile in adjacent_tiles:
+        if new_tile.get("tile_x") < 0 or new_tile.get("tile_x") > tile_map.get("map_width") or new_tile.get("tile_y") < 0 or new_tile.get("tile_y") > tile_map.get("map_height"):
+            adjacent_tiles.remove(new_tile)
+
+    return adjacent_tiles
 
     
-def     ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
+    
+def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
 
     for i in range(0, end_range, int(step_size/2)):
         
