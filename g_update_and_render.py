@@ -10,7 +10,12 @@ import queue
 import pyray as pr
 from pyrsistent import m, pmap, v
 
+from dataclasses import dataclass, field
 
+@dataclass(order=True)
+class PriorityQueueEntry:
+    priority: float
+    tile: dict = field(compare=False)
 
 
 
@@ -169,33 +174,59 @@ def graph_cost(tile_a, tile_b):
 def a_star_heuristic(target_tile, next_tile):
     return abs(target_tile.get("tile_x") - next_tile.get("tile_x")) + abs(target_tile.get("tile_y") - next_tile.get("tile_y"))
 
+def get_tile_id_for_hash(tile):
+    return f"{tile.get("tile_x")},{tile.get("tile_y")}"
+
 def a_star_path(start_tile, target_tile, tile_map):
     frontier = queue.PriorityQueue()
-    frontier.put(start_tile, 0)
+    frontier.put(PriorityQueueEntry(0, start_tile))
 
     came_from = {}
     cost_so_far = {}
 
-    came_from[start_tile] = None
-    cost_so_far[start_tile] = 0
+    tile_id = get_tile_id_for_hash(start_tile)
+    came_from[tile_id] = None
+    cost_so_far[tile_id] = 0
 
     while not frontier.empty():
 
-        current = frontier.get()
+        current_pair = frontier.get()
 
+        current = current_pair.tile
+
+        current_tile_id = get_tile_id_for_hash(current)
         if tiles_equal(current, target_tile):
             break
 
+        if current.get("neighbours") is None:
+            print("well damn")
         for next_tile in current.get("neighbours"):
-            new_cost = cost_so_far[current] + graph_cost(current, next_tile)
-            if next_tile not in cost_so_far or new_cost < cost_so_far[next_tile]:
-                cost_so_far[next_tile] = new_cost
+            # need to deref via the tile map actually
+            next_tile_from_map = tile_map.get("tiles")[tile_map.get("map_width")*next_tile.get("tile_y") + next_tile.get("tile_x")]
+            if next_tile_from_map.get("neighbours") is None:
+                print("hmmm")
+            next_tile_id = get_tile_id_for_hash(next_tile)
+            if current_tile_id not in cost_so_far:
+                print("argh")
+            new_cost = cost_so_far[current_tile_id] + graph_cost(current, next_tile)
+            if next_tile_id not in cost_so_far or new_cost < cost_so_far[next_tile_id]:
+                cost_so_far[next_tile_id] = new_cost
                 priority = new_cost + a_star_heuristic(target_tile, next_tile)
-                frontier.put(next_tile, priority)
-                came_from[next_tile] = current
+                frontier.put(PriorityQueueEntry(priority, next_tile_from_map))
+                came_from[next_tile_id] = current
 
     # i guess we want the reconstruct function
     return came_from
+
+def reconstruct_path(came_from, target, origin):
+    next = target
+    result = []
+    result.append(target)
+    while not tiles_equal(next, origin):
+        next_id = get_tile_id_for_hash(next)
+        next = came_from[next_id]
+        result.append(next)
+    return result
 
 
     
@@ -771,7 +802,7 @@ def get_neighbouring_tiles(tile, tile_map):
     # we could in fact generate them when the tilemap is initially made?
     # we want the i,j form    
     tile_x = tile.get("tile_x")
-    tile_y = tile.get("tile_x")
+    tile_y = tile.get("tile_y")
     
 
     # our max case is eight
@@ -793,7 +824,7 @@ def get_neighbouring_tiles(tile, tile_map):
     {"tile_x" : tile_x-1,  "tile_y" : tile_y-1}] #H
 
     for new_tile in adjacent_tiles:
-        if new_tile.get("tile_x") < 0 or new_tile.get("tile_x") > tile_map.get("map_width") or new_tile.get("tile_y") < 0 or new_tile.get("tile_y") > tile_map.get("map_height"):
+        if new_tile.get("tile_x") < 0 or new_tile.get("tile_x") >= tile_map.get("map_width") or new_tile.get("tile_y") < 0 or new_tile.get("tile_y") >= tile_map.get("map_height"):
             adjacent_tiles.remove(new_tile)
 
     return adjacent_tiles
@@ -1034,8 +1065,37 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 debug_queue.append(debug_item)
 
 
+def make_tile_x_y(x, y):
+    return {"tile_x" : x, "tile_y" : y}
 
-        
+def pathfind_test_on_player(player_info, tile_map, game_camera, debug_queue = None):
+    if "path" not in player_info:
+        player_info["test_path"] = []
+    mouse_pos_world = pr.get_mouse_position()
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]
+    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+        mouse_tile_pos = make_tile_x_y(int((mouse_pos_world.x + game_camera.x)/tile_width), int((mouse_pos_world.y + game_camera.y)/tile_height))
+        player_pos = player_info.get("position",{})
+        target_tile_from_tile_map = tile_map.get("tiles")[mouse_tile_pos.get("tile_y")*tile_map.get("map_width") + mouse_tile_pos.get("tile_x")]
+        start_tile_from_tile_map = tile_map.get("tiles")[player_pos.get("tile_y")*tile_map.get("map_width") + player_pos.get("tile_x")]
+
+        player_info["test_path"] = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
+
+    if debug_queue is not None:
+        for tile in player_info["test_path"]:
+            debug_item = {
+                "type" : "tile",
+                "tile_x" : tile.get("tile_x"),
+                "tile_y" : tile.get("tile_y"),
+                "tile_width" : tile_width,
+                "tile_height" : tile_height,
+                "color" : "GREEN",
+                "drawing_function" : draw_debug_tile,
+                "z_sort" : 1
+
+            }    
+            debug_queue.append(debug_item)
     
 
 def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
@@ -1081,6 +1141,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
     #need to test 4 corners I believe
     player_speed = 200
+    
 
     
     # I think what we should do is resolve the vector into two components
@@ -1375,8 +1436,10 @@ def update_and_render(main_arena, game_assets):
         
     #input handling
     player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
+    
     update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
+    pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
