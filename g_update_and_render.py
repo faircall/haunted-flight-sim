@@ -68,6 +68,9 @@ def make_tile_map(width, height, tile_width, tile_height):
         for x in range(width):
             blank_tile = {}
             blank_tile["index"] = 0
+            blank_tile["tile_x"] = x
+            blank_tile["tile_y"] = y
+            blank_tile["neighbours"] = get_neighbouring_tiles(blank_tile, result)
             # blank_tile["type"] = "blank_tile"
             # blank_tile["color"] = "BLACK"            
             tiles.append(blank_tile)
@@ -157,6 +160,42 @@ def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_w
         
         
 
+def get_tile_cost(tile_index):
+    pass
+
+def graph_cost(tile_a, tile_b):
+    return 1
+
+def a_star_heuristic(target_tile, next_tile):
+    return abs(target_tile.get("tile_x") - next_tile.get("tile_x")) + abs(target_tile.get("tile_y") - next_tile.get("tile_y"))
+
+def a_star_path(start_tile, target_tile, tile_map):
+    frontier = queue.PriorityQueue()
+    frontier.put(start_tile, 0)
+
+    came_from = {}
+    cost_so_far = {}
+
+    came_from[start_tile] = None
+    cost_so_far[start_tile] = 0
+
+    while not frontier.empty():
+
+        current = frontier.get()
+
+        if tiles_equal(current, target_tile):
+            break
+
+        for next_tile in current.get("neighbours"):
+            new_cost = cost_so_far[current] + graph_cost(current, next_tile)
+            if next_tile not in cost_so_far or new_cost < cost_so_far[next_tile]:
+                cost_so_far[next_tile] = new_cost
+                priority = new_cost + a_star_heuristic(target_tile, next_tile)
+                frontier.put(next_tile, priority)
+                came_from[next_tile] = current
+
+    # i guess we want the reconstruct function
+    return came_from
 
 
     
@@ -205,12 +244,12 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
             if mode == "editing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     is_highlight = True
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
-                        # do a flood fill
-                        seen = {}
-                        do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen)
+                    # if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                    #     # do a flood fill
+                    #     seen = {}
+                    #     do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen)
 
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_MIDDLE):
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
                         # do a flood fill
                         # get the initial tile
                         initial = tile_map["tiles"][y*map_width + x]["index"]
