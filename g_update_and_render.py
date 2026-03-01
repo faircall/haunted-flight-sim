@@ -760,7 +760,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     
     alice_pos = alice.get("position")
-    alice_sight_angle = alice.get("sight_angle", 0)
+    alice_sight_angle = int(alice.get("sight_angle", 0))
 
     main_direction = vector_from_angle(alice_sight_angle)
 
@@ -911,6 +911,9 @@ def move_entity_towards_target_abs(entity, target_position, dt):
     # start with a straight line
     # returns an updated position, doesn't     
     vec2_between = vec2_normalize(vec2_subtract(target_position, entity.get("position",{})))
+
+    # we can also set our heading here
+    entity["sight_angle"] = angle_from_vector(vec2_between)
     # obviously we should move to 'proper' velocity but it's just a tad harder
     default_speed = 30
     entity_speed = entity.get("speed", default_speed)
@@ -957,6 +960,11 @@ def deg_to_rad(deg):
         deg = 0
     return math.pi * (deg / 180.0)
 
+def rad_to_deg(rad):
+    if not rad:
+        rad = 0
+    return (rad * 180.0) / math.pi 
+
 def vector_from_angle(angle_deg):
     angle = deg_to_rad(angle_deg)
     x = math.cos(angle)
@@ -966,10 +974,20 @@ def vector_from_angle(angle_deg):
 
 
 def angle_from_vector(v):
-    # TODO angle from Vector...
-    result = 0
-
-    return result
+    x = v.get("x",0)
+    y = v.get("y",0)
+    if x == 0:
+        if y == 1:
+            return 0        
+        return 180
+    if y == 0:
+        if x == 1:
+            return 90
+        return 270
+    tan_ratio = y / x
+    angle = rad_to_deg(math.atan2(y, x))
+    # TODO angle from Vector...    
+    return angle
 
 def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     next_state = current_state
