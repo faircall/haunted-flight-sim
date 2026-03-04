@@ -787,6 +787,11 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     step_size = 10
 
+    # ideally what we do here
+    # is have the lines follow a sort of radial fall off
+    # so people can see far ahead
+    # but less so in their peripheral
+    # it might also be fun to play with the idea of 'motion' as a giveway
     for angle in range(angle_start, angle_end, step_size):        
         alice_direction_of_sight_normalized = vector_from_angle(angle)
         can_see = ray_along_tiles_hits_target_tile(alice_pos, bob_tiles, sight_range, int(bob_radius)/2, alice_direction_of_sight_normalized, tile_map, debug_queue)
@@ -898,6 +903,50 @@ def tiles_equal(a, b):
     # draw a
     pass
 
+def make_player_points(player_info):
+    player_pos = player_info.get("position",{}) # top left
+    # true if we think in terms of offset
+    player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
+                            "y" : player_pos.get("y",0),
+                            "tile_x" : player_pos.get("tile_x", 0),
+                            "tile_y" : player_pos.get("tile_y", 0)  
+                            }
+    
+    player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
+                            "y" : player_pos.get("y",0) + player_info.get("player_height",0),
+                            "tile_x" : player_pos.get("tile_x", 0),
+                            "tile_y" : player_pos.get("tile_y", 0) 
+                            }
+    
+    player_pos_bottom_left = {"x" : player_pos.get("x",0),
+                            "y" : player_pos.get("y",0) + player_info.get("player_height",0),
+                            "tile_x" : player_pos.get("tile_x", 0),
+                            "tile_y" : player_pos.get("tile_y", 0) 
+                            }
+
+    player_points = {
+        "top_left" : player_pos,
+        "top_right" : player_pos_top_right,
+        "bottom_left" : player_pos_bottom_left,
+        "bottom_right" : player_pos_bottom_right,
+    }        
+    
+    return player_points
+
+def check_collisions_on_tilemap(player_points, tile_map, debug_queue):
+    # zzz use this for any entity
+    collisions = { "x" : False, "y" : False}
+    for potential_pos in player_points.values():    
+        new_pos_x_direction = new_pos_from_old(potential_pos)
+        new_pos_y_direction = new_pos_from_old(potential_pos)
+        tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
+        tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
+        if tile_type_is_collidable(tile_at_pos_x):
+            collisions["x"] = True
+        if tile_type_is_collidable(tile_at_pos_y):
+            collisions["y"] = True
+    return collisions
+
 def copy_entity_pos(existing):
     return {
         "x" : existing.get("x",0),
@@ -918,6 +967,9 @@ def move_entity_towards_target_abs(entity, target_position, dt):
     default_speed = 30
     entity_speed = entity.get("speed", default_speed)
     new_entity_velocity = vec2_scale(vec2_between, entity_speed * dt)
+
+    # TODO (Cooper) we also need to do our collision logic here
+
     new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)
     return new_entity_position
 
