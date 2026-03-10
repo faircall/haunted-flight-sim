@@ -37,11 +37,12 @@ def reload_modules_if_needed(module_write_times):
                 mod = importlib.reload(mod)            
                 render_error_message("reloaded module!")                
                 module_write_times[name] = get_file_write_time(file_name)
-            except (ImportError, SyntaxError) as e:
+            except (ImportError, SyntaxError) as e:                
                 render_error_message(f"An error occurred while reloading the viz module: {e}")                
             
 
 def render_error_message(msg):
+    print(msg)
     pr.begin_drawing()
     pr.clear_background(pr.RED)
     pr.draw_text(msg, 20, 20, 20, pr.WHITE)

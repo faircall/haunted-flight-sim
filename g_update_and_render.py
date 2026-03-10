@@ -12,6 +12,9 @@ from pyrsistent import m, pmap, v
 
 from dataclasses import dataclass, field
 
+g_default_entity_width = 16
+g_default_entity_height = 16
+
 @dataclass(order=True)
 class PriorityQueueEntry:
     priority: float
@@ -326,12 +329,14 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
 
     # draw the player also
+
+    # make this a draw entity function
     player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16)    
     pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
     # and a dot at his center for debug purposes
-    # player_width_that_i_am_using = 16
-    # player_height_that_i_am_using = 16
-    # pr.draw_circle(int(player_pos["x"] + player_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + player_height_that_i_am_using - game_camera.y), 5, pr.RED)
+    # entity_width_that_i_am_using = 16
+    # entity_height_that_i_am_using = 16
+    # pr.draw_circle(int(player_pos["x"] + entity_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + entity_height_that_i_am_using - game_camera.y), 5, pr.RED)
 
     for entity in entities.values():
         if entity.get("type","") == "buddha":
@@ -482,8 +487,8 @@ def make_default_player(x,y,z):
     pos["tile_x"] = 0
     pos["tile_y"] = 0
 
-    player["player_width"] = 24 #drawing at double scale
-    player["player_height"] = 24
+    player["entity_width"] = 24 #drawing at double scale
+    player["entity_height"] = 24
 
     player["position"] = pos
 
@@ -795,7 +800,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     for angle in range(angle_start, angle_end, step_size):        
         alice_direction_of_sight_normalized = vector_from_angle(angle)
         can_see = ray_along_tiles_hits_target_tile(alice_pos, bob_tiles, sight_range, int(bob_radius)/2, alice_direction_of_sight_normalized, tile_map, debug_queue)
-        if can_see:
+        if can_see:            
             return True        
     result = False
 
@@ -853,6 +858,7 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
 
 
         if tile_type_is_collidable(found_tile.get("type","")):
+            continue # to test walk through walls
             if debug_queue is not None:
                 debug_item = {
                     "type" : "tile",
@@ -906,20 +912,20 @@ def tiles_equal(a, b):
 def make_player_points(player_info):
     player_pos = player_info.get("position",{}) # top left
     # true if we think in terms of offset
-    player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
+    player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",g_default_entity_width),
                             "y" : player_pos.get("y",0),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0)  
                             }
     
-    player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
-                            "y" : player_pos.get("y",0) + player_info.get("player_height",0),
+    player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",g_default_entity_width),
+                            "y" : player_pos.get("y",0) + player_info.get("entity_height",g_default_entity_height),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
     
     player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + player_info.get("player_height",0),
+                            "y" : player_pos.get("y",0) + player_info.get("entity_height",g_default_entity_height),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
@@ -941,6 +947,8 @@ def check_collisions_on_tilemap(player_points, tile_map, debug_queue):
         new_pos_y_direction = new_pos_from_old(potential_pos)
         tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
         tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
+
+        
         if tile_type_is_collidable(tile_at_pos_x):
             collisions["x"] = True
         if tile_type_is_collidable(tile_at_pos_y):
@@ -956,7 +964,7 @@ def copy_entity_pos(existing):
         "tile_y" : existing.get("tile_y",0),
     }
 
-def move_entity_towards_target_abs(entity, target_position, dt):
+def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queue, dt):
     # start with a straight line
     # returns an updated position, doesn't     
     vec2_between = vec2_normalize(vec2_subtract(target_position, entity.get("position",{})))
@@ -970,7 +978,32 @@ def move_entity_towards_target_abs(entity, target_position, dt):
 
     # TODO (Cooper) we also need to do our collision logic here
 
-    new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)
+    entity_tile_positions = get_tile_index_from_pos(entity.get("position",{}), tile_map, debug_queue)
+
+    new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
+
+    new_entity_position["tile_x"] = entity_tile_positions.get("tile_x", 0)
+    new_entity_position["tile_y"] = entity_tile_positions.get("tile_y", 0)
+        
+    
+
+    entity_info_to_test = {
+        "position" : new_entity_position,
+        "entity_width" : entity.get("entity_width",g_default_entity_width),        
+        "entity_height" : entity.get("entity_height",g_default_entity_height),        
+    }
+    
+
+    entity_points = make_player_points(entity_info_to_test)
+
+    entity_collisions = check_collisions_on_tilemap(entity_points, tile_map, debug_queue)
+
+    if entity_collisions.get("x", False):
+        new_entity_position["x"] = entity.get("position",{}).get("x",0)    
+    if entity_collisions.get("y", False):
+        new_entity_position["y"] = entity.get("position",{}).get("y",0)
+    
+
     return new_entity_position
 
 
@@ -1051,13 +1084,15 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     entity_collide_distance = 5
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)
+    # TODO: mismatch here between player position which is offset, turned into abs
+    # and entity positions, which are currenty only abs
     entity_pos = entity.get("position",{})
     player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
                           "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
         
         
     target_pos = get_abs_pos_from_index(entity.get("last_seen_player_pos"), tile_map, debug_queue)
-    new_position = move_entity_towards_target_abs(entity, target_pos, dt)
+    new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
     
     entity.get("position",{})["x"] = new_position.get("x", 0)
     entity.get("position",{})["y"] = new_position.get("y", 0)        
@@ -1180,20 +1215,20 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
     player_pos = player_info.get("position",{}) # top left
     # true if we think in terms of offset
-    player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
+    player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",0),
                             "y" : player_pos.get("y",0),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0)  
                             }
     
-    player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("player_width",0),
-                            "y" : player_pos.get("y",0) + player_info.get("player_height",0),
+    player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",0),
+                            "y" : player_pos.get("y",0) + player_info.get("entity_height",0),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
     
     player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + player_info.get("player_height",0),
+                            "y" : player_pos.get("y",0) + player_info.get("entity_height",0),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
