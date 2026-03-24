@@ -304,6 +304,8 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
                         if current_entity_selection < len(entity_types):
                             entity_type = entity_types[current_entity_selection]
                         new_entity["type"] = entity_type
+                        
+                        # TODO : this is where we messed up!
                         new_entity["position"] = {"x" : mouse_pos_world.x + game_camera.x, "y" : mouse_pos_world.y + game_camera.y}
                         id = len(entities)
                         new_entity["id"] = id
@@ -981,9 +983,13 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     entity_tile_positions = get_tile_index_from_pos(entity.get("position",{}), tile_map, debug_queue)
 
     new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
-
     new_entity_position["tile_x"] = entity_tile_positions.get("tile_x", 0)
     new_entity_position["tile_y"] = entity_tile_positions.get("tile_y", 0)
+    tile_height = tile_map["tile_height"]
+    tile_width = tile_map["tile_width"]
+    move_position_along_tiles(new_entity_position, tile_width, tile_height)
+
+    
         
     
 
@@ -1335,8 +1341,44 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
     
     
+    new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
+
+    # if new_pos["x"] > tile_width:
+    #     additional_x_tiles = int(new_pos.get("x",0) / tile_width)
+    #     new_pos["tile_x"] += additional_x_tiles
+    #     new_pos["x"] = new_pos["x"] % tile_width
+
+    # if new_pos["x"] < 0:
+    #     additional_x_tiles = int((tile_width + abs(new_pos.get("x",0))) / tile_width)
+    #     new_pos["tile_x"] -= additional_x_tiles
+
+    #     new_pos["x"] = tile_width + new_pos["x"]
+
+    # if new_pos["y"] < 0:
+    #     additional_y_tiles = int((tile_height + abs(new_pos.get("y",0))) / tile_height)
+    #     # I think this will do us?
+        
+    #     new_pos["tile_y"] -= additional_y_tiles    
+    #     new_pos["y"] = new_pos["y"] + tile_height
+
+    # if new_pos["y"] > tile_height:
+    #     additional_y_tiles = int(new_pos.get("y",0) / tile_height)
+    #     # I think this will do us?
+        
+    #     new_pos["tile_y"] += additional_y_tiles    
+
+    #     new_pos["y"] = new_pos["y"] % tile_height
+
     
 
+    
+    
+    
+
+    
+    return new_pos
+
+def move_position_along_tiles(new_pos, tile_width, tile_height):    
     if new_pos["x"] > tile_width:
         additional_x_tiles = int(new_pos.get("x",0) / tile_width)
         new_pos["tile_x"] += additional_x_tiles
@@ -1363,13 +1405,6 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
         new_pos["y"] = new_pos["y"] % tile_height
 
-    
-
-    
-    
-    
-
-    
     return new_pos
 
 def draw_debug_circle(debug_item, camera):
