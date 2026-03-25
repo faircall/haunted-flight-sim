@@ -255,6 +255,11 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
 
     mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera.x)/tile_width), int((mouse_pos_world.y + game_camera.y)/tile_height))
 
+    mouse_tile_pos_offset_x = (mouse_pos_world.x + game_camera.x) - mouse_tile_pos.x*tile_width
+    mouse_tile_pos_offset_y = (mouse_pos_world.y + game_camera.y) - mouse_tile_pos.y*tile_height
+
+
+
     top_left_pos = pr.Vector2(int(game_camera.x/tile_width), int(game_camera.y/tile_height))    
     
     # let's try be slightly quicker about this!
@@ -306,7 +311,19 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
                         new_entity["type"] = entity_type
                         
                         # TODO : this is where we messed up!
-                        new_entity["position"] = {"x" : mouse_pos_world.x + game_camera.x, "y" : mouse_pos_world.y + game_camera.y}
+
+                        offset_x = mouse_tile_pos_offset_x
+                        offset_y = mouse_tile_pos_offset_y
+
+                        # EXPLORE 
+                        # opportunity to do interesting thing here
+                        # where we store (and update!) entities on tiles
+                        # which would allow us to do things like
+                        # know about an explosion on a tile 
+                        # and immediately damage all the entities on it 
+                        # much faster for 'find the entities who are at location x/y/z'
+
+                        new_entity["position"] = {"x" : offset_x, "y" : offset_y, "tile_x" : x, "tile_y" : y}
                         id = len(entities)
                         new_entity["id"] = id
                         entities[id] = new_entity
@@ -346,8 +363,10 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
         elif entity.get("type","") == "red head":
             texture_to_use = game_assets.get("textures",{}).get("red_head_texture")
             texture_scale = 2
-            texture_x = (entity.get("position",{}).get("x",0) - game_camera.x) - (texture_to_use.width*texture_scale) / 2
-            texture_y = (entity.get("position",{}).get("y",0) - game_camera.y) - (texture_to_use.height*texture_scale) / 2            
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
+            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
 
             pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
 
@@ -980,11 +999,14 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
     # TODO (Cooper) we also need to do our collision logic here
 
+    # no longer valid
     entity_tile_positions = get_tile_index_from_pos(entity.get("position",{}), tile_map, debug_queue)
 
     new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
     new_entity_position["tile_x"] = entity_tile_positions.get("tile_x", 0)
     new_entity_position["tile_y"] = entity_tile_positions.get("tile_y", 0)
+
+    new_entity_position["source"] = "ai"
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     move_position_along_tiles(new_entity_position, tile_width, tile_height)
@@ -1378,7 +1400,10 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
     return new_pos
 
-def move_position_along_tiles(new_pos, tile_width, tile_height):    
+def move_position_along_tiles(new_pos, tile_width, tile_height):        
+
+    # draw_debug = (new_pos.get("source","") == "ai")
+    draw_debug = False
     if new_pos["x"] > tile_width:
         additional_x_tiles = int(new_pos.get("x",0) / tile_width)
         new_pos["tile_x"] += additional_x_tiles
@@ -1404,6 +1429,11 @@ def move_position_along_tiles(new_pos, tile_width, tile_height):
         new_pos["tile_y"] += additional_y_tiles    
 
         new_pos["y"] = new_pos["y"] % tile_height
+
+    if draw_debug:
+        pr.draw_text(f"tile x: {new_pos.get("tile_x","")}", 80, 30, 10, pr.WHITE)
+        print(f"tile x: {new_pos.get("tile_x","")}")
+        print(f"tile y: {new_pos.get("tile_y","")}")
 
     return new_pos
 
