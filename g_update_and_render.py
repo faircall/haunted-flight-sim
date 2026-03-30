@@ -359,7 +359,13 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
 
     for entity in entities.values():
         if entity.get("type","") == "buddha":
-            pr.draw_texture_ex(game_assets.get("textures",{}).get("buddha_texture"), pr.Vector2((entity.get("position",{}).get("x",0) - game_camera.x), (entity.get("position",{}).get("y",0) - game_camera.y)), 0.0, 1.5, pr.WHITE)
+            texture_scale = 1
+            texture_to_use = game_assets.get("textures",{}).get("buddha_texture")
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
+            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
+            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
         elif entity.get("type","") == "red head":
             texture_to_use = game_assets.get("textures",{}).get("red_head_texture")
             texture_scale = 2
@@ -786,6 +792,8 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     
     alice_pos = alice.get("position")
+
+    abs_alice = get_abs_pos_from_index(alice_pos, tile_map, )
     alice_sight_angle = int(alice.get("sight_angle", 0))
 
     main_direction = vector_from_angle(alice_sight_angle)
@@ -795,8 +803,8 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
         debug_item = {
                     "type" : "line",
                     "drawing_function" : draw_debug_line,
-                    "pos_start" : {"x" : alice_pos.get("x"), "y" : alice_pos.get("y")},                                        
-                    "pos_end" : {"x" : alice_pos.get("x") + main_direction_scaled.get("x"), "y" : alice_pos.get("y") + main_direction_scaled.get("y")},                                        
+                    "pos_start" : {"x" : abs_alice.get("x"), "y" : abs_alice.get("y")},                                        
+                    "pos_end" : {"x" : abs_alice.get("x") + abs_alice.get("x"), "y" : abs_alice.get("y") + main_direction_scaled.get("y")},                                        
                     "line_width" : 1,                    
                     "color" : "PURPLE",
                     "z_sort" : -1,                    
@@ -860,15 +868,26 @@ def get_neighbouring_tiles(tile, tile_map):
 
     return adjacent_tiles
 
-    
+
+
+def tile_and_offset_to_absolute(tile_map, position):
+    tile_width = tile_map.get("tile_width",0)
+    tile_height = tile_map.get("tile_height",0)
+
+    abs_x = tile_width * position.get("tile_x") + position.get("x")
+    abs_y = tile_width * position.get("tile_y") + position.get("y")
+
+    return {"x" : abs_x, "y": abs_y}
+
     
 def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
 
     for i in range(0, end_range, int(step_size/2)):
         
         dist_to_push = i
-        ray = vec2_scale(normalized_ray_direction, dist_to_push)
-        pos_test = vec2_add(ray, original_position)
+        ray = vec2_scale(normalized_ray_direction, dist_to_push)        
+        abs_pos = tile_and_offset_to_absolute(tile_map, original_position)
+        pos_test = vec2_add(ray, abs_pos)
         
 
         test_tiles = get_tile_index_from_pos(pos_test, tile_map)
@@ -985,10 +1004,14 @@ def copy_entity_pos(existing):
         "tile_y" : existing.get("tile_y",0),
     }
 
+
+
 def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queue, dt):
     # start with a straight line
     # returns an updated position, doesn't     
-    vec2_between = vec2_normalize(vec2_subtract(target_position, entity.get("position",{})))
+    tile_height = tile_map["tile_height"]
+    tile_width = tile_map["tile_width"]
+    vec2_between = vec2_normalize(vec2_subtract(target_position, make_player_pos_abs(entity.get("position",{}), tile_width, tile_height)))
 
     # we can also set our heading here
     entity["sight_angle"] = angle_from_vector(vec2_between)
@@ -998,18 +1021,19 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     new_entity_velocity = vec2_scale(vec2_between, entity_speed * dt)
 
     # TODO (Cooper) we also need to do our collision logic here
-
+    # ZZZZZ
     # no longer valid
-    entity_tile_positions = get_tile_index_from_pos(entity.get("position",{}), tile_map, debug_queue)
+    #entity_tile_positions = get_tile_index_from_pos(entity.get("position",{}), tile_map, debug_queue)
+    
 
     new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
-    new_entity_position["tile_x"] = entity_tile_positions.get("tile_x", 0)
-    new_entity_position["tile_y"] = entity_tile_positions.get("tile_y", 0)
+    new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
+    new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)
+    #new_entity_position = move_position_along_tiles(new_entity_position, tile_map.get("tile_width",0), tile_map.get("tile_height",0))    
 
     new_entity_position["source"] = "ai"
-    tile_height = tile_map["tile_height"]
-    tile_width = tile_map["tile_width"]
-    move_position_along_tiles(new_entity_position, tile_width, tile_height)
+    
+    new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
 
     
         
@@ -1035,6 +1059,11 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     return new_entity_position
 
 
+def make_player_pos_abs(player_pos, tile_width, tile_height):
+    player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
+                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
+    
+    return player_pos_abs
 
 def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     entity_pos = entity.get("position",{})        
@@ -1121,9 +1150,11 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
         
     target_pos = get_abs_pos_from_index(entity.get("last_seen_player_pos"), tile_map, debug_queue)
     new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
+
+    entity["position"] = new_position
     
-    entity.get("position",{})["x"] = new_position.get("x", 0)
-    entity.get("position",{})["y"] = new_position.get("y", 0)        
+    # entity.get("position",{})["x"] = new_position.get("x", 0)
+    # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
     if vec2_distance(new_position, player_pos_abs) < entity_collide_distance:
         next_state = "angry and attacking"
