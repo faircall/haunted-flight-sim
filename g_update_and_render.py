@@ -1131,6 +1131,13 @@ def angle_from_vector(v):
     # TODO angle from Vector...    
     return angle
 
+def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
+    collides = False
+    if tile_and_offset_a.get("tile_x") == tile_and_offset_b.get("tile_x") and tile_and_offset_a.get("tile_y") == tile_and_offset_b.get("tile_y"):
+        if vec2_distance(tile_and_offset_a, tile_and_offset_b) < dist:
+            collides = True        
+    return collides
+
 def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     next_state = current_state
     can_see = True
@@ -1156,12 +1163,14 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     # entity.get("position",{})["x"] = new_position.get("x", 0)
     # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    if vec2_distance(new_position, player_pos_abs) < entity_collide_distance:
-        next_state = "angry and attacking"
-
     dest_threshold = 5
     give_up_threshold = 3
-    if not can_see and vec2_distance(new_position, target_pos) < dest_threshold:
+
+    if fast_distance_within_tiles(new_position, player_pos, dest_threshold):
+        next_state = "angry and attacking"
+
+    
+    if not can_see and fast_distance_within_tiles(new_position, entity.get("last_seen_player_pos"), dest_threshold):
         get_or_set(entity, "give_up_time", 0)
         entity["give_up_time"] += dt
         if entity["give_up_time"] > give_up_threshold:
@@ -1195,6 +1204,7 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
 
     
 
+
 def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
@@ -1216,11 +1226,13 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             current_state = get_or_set(entity, "current state", "idle")
             next_state = transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
             entity["current state"] = next_state
+
+            pos_abs = tile_and_offset_to_absolute(tile_map, entity.get("position",{}))
             if debug_queue is not None:
                 debug_item = {
                     "type" : "text",
                     "drawing_function" : draw_debug_text,
-                    "pos" : {"x" : entity.get("position",{}).get("x"), "y" : entity.get("position",{}).get("y")},                                        
+                    "pos" : {"x" : pos_abs.get("x",0), "y" : pos_abs.get("y",0)},                                        
                     "font_size" : 16,
                     "text" : f"{entity["current state"]}",
                     "color" : "WHITE",
