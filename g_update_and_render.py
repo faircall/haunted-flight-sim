@@ -799,12 +799,13 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     main_direction = vector_from_angle(alice_sight_angle)
 
     main_direction_scaled = vec2_scale(main_direction, 100)
+    
     if debug_queue:
         debug_item = {
                     "type" : "line",
                     "drawing_function" : draw_debug_line,
                     "pos_start" : {"x" : abs_alice.get("x"), "y" : abs_alice.get("y")},                                        
-                    "pos_end" : {"x" : abs_alice.get("x") + abs_alice.get("x"), "y" : abs_alice.get("y") + main_direction_scaled.get("y")},                                        
+                    "pos_end" : {"x" : abs_alice.get("x") + main_direction_scaled.get("x"), "y" : abs_alice.get("y") + main_direction_scaled.get("y")},                                        
                     "line_width" : 1,                    
                     "color" : "PURPLE",
                     "z_sort" : -1,                    
