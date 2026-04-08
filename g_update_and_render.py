@@ -812,7 +812,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                 }
         debug_queue.append(debug_item)
 
-    sight_range = 200
+    sight_range = 300
     bob_radius = 20
 
     alice_fov = 180
@@ -951,6 +951,8 @@ def tiles_equal(a, b):
     pass
 
 def make_player_points(player_info):
+    # ZZZ
+    # not taking into account that the tiles will be different when adding width/height
     player_pos = player_info.get("position",{}) # top left
     # true if we think in terms of offset
     player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",g_default_entity_width),
@@ -992,8 +994,10 @@ def check_collisions_on_tilemap(player_points, tile_map, debug_queue):
         
         if tile_type_is_collidable(tile_at_pos_x):
             collisions["x"] = True
+            print("hit the x pos")
         if tile_type_is_collidable(tile_at_pos_y):
             collisions["y"] = True
+            print("hit the y pos")
     return collisions
 
 def copy_entity_pos(existing):
@@ -1021,10 +1025,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     entity_speed = entity.get("speed", default_speed)
     new_entity_velocity = vec2_scale(vec2_between, entity_speed * dt)
 
-    # TODO (Cooper) we also need to do our collision logic here
-    # ZZZZZ
-    # no longer valid
-    #entity_tile_positions = get_tile_index_from_pos(entity.get("position",{}), tile_map, debug_queue)
+    # TODO (Cooper) we also need to do our collision logic here    
     
 
     new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
@@ -1049,12 +1050,30 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
     entity_points = make_player_points(entity_info_to_test)
 
+    for potential_pos in entity_points.values():
+        if debug_queue is not None:
+                debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle,
+                    "pos" : potential_pos,                    
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "radius" : 2,
+                    "color" : "BLUE",
+                    "z_sort" : 0,
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height
+                }
+                debug_queue.append(debug_item)
+
     entity_collisions = check_collisions_on_tilemap(entity_points, tile_map, debug_queue)
 
     if entity_collisions.get("x", False):
         new_entity_position["x"] = entity.get("position",{}).get("x",0)    
+        new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
     if entity_collisions.get("y", False):
         new_entity_position["y"] = entity.get("position",{}).get("y",0)
+        new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)    
     
 
     return new_entity_position
@@ -1305,12 +1324,14 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
 
-    player_points = {
-        "top_left" : player_pos,
-        "top_right" : player_pos_top_right,
-        "bottom_left" : player_pos_bottom_left,
-        "bottom_right" : player_pos_bottom_right,
-    }
+    # player_points = {
+    #     "top_left" : player_pos,
+    #     "top_right" : player_pos_top_right,
+    #     "bottom_left" : player_pos_bottom_left,
+    #     "bottom_right" : player_pos_bottom_right,
+    # }
+
+    player_points = make_player_points(player_info)
 
     collisions = { "x" : False, "y" : False}
 
