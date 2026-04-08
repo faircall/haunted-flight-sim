@@ -168,11 +168,23 @@ def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_w
         
         
 
-def get_tile_cost(tile_index):
-    pass
+def get_tile_cost(tile_type):
+    tile_costs = {
+        "wall" : 999999999, 
+    }
+    
 
-def graph_cost(tile_a, tile_b):
-    return 1
+    return tile_costs.get(tile_type.get("type",""), 1)
+
+def graph_cost(tile_a, tile_b, tile_map):
+    a_type = get_tile_type_from_indices(tile_a.get("tile_x"), tile_a.get("tile_y"), tile_map)
+    b_type = get_tile_type_from_indices(tile_b.get("tile_x"), tile_b.get("tile_y"), tile_map)
+    a_cost = get_tile_cost(a_type)    
+    b_cost = get_tile_cost(b_type)
+    # do we want the sum....hrmm....
+    # or could there be a special cost when transitioning beteen
+    # special tiles even?
+    return a_cost + b_cost    
 
 def a_star_heuristic(target_tile, next_tile):
     return abs(target_tile.get("tile_x") - next_tile.get("tile_x")) + abs(target_tile.get("tile_y") - next_tile.get("tile_y"))
@@ -211,7 +223,7 @@ def a_star_path(start_tile, target_tile, tile_map):
             next_tile_id = get_tile_id_for_hash(next_tile)
             if current_tile_id not in cost_so_far:
                 print("argh")
-            new_cost = cost_so_far[current_tile_id] + graph_cost(current, next_tile)
+            new_cost = cost_so_far[current_tile_id] + graph_cost(current, next_tile, tile_map)
             if next_tile_id not in cost_so_far or new_cost < cost_so_far[next_tile_id]:
                 cost_so_far[next_tile_id] = new_cost
                 priority = new_cost + a_star_heuristic(target_tile, next_tile)
