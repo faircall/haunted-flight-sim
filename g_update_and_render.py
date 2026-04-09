@@ -241,6 +241,7 @@ def reconstruct_path(came_from, target, origin):
         next_id = get_tile_id_for_hash(next)
         next = came_from[next_id]
         result.append(next)
+    result.reverse()
     return result
 
 
@@ -672,8 +673,8 @@ def get_abs_pos_from_index(pos, tile_map, debug_queue = None):
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]    
 
-    abs_x = tile_map["tile_width"] * pos.get("tile_x",0) + pos.get("x",0)
-    abs_y = tile_map["tile_height"] * pos.get("tile_y",0) + pos.get("y",0)
+    abs_x = tile_map["tile_width"] * pos.get("tile_x",0) + pos.get("x",16)
+    abs_y = tile_map["tile_height"] * pos.get("tile_y",0) + pos.get("y",16)
     
     return {"x" : abs_x, "y" : abs_y}
                   
@@ -948,19 +949,13 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
 
 def tiles_equal(a, b):
     return a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0)
-        
 
+def tiles_close(a, b, epsilon):
+    if a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0):
+        if vec2_distance(a, {"x": 16, "y" : 16}):
+            return True
+    return False
 
-
-
-
-
-
-
-
-
-    # draw a
-    pass
 
 def make_player_points(player_info):
     # ZZZ
@@ -1005,11 +1000,9 @@ def check_collisions_on_tilemap(player_points, tile_map, debug_queue):
 
         
         if tile_type_is_collidable(tile_at_pos_x):
-            collisions["x"] = True
-            print("hit the x pos")
+            collisions["x"] = True            
         if tile_type_is_collidable(tile_at_pos_y):
-            collisions["y"] = True
-            print("hit the y pos")
+            collisions["y"] = True            
     return collisions
 
 def copy_entity_pos(existing):
@@ -1115,6 +1108,13 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
         next_state = "angry and attacking"
     elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
         next_state = "angry chase"
+        # path to player needed here
+        
+        target_tile_from_tile_map = tile_map.get("tiles")[player_pos.get("tile_y")*tile_map.get("map_width") + player_pos.get("tile_x")]
+        start_tile_from_tile_map = tile_map.get("tiles")[entity_pos.get("tile_y")*tile_map.get("map_width") + entity_pos.get("tile_x")]
+        path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
+        entity["path_to_player"] = path_to_player
+        entity["path_to_player_current_index"] = 0
         entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
     else:
         bored_timer += dt
@@ -1172,9 +1172,11 @@ def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
 
 def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     next_state = current_state
-    can_see = True
+    can_see = True    
     if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+        # on some interval we should also update the path to the player here...I think
         entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+
     else:
         can_see = False
     entity_collide_distance = 5
@@ -1186,8 +1188,29 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
                           "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
         
-        
-    target_pos = get_abs_pos_from_index(entity.get("last_seen_player_pos"), tile_map, debug_queue)
+    
+    waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
+
+    if debug_queue is not None:
+        for tile in entity["path_to_player"]:
+            debug_item = {
+                "type" : "tile",
+                "tile_x" : tile.get("tile_x"),
+                "tile_y" : tile.get("tile_y"),
+                "tile_width" : tile_width,
+                "tile_height" : tile_height,
+                "color" : "GREEN",
+                "drawing_function" : draw_debug_tile,
+                "z_sort" : 1
+
+            }    
+            debug_queue.append(debug_item)
+
+    if tiles_close(entity_pos, waypoint_pos, 4) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
+        entity["path_to_player_current_index"] += 1
+    target_pos = get_abs_pos_from_index(waypoint_pos, tile_map, debug_queue)
+
+    # zzzz make this target pos come from the path instead
     new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
 
     entity["position"] = new_position
@@ -1583,6 +1606,8 @@ def update_and_render(main_arena, game_assets):
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
     dt = pr.get_frame_time()
+    # issue here when debugging, people will accumulate insane time
+    dt = min(dt, 0.016)
     mouse_pos = pr.get_mouse_position()
     time_elapsed = main_arena.get("time_elapsed", 0.0) 
     save_interval = 200
