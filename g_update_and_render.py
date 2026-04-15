@@ -673,6 +673,7 @@ def get_abs_pos_from_index(pos, tile_map, debug_queue = None):
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]    
 
+    # zzz this was an issue because it was moving to corners of tiles rather than centers!
     abs_x = tile_map["tile_width"] * pos.get("tile_x",0) + pos.get("x",16)
     abs_y = tile_map["tile_height"] * pos.get("tile_y",0) + pos.get("y",16)
     
@@ -989,12 +990,18 @@ def make_player_points(player_info):
     
     return player_points
 
-def check_collisions_on_tilemap(player_points, tile_map, debug_queue):
+def check_collisions_on_tilemap(player_points, new_pos_velocity, tile_map, debug_queue):
     # zzz use this for any entity
     collisions = { "x" : False, "y" : False}
     for potential_pos in player_points.values():    
         new_pos_x_direction = new_pos_from_old(potential_pos)
         new_pos_y_direction = new_pos_from_old(potential_pos)
+
+        new_pos_x_direction['x'] += new_pos_velocity['x']
+
+        new_pos_y_direction['y'] += new_pos_velocity['y']
+
+        # these need to be adjusted!!!!
         tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
         tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
 
@@ -1035,25 +1042,22 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
     new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
     new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
-    new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)
-    #new_entity_position = move_position_along_tiles(new_entity_position, tile_map.get("tile_width",0), tile_map.get("tile_height",0))    
+    new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)    
 
     new_entity_position["source"] = "ai"
     
     new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
 
-    
+    # we should actually adjust velocity based on collision, 
+    # rather than just killing it outright
+    # then renormalize afterwards I think....
         
     
 
-    entity_info_to_test = {
-        "position" : new_entity_position,
-        "entity_width" : entity.get("entity_width",g_default_entity_width),        
-        "entity_height" : entity.get("entity_height",g_default_entity_height),        
-    }
+    
     
 
-    entity_points = make_player_points(entity_info_to_test)
+    entity_points = make_player_points(entity)
 
     for potential_pos in entity_points.values():
         if debug_queue is not None:
@@ -1071,14 +1075,35 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
                 }
                 debug_queue.append(debug_item)
 
-    entity_collisions = check_collisions_on_tilemap(entity_points, tile_map, debug_queue)
+    entity_collisions = check_collisions_on_tilemap(entity_points, new_entity_velocity, tile_map, debug_queue)
+    if entity_collisions.get("x", False):
+        new_entity_velocity['x'] = 0
+        new_entity_velocity = vec2_normalize(new_entity_velocity)
+        new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+        # new_entity_position["x"] = entity.get("position",{}).get("x",0)    
+        # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
+    if entity_collisions.get("y", False):
+        new_entity_velocity['y'] = 0
+        new_entity_velocity = vec2_normalize(new_entity_velocity)
+        new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+
+    new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
+    new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
+    new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)            
+    new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
 
     if entity_collisions.get("x", False):
+        # new_entity_velocity['x'] = 0
+        # new_entity_velocity = vec2_normalize(new_entity_velocity)
         new_entity_position["x"] = entity.get("position",{}).get("x",0)    
         new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
     if entity_collisions.get("y", False):
-        new_entity_position["y"] = entity.get("position",{}).get("y",0)
+        new_entity_position["y"] = entity.get("position",{}).get("y",0)    
         new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)    
+        # new_entity_velocity['y'] = 0
+        # new_entity_velocity = vec2_normalize(new_entity_velocity)
+
+
     
 
     return new_entity_position
@@ -1176,7 +1201,6 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
         # on some interval we should also update the path to the player here...I think
         entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
-
     else:
         can_see = False
     entity_collide_distance = 5
@@ -1206,11 +1230,11 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
             }    
             debug_queue.append(debug_item)
 
-    if tiles_close(entity_pos, waypoint_pos, 4) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
+    if tiles_close(entity_pos, waypoint_pos, 1) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
         entity["path_to_player_current_index"] += 1
     target_pos = get_abs_pos_from_index(waypoint_pos, tile_map, debug_queue)
 
-    # zzzz make this target pos come from the path instead
+    
     new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
 
     entity["position"] = new_position
@@ -1225,7 +1249,7 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
         next_state = "angry and attacking"
 
     
-    if not can_see and fast_distance_within_tiles(new_position, entity.get("last_seen_player_pos"), dest_threshold):
+    if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
         get_or_set(entity, "give_up_time", 0)
         entity["give_up_time"] += dt
         if entity["give_up_time"] > give_up_threshold:
