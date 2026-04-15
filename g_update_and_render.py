@@ -673,7 +673,7 @@ def get_abs_pos_from_index(pos, tile_map, debug_queue = None):
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]    
 
-    # zzz this was an issue because it was moving to corners of tiles rather than centers!
+    
     abs_x = tile_map["tile_width"] * pos.get("tile_x",0) + pos.get("x",16)
     abs_y = tile_map["tile_height"] * pos.get("tile_y",0) + pos.get("y",16)
     
@@ -687,7 +687,8 @@ def get_tile_type_from_indices(tile_x, tile_y, tile_map):
     tile_type = tile_map["tile_types"][tile_index_to_test]
     return tile_type
 
-def get_tile_type_from_pos(pos, tile_map, debug_queue = None):    
+
+def get_tiles_from_pos(pos, tile_map, debug_queue = None):
     map_width = tile_map["map_width"]
     map_height = tile_map["map_height"]
     tile_width = tile_map["tile_width"]
@@ -713,6 +714,30 @@ def get_tile_type_from_pos(pos, tile_map, debug_queue = None):
     tile_x = tile_x % map_width
     tile_y = pos.get("tile_y") + additional_y_tiles
     tile_y = tile_y  % map_height
+
+    return {"tile_x" : tile_x, "tile_y" : tile_y}
+    # if debug_queue is not None:
+    #     debug_item = {
+    #         "type" : "tile",
+    #         "tile_x" : tile_x,
+    #         "tile_y" : tile_y,
+    #         "tile_width" : tile_width,
+    #         "tile_height" : tile_height,
+    #         "color" : "PINK",
+    #         "drawing_function" : draw_debug_tile,
+    #         "z_sort" : 1
+
+    #     }    
+    #     debug_queue.append(debug_item)
+
+def get_tile_type_from_pos(pos, tile_map, debug_queue = None):    
+    map_width = tile_map["map_width"]
+    map_height = tile_map["map_height"]
+    tiles = get_tiles_from_pos(pos, tile_map, debug_queue = None)
+    tile_x = tiles.get("tile_x")
+    tile_y = tiles.get("tile_y")
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]
     if debug_queue is not None:
         debug_item = {
             "type" : "tile",
@@ -958,7 +983,7 @@ def tiles_close(a, b, epsilon):
     return False
 
 
-def make_player_points(player_info):
+def make_player_points(player_info, tile_width, tile_height):
     # ZZZ
     # not taking into account that the tiles will be different when adding width/height
     player_pos = player_info.get("position",{}) # top left
@@ -969,17 +994,25 @@ def make_player_points(player_info):
                             "tile_y" : player_pos.get("tile_y", 0)  
                             }
     
+    player_pos_top_right = move_position_along_tiles(player_pos_top_right, tile_width, tile_height)
+    
+
+    
     player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",g_default_entity_width),
                             "y" : player_pos.get("y",0) + player_info.get("entity_height",g_default_entity_height),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
     
+    player_pos_bottom_right = move_position_along_tiles(player_pos_bottom_right, tile_width, tile_height)
+    
     player_pos_bottom_left = {"x" : player_pos.get("x",0),
                             "y" : player_pos.get("y",0) + player_info.get("entity_height",g_default_entity_height),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
+    
+    player_pos_bottom_left = move_position_along_tiles(player_pos_bottom_left, tile_width, tile_height)
 
     player_points = {
         "top_left" : player_pos,
@@ -1057,7 +1090,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     
     
 
-    entity_points = make_player_points(entity)
+    entity_points = make_player_points(entity, tile_width, tile_height)
 
     for potential_pos in entity_points.values():
         if debug_queue is not None:
@@ -1214,6 +1247,9 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
         
     
     waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
+    # if our last position here doesn't match tiles on the last_seen_player_position we should recalculate?
+    # OR if enough time has elapsed
+    # really depends how slow this thing is
 
     if debug_queue is not None:
         for tile in entity["path_to_player"]:
@@ -1254,7 +1290,17 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
         entity["give_up_time"] += dt
         if entity["give_up_time"] > give_up_threshold:
             next_state = "idle"
+
+    
+    if can_see and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
+        target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
+        start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
+        path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
+        entity["path_to_player"] = path_to_player
+        entity["path_to_player_current_index"] = 0        
     return next_state
+
+
 
 
     
@@ -1390,7 +1436,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     #     "bottom_right" : player_pos_bottom_right,
     # }
 
-    player_points = make_player_points(player_info)
+    player_points = make_player_points(player_info, tile_width, tile_height)
 
     collisions = { "x" : False, "y" : False}
 
