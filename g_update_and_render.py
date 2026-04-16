@@ -251,10 +251,11 @@ def reconstruct_path(came_from, target, origin):
     
 
 
-def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_pos, mode):
+def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_info, mode):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
+    player_pos = player_info.get("position",{})
     if ignore:
         return
 
@@ -366,8 +367,15 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
 
     # make this a draw entity function
     player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16)    
+    
+
+    gun_pos = vec2_add_any(player_render_pos, player_info.get("aim_direction"))
+    gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
+
     pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
-    pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), player_render_pos, 0.0, 1, pr.WHITE)    
+    pr.draw_line(int(player_render_pos.x), int(player_render_pos.y), int(gun_pos.x), int(gun_pos.y), pr.WHITE)
+    
+    pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, 0.0, 1, pr.WHITE)    
 
     # and a dot at his center for debug purposes
     # entity_width_that_i_am_using = 16
@@ -777,6 +785,15 @@ def tile_type_is_collidable(tile_type):
         "wall" : True
     }
     return collision_map.get(tile_type, False)
+
+def vec2_add_any(a, b):
+    if not isinstance(a, dict):
+        a = {"x" : a.x, "y" : a.y}
+
+    if not isinstance(b, dict):
+        a = {"x" : b.x, "y" : b.y}
+
+    return vec2_add(a, b)
 
 def vec2_add(a, b):
     return {"x": a.get("x",0) + b.get("x",0),
@@ -1477,6 +1494,8 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     direction_vector = {"x" : 0.0, "y" : 0.0}
 
 
+
+
     if pr.is_key_down(pr.KeyboardKey.KEY_A):
         direction_vector["x"] = -1.0        
     if pr.is_key_down(pr.KeyboardKey.KEY_D):
@@ -1550,6 +1569,9 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
     new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
 
+    # need the screen space of the player to get the mouse screen space to make a direction vector
+    
+
     # if new_pos["x"] > tile_width:
     #     additional_x_tiles = int(new_pos.get("x",0) / tile_width)
     #     new_pos["tile_x"] += additional_x_tiles
@@ -1584,6 +1606,31 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
     
     return new_pos
+
+def update_player_interaction(tile_map, player_info, game_camera):
+    player_pos = player_info["position"]
+    tile_height = tile_map["tile_height"]
+    tile_width = tile_map["tile_width"]
+    # really need to have a 'player center' position
+    player_render_pos = {"x" : tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, "y" : tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16}
+
+    mouse_pos = pr.get_mouse_position()
+    
+    mouse_pos_mine = {"x" : mouse_pos.x, "y" : mouse_pos.y}
+
+    arm_length = 100
+
+    aim_heading = vec2_scale(vec2_normalize(vec2_subtract(mouse_pos_mine, player_render_pos)), arm_length)
+
+    player_info["aim_direction"] = aim_heading
+
+    
+
+
+
+
+
+    
 
 def move_position_along_tiles(new_pos, tile_width, tile_height):        
 
@@ -1803,6 +1850,8 @@ def update_and_render(main_arena, game_assets):
     if pause_state != "paused":
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
+
+    update_player_interaction(tile_map, player_info, camera_3d.position)
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
@@ -1821,7 +1870,7 @@ def update_and_render(main_arena, game_assets):
 
     
 
-    do_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info.get("position",{}), editor_mode)
+    do_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode)
 
     pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
 
