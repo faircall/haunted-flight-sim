@@ -367,15 +367,29 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
 
     # make this a draw entity function
     player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16)    
+
+    player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
     
 
-    gun_pos = vec2_add_any(player_render_pos, player_info.get("aim_direction"))
-    gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
+    gun_pos = vec2_add_any(player_render_pos_center, player_info.get("aim_direction"))
+    if player_info.get("aim_direction").get("x") < 0:
+        updated_gun_pos = vec2_add(vec2_scale(vec2_normalize(player_info.get("aim_direction")), 8), gun_pos)        
+        gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
+    else:
+        gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
+
+    gun_angle = angle_from_vector(player_info.get("aim_direction"))
 
     pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
-    pr.draw_line(int(player_render_pos.x), int(player_render_pos.y), int(gun_pos.x), int(gun_pos.y), pr.WHITE)
+    pr.draw_line(int(player_render_pos_center.x), int(player_render_pos_center.y), int(gun_pos.x), int(gun_pos.y), pr.WHITE)
     
-    pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, 0.0, 1, pr.WHITE)    
+    
+    if player_info.get("aim_direction").get("x") < 0:
+        # zzz super slight bug here where it's drawing at the start and not accounting for the flip
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture_flipped"), updated_gun_pos, gun_angle + 180, 1, pr.WHITE)    
+    else:
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, gun_angle, 1, pr.WHITE)    
+    
 
     # and a dot at his center for debug purposes
     # entity_width_that_i_am_using = 16
@@ -657,6 +671,7 @@ def load_textures():
     # we could make this easier to use if we monitored the files in the directory once
     # a second and then did a reload when a new one was in there!
     result["pistol_texture"] = pr.load_texture("art/pistol.png")
+    result["pistol_texture_flipped"] = pr.load_texture("art/pistol_flipped.png")
     result["wood_texture"] = pr.load_texture("art/WoodTest.png")
     result["wall_texture"] = pr.load_texture("art/Wall.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
