@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 g_default_entity_width = 16
 g_default_entity_height = 16
 
+g_test_see_through_walls = False
+
 @dataclass(order=True)
 class PriorityQueueEntry:
     priority: float
@@ -365,6 +367,8 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
     # make this a draw entity function
     player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16)    
     pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
+    pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), player_render_pos, 0.0, 1, pr.WHITE)    
+
     # and a dot at his center for debug purposes
     # entity_width_that_i_am_using = 16
     # entity_height_that_i_am_using = 16
@@ -394,6 +398,13 @@ def transition_debug_state(current):
     state_transitions = {
         "clear" : "player_debug",
         "player_debug" : "clear",                
+    }
+    return state_transitions.get(current)
+
+def transition_pause_state(current):
+    state_transitions = {
+        "paused" : "unpaused",
+        "unpaused" : "paused",                
     }
     return state_transitions.get(current)
 
@@ -635,6 +646,9 @@ def load_entity_types():
     
 def load_textures():
     result = {}    
+    # we could make this easier to use if we monitored the files in the directory once
+    # a second and then did a reload when a new one was in there!
+    result["pistol_texture"] = pr.load_texture("art/pistol.png")
     result["wood_texture"] = pr.load_texture("art/WoodTest.png")
     result["wall_texture"] = pr.load_texture("art/Wall.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
@@ -938,7 +952,8 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
 
 
         if tile_type_is_collidable(found_tile.get("type","")):
-            continue # to test walk through walls
+            if g_test_see_through_walls:
+                continue # to test see through walls
             if debug_queue is not None:
                 debug_item = {
                     "type" : "tile",
@@ -1684,7 +1699,11 @@ def update_and_render(main_arena, game_assets):
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
     player_info = main_arena.get("player_info") # really more info
     debug_state = main_arena.get("debug_state", "clear") 
+    pause_state = main_arena.get("pause_state", "unpaused") 
 
+    # could handle a pause event here...?
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_PAUSE):
+        pause_state = transition_pause_state(pause_state)    
     
 
     
@@ -1777,11 +1796,14 @@ def update_and_render(main_arena, game_assets):
     tile_size = 32
         
     #input handling
-    player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
+
+    if pause_state != "paused":
+        player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     
-    update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
+    if pause_state != "paused":
+        update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
-    pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
+    # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
@@ -1805,6 +1827,9 @@ def update_and_render(main_arena, game_assets):
 
     if debug_state != "clear":
         pr.draw_text(debug_state, 1700, 50, 20, pr.WHITE)
+
+    if pause_state == "paused":
+        pr.draw_text("PAUSED", 1700, 50, 20, pr.WHITE)
 
     if editor_mode == "editing":
         tile_type = tile_map["tile_types"][current_tile_selection]
@@ -1858,6 +1883,7 @@ def update_and_render(main_arena, game_assets):
 
     # update persistent variables here
     changes = main_arena.evolver()
+    changes["pause_state"] = pause_state
     changes["debug_state"] = debug_state
     changes["collision_mode"] = collision_mode
     changes["editor_mode"] = editor_mode
