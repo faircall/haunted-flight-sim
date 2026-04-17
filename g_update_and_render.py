@@ -423,7 +423,8 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
 def transition_debug_state(current):
     state_transitions = {
         "clear" : "player_debug",
-        "player_debug" : "clear",                
+        "player_debug" : "slow_bullets",
+        "slow_bullets" : "clear",                
     }
     return state_transitions.get(current)
 
@@ -708,6 +709,21 @@ def get_tile_index_from_pos(pos, tile_map, debug_queue = None):
 
     return {"tile_x" : tile_x, "tile_y" : tile_y}
 
+def get_tile_index_and_offset_from_pos(pos, tile_map, debug_queue = None):    
+    map_width = tile_map["map_width"]
+    map_height = tile_map["map_height"]
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]    
+    tile_pos_x = int((pos.get("x",0))/tile_width)
+    tile_pos_y =  int((pos.get("y",0))/tile_height)
+    tile_x = tile_pos_x % map_width
+    tile_y = tile_pos_y  % map_height
+
+    offset_x = pos["x"] - (tile_x * tile_width)
+    offset_y = pos["y"] - (tile_y * tile_height)
+
+    return {"tile_x" : tile_x, "tile_y" : tile_y, "x" : offset_x, "y" : offset_y}
+
 def get_abs_pos_from_index(pos, tile_map, debug_queue = None):    
     map_width = tile_map["map_width"]
     map_height = tile_map["map_height"]
@@ -825,6 +841,9 @@ def vec2_scale(v, s):
 def vec2_subtract(a, b):
     return {"x": a.get("x",0) - b.get("x",0),
             "y": a.get("y",0) - b.get("y",0)}
+
+def vec2_norm(vector):
+    return math.sqrt(vector["x"]**2 + vector["y"]**2)
 
 def vec2_normalize(vector):
     mag = math.sqrt(vector["x"]**2 + vector["y"]**2)
@@ -1023,6 +1042,58 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
         if tiles_equal(test_tiles, target_tile):
             return True
     return False           
+
+def ray_along_tiles_collides(original_position, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
+    # original position is a tile/offset pair
+    i = 0    
+    while i < end_range:
+        i += step_size
+        dist_to_push = i
+        ray = vec2_scale(normalized_ray_direction, dist_to_push)        
+        abs_pos = tile_and_offset_to_absolute(tile_map, original_position)
+        pos_test = vec2_add(ray, abs_pos)
+        
+
+        test_tiles = get_tile_index_from_pos(pos_test, tile_map)
+
+        
+
+        found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
+
+
+        if tile_type_is_collidable(found_tile.get("type","")):            
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "tile",
+                    "tile_x" : test_tiles.get("tile_x",0),
+                    "tile_y" : test_tiles.get("tile_y",0),
+                    "tile_width" : tile_map.get("tile_width",5),
+                    "tile_height" : tile_map.get("tile_height",5),
+                    "color" : "PINK",
+                    "drawing_function" : draw_debug_tile,
+                    "z_sort" : 1
+
+                }    
+                debug_queue.append(debug_item)
+            return True        
+        else:
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "tile",
+                    "tile_x" : test_tiles.get("tile_x",0),
+                    "tile_y" : test_tiles.get("tile_y",0),
+                    "tile_width" : tile_map.get("tile_width",5),
+                    "tile_height" : tile_map.get("tile_height",5),
+                    "color" : "RED",
+                    "drawing_function" : draw_debug_tile,
+                    "z_sort" : 1
+
+                }    
+                debug_queue.append(debug_item)
+
+                
+    return False           
+
 
 def tiles_equal(a, b):
     return a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0)
@@ -1381,6 +1452,7 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
     
 
 
+
 def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
@@ -1389,10 +1461,24 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     
     player_pos = player_info.get("position",{}) # top left
 
+    deletions = []
+
     for entity in entities.values():        
         # TODO (Cooper) : move this stuff into an update function later
-        if entity.get("type","") == "bullet":            
-            entity["position"] = vec2_add(entity["position"], vec2_scale(entity["velocity"], dt))            
+        if entity.get("type","") == "bullet":        
+
+            next_bullet_pos = vec2_add(entity["position"], vec2_scale(entity["velocity"], dt))            
+            current_tile_and_offset = get_tile_index_and_offset_from_pos(entity["position"], tile_map, None)
+
+            target_tile_next = get_tile_index_from_pos(next_bullet_pos, tile_map, None)
+            end_range = (vec2_norm(vec2_subtract(next_bullet_pos, entity["position"])))
+            direction = vec2_normalize(vec2_subtract(next_bullet_pos, entity["position"]))
+            step_size = 2
+            collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, debug_queue)
+            if collides:
+                deletions.append(entity["id"])            
+            entity["position"] = next_bullet_pos
+            # interp the tiles between this and next 
         elif entity.get("type","") == "red head":
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
@@ -1417,7 +1503,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "z_sort" : 0,                    
                 }
                 debug_queue.append(debug_item)
-
+    for deletion in deletions:
+        del entities[deletion]
 
 def make_tile_x_y(x, y):
     return {"tile_x" : x, "tile_y" : y}
@@ -1638,7 +1725,7 @@ def apply_force():
     # A = F / m
     pass
 
-def update_player_interaction(tile_map, player_info, game_camera, entities):
+def update_player_interaction(tile_map, player_info, game_camera, entities, debug_state):
     player_pos = player_info["position"]
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
@@ -1665,7 +1752,9 @@ def update_player_interaction(tile_map, player_info, game_camera, entities):
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
         bullet_pos = {"x" : spawn_pos["x"], "y" :spawn_pos["y"]} # world space I think
         current_pos = {"x" : spawn_pos["x"], "y" : spawn_pos["y"]}
-        bullet_speed = 50 # this will be kept constant effectively, since the bullet won't really slow down
+        bullet_speed = 5000 # this will be kept constant effectively, since the bullet won't really slow down
+        if debug_state == "slow_bullets":
+            bullet_speed = 50
         # in the horizontal before it hits the ground
         bullet_id = len(entities)
         bullet = {"entity_responsible" : "player",
@@ -1914,7 +2003,7 @@ def update_and_render(main_arena, game_assets):
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
-    update_player_interaction(tile_map, player_info, camera_3d.position, entities)
+    update_player_interaction(tile_map, player_info, camera_3d.position, entities, debug_state)
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
