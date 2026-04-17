@@ -396,8 +396,12 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
     # entity_height_that_i_am_using = 16
     # pr.draw_circle(int(player_pos["x"] + entity_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + entity_height_that_i_am_using - game_camera.y), 5, pr.RED)
 
-    for entity in entities.values():
-        if entity.get("type","") == "buddha":
+    for entity in entities.values():        
+        if entity.get("type","") == "bullet":
+            render_x = entity["position"]["x"] - game_camera.x
+            render_y = entity["position"]["y"] - game_camera.y
+            pr.draw_rectangle(int(render_x), int(render_y), 4, 4, pr.BROWN)
+        elif entity.get("type","") == "buddha":
             texture_scale = 1
             texture_to_use = game_assets.get("textures",{}).get("buddha_texture")
             render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
@@ -967,7 +971,7 @@ def tile_and_offset_to_absolute(tile_map, position):
 
     
 def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
-
+    # original position is a tile/offset pair
     for i in range(0, end_range, int(step_size/2)):
         
         dist_to_push = i
@@ -1387,7 +1391,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
     for entity in entities.values():        
         # TODO (Cooper) : move this stuff into an update function later
-        if entity.get("type","") == "red head":
+        if entity.get("type","") == "bullet":            
+            entity["position"] = vec2_add(entity["position"], vec2_scale(entity["velocity"], dt))            
+        elif entity.get("type","") == "red head":
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
             # he definitely needs to know about the player
@@ -1622,25 +1628,67 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
     return new_pos
 
-def update_player_interaction(tile_map, player_info, game_camera):
+def get_player_center_screen_space(tile_width, tile_height, player_pos, game_camera):
+    player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
+
+def get_player_center_world_space(tile_width, tile_height, player_pos, game_camera):
+    player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] + 12, tile_height * player_pos["tile_y"] + player_pos["y"] + 12)    
+
+def apply_force():
+    # A = F / m
+    pass
+
+def update_player_interaction(tile_map, player_info, game_camera, entities):
     player_pos = player_info["position"]
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     # really need to have a 'player center' position
     player_render_pos = {"x" : tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, "y" : tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16}
 
+    player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
+
+    player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] + 12, tile_height * player_pos["tile_y"] + player_pos["y"] + 12)    
+
     mouse_pos = pr.get_mouse_position()
     
     mouse_pos_mine = {"x" : mouse_pos.x, "y" : mouse_pos.y}
 
-    arm_length = 100
+    arm_length = 20
 
-    aim_heading = vec2_scale(vec2_normalize(vec2_subtract(mouse_pos_mine, player_render_pos)), arm_length)
+    aim_heading_normal = vec2_normalize(vec2_subtract(mouse_pos_mine, player_render_pos))
+    aim_heading = vec2_scale(aim_heading_normal, arm_length)
 
+    spawn_pos = vec2_add_any(player_pos_center, aim_heading)
+
+
+
+    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
+        bullet_pos = {"x" : spawn_pos["x"], "y" :spawn_pos["y"]} # world space I think
+        current_pos = {"x" : spawn_pos["x"], "y" : spawn_pos["y"]}
+        bullet_speed = 50 # this will be kept constant effectively, since the bullet won't really slow down
+        # in the horizontal before it hits the ground
+        bullet_id = len(entities)
+        bullet = {"entity_responsible" : "player",
+                  "spawn_position" : bullet_pos,
+                  "position" : current_pos,
+                  "velocity" : vec2_scale(aim_heading_normal, bullet_speed),
+                  "id" : bullet_id,
+                  "type" : "bullet"
+                  }
+        # if "projectiles" not in entities:
+        #     entities["projectiles"] = []
+
+        # if "particles" not in entities:
+        #     entities["particles"] = []
+        
+        entities[bullet_id] = bullet
+        # spawn a bullet with our name on it
     player_info["aim_direction"] = aim_heading
 
     
-
+def make_particle_system(particles, start_color, end_color, total_duration, spawn_time, max_amount, direction):
+    particle_system = {}    
+    return particle_system
 
 
 
@@ -1866,7 +1914,7 @@ def update_and_render(main_arena, game_assets):
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
-    update_player_interaction(tile_map, player_info, camera_3d.position)
+    update_player_interaction(tile_map, player_info, camera_3d.position, entities)
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
