@@ -10,6 +10,12 @@ import queue
 import pyray as pr
 from pyrsistent import m, pmap, v
 
+import cyminiaudio as cma
+
+
+
+
+
 from dataclasses import dataclass, field
 
 g_default_entity_width = 16
@@ -507,6 +513,16 @@ def update_projectiles(main_arena):
 def spawn_projectile(main_arena, origin, bullet_speed):
     projectile_list = []
 
+def make_projectile(responsible, spawn_pos, velocity, id, type):
+    current_pos = {"x" : spawn_pos["x"], "y" : spawn_pos["y"]}
+    bullet = {"entity_responsible" : "player",
+                  "spawn_position" : spawn_pos,
+                  "position" : current_pos,
+                  "velocity" : velocity,
+                  "id" : id,
+                  "type" : type
+                  }
+    return bullet
 
 
 
@@ -670,6 +686,24 @@ def load_entity_types():
     ]
 
     return entity_types
+
+def load_sounds(engine):
+    result = {}
+    
+    
+    
+    
+    pistol_shot = cma.Sound(engine, "sounds/pistol_shot.wav")
+    pistol_shot.looping = False
+    pistol_shot.volume = 0.5
+    pistol_shot.pitch = 1
+    pistol_shot.pan = 0
+    result["pistol_shot"] = pistol_shot    
+
+
+    return result
+    
+    
     
 def load_textures():
     result = {}    
@@ -1725,7 +1759,7 @@ def apply_force():
     # A = F / m
     pass
 
-def update_player_interaction(tile_map, player_info, game_camera, entities, debug_state):
+def update_player_interaction(tile_map, player_info, game_camera, entities, sounds, audio_engine, debug_state):
     player_pos = player_info["position"]
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
@@ -1747,6 +1781,8 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, debu
 
     spawn_pos = vec2_add_any(player_pos_center, aim_heading)
 
+    # resulting_sounds = []
+
 
 
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
@@ -1757,21 +1793,32 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, debu
             bullet_speed = 50
         # in the horizontal before it hits the ground
         bullet_id = len(entities)
-        bullet = {"entity_responsible" : "player",
-                  "spawn_position" : bullet_pos,
-                  "position" : current_pos,
-                  "velocity" : vec2_scale(aim_heading_normal, bullet_speed),
-                  "id" : bullet_id,
-                  "type" : "bullet"
-                  }
+        bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
+        # bullet = {"entity_responsible" : "player",
+        #           "spawn_position" : bullet_pos,
+        #           "position" : current_pos,
+        #           "velocity" : vec2_scale(aim_heading_normal, bullet_speed),
+        #           "id" : bullet_id,
+        #           "type" : "bullet"
+        #           }
         # if "projectiles" not in entities:
         #     entities["projectiles"] = []
 
         # if "particles" not in entities:
         #     entities["particles"] = []
         
+        # zzz
+        # TODO! move this stuff to an audio manager, just need the sound info
+
+        sounds["pistol_shot"].stop()
+        sounds["pistol_shot"].seek(0)
+        sounds["pistol_shot"].start()
+
         entities[bullet_id] = bullet
         # spawn a bullet with our name on it
+        # try playing a gunshot sound directly here
+        
+        
     player_info["aim_direction"] = aim_heading
 
     
@@ -1886,9 +1933,10 @@ def draw_debug_item(debug_item, camera):
     
     
 
-def update_and_render(main_arena, game_assets):
+def update_and_render(main_arena, game_assets, cma_engine):
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
+    
     dt = pr.get_frame_time()
     # issue here when debugging, people will accumulate insane time
     dt = min(dt, 0.016)
@@ -1943,6 +1991,10 @@ def update_and_render(main_arena, game_assets):
     if not saved_files:
         saved_files = get_saved_files()
 
+    sounds = game_assets.get("sounds")
+    if not sounds:
+        sounds = load_sounds(cma_engine)
+        game_assets["sounds"] = sounds
     textures = game_assets.get("textures")
     if not textures:
         textures = load_textures()
@@ -2003,7 +2055,8 @@ def update_and_render(main_arena, game_assets):
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
-    update_player_interaction(tile_map, player_info, camera_3d.position, entities, debug_state)
+    if editor_mode == "play":
+        update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, debug_state)
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)

@@ -6,6 +6,8 @@ import importlib
 import time
 from pyrsistent import m, pmap, v
 
+import cyminiaudio as cma
+
 g_screen_width = 1920
 g_screen_height = 1080 
 
@@ -50,6 +52,8 @@ def render_error_message(msg):
 
 
 def g_main():
+    
+    
     program_name = "Horror Flightsim"
     pr.set_config_flags(pr.ConfigFlags.FLAG_WINDOW_RESIZABLE)
     
@@ -77,6 +81,9 @@ def g_main():
     auto_reload = True
     main_arena = main_arena.set("auto_reload", auto_reload)
 
+    cma_engine = cma.Engine()
+    
+
     while not pr.window_should_close():                
         reload_timer += pr.get_frame_time()
         do_reload = False        
@@ -101,7 +108,7 @@ def g_main():
         if not skip_update:
             try:
                 backup_arena = main_arena
-                main_arena = update_and_render_module.update_and_render(main_arena, game_assets)                        
+                main_arena = update_and_render_module.update_and_render(main_arena, game_assets, cma_engine)                        
                 auto_reload = main_arena.get("auto_reload", True)
             except Exception as e:
                 skip_update = True
