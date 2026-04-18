@@ -695,16 +695,23 @@ def load_sound(engine, file_name, looping, volume, pitch, pan):
     sound.pan = pan
     return sound
 
+def load_pistol_pool(engine):
+    variants = 10
+    result = {"index" : 0, "pool" : []}
+    for i in range(variants):        
+
+        pistol_shot = load_sound(engine, "sounds/pistol_shot.wav", False, 0.5, 1 , 0)
+        result["pool"].append(pistol_shot)
+    return result
 
 def load_sounds(engine):
     result = {}
     
     
-    pistol_shot = load_sound(engine, "sounds/pistol_shot.wav", False, 0.5, 1, 0)
+    
     pistol_hit_wall = load_sound(engine, "sounds/pistol_hit_wall.wav", False, 0.75, 1, 0)
-    
-    
-    result["pistol_shot"] = pistol_shot    
+    result["pistol_pool"] = load_pistol_pool(engine)
+        
     result["pistol_hit_wall"] = pistol_hit_wall    
 
 
@@ -1818,9 +1825,16 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
         # zzz
         # TODO! move this stuff to an audio manager, just need the sound info
 
-        sounds["pistol_shot"].stop()
-        sounds["pistol_shot"].seek(0)
-        sounds["pistol_shot"].start()
+        if "pistol_pool" in sounds and sounds["pistol_pool"] is not None:
+            
+            sound_to_play_idx = sounds["pistol_pool"]["index"]
+            sound_to_play = sounds["pistol_pool"]["pool"][sound_to_play_idx]
+            sound_to_play.pitch = 1 + float(random.randint(-1,5) / 25)
+            sounds["pistol_pool"]["index"] = (sounds["pistol_pool"]["index"] + 1) % len(sounds["pistol_pool"]["pool"])
+
+            sound_to_play.stop()
+            sound_to_play.seek(0)
+            sound_to_play.start()
 
         entities[bullet_id] = bullet
         # spawn a bullet with our name on it
@@ -2063,6 +2077,9 @@ def update_and_render(main_arena, game_assets, cma_engine):
         player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     
     if pause_state != "paused":
+        # I think we want to have the current 'hot spots' in terms of bullets cached
+        # then when we check an entity, we can just check
+        # IF that region has an active bullet we need to do a check on
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
