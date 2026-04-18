@@ -687,18 +687,25 @@ def load_entity_types():
 
     return entity_types
 
+def load_sound(engine, file_name, looping, volume, pitch, pan):
+    sound = cma.Sound(engine, file_name)
+    sound.looping = looping
+    sound.volume = volume
+    sound.pitch = pitch
+    sound.pan = pan
+    return sound
+
+
 def load_sounds(engine):
     result = {}
     
     
+    pistol_shot = load_sound(engine, "sounds/pistol_shot.wav", False, 0.5, 1, 0)
+    pistol_hit_wall = load_sound(engine, "sounds/pistol_hit_wall.wav", False, 0.75, 1, 0)
     
     
-    pistol_shot = cma.Sound(engine, "sounds/pistol_shot.wav")
-    pistol_shot.looping = False
-    pistol_shot.volume = 0.5
-    pistol_shot.pitch = 1
-    pistol_shot.pan = 0
     result["pistol_shot"] = pistol_shot    
+    result["pistol_hit_wall"] = pistol_hit_wall    
 
 
     return result
@@ -1487,7 +1494,7 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
 
 
 
-def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
+def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, sounds, debug_queue = None):
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     if editor_mode != "play":
@@ -1510,6 +1517,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             step_size = 2
             collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, debug_queue)
             if collides:
+                play_sound(sounds["pistol_hit_wall"])
                 deletions.append(entity["id"])            
             entity["position"] = next_bullet_pos
             # interp the tiles between this and next 
@@ -1827,7 +1835,10 @@ def make_particle_system(particles, start_color, end_color, total_duration, spaw
     return particle_system
 
 
-
+def play_sound(sound):
+    sound.stop()
+    sound.seek(0)
+    sound.start()
 
     
 
@@ -2052,7 +2063,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
         player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
     
     if pause_state != "paused":
-        update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
+        update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
@@ -2099,6 +2110,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
 
     if do_button(pr.Vector2(10, 100), name="reload assets"):        
         game_assets["textures"] = None
+        game_assets["sounds"] = None
 
     if do_button(pr.Vector2(10, 140), name="reset player"):        
         player_info = None
