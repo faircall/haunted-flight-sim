@@ -257,7 +257,7 @@ def reconstruct_path(came_from, target, origin):
     
 
 
-def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_info, mode):
+def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_info, mode):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
@@ -410,6 +410,14 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
         entities["projectiles"] = {}
     if "brains" not in entities:
         entities["brains"] = {}
+
+    for particle_system in entities["particle_systems"].values():        
+        for particle in particle_system["particles"]:
+            render_pos_x = tile_width * particle.get("position",{}).get("tile_x",0) + particle.get("position",{}).get("x",0) - game_camera.x
+            render_pos_y = tile_height * particle.get("position",{}).get("tile_y",0) + particle.get("position",{}).get("y",0) - game_camera.y
+            pr.draw_circle(int(render_pos_x), int(render_pos_y), particle.get("size",5), pr.RED)
+    
+
     for entity in entities["projectiles"].values():        
         if entity.get("type","") == "bullet":
             render_x = entity["position"]["x"] - game_camera.x
@@ -902,7 +910,8 @@ def vec2_subtract(a, b):
 def vec2_norm(vector):
     return math.sqrt(vector["x"]**2 + vector["y"]**2)
 
-def vec2_normalize(vector):
+def vec2_normalize(old_vector):
+    vector = {"x" : old_vector.get("x",0), "y" : old_vector.get("y",0)}
     mag = math.sqrt(vector["x"]**2 + vector["y"]**2)
     if mag > 0:
         vector["x"] /= mag
@@ -1571,11 +1580,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
 
             # interp the tiles between this and next 
-    for entity in entities["brains"].values():        
-        # ZZZ TODO This is hugely slow to loop twice like this,
-        # the solution is to separate the 
-        # entity types somewhat
-        # so we can loop through all the dependencies properly
+    for entity in entities["brains"].values():                        
         if entity.get("type","") == "red head":
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
@@ -1601,7 +1606,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                         bullet_hitting_us = entities["projectiles"][bullet["id"]]
 
                         particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
-                        particle_system_id = len(entities["particle_systems"])
+                        # zzz fix this with a maintained 'free list' of ids that you push and pop from
+                        particle_system_id = len(entities["particle_systems"]) 
                         particle_system["id"] = particle_system_id
                         entities["particle_systems"][particle_system_id] = particle_system
                         if debug_queue is not None:
@@ -1945,10 +1951,10 @@ def make_blood_spatter(particle_amount, start_color, end_color, total_duration, 
         new_magnitude = bullet_magnitude / (100 + speed_offset)
         blood_velocity = vec2_scale(vector_from_angle(new_angle), new_magnitude)
         spawn_pos = copy_entity_pos(spawn_position)
-        base_size = 14
-        size_offset = random.randint(-4,4)
-        random_offset_x = random.randint(-4,4)
-        random_offset_y = random.randint(-2,2)
+        base_size = 2
+        size_offset = random.randint(-1,1)
+        random_offset_x = random.randint(-7,7)
+        random_offset_y = random.randint(-7,7)
         spawn_pos["x"] += random_offset_x
         spawn_pos["y"] += random_offset_y
         particle = {
@@ -2237,7 +2243,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
 
     
 
-    do_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode)
+    update_render_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode)
 
     pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
 
