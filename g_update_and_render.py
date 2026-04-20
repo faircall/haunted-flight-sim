@@ -1100,7 +1100,7 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
             return True
     return False           
 
-def ray_along_tiles_collides(original_position, end_range, step_size, normalized_ray_direction, tile_map, debug_queue = None):
+def ray_along_tiles_collides(original_position, end_range, step_size, normalized_ray_direction, tile_map, bullet_stamps, debug_queue = None):
     # original position is a tile/offset pair
     i = 0    
     while i < end_range:
@@ -1109,7 +1109,9 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
         ray = vec2_scale(normalized_ray_direction, dist_to_push)        
         abs_pos = tile_and_offset_to_absolute(tile_map, original_position)
         pos_test = vec2_add(ray, abs_pos)
-        
+
+        pos_pair = move_position_along_tiles(get_tile_index_and_offset_from_pos(pos_test, tile_map, None), tile_map.get("tile_width"), tile_map.get("tile_height"))
+
 
         test_tiles = get_tile_index_from_pos(pos_test, tile_map)
 
@@ -1134,6 +1136,12 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
                 debug_queue.append(debug_item)
             return True        
         else:
+            
+            bullet_key = f"{pos_pair.get("tile_x")},{pos_pair.get("tile_y")}"
+
+            if bullet_key not in bullet_stamps:
+                bullet_stamps[bullet_key] = []
+            bullet_stamps[bullet_key].append(pos_pair)
             if debug_queue is not None:
                 debug_item = {
                     "type" : "tile",
@@ -1538,17 +1546,13 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             end_range = (vec2_norm(vec2_subtract(next_bullet_pos, entity["position"])))
             direction = vec2_normalize(vec2_subtract(next_bullet_pos, entity["position"]))
             step_size = 2
-            collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, debug_queue)
+            collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, bullet_tiles, debug_queue)
             if collides:
                 play_sound(sounds["pistol_hit_wall"])
                 deletions.append({"subdict": "projectiles", "id" : entity["id"]})            
             entity["position"] = next_bullet_pos
-            if not collides:
-                to_add = get_tile_index_and_offset_from_pos(entity["position"], tile_map, None)
-                bullet_key = f"{to_add.get("tile_x")},{to_add.get("tile_y")}"
-                if bullet_key not in bullet_tiles:
-                    bullet_tiles[bullet_key] = []
-                bullet_tiles[bullet_key].append(to_add)
+            
+            
 
             # interp the tiles between this and next 
     for entity in entities["brains"].values():        
@@ -1567,8 +1571,29 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             current_state = get_or_set(entity, "current state", "idle")
             next_state = transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
             entity["current state"] = next_state
-
             pos_abs = tile_and_offset_to_absolute(tile_map, entity.get("position",{}))
+            bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
+            if bullet_key in bullet_tiles:
+                # possible collision!
+                for bullet in bullet_tiles[bullet_key]:
+                    bullet_dist = vec2_distance(bullet, entity.get("position")) 
+                    if bullet_dist < 20:                        
+                        if debug_queue is not None:
+                            debug_item = {
+                                "type" : "circle",
+                                "drawing_function" : draw_debug_circle,
+                                "pos" : entity.get("position"),                                        
+                                "font_size" : 16,
+                                "radius" : 60,
+                                "color" : "BLUE",
+                                "z_sort" : -2,                    
+                                "tile_width" : tile_width,
+                                "tile_height" : tile_height
+                            }
+                            debug_queue.append(debug_item)
+
+
+            
             if debug_queue is not None:
                 debug_item = {
                     "type" : "text",
