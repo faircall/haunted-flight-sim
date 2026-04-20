@@ -923,7 +923,6 @@ def vec2_distance_tile(a, b):
 def vec2_distance(a, b):    
     return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
 
-
 def vec2_dot(a, b):
     # remember a dot b is |a||b|cos(theta)
     # therefore if we use normalized and b
@@ -1100,7 +1099,7 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
             return True
     return False           
 
-def ray_along_tiles_collides(original_position, end_range, step_size, normalized_ray_direction, tile_map, bullet_stamps, debug_queue = None):
+def ray_along_tiles_collides(original_position, end_range, step_size, normalized_ray_direction, tile_map, bullet_stamps, bullet_id, debug_queue = None):
     # original position is a tile/offset pair
     i = 0    
     while i < end_range:
@@ -1112,7 +1111,7 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
 
         pos_pair = move_position_along_tiles(get_tile_index_and_offset_from_pos(pos_test, tile_map, None), tile_map.get("tile_width"), tile_map.get("tile_height"))
 
-
+        pos_pair["id"] = bullet_id
         test_tiles = get_tile_index_from_pos(pos_test, tile_map)
 
         
@@ -1404,8 +1403,7 @@ def angle_from_vector(v):
             return 90
         return 270
     tan_ratio = y / x
-    angle = rad_to_deg(math.atan2(y, x))
-    # TODO angle from Vector...    
+    angle = rad_to_deg(math.atan2(y, x))    
     return angle
 
 def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
@@ -1529,6 +1527,24 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     deletions = []
 
     bullet_tiles = {}
+    # TODO zzzz make a 'reverse particle' system style weapon that
+    # sucks up ammo from a corpse
+    # like in Tenent
+
+    if "particle_systems" not in entities:
+        entities["particle_systems"] = {}
+
+    for particle_system in entities["particle_systems"].values():        
+        for particle in particle_system["particles"]:
+            next_particle_pos_offset = vec2_add(particle["position"], vec2_scale(particle["velocity"], dt))            
+            next_pos = copy_entity_pos(particle["position"])
+            next_pos["x"] = next_particle_pos_offset["x"]
+            next_pos["y"] = next_particle_pos_offset["y"]
+            particle["position"] = move_position_along_tiles(next_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
+        particle_system["timer"] += dt
+        if particle_system["timer"] >= particle_system["duration"]:
+            # mark for deletion
+            deletions.append({"subdict": "particle_systems", "id" : particle_system["id"]})            
 
     for entity in entities["projectiles"].values():        
         # TODO (Cooper) : move this stuff into an update function later
@@ -1546,7 +1562,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             end_range = (vec2_norm(vec2_subtract(next_bullet_pos, entity["position"])))
             direction = vec2_normalize(vec2_subtract(next_bullet_pos, entity["position"]))
             step_size = 2
-            collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, bullet_tiles, debug_queue)
+            collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, bullet_tiles, entity["id"], debug_queue)
             if collides:
                 play_sound(sounds["pistol_hit_wall"])
                 deletions.append({"subdict": "projectiles", "id" : entity["id"]})            
@@ -1578,6 +1594,16 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 for bullet in bullet_tiles[bullet_key]:
                     bullet_dist = vec2_distance(bullet, entity.get("position")) 
                     if bullet_dist < 20:                        
+                        # spawn particle
+                        start_color = {"r" : 100, "g" : "20", "b" : 20}
+                        end_color = {"r" : 100, "g" : "20", "b" : 20}
+                        # want to know the velocity of the bullet that hit us
+                        bullet_hitting_us = entities["projectiles"][bullet["id"]]
+
+                        particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
+                        particle_system_id = len(entities["particle_systems"])
+                        particle_system["id"] = particle_system_id
+                        entities["particle_systems"][particle_system_id] = particle_system
                         if debug_queue is not None:
                             debug_item = {
                                 "type" : "circle",
@@ -1900,8 +1926,51 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
         
     player_info["aim_direction"] = aim_heading
 
+
+def copy_position_dict(original):
+    return {"x" : original.get("x",0), "y" : original.get("y",0), 
+            "tile_x" : original.get("tile_x",0), "tile_y" : original.get("tile_y",0)}
+
+def make_blood_spatter(particle_amount, start_color, end_color, total_duration, spawn_time, max_amount, bullet_hit_us, spawn_position):    
+    bullet_magnitude = vec2_norm(bullet_hit_us.get("velocity"))
     
-def make_particle_system(particles, start_color, end_color, total_duration, spawn_time, max_amount, direction):
+    bullet_normalized = vec2_normalize(bullet_hit_us.get("velocity"))
+
+    blood_particles = [] # maybe slow
+
+    for i in range(particle_amount):
+        current_angle = angle_from_vector(bullet_normalized)
+        new_angle = current_angle + float(random.randint(-5, 5))
+        speed_offset = float(random.randint(-20, 20))
+        new_magnitude = bullet_magnitude / (100 + speed_offset)
+        blood_velocity = vec2_scale(vector_from_angle(new_angle), new_magnitude)
+        spawn_pos = copy_entity_pos(spawn_position)
+        base_size = 14
+        size_offset = random.randint(-4,4)
+        random_offset_x = random.randint(-4,4)
+        random_offset_y = random.randint(-2,2)
+        spawn_pos["x"] += random_offset_x
+        spawn_pos["y"] += random_offset_y
+        particle = {
+            "velocity" : blood_velocity,
+            "size" : base_size + size_offset,
+            "timer" : 0.0,
+            "position" : spawn_pos,
+            
+        }
+        # TODO color them 'uniquely'
+        blood_particles.append(particle)
+        
+    particle_system = {}
+    particle_system["particles"] = blood_particles
+    particle_system["timer"] = 0.0
+    particle_system["duration"] = total_duration
+    particle_system["start_color"] = start_color
+    particle_system["end_color"] = end_color
+    
+    return particle_system
+
+def make_particle_system(particle_amount, start_color, end_color, total_duration, spawn_time, max_amount, direction):
     particle_system = {}    
     return particle_system
 
