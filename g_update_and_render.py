@@ -376,9 +376,10 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
 
     player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
     
-
-    gun_pos = vec2_add_any(player_render_pos_center, player_info.get("aim_direction"))
-    if player_info.get("aim_direction").get("x") < 0:
+    if "aim_direction" not in player_info:
+        player_info["aim_direction"] = {"x" : 0, "y" : 0}
+    gun_pos = vec2_add_any(player_render_pos_center, player_info.get("aim_direction", {"x" : 0, "y" : 0}))
+    if player_info.get("aim_direction", {"x" : 0, "y" : 0}).get("x") < 0:
         updated_gun_pos = vec2_add(vec2_scale(vec2_normalize(player_info.get("aim_direction")), 8), gun_pos)        
         gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
     else:
@@ -1375,7 +1376,7 @@ def vector_from_angle(angle_deg):
 
 
 
-def angle_from_vector(v):
+def angle_from_vector(v):    
     x = v.get("x",0)
     y = v.get("y",0)
     if x == 0:
@@ -2080,6 +2081,14 @@ def update_and_render(main_arena, game_assets, cma_engine):
         # I think we want to have the current 'hot spots' in terms of bullets cached
         # then when we check an entity, we can just check
         # IF that region has an active bullet we need to do a check on
+        # that would be super efficient I think
+        # because you don't need to loop over all bullets and all entities
+        # instead, each bullet gets updated (this is obviously necessary)
+        # and then each enemy gets updated, and only needs to check in the table if 
+        # there is a bullet in their current (not next! I think) 
+        # square, so we avoid the quadratic thing
+        # and then if there is a bullet(s) in the square,
+        # we check against only those (there may be more than one I suppose)
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
