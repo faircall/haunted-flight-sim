@@ -346,9 +346,12 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
                         # much faster for 'find the entities who are at location x/y/z'
 
                         new_entity["position"] = {"x" : offset_x, "y" : offset_y, "tile_x" : x, "tile_y" : y}
-                        id = len(entities)
+                        if "brains" not in entities:
+                            entities["brains"] = {}
+                        id = len(entities["brains"])
                         new_entity["id"] = id
-                        entities[id] = new_entity
+                        
+                        entities["brains"][id] = new_entity
 
                     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
                         latest_id = max(len(entities) - 1,0)
@@ -403,12 +406,17 @@ def do_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_s
     # entity_height_that_i_am_using = 16
     # pr.draw_circle(int(player_pos["x"] + entity_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + entity_height_that_i_am_using - game_camera.y), 5, pr.RED)
 
-    for entity in entities.values():        
+    if "projectiles" not in entities:
+        entities["projectiles"] = {}
+    if "brains" not in entities:
+        entities["brains"] = {}
+    for entity in entities["projectiles"].values():        
         if entity.get("type","") == "bullet":
             render_x = entity["position"]["x"] - game_camera.x
             render_y = entity["position"]["y"] - game_camera.y
             pr.draw_rectangle(int(render_x), int(render_y), 4, 4, pr.BROWN)
-        elif entity.get("type","") == "buddha":
+    for entity in entities["brains"].values():        
+        if entity.get("type","") == "buddha":
             texture_scale = 1
             texture_to_use = game_assets.get("textures",{}).get("buddha_texture")
             render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
@@ -1512,10 +1520,17 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
     deletions = []
 
-    for entity in entities.values():        
+    bullet_tiles = {}
+
+    for entity in entities["projectiles"].values():        
         # TODO (Cooper) : move this stuff into an update function later
         if entity.get("type","") == "bullet":        
 
+            # we should actually apply our 'move along tile' thing to the 
+            # bullet too...I think?
+            # maybe later though let's leave it for now since
+            # I want to keep some momentum to get
+            # enemy hits in
             next_bullet_pos = vec2_add(entity["position"], vec2_scale(entity["velocity"], dt))            
             current_tile_and_offset = get_tile_index_and_offset_from_pos(entity["position"], tile_map, None)
 
@@ -1526,10 +1541,22 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, debug_queue)
             if collides:
                 play_sound(sounds["pistol_hit_wall"])
-                deletions.append(entity["id"])            
+                deletions.append({"subdict": "projectiles", "id" : entity["id"]})            
             entity["position"] = next_bullet_pos
+            if not collides:
+                to_add = get_tile_index_and_offset_from_pos(entity["position"], tile_map, None)
+                bullet_key = f"{to_add.get("tile_x")},{to_add.get("tile_y")}"
+                if bullet_key not in bullet_tiles:
+                    bullet_tiles[bullet_key] = []
+                bullet_tiles[bullet_key].append(to_add)
+
             # interp the tiles between this and next 
-        elif entity.get("type","") == "red head":
+    for entity in entities["brains"].values():        
+        # ZZZ TODO This is hugely slow to loop twice like this,
+        # the solution is to separate the 
+        # entity types somewhat
+        # so we can loop through all the dependencies properly
+        if entity.get("type","") == "red head":
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
             # he definitely needs to know about the player
@@ -1554,7 +1581,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 }
                 debug_queue.append(debug_item)
     for deletion in deletions:
-        del entities[deletion]
+        sublist = deletion.get("subdict")
+        id = deletion.get("id")
+        del entities[sublist][id]
 
 def make_tile_x_y(x, y):
     return {"tile_x" : x, "tile_y" : y}
@@ -1808,7 +1837,9 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
         if debug_state == "slow_bullets":
             bullet_speed = 50
         # in the horizontal before it hits the ground
-        bullet_id = len(entities)
+        if "projectiles" not in entities:
+            entities["projectiles"] = {}
+        bullet_id = len(entities["projectiles"])
         bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
         # bullet = {"entity_responsible" : "player",
         #           "spawn_position" : bullet_pos,
@@ -1837,7 +1868,7 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
             sound_to_play.seek(0)
             sound_to_play.start()
 
-        entities[bullet_id] = bullet
+        entities["projectiles"][bullet_id] = bullet
         # spawn a bullet with our name on it
         # try playing a gunshot sound directly here
         
