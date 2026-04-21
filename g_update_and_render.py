@@ -410,6 +410,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
         entities["projectiles"] = {}
     if "brains" not in entities:
         entities["brains"] = {}
+    if "particle_systems" not in entities:
+        entities["particle_systems"] = {}
 
     for particle_system in entities["particle_systems"].values():        
         for particle in particle_system["particles"]:
@@ -894,6 +896,16 @@ def vec2_add_any(a, b):
         a = {"x" : b.x, "y" : b.y}
 
     return vec2_add(a, b)
+
+def vec2_add_just(a, b):
+    # designed to take an A that might only be partially a vector (and also have other stuff)
+    new_a = copy_entity_pos(a)
+    vec2_mutation_add(new_a, b)
+    return new_a
+
+def vec2_mutation_add(a_to_mutate, b):
+    a_to_mutate["x"] += b["x"]
+    a_to_mutate["y"] += b["y"]
 
 def vec2_add(a, b):
     return {"x": a.get("x",0) + b.get("x",0),
@@ -1422,6 +1434,33 @@ def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
             collides = True        
     return collides
 
+def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+    entity["stagger_timer"] += dt
+    stagger_duration = 1
+    next_state = current_state
+
+    bullet_magnitude = entity["bullet_hit_magnitude"] 
+    bullet_normalized = entity["bullet_normalized"] 
+
+    motion_scalar = 0.03
+
+    motion_vector = vec2_scale(bullet_normalized, dt * bullet_magnitude * motion_scalar)
+    new_pos = vec2_add_just(entity["position"], motion_vector)
+    
+    new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
+    # zzz
+    # need to check for collisions still...!
+
+    entity["position"] = new_entity_pos
+
+    if entity["stagger_timer"] >= 1:
+        next_state = entity["previous_state"] # go to whatever you had
+
+    
+    return next_state
+    
+    
+
 def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     next_state = current_state
     can_see = True    
@@ -1512,6 +1551,10 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
         # this is essentially a 'go to last position' state
         # with maybe a different animation and / or speed
         next_state = angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+    elif current_state == "stagger":        
+        next_state = stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+    elif current_state == "dead":        
+        pass
     elif current_state == "angry and attacking":        
         if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
             # keep attacking
@@ -1589,21 +1632,39 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             # bioshock like interactions where one monster could do something with another
             # I kind of like that potential
             
-            current_state = get_or_set(entity, "current state", "idle")
+            current_state = get_or_set(entity, "current_state", "idle")
+            # there's a lot of logic happening in these states!
             next_state = transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
-            entity["current state"] = next_state
+            entity["current_state"] = next_state
             pos_abs = tile_and_offset_to_absolute(tile_map, entity.get("position",{}))
             bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
             if bullet_key in bullet_tiles:
                 # possible collision!
                 for bullet in bullet_tiles[bullet_key]:
                     bullet_dist = vec2_distance(bullet, entity.get("position")) 
-                    if bullet_dist < 20:                        
+                    # this is where our radius might be small
+                    # and should technically check on the enemy as
+                    # like, a body, not a point
+                    if bullet_dist < 30:                        
+                        # apply damage!
+                        # subtract health
+
+                        entity["current_state"] = "stagger"
+                        entity["stagger_timer"] = 0
+
+                        #
+                        entity["previous_state"] = current_state
+                        
                         # spawn particle
                         start_color = {"r" : 100, "g" : "20", "b" : 20}
                         end_color = {"r" : 100, "g" : "20", "b" : 20}
                         # want to know the velocity of the bullet that hit us
                         bullet_hitting_us = entities["projectiles"][bullet["id"]]
+
+                        bullet_magnitude = vec2_norm(bullet_hitting_us.get("velocity"))    
+                        bullet_normalized = vec2_normalize(bullet_hitting_us.get("velocity")) 
+                        entity["bullet_hit_magnitude"] = bullet_magnitude
+                        entity["bullet_normalized"] = bullet_normalized
 
                         particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
                         # zzz fix this with a maintained 'free list' of ids that you push and pop from
@@ -1632,7 +1693,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "drawing_function" : draw_debug_text,
                     "pos" : {"x" : pos_abs.get("x",0), "y" : pos_abs.get("y",0)},                                        
                     "font_size" : 16,
-                    "text" : f"{entity["current state"]}",
+                    "text" : f"{entity["current_state"]}",
                     "color" : "WHITE",
                     "z_sort" : 0,                    
                 }
