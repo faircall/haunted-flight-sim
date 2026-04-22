@@ -1442,10 +1442,17 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     bullet_magnitude = entity["bullet_hit_magnitude"] 
     bullet_normalized = entity["bullet_normalized"] 
 
-    motion_scalar = 0.03
+    motion_scalar = 1.5
 
-    motion_vector = vec2_scale(bullet_normalized, dt * bullet_magnitude * motion_scalar)
-    new_pos = vec2_add_just(entity["position"], motion_vector)
+    bullet_force = vec2_scale(bullet_normalized, dt * bullet_magnitude * motion_scalar)
+
+    velocity = get_or_set(entity, "velocity", {"x": 0, "y": 0})
+
+    velocity = vec2_add(velocity, vec2_scale(bullet_force, dt))
+
+    entity["velocity"] = velocity
+
+    new_pos = vec2_add_just(entity["position"], velocity)
     
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
     # zzz
@@ -1453,7 +1460,8 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     entity["position"] = new_entity_pos
 
-    if entity["stagger_timer"] >= 1:
+    if entity["stagger_timer"] >= 0.3:
+        entity["velocity"] = {"x" : 0, "y" : 0}
         next_state = entity["previous_state"] # go to whatever you had
 
     
@@ -1535,7 +1543,16 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
 
 
 
+def apply_force(entity, force):
+    # force is acceleration really
+    # f = ma, force has a direction and a magnitude
+    # a = f/m 
 
+    # velocity is a function of acceleration
+    # no friction means no slow down
+
+    # so if we go the 
+    pass
     
 
 def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
