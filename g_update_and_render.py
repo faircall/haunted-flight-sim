@@ -1442,6 +1442,8 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     bullet_magnitude = entity["bullet_hit_magnitude"] 
     bullet_normalized = entity["bullet_normalized"] 
 
+    # I think this isn't working very well
+    # what 
     motion_scalar = 1.5
 
     bullet_force = vec2_scale(bullet_normalized, dt * bullet_magnitude * motion_scalar)
@@ -1470,6 +1472,12 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     
 
 def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+    # We need a 'transition into 
+    # portion of these state functions because there's some book keeping
+    # that will need to be done only once
+    # zzzz do that here
+    if entity.get("entered_new_state"):
+        pass
     next_state = current_state
     can_see = True    
     if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
@@ -1558,6 +1566,9 @@ def apply_force(entity, force):
 def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     # TODO in addition to line of sight
     # need like a line of sound / within earshot function
+    if entity.get("previous_state") != current_state:
+        entity["entered_new_state"] = True
+    
     next_state = current_state
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)    
@@ -1578,6 +1589,8 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
             pass
         else:
             next_state = "idle"            
+    entity["previous_state"] = current_state
+    entity["entered_new_state"] = False
 
     return next_state
 
