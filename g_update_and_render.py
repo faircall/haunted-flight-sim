@@ -1436,7 +1436,8 @@ def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
 
 def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     entity["stagger_timer"] += dt
-    stagger_duration = 1
+    
+    
     next_state = current_state
 
     bullet_magnitude = entity["bullet_hit_magnitude"] 
@@ -1444,17 +1445,17 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     # I think this isn't working very well
     # what 
-    motion_scalar = 1.5
+    motion_scalar = 0.5
 
-    bullet_force = vec2_scale(bullet_normalized, dt * bullet_magnitude * motion_scalar)
+    bullet_friction_force = vec2_scale(bullet_normalized, -1.0* bullet_magnitude * motion_scalar)
 
-    velocity = get_or_set(entity, "velocity", {"x": 0, "y": 0})
+    velocity = get_or_set(entity, "bullet_impulse", {"x": 0, "y": 0})
 
-    velocity = vec2_add(velocity, vec2_scale(bullet_force, dt))
+    velocity = vec2_add(velocity, vec2_scale(bullet_friction_force, dt))
 
-    entity["velocity"] = velocity
+    entity["bullet_impulse"] = velocity
 
-    new_pos = vec2_add_just(entity["position"], velocity)
+    new_pos = vec2_add_just(entity["position"], vec2_scale(velocity, dt))
     
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
     # zzz
@@ -1462,9 +1463,9 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     entity["position"] = new_entity_pos
 
-    if entity["stagger_timer"] >= 0.3:
+    if entity["stagger_timer"] >= 0.1:
         entity["velocity"] = {"x" : 0, "y" : 0}
-        next_state = entity["previous_state"] # go to whatever you had
+        next_state = entity.get("previous_state_on_stagger","idle") # go to whatever you had
 
     
     return next_state
@@ -1476,8 +1477,7 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     # portion of these state functions because there's some book keeping
     # that will need to be done only once
     # zzzz do that here
-    if entity.get("entered_new_state"):
-        pass
+    
     next_state = current_state
     can_see = True    
     if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
@@ -1683,7 +1683,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                         entity["stagger_timer"] = 0
 
                         #
-                        entity["previous_state"] = current_state
+                        if current_state != "stagger":
+                            entity["previous_state_on_stagger"] = current_state
+                        
                         
                         # spawn particle
                         start_color = {"r" : 100, "g" : "20", "b" : 20}
@@ -1691,10 +1693,12 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                         # want to know the velocity of the bullet that hit us
                         bullet_hitting_us = entities["projectiles"][bullet["id"]]
 
+                        deletions.append({"subdict": "projectiles", "id" : bullet_hitting_us["id"]})            
                         bullet_magnitude = vec2_norm(bullet_hitting_us.get("velocity"))    
                         bullet_normalized = vec2_normalize(bullet_hitting_us.get("velocity")) 
                         entity["bullet_hit_magnitude"] = bullet_magnitude
                         entity["bullet_normalized"] = bullet_normalized
+                        entity["bullet_impulse"] = vec2_scale(bullet_normalized, bullet_magnitude*0.4)
 
                         particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
                         # zzz fix this with a maintained 'free list' of ids that you push and pop from
@@ -1731,7 +1735,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     for deletion in deletions:
         sublist = deletion.get("subdict")
         id = deletion.get("id")
-        del entities[sublist][id]
+        if id in entities[sublist]:
+            del entities[sublist][id]
 
 def make_tile_x_y(x, y):
     return {"tile_x" : x, "tile_y" : y}
@@ -2029,6 +2034,8 @@ def copy_position_dict(original):
             "tile_x" : original.get("tile_x",0), "tile_y" : original.get("tile_y",0)}
 
 def make_blood_spatter(particle_amount, start_color, end_color, total_duration, spawn_time, max_amount, bullet_hit_us, spawn_position):    
+    # the better thing to do here would probably be
+    # to pool it?
     bullet_magnitude = vec2_norm(bullet_hit_us.get("velocity"))
     
     bullet_normalized = vec2_normalize(bullet_hit_us.get("velocity"))
