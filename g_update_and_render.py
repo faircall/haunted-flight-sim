@@ -1445,7 +1445,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     # I think this isn't working very well
     # what 
-    motion_scalar = 0.5
+    motion_scalar = 0.8
 
     bullet_friction_force = vec2_scale(bullet_normalized, -1.0* bullet_magnitude * motion_scalar)
 
@@ -1698,7 +1698,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                         bullet_normalized = vec2_normalize(bullet_hitting_us.get("velocity")) 
                         entity["bullet_hit_magnitude"] = bullet_magnitude
                         entity["bullet_normalized"] = bullet_normalized
-                        entity["bullet_impulse"] = vec2_scale(bullet_normalized, bullet_magnitude*0.4)
+                        entity["bullet_impulse"] = vec2_scale(bullet_normalized, bullet_magnitude*0.2)
 
                         particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
                         # zzz fix this with a maintained 'free list' of ids that you push and pop from
