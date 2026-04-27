@@ -1160,8 +1160,13 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
             bullet_key = f"{pos_pair.get("tile_x")},{pos_pair.get("tile_y")}"
 
             if bullet_key not in bullet_stamps:
-                bullet_stamps[bullet_key] = []
-            bullet_stamps[bullet_key].append(pos_pair)
+                bullet_stamps[bullet_key] = {}
+            if bullet_id not in bullet_stamps[bullet_key]:
+                bullet_stamps[bullet_key][bullet_id] = []
+            
+
+
+            bullet_stamps[bullet_key][bullet_id].append(pos_pair)
             if debug_queue is not None:
                 debug_item = {
                     "type" : "tile",
@@ -1670,54 +1675,59 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
             if bullet_key in bullet_tiles:
                 # possible collision!
-                for bullet in bullet_tiles[bullet_key]:
-                    bullet_dist = vec2_distance(bullet, entity.get("position")) 
-                    # this is where our radius might be small
-                    # and should technically check on the enemy as
-                    # like, a body, not a point
-                    if bullet_dist < 30:                        
-                        # apply damage!
-                        # subtract health
+                # but we're allowing one bullet in multiple times somehow
+                print(f"we're saying there's {len(bullet_tiles[bullet_key])} in this square")
+                for bullet_id in bullet_tiles[bullet_key].keys():
+                    bullet_list = bullet_tiles[bullet_key][bullet_id]
+                    for bullet in bullet_list:
+                        bullet_dist = vec2_distance(bullet, entity.get("position")) 
+                        # this is where our radius might be small
+                        # and should technically check on the enemy as
+                        # like, a body, not a point
+                        if bullet_dist < 30:                        
+                            # apply damage!
+                            # subtract health
 
-                        entity["current_state"] = "stagger"
-                        entity["stagger_timer"] = 0
+                            entity["current_state"] = "stagger"
+                            entity["stagger_timer"] = 0
 
-                        #
-                        if current_state != "stagger":
-                            entity["previous_state_on_stagger"] = current_state
-                        
-                        
-                        # spawn particle
-                        start_color = {"r" : 100, "g" : "20", "b" : 20}
-                        end_color = {"r" : 100, "g" : "20", "b" : 20}
-                        # want to know the velocity of the bullet that hit us
-                        bullet_hitting_us = entities["projectiles"][bullet["id"]]
+                            #
+                            if current_state != "stagger":
+                                entity["previous_state_on_stagger"] = current_state
+                            
+                            
+                            # spawn particle
+                            start_color = {"r" : 100, "g" : "20", "b" : 20}
+                            end_color = {"r" : 100, "g" : "20", "b" : 20}
+                            # want to know the velocity of the bullet that hit us
+                            bullet_hitting_us = entities["projectiles"][bullet["id"]]
 
-                        deletions.append({"subdict": "projectiles", "id" : bullet_hitting_us["id"]})            
-                        bullet_magnitude = vec2_norm(bullet_hitting_us.get("velocity"))    
-                        bullet_normalized = vec2_normalize(bullet_hitting_us.get("velocity")) 
-                        entity["bullet_hit_magnitude"] = bullet_magnitude
-                        entity["bullet_normalized"] = bullet_normalized
-                        entity["bullet_impulse"] = vec2_scale(bullet_normalized, bullet_magnitude*0.2)
+                            deletions.append({"subdict": "projectiles", "id" : bullet_hitting_us["id"]})            
+                            bullet_magnitude = vec2_norm(bullet_hitting_us.get("velocity"))    
+                            bullet_normalized = vec2_normalize(bullet_hitting_us.get("velocity")) 
+                            entity["bullet_hit_magnitude"] = bullet_magnitude
+                            entity["bullet_normalized"] = bullet_normalized
+                            entity["bullet_impulse"] = vec2_scale(bullet_normalized, bullet_magnitude*0.2)
 
-                        particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
-                        # zzz fix this with a maintained 'free list' of ids that you push and pop from
-                        particle_system_id = len(entities["particle_systems"]) 
-                        particle_system["id"] = particle_system_id
-                        entities["particle_systems"][particle_system_id] = particle_system
-                        if debug_queue is not None:
-                            debug_item = {
-                                "type" : "circle",
-                                "drawing_function" : draw_debug_circle,
-                                "pos" : entity.get("position"),                                        
-                                "font_size" : 16,
-                                "radius" : 60,
-                                "color" : "BLUE",
-                                "z_sort" : -2,                    
-                                "tile_width" : tile_width,
-                                "tile_height" : tile_height
-                            }
-                            debug_queue.append(debug_item)
+                            particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
+                            # zzz fix this with a maintained 'free list' of ids that you push and pop from
+                            particle_system_id = len(entities["particle_systems"]) 
+                            particle_system["id"] = particle_system_id
+                            entities["particle_systems"][particle_system_id] = particle_system
+                            if debug_queue is not None:
+                                debug_item = {
+                                    "type" : "circle",
+                                    "drawing_function" : draw_debug_circle,
+                                    "pos" : entity.get("position"),                                        
+                                    "font_size" : 16,
+                                    "radius" : 60,
+                                    "color" : "BLUE",
+                                    "z_sort" : -2,                    
+                                    "tile_width" : tile_width,
+                                    "tile_height" : tile_height
+                                }
+                                debug_queue.append(debug_item)
+                            break
 
 
             
@@ -2041,12 +2051,14 @@ def make_blood_spatter(particle_amount, start_color, end_color, total_duration, 
     bullet_normalized = vec2_normalize(bullet_hit_us.get("velocity"))
 
     blood_particles = [] # maybe slow
+    print("spawning particle system")
+    
 
     for i in range(particle_amount):
         current_angle = angle_from_vector(bullet_normalized)
         new_angle = current_angle + float(random.randint(-5, 5))
-        speed_offset = float(random.randint(-20, 20))
-        new_magnitude = bullet_magnitude / (100 + speed_offset)
+        speed_offset = float(random.randint(-5, 5))
+        new_magnitude = bullet_magnitude / (10 + speed_offset)
         blood_velocity = vec2_scale(vector_from_angle(new_angle), new_magnitude)
         spawn_pos = copy_entity_pos(spawn_position)
         base_size = 2
