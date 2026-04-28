@@ -231,7 +231,7 @@ def a_star_path(start_tile, target_tile, tile_map):
             next_tile_id = get_tile_id_for_hash(next_tile)
             if current_tile_id not in cost_so_far:
                 print("argh")
-            new_cost = cost_so_far[current_tile_id] + graph_cost(current, next_tile, tile_map)
+            new_cost = cost_so_far.get(current_tile_id,0) + graph_cost(current, next_tile, tile_map)
             if next_tile_id not in cost_so_far or new_cost < cost_so_far[next_tile_id]:
                 cost_so_far[next_tile_id] = new_cost
                 priority = new_cost + a_star_heuristic(target_tile, next_tile)
@@ -1460,8 +1460,28 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     entity["bullet_impulse"] = velocity
 
-    new_pos = vec2_add_just(entity["position"], vec2_scale(velocity, dt))
+    new_entity_velocity = vec2_scale(velocity, dt)
+
     
+
+    entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
+
+    entity_collisions = check_collisions_on_tilemap(entity_points, new_entity_velocity, tile_map, debug_queue)
+
+    
+
+    if entity_collisions.get("x", False):
+        new_entity_velocity['x'] = 0
+        # new_entity_velocity = vec2_normalize(new_entity_velocity)
+        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+        # new_entity_position["x"] = entity.get("position",{}).get("x",0)    
+        # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
+    if entity_collisions.get("y", False):
+        new_entity_velocity['y'] = 0
+        # new_entity_velocity = vec2_normalize(new_entity_velocity)
+        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+        
+    new_pos = vec2_add_just(entity["position"], new_entity_velocity)
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
     # zzz
     # need to check for collisions still...!
@@ -1633,6 +1653,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             # mark for deletion
             deletions.append({"subdict": "particle_systems", "id" : particle_system["id"]})            
 
+    if "projectiles" not in entities:
+        entities["projectiles"] = {}
     for entity in entities["projectiles"].values():        
         # TODO (Cooper) : move this stuff into an update function later
         if entity.get("type","") == "bullet":        
