@@ -1651,6 +1651,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     # TODO zzzz make a 'reverse particle' system style weapon that
     # sucks up ammo from a corpse
     # like in Tenent
+    # at the cost of reviving the corpse!
+    
 
     if "particle_systems" not in entities:
         entities["particle_systems"] = {}
@@ -1672,6 +1674,10 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     for entity in entities["projectiles"].values():        
         # TODO (Cooper) : move this stuff into an update function later
         if entity.get("type","") == "bullet":        
+            # TODO zzz 
+            # make 'dynamite bullets' 
+            # that take a few seconds before exploding
+            # kinda like the flare gun from Blood
 
             # we should actually apply our 'move along tile' thing to the 
             # bullet too...I think?
@@ -1727,7 +1733,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                             entity["current_state"] = "stagger"
                             entity["stagger_timer"] = 0
 
-                            #
+                            
                             if current_state != "stagger":
                                 entity["previous_state_on_stagger"] = current_state
                             
@@ -1740,6 +1746,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
                             deletions.append({"subdict": "projectiles", "id" : bullet_hitting_us["id"]})            
                             bullet_magnitude = vec2_norm(bullet_hitting_us.get("velocity"))    
+
+
+
                             bullet_normalized = vec2_normalize(bullet_hitting_us.get("velocity")) 
                             entity["bullet_hit_magnitude"] = bullet_magnitude
                             entity["bullet_normalized"] = bullet_normalized
