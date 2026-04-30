@@ -347,7 +347,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
                         new_entity["position"] = {"x" : offset_x, "y" : offset_y, "tile_x" : x, "tile_y" : y}
 
-                        give_entity_stats_from_type(entity, entity_type)
+                        give_entity_stats_from_type(new_entity, entity_type)
 
                         if "brains" not in entities:
                             entities["brains"] = {}
@@ -736,6 +736,23 @@ def load_pistol_pool(engine):
         result["pool"].append(pistol_shot)
     return result
 
+def load_sound_pool(engine, variants, base_file, base_volume, base_pitch, base_pan):    
+    result = {"index" : 0, "pool" : []}
+    for i in range(variants):        
+        pool_sound = load_sound(engine, f"sounds/{base_file}", False, base_volume, base_pitch , base_pan)
+        result["pool"].append(pool_sound)
+    return result
+
+def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25):
+    if pool_name in sounds and sounds[pool_name] is not None:            
+        sound_to_play_idx = sounds[pool_name]["index"]
+        sound_to_play = sounds[pool_name]["pool"][sound_to_play_idx]
+        sound_to_play.pitch = 1 + float(random.randint(rand_lower,rand_upper) / rand_base)
+        sounds[pool_name]["index"] = (sounds[pool_name]["index"] + 1) % len(sounds[pool_name]["pool"])
+        sound_to_play.stop()
+        sound_to_play.seek(0)
+        sound_to_play.start()
+
 def load_sounds(engine):
     result = {}
     
@@ -743,6 +760,9 @@ def load_sounds(engine):
     
     pistol_hit_wall = load_sound(engine, "sounds/pistol_hit_wall.wav", False, 0.75, 1, 0)
     result["pistol_pool"] = load_pistol_pool(engine)
+    result["stagger_hit_pool"] = load_sound_pool(engine, 10, "pistol_hit_body.wav", 0.5, 1, 0)
+
+    result["death_hit_pool"] = load_sound_pool(engine, 10, "death_hit.wav", 0.5, 1, 0)
         
     result["pistol_hit_wall"] = pistol_hit_wall    
 
@@ -1755,6 +1775,17 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                             entity["bullet_impulse"] = vec2_scale(bullet_normalized, bullet_magnitude*0.2)
 
                             particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
+
+                            base_bullet_damage = 20
+
+                            entity["health"] -= base_bullet_damage
+
+                            if entity["health"] > 0:
+                                play_pool_sound("stagger_hit_pool", sounds)                                
+                            else:
+                                play_pool_sound("death_hit_pool", sounds)                                
+                                
+
                             # zzz fix this with a maintained 'free list' of ids that you push and pop from
                             particle_system_id = len(entities["particle_systems"]) 
                             particle_system["id"] = particle_system_id
@@ -2065,16 +2096,7 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
         # zzz
         # TODO! move this stuff to an audio manager, just need the sound info
 
-        if "pistol_pool" in sounds and sounds["pistol_pool"] is not None:
-            
-            sound_to_play_idx = sounds["pistol_pool"]["index"]
-            sound_to_play = sounds["pistol_pool"]["pool"][sound_to_play_idx]
-            sound_to_play.pitch = 1 + float(random.randint(-1,5) / 25)
-            sounds["pistol_pool"]["index"] = (sounds["pistol_pool"]["index"] + 1) % len(sounds["pistol_pool"]["pool"])
-
-            sound_to_play.stop()
-            sound_to_play.seek(0)
-            sound_to_play.start()
+        play_pool_sound("pistol_pool", sounds)        
 
         entities["projectiles"][bullet_id] = bullet
         # spawn a bullet with our name on it
