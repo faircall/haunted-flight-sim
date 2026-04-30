@@ -225,7 +225,7 @@ def a_star_path(start_tile, target_tile, tile_map):
             print("well damn")
         for next_tile in current.get("neighbours"):
             # need to deref via the tile map actually
-            next_tile_from_map = tile_map.get("tiles")[tile_map.get("map_width")*next_tile.get("tile_y") + next_tile.get("tile_x")]
+            next_tile_from_map = tile_map.get("tiles")[tile_map.get("map_width")*next_tile.get("tile_y") + next_tile.get("tile_x") ]
             if next_tile_from_map.get("neighbours") is None:
                 print("hmmm")
             next_tile_id = get_tile_id_for_hash(next_tile)
@@ -346,6 +346,9 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                         # much faster for 'find the entities who are at location x/y/z'
 
                         new_entity["position"] = {"x" : offset_x, "y" : offset_y, "tile_x" : x, "tile_y" : y}
+
+                        give_entity_stats_from_type(entity, entity_type)
+
                         if "brains" not in entities:
                             entities["brains"] = {}
                         id = len(entities["brains"])
@@ -544,6 +547,14 @@ def make_projectile(responsible, spawn_pos, velocity, id, type):
     return bullet
 
 
+def give_entity_stats_from_type(entity, entity_type):
+    if entity_type == "red head":
+        entity["health"] = 60
+        entity["attack_damage"] = 5
+    elif entity_type == "buddha":
+        entity["health"] = 600
+
+    
 
 def update_camera(game_camera, mode, player_pos, dt):    
     camera_speed = 500
@@ -604,6 +615,8 @@ def make_default_player(x,y,z):
     player["entity_height"] = 24
 
     player["position"] = pos
+
+    player["health"] = 100
 
     return player
 
@@ -1278,7 +1291,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     # we can also set our heading here
     entity["sight_angle"] = angle_from_vector(vec2_between)
     # obviously we should move to 'proper' velocity but it's just a tad harder
-    default_speed = 30
+    default_speed = 50
     entity_speed = entity.get("speed", default_speed)
     new_entity_velocity = vec2_scale(vec2_between, entity_speed * dt)
 
@@ -1546,6 +1559,7 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
 
     
     new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
+    # we could do a raycast along positions to check if we 'hit' the target on the way maybe
 
     entity["position"] = new_position
     
