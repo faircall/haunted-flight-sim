@@ -1918,9 +1918,9 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
     player_footstep_timer_base_gap = 0.3
 
-    player_accel = 500
+    player_accel = 2000
 
-    player_speed_max = 200
+    player_speed_max = 500
 
     
     
@@ -1961,6 +1961,9 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
     direction_vector = vec2_normalize(direction_vector)    
 
+    if (player_velocity["x"]*direction_vector["x"] < 0) or (player_velocity["y"]*direction_vector["y"] < 0):
+        player_accel *= 2
+
     player_velocity = vec2_add(player_velocity, vec2_scale(direction_vector, dt * player_accel))
     
     
@@ -1973,7 +1976,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     current_speed = vec2_norm(player_velocity)
 
     if current_speed > 0:
-        player_footstep_timer += dt * 0.005 * current_speed
+        player_footstep_timer += dt * 0.003 * current_speed
     else:
         player_footstep_timer = 0
 
