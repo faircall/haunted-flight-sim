@@ -756,11 +756,15 @@ def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25
 def load_sounds(engine):
     result = {}
     
+    # player foot steps
     
+    # enemy foot steps
     
     pistol_hit_wall = load_sound(engine, "sounds/pistol_hit_wall.wav", False, 0.75, 1, 0)
+
+    result["player_footstep_pool"] = load_sound_pool(engine, 10, "player_footstep.wav", 0.75, 0.7, 0)
     result["pistol_pool"] = load_pistol_pool(engine)
-    result["stagger_hit_pool"] = load_sound_pool(engine, 10, "pistol_hit_body.wav", 0.5, 1, 0)
+    result["stagger_hit_pool"] = load_sound_pool(engine, 10, "pistol_hit_body.wav", 0.75, 0.7, 0)
 
     result["death_hit_pool"] = load_sound_pool(engine, 10, "death_hit.wav", 0.5, 1, 0)
         
@@ -954,6 +958,11 @@ def vec2_subtract(a, b):
 
 def vec2_norm(vector):
     return math.sqrt(vector["x"]**2 + vector["y"]**2)
+
+def vec2_set_new_length(vector, new_length):
+    result = vec2_normalize(vector)
+    result = vec2_scale(result, new_length)
+    return result
 
 def vec2_normalize(old_vector):
     vector = {"x" : old_vector.get("x",0), "y" : old_vector.get("y",0)}
@@ -1857,7 +1866,7 @@ def pathfind_test_on_player(player_info, tile_map, game_camera, debug_queue = No
             debug_queue.append(debug_item)
     
 
-def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, debug_queue = None):
+def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, sounds, debug_queue = None):
     # i think the offset should be relative to _actual_ tile width
     # and so our world position is always a sum of the tile start pos + offset
 
@@ -1901,7 +1910,19 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
 
     #need to test 4 corners I believe
-    player_speed = 200
+        
+
+    player_velocity = get_or_set(player_info, "player_velocity", {"x" : 0, "y" : 0})
+
+    player_footstep_timer = get_or_set(player_info, "player_footstep_timer", 0)
+
+    player_footstep_timer_base_gap = 0.3
+
+    player_accel = 500
+
+    player_speed_max = 200
+
+    
     
 
     
@@ -1935,13 +1956,46 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
         run_multiplier = 4
 
-    if run_multiplier:
-        player_speed *= run_multiplier
+    # if run_multiplier:
+    #     player_speed *= run_multiplier
 
     direction_vector = vec2_normalize(direction_vector)    
 
-    new_pos["x"] += direction_vector["x"] * dt * player_speed
-    new_pos["y"] += direction_vector["y"] * dt * player_speed
+    player_velocity = vec2_add(player_velocity, vec2_scale(direction_vector, dt * player_accel))
+    
+    
+    if vec2_norm(player_velocity) >= player_speed_max:
+        # this will need to be adjusted for sprinting -> walking transition
+        player_velocity = vec2_set_new_length(player_velocity, player_speed_max)
+
+
+    min_speed = 10
+    current_speed = vec2_norm(player_velocity)
+
+    if current_speed > 0:
+        player_footstep_timer += dt * 0.005 * current_speed
+    else:
+        player_footstep_timer = 0
+
+    if player_footstep_timer >= player_footstep_timer_base_gap:
+        player_footstep_timer = 0
+        play_pool_sound("player_footstep_pool", sounds, -10, 10, 40)
+        print("playing pool sound")
+
+    player_info["player_footstep_timer"] = player_footstep_timer
+
+    if vec2_norm(direction_vector) < 0.1 and vec2_norm(player_velocity) > min_speed:
+        player_decel = 10
+        # no buttons are pressed in this case, so subtract speed
+        friction_vector = vec2_scale(player_velocity, -1)        
+        player_velocity = vec2_add(player_velocity, vec2_scale(friction_vector, dt * player_decel))
+    elif vec2_norm(direction_vector) < 0.1 and current_speed > 0 and current_speed <= min_speed:
+        print("killing velocity")
+        player_velocity = {"x" : 0, "y" : 0}
+    
+    player_info["player_velocity"] = player_velocity
+    new_pos["x"] += player_velocity["x"] * dt 
+    new_pos["y"] += player_velocity["y"] * dt 
         
 
 
@@ -1966,14 +2020,12 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             new_pos_y_direction = new_pos_from_old(potential_pos)
             
             # we should probably address rebindable keys somewhat early on        
-            if pr.is_key_down(pr.KeyboardKey.KEY_A):
-                new_pos_x_direction["x"] -= dt*player_speed
-            if pr.is_key_down(pr.KeyboardKey.KEY_D):
-                new_pos_x_direction["x"] += dt*player_speed
-            if pr.is_key_down(pr.KeyboardKey.KEY_W):
-                new_pos_y_direction["y"] -= dt*player_speed
-            if pr.is_key_down(pr.KeyboardKey.KEY_S):
-                new_pos_y_direction["y"] += dt*player_speed
+            
+            new_pos_x_direction["x"] += player_velocity["x"]*dt
+            
+            new_pos_y_direction["y"] += player_velocity["y"]*dt
+
+            
             
             # now check for collision
             
@@ -2383,7 +2435,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
     #input handling
 
     if pause_state != "paused":
-        player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, debug_queue=debug_queue)
+        player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, sounds=sounds, tile_map=tile_map, debug_queue=debug_queue)
     
     if pause_state != "paused":
         # I think we want to have the current 'hot spots' in terms of bullets cached
