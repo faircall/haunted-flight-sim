@@ -226,11 +226,11 @@ def a_star_path(start_tile, target_tile, tile_map):
         for next_tile in current.get("neighbours"):
             # need to deref via the tile map actually
             next_tile_from_map = tile_map.get("tiles")[tile_map.get("map_width")*next_tile.get("tile_y") + next_tile.get("tile_x") ]
-            if next_tile_from_map.get("neighbours") is None:
-                print("hmmm")
+            # if next_tile_from_map.get("neighbours") is None:
+            #     print("hmmm")
             next_tile_id = get_tile_id_for_hash(next_tile)
-            if current_tile_id not in cost_so_far:
-                print("argh")
+            # if current_tile_id not in cost_so_far:
+            #     print("argh")
             new_cost = cost_so_far.get(current_tile_id,0) + graph_cost(current, next_tile, tile_map)
             if next_tile_id not in cost_so_far or new_cost < cost_so_far[next_tile_id]:
                 cost_so_far[next_tile_id] = new_cost
@@ -1481,6 +1481,67 @@ def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
             collides = True        
     return collides
 
+def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+    get_or_set(entity, "death_timer", 0)
+    entity["death_timer"] += dt
+
+    next_state = current_state
+
+    bullet_magnitude = entity["bullet_hit_magnitude"] 
+    bullet_normalized = entity["bullet_normalized"] 
+
+    
+    motion_scalar = 0.1
+
+    bullet_friction_force = vec2_scale(bullet_normalized, -1.0* bullet_magnitude * motion_scalar)
+
+    velocity = entity.get("bullet_impulse")
+
+    
+
+    velocity = vec2_add(velocity, vec2_scale(bullet_friction_force, dt))
+
+    entity["bullet_impulse"] = velocity
+
+
+    if entity["death_timer"] < 0.15:    
+        new_entity_velocity = vec2_scale(velocity, dt)
+    else:
+        new_entity_velocity = {"x" : 0, "y" : 0} # but maybe can be set for shooting dead bodies
+
+
+    
+
+    entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
+
+    entity_collisions = check_collisions_on_tilemap(entity_points, new_entity_velocity, tile_map, debug_queue)
+
+    
+
+    if entity_collisions.get("x", False):
+        new_entity_velocity['x'] = 0
+        # new_entity_velocity = vec2_normalize(new_entity_velocity)
+        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+        # new_entity_position["x"] = entity.get("position",{}).get("x",0)    
+        # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
+    if entity_collisions.get("y", False):
+        new_entity_velocity['y'] = 0
+        # new_entity_velocity = vec2_normalize(new_entity_velocity)
+        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+
+
+    new_pos = vec2_add_just(entity["position"], new_entity_velocity)
+    new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
+    # zzz
+    # need to check for collisions still...!
+
+    entity["position"] = new_entity_pos
+
+    
+        
+
+    return next_state
+
 def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     entity["stagger_timer"] += dt
     
@@ -1496,7 +1557,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     bullet_friction_force = vec2_scale(bullet_normalized, -1.0* bullet_magnitude * motion_scalar)
 
-    velocity = get_or_set(entity, "bullet_impulse", {"x": 0, "y": 0})
+    velocity = get_or_set(entity, "bullet_impulse", {"x" : 0, "y" : 0})
 
     velocity = vec2_add(velocity, vec2_scale(bullet_friction_force, dt))
 
@@ -1650,7 +1711,7 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
     elif current_state == "stagger":        
         next_state = stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
     elif current_state == "dead":        
-        pass
+        next_state = death_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
     elif current_state == "angry and attacking":        
         if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
             # keep attacking
@@ -1792,6 +1853,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                             if entity["health"] > 0:
                                 play_pool_sound("stagger_hit_pool", sounds)                                
                             else:
+                                # kill them here
+                                entity["current_state"] = "dead"
                                 play_pool_sound("death_hit_pool", sounds)                                
                                 
 
@@ -1975,14 +2038,14 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     min_speed = 10
     current_speed = vec2_norm(player_velocity)
 
-    if current_speed > 0:
-        player_footstep_timer += dt * 0.003 * current_speed
-    else:
-        player_footstep_timer = 0
+    if current_speed > 0: # make this distance based rather than speed based, better accumulator
+        player_footstep_timer += dt * 0.003 * current_speed #although I guess this *is* a distance in disguise kinda
+    # else:
+    #     player_footstep_timer = 0
 
     if player_footstep_timer >= player_footstep_timer_base_gap:
         player_footstep_timer = 0
-        play_pool_sound("player_footstep_pool", sounds, -10, 10, 40)
+        play_pool_sound("player_footstep_pool", sounds, -3, 3, 40)
         print("playing pool sound")
 
     player_info["player_footstep_timer"] = player_footstep_timer
