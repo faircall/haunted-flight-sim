@@ -1820,8 +1820,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                             # apply damage!
                             # subtract health
 
-                            entity["current_state"] = "stagger"
-                            entity["stagger_timer"] = 0
+                            if entity["current_state"] != "dead":
+                                entity["current_state"] = "stagger"
+                                entity["stagger_timer"] = 0
 
                             
                             if current_state != "stagger":
@@ -1844,18 +1845,25 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                             entity["bullet_normalized"] = bullet_normalized
                             entity["bullet_impulse"] = vec2_scale(bullet_normalized, bullet_magnitude*0.2)
 
-                            particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
+                            
 
                             base_bullet_damage = 20
 
                             entity["health"] -= base_bullet_damage
 
                             if entity["health"] > 0:
+                                particle_system = make_blood_spatter(5, start_color,  end_color, 0.3, 0.1, 100, bullet_hitting_us, entity.get("position"))
                                 play_pool_sound("stagger_hit_pool", sounds)                                
                             else:
                                 # kill them here
+                                if entity["current_state"] != "dead":
+                                    play_pool_sound("death_hit_pool", sounds)                                
+                                    particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
+                                else:
+                                    play_pool_sound("stagger_hit_pool", sounds)                                
+                                    particle_system = make_blood_spatter(5, start_color,  end_color, 0.1, 0.01, 100, bullet_hitting_us, entity.get("position"))
                                 entity["current_state"] = "dead"
-                                play_pool_sound("death_hit_pool", sounds)                                
+                                
                                 
 
                             # zzz fix this with a maintained 'free list' of ids that you push and pop from
