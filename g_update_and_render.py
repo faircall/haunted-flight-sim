@@ -393,7 +393,13 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
     gun_angle = angle_from_vector(player_info.get("aim_direction"))
 
-    pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
+    #pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
+
+    oxford_frame_key =  player_info.get("animation_frame", 0)   
+    oxford_frame_number = game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get(oxford_frame_key, 0)
+    oxford_dest_rect = pr.Rectangle(int(player_render_pos.x), int(player_render_pos.y), 32*2, 32*2) # these 32s are in the thing actually
+    oxford_source_rect = pr.Rectangle(oxford_frame_number*32, 0, 32, 32) # these 32s are in the thing actually
+    pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get("sheet"), oxford_source_rect, oxford_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
     pr.draw_line(int(player_render_pos_center.x), int(player_render_pos_center.y), int(gun_pos.x), int(gun_pos.y), pr.WHITE)
     
     
@@ -775,7 +781,34 @@ def load_sounds(engine):
 
     return result
     
+
+def load_sprite_sheets():
+    result = {}    
+
+    result["blue_oxford_texture_sheet"] =  {}
+    result["blue_oxford_texture_sheet"]["sheet"] = pr.load_texture("art/blue_oxford_sheet.png")
+
+    result["blue_oxford_texture_sheet"]["frame_width"] = 32 # kinda need to know these ahead of time currently
+    result["blue_oxford_texture_sheet"]["frame_height"] = 32
+    result["blue_oxford_texture_sheet"]["frames"] = result["blue_oxford_texture_sheet"]["sheet"].width / result["blue_oxford_texture_sheet"]["frame_width"]
+
+    result["blue_oxford_texture_sheet"]["current_frame"] = 0
+
+    result["blue_oxford_texture_sheet"]["down_frame_start"] = 0
+    result["blue_oxford_texture_sheet"]["up_frame_start"] = 7
+
+    # this one would need to loop I think
+    result["blue_oxford_texture_sheet"]["glance_frame_start"] = 2
+    result["blue_oxford_texture_sheet"]["glance_frame_end"] = 4
+
+    result["blue_oxford_texture_sheet"]["left_frame_start"] = 6
+    result["blue_oxford_texture_sheet"]["right_frame_start"] = 5
+
+
+
+    return result
     
+
     
 def load_textures():
     result = {}    
@@ -789,6 +822,8 @@ def load_textures():
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
     result["orange_tile_texture"] = pr.load_texture("art/orange_tile_32x.png")
+
+    
 
     result["buddha_texture"] = pr.load_texture("art/buddha_128.png")
     return result
@@ -2228,6 +2263,14 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
 
     # resulting_sounds = []
 
+    # set direciton based on aim? or running?
+    player_angle_current = angle_from_vector(aim_heading_normal)
+    player_angle_current += 180
+    animation_direction = direction_from_angle(player_angle_current)
+
+    player_info["animation_frame"] = player_animation_frame_number_from_direction(animation_direction)
+
+    pr.draw_text(f"player angle is {player_angle_current}", 80, 30, 10, pr.RED)
 
 
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
@@ -2363,6 +2406,26 @@ def move_position_along_tiles(new_pos, tile_width, tile_height):
 
     return new_pos
 
+def in_the_range(x, start, end):
+    return x >= start and x <= end
+
+def direction_from_angle(angle):
+    rough_direction = "down"
+    if in_the_range(angle, 150,  185):
+        rough_direction = "right"    
+    elif in_the_range(angle, 45,  149):
+        rough_direction = "up"
+    elif in_the_range(angle, 0, 44) or in_the_range(angle, 320, 360):
+        rough_direction = "left"
+    return rough_direction
+
+def player_animation_frame_number_from_direction(direction):
+    texture_name_number = f"{direction}_frame_start"
+    return texture_name_number
+
+
+
+
 def draw_debug_circle(debug_item, camera):
     x = debug_item.get("pos", {}).get("x") + debug_item.get("pos",{}).get("tile_x", 0) * debug_item.get("tile_width")
     y = debug_item.get("pos", {}).get("y") + debug_item.get("pos",{}).get("tile_y", 0) * debug_item.get("tile_height")    
@@ -2493,7 +2556,9 @@ def update_and_render(main_arena, game_assets, cma_engine):
     textures = game_assets.get("textures")
     if not textures:
         textures = load_textures()
+        sprite_sheets = load_sprite_sheets()
         game_assets["textures"] = textures
+        game_assets["sprite_sheets"] = sprite_sheets
 
     entity_types = game_assets.get("entity_types")
     if not entity_types:
