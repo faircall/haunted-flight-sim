@@ -416,7 +416,9 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     if "particle_systems" not in entities:
         entities["particle_systems"] = {}
 
-    for particle_system in entities["particle_systems"].values():        
+    for key, particle_system in entities["particle_systems"].items():        
+        if key == "taken":
+            continue
         for particle in particle_system["particles"]:
             render_pos_x = tile_width * particle.get("position",{}).get("tile_x",0) + particle.get("position",{}).get("x",0) - game_camera.x
             render_pos_y = tile_height * particle.get("position",{}).get("tile_y",0) + particle.get("position",{}).get("y",0) - game_camera.y
@@ -1487,21 +1489,33 @@ def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     next_state = current_state
 
+    bullet_decel = 10
     bullet_magnitude = entity["bullet_hit_magnitude"] 
     bullet_normalized = entity["bullet_normalized"] 
 
+    if bullet_magnitude > 0:
+        bullet_magnitude -= bullet_decel
+
+
+    stop_epsilon = 20
+    if bullet_magnitude < stop_epsilon:
+        bullet_magnitude = 0
+
+    entity["bullet_hit_magnitude"] = bullet_magnitude
     
     motion_scalar = 0.1
 
-    bullet_friction_force = vec2_scale(bullet_normalized, -1.0* bullet_magnitude * motion_scalar)
+    # we could actually just reduce the magnitude over time
 
-    velocity = entity.get("bullet_impulse")
+    bullet_friction_force = vec2_scale(bullet_normalized, -1.0* bullet_magnitude * motion_scalar)
 
     
 
-    velocity = vec2_add(velocity, vec2_scale(bullet_friction_force, dt))
+    
 
-    entity["bullet_impulse"] = velocity
+    velocity = vec2_scale(bullet_normalized, bullet_magnitude * 0.07)
+
+    
 
 
     if entity["death_timer"] < 0.15:    
@@ -1747,7 +1761,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     if "particle_systems" not in entities:
         entities["particle_systems"] = {}
 
-    for particle_system in entities["particle_systems"].values():        
+    for key, particle_system in entities["particle_systems"].items():        
+        if key == "taken":
+            continue
         for particle in particle_system["particles"]:
             next_particle_pos_offset = vec2_add(particle["position"], vec2_scale(particle["velocity"], dt))            
             next_pos = copy_entity_pos(particle["position"])
@@ -1823,6 +1839,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                             if entity["current_state"] != "dead":
                                 entity["current_state"] = "stagger"
                                 entity["stagger_timer"] = 0
+                            else:
+                                entity["death_timer"] = 0
 
                             
                             if current_state != "stagger":
@@ -1865,10 +1883,25 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                 entity["current_state"] = "dead"
                                 
                                 
-
-                            # zzz fix this with a maintained 'free list' of ids that you push and pop from
+                            
                             particle_system_id = len(entities["particle_systems"]) 
                             particle_system["id"] = particle_system_id
+
+                            if "taken" not in entities["particle_systems"]:
+                                entities["particle_systems"]["taken"] = {}
+
+                            if not entities["particle_systems"].get("taken", False):
+                                entities["particle_systems"]["taken"][particle_system_id] = True
+                            else:
+                                found_free = False
+                                while not found_free:
+                                    particle_system_id += 1
+                                    if not entities["particle_systems"]["taken"].get(particle_system_id, False):
+                                        found_free = True             
+                                        particle_system["id"] = particle_system_id                   
+                                        entities["particle_systems"]["taken"][particle_system_id] = True
+                                        break
+
                             entities["particle_systems"][particle_system_id] = particle_system
                             if debug_queue is not None:
                                 debug_item = {
@@ -1903,6 +1936,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         id = deletion.get("id")
         if id in entities[sublist]:
             del entities[sublist][id]
+            if sublist == "particle_systems":
+                entities["particle_systems"]["taken"][id] = False
 
 def make_tile_x_y(x, y):
     return {"tile_x" : x, "tile_y" : y}
@@ -1989,7 +2024,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
     player_footstep_timer_base_gap = 0.3
 
-    player_accel = 2000
+    player_accel = 3000
 
     player_speed_max = 500
 
