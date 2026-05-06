@@ -446,14 +446,22 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
         elif entity.get("type","") == "red head":
-            texture_to_use = game_assets.get("textures",{}).get("red_head_texture")
+            entity_frame_key =  entity.get("animation_frame", 0)   
+            entity_frame_number = game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get(entity_frame_key, 0) 
+            
+            texture_to_use = game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet")
             texture_scale = 2
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            render_pos_x = int(tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x)
+            render_pos_y = int(tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y)
+            pr.draw_text(f"angle is {entity.get("sight_angle",0)}", render_pos_x, render_pos_y - 15, 20, pr.WHITE)
             texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
             texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
 
-            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
+            
+
+            entity_dest_rect = pr.Rectangle(int(render_pos_x), int(render_pos_y), 24*2, 24*2) # these 32s are in the thing actually
+            entity_source_rect = pr.Rectangle(entity_frame_number*24, 0, 24, 24) # these 32s are in the thing actually
+            pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet"), entity_source_rect, entity_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
 
 
 def transition_debug_state(current):
@@ -784,25 +792,33 @@ def load_sounds(engine):
 
 def load_sprite_sheets():
     result = {}    
-
     result["blue_oxford_texture_sheet"] =  {}
     result["blue_oxford_texture_sheet"]["sheet"] = pr.load_texture("art/blue_oxford_sheet.png")
-
     result["blue_oxford_texture_sheet"]["frame_width"] = 32 # kinda need to know these ahead of time currently
     result["blue_oxford_texture_sheet"]["frame_height"] = 32
     result["blue_oxford_texture_sheet"]["frames"] = result["blue_oxford_texture_sheet"]["sheet"].width / result["blue_oxford_texture_sheet"]["frame_width"]
-
     result["blue_oxford_texture_sheet"]["current_frame"] = 0
-
     result["blue_oxford_texture_sheet"]["down_frame_start"] = 0
     result["blue_oxford_texture_sheet"]["up_frame_start"] = 7
-
     # this one would need to loop I think
     result["blue_oxford_texture_sheet"]["glance_frame_start"] = 2
     result["blue_oxford_texture_sheet"]["glance_frame_end"] = 4
-
     result["blue_oxford_texture_sheet"]["left_frame_start"] = 6
     result["blue_oxford_texture_sheet"]["right_frame_start"] = 5
+
+    result["red_head_texture_sheet"] =  {}
+    result["red_head_texture_sheet"]["sheet"] = pr.load_texture("art/redhead_sheet.png")
+    result["red_head_texture_sheet"]["frame_width"] = 24
+    result["red_head_texture_sheet"]["frame_height"] = 24
+
+    result["red_head_texture_sheet"]["frames"] = result["red_head_texture_sheet"]["sheet"].width / result["red_head_texture_sheet"]["frame_width"]
+    result["red_head_texture_sheet"]["current_frame"] = 0
+    result["red_head_texture_sheet"]["down_frame_start"] = 0
+    result["red_head_texture_sheet"]["up_frame_start"] = 1    
+    # result["red_head_texture_sheet"]["glance_frame_start"] = 2
+    # result["red_head_texture_sheet"]["glance_frame_end"] = 4
+    result["red_head_texture_sheet"]["left_frame_start"] = 3
+    result["red_head_texture_sheet"]["right_frame_start"] = 2
 
 
 
@@ -1427,7 +1443,11 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
         # new_entity_velocity['y'] = 0
         # new_entity_velocity = vec2_normalize(new_entity_velocity)
 
-
+    motion_angle = angle_from_vector(new_entity_velocity)
+    print(f"motion angle is {motion_angle}")
+    #risky!    
+    animation_direction = direction_from_angle(motion_angle + 180) # zzz this is borked, not sure why i have the -180 yet 
+    entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
     
 
     return new_entity_position
@@ -1467,15 +1487,18 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
         entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
     else:
         bored_timer += dt
+        # zzz this is also update sight direction for now
         if bored_timer >= bored_threshold:
             bored_timer = 0
             new_angle = random.randint(0,360)
-            new_angle = new_angle % 360
-            new_vec = vector_from_angle(new_angle)
-            entity["sight_angle"] = new_angle            
+            new_angle = new_angle % 360            
+            entity["sight_angle"] = new_angle                        
+            
             # pick a new random direction...?
     entity["bored_timer"] = bored_timer
 
+    animation_direction = direction_from_angle(entity.get("sight_angle",0)-180) # zzz this is borked, not sure why i have the -180 yet 
+    entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
     return next_state
 
 def deg_to_rad(deg):
@@ -2268,7 +2291,7 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
     player_angle_current += 180
     animation_direction = direction_from_angle(player_angle_current)
 
-    player_info["animation_frame"] = player_animation_frame_number_from_direction(animation_direction)
+    player_info["animation_frame"] = animation_frame_number_from_direction(animation_direction)
 
     pr.draw_text(f"player angle is {player_angle_current}", 80, 30, 10, pr.RED)
 
@@ -2419,7 +2442,7 @@ def direction_from_angle(angle):
         rough_direction = "left"
     return rough_direction
 
-def player_animation_frame_number_from_direction(direction):
+def animation_frame_number_from_direction(direction):
     texture_name_number = f"{direction}_frame_start"
     return texture_name_number
 
