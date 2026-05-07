@@ -257,7 +257,7 @@ def reconstruct_path(came_from, target, origin):
     
 
 
-def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_info, mode):
+def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_info, mode, debug_queue):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
@@ -391,7 +391,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     else:
         gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
 
-    gun_angle = angle_from_vector(player_info.get("aim_direction"))
+    gun_angle = angle_from_vector(player_info.get("aim_direction")) - 180 # some bs here
 
     #pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
 
@@ -453,14 +453,30 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             texture_scale = 2
             render_pos_x = int(tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x)
             render_pos_y = int(tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y)
-            pr.draw_text(f"angle is {entity.get("sight_angle",0)}", render_pos_x, render_pos_y - 15, 20, pr.WHITE)
-            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
-            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
 
+            texture_x = render_pos_x - 24
+            texture_y = render_pos_y - 24            
+            debug_str = f"angle is {entity.get("sight_angle",0)}"
+            if debug_queue is not None:
+                debug_item = {
+                    "type" : "text",
+                    "drawing_function" : draw_debug_text,
+                    "pos" : {"x" : render_pos_x, "y" : render_pos_y-10},                                        
+                    "font_size" : 16,
+                    "text" : debug_str,
+                    "color" : "WHITE",
+                    "z_sort" : 0,                    
+                }
+                debug_queue.append(debug_item)
+            else:
+                pr.draw_text(debug_str, render_pos_x, render_pos_y-30, 20, pr.WHITE)
+            # texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
+            # texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             
 
-            entity_dest_rect = pr.Rectangle(int(render_pos_x), int(render_pos_y), 24*2, 24*2) # these 32s are in the thing actually
-            entity_source_rect = pr.Rectangle(entity_frame_number*24, 0, 24, 24) # these 32s are in the thing actually
+            # entity_dest_rect = pr.Rectangle(int(render_pos_x), int(render_pos_y), 24*2, 24*2) 
+            entity_dest_rect = pr.Rectangle(int(texture_x), int(texture_y), 24*2, 24*2) 
+            entity_source_rect = pr.Rectangle(entity_frame_number*24, 0, 24, 24) 
             pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet"), entity_source_rect, entity_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
 
 
@@ -1074,9 +1090,9 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     alice_pos = alice.get("position")
 
     abs_alice = get_abs_pos_from_index(alice_pos, tile_map, )
-    alice_sight_angle = int(alice.get("sight_angle", 0))
+    alice_sight_angle = int(alice.get("sight_angle", 0)) #+ 180 #here?
 
-    main_direction = vector_from_angle(alice_sight_angle)
+    main_direction = vector_from_angle(alice_sight_angle) # I think we want to 180 this
 
     main_direction_scaled = vec2_scale(main_direction, 100)
     
@@ -1371,7 +1387,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     vec2_between = vec2_normalize(vec2_subtract(target_position, make_player_pos_abs(entity.get("position",{}), tile_width, tile_height)))
 
     # we can also set our heading here
-    entity["sight_angle"] = angle_from_vector(vec2_between)
+    entity["sight_angle"] = angle_from_vector(vec2_between) 
     # obviously we should move to 'proper' velocity but it's just a tad harder
     default_speed = 50
     entity_speed = entity.get("speed", default_speed)
@@ -1446,7 +1462,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     motion_angle = angle_from_vector(new_entity_velocity)
     print(f"motion angle is {motion_angle}")
     #risky!    
-    animation_direction = direction_from_angle(motion_angle + 180) # zzz this is borked, not sure why i have the -180 yet 
+    animation_direction = direction_from_angle(motion_angle) # zzz this is borked, not sure why i have the -180 yet 
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
     
 
@@ -1497,7 +1513,7 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
             # pick a new random direction...?
     entity["bored_timer"] = bored_timer
 
-    animation_direction = direction_from_angle(entity.get("sight_angle",0)-180) # zzz this is borked, not sure why i have the -180 yet 
+    animation_direction = direction_from_angle(entity.get("sight_angle",0)) # zzz this is borked, not sure why i have the -180 yet 
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
     return next_state
 
@@ -1512,7 +1528,7 @@ def rad_to_deg(rad):
     return (rad * 180.0) / math.pi 
 
 def vector_from_angle(angle_deg):
-    angle = deg_to_rad(angle_deg)
+    angle = deg_to_rad(angle_deg + 180)
     x = math.cos(angle)
     y = math.sin(angle)
     return {"x" : x, "y" : y}
@@ -1522,17 +1538,18 @@ def vector_from_angle(angle_deg):
 def angle_from_vector(v):    
     x = v.get("x",0)
     y = v.get("y",0)
-    if x == 0:
-        if y == 1:
-            return 0        
-        return 180
-    if y == 0:
-        if x == 1:
-            return 90
-        return 270
+    # if x == 0:
+    #     if y == 1:
+    #         return 0        
+    #     return 180
+    # if y == 0:
+    #     if x == 1:
+    #         return 90
+    #     return 270
     tan_ratio = y / x
     angle = rad_to_deg(math.atan2(y, x))    
-    return angle
+    # angle = rad_to_deg(math.atan(tan_ratio))    
+    return angle + 180
 
 def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
     collides = False
@@ -2288,12 +2305,12 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
 
     # set direciton based on aim? or running?
     player_angle_current = angle_from_vector(aim_heading_normal)
-    player_angle_current += 180
+    #player_angle_current += 180
     animation_direction = direction_from_angle(player_angle_current)
 
     player_info["animation_frame"] = animation_frame_number_from_direction(animation_direction)
 
-    pr.draw_text(f"player angle is {player_angle_current}", 80, 30, 10, pr.RED)
+    pr.draw_text(f"player angle is {int(player_angle_current)}", 80, 30, 10, pr.RED)
 
 
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
@@ -2669,7 +2686,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
 
     
 
-    update_render_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode)
+    update_render_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
 
     pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
 
