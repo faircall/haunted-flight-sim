@@ -574,7 +574,8 @@ def make_projectile(responsible, spawn_pos, velocity, id, type):
                   "position" : current_pos,
                   "velocity" : velocity,
                   "id" : id,
-                  "type" : type
+                  "type" : type,
+                  "timer" : 0
                   }
     return bullet
 
@@ -1879,6 +1880,11 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 play_sound(sounds["pistol_hit_wall"])
                 deletions.append({"subdict": "projectiles", "id" : entity["id"]})            
             entity["position"] = next_bullet_pos
+            entity["timer"] += dt
+            max_bullet_time_for_now = 0.6
+            if entity["timer"] >= max_bullet_time_for_now:
+                deletions.append({"subdict": "projectiles", "id" : entity["id"]})            
+
             
             
 
@@ -2168,7 +2174,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     if player_footstep_timer >= player_footstep_timer_base_gap:
         player_footstep_timer = 0
         play_pool_sound("player_footstep_pool", sounds, -3, 3, 40)
-        print("playing pool sound")
+        # print("playing pool sound")
 
     player_info["player_footstep_timer"] = player_footstep_timer
 
@@ -2178,7 +2184,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         friction_vector = vec2_scale(player_velocity, -1)        
         player_velocity = vec2_add(player_velocity, vec2_scale(friction_vector, dt * player_decel))
     elif vec2_norm(direction_vector) < 0.1 and current_speed > 0 and current_speed <= min_speed:
-        print("killing velocity")
+        # print("killing velocity")
         player_velocity = {"x" : 0, "y" : 0}
     
     player_info["player_velocity"] = player_velocity
@@ -2320,7 +2326,7 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
         bullet_pos = {"x" : spawn_pos["x"], "y" :spawn_pos["y"]} # world space I think
         current_pos = {"x" : spawn_pos["x"], "y" : spawn_pos["y"]}
-        bullet_speed = 5000 # this will be kept constant effectively, since the bullet won't really slow down
+        bullet_speed = 10000 # this will be kept constant effectively, since the bullet won't really slow down
         if debug_state == "slow_bullets":
             bullet_speed = 50
         # in the horizontal before it hits the ground
@@ -2540,6 +2546,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
     # arena initialisation
     
     dt = pr.get_frame_time()
+    if dt > 0:
+        print(f"fps is {1/dt}")
     # issue here when debugging, people will accumulate insane time
     dt = min(dt, 0.016)
     mouse_pos = pr.get_mouse_position()
