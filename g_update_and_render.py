@@ -813,7 +813,7 @@ def load_sprite_sheets():
     result["blue_oxford_texture_sheet"]["frame_width"] = 32 # kinda need to know these ahead of time currently
     result["blue_oxford_texture_sheet"]["frame_height"] = 32
     result["blue_oxford_texture_sheet"]["frames"] = result["blue_oxford_texture_sheet"]["sheet"].width / result["blue_oxford_texture_sheet"]["frame_width"]
-    result["blue_oxford_texture_sheet"]["current_frame"] = 0
+    result["blue_oxford_texture_sheet"]["animation_frame"] = 0
     result["blue_oxford_texture_sheet"]["down_frame_start"] = 0
     result["blue_oxford_texture_sheet"]["up_frame_start"] = 7
     # this one would need to loop I think
@@ -828,13 +828,15 @@ def load_sprite_sheets():
     result["red_head_texture_sheet"]["frame_height"] = 24
 
     result["red_head_texture_sheet"]["frames"] = result["red_head_texture_sheet"]["sheet"].width / result["red_head_texture_sheet"]["frame_width"]
-    result["red_head_texture_sheet"]["current_frame"] = 0
+    result["red_head_texture_sheet"]["animation_frame"] = 0
     result["red_head_texture_sheet"]["down_frame_start"] = 0
     result["red_head_texture_sheet"]["up_frame_start"] = 1    
     # result["red_head_texture_sheet"]["glance_frame_start"] = 2
     # result["red_head_texture_sheet"]["glance_frame_end"] = 4
     result["red_head_texture_sheet"]["left_frame_start"] = 3
     result["red_head_texture_sheet"]["right_frame_start"] = 2
+
+    result["red_head_texture_sheet"]["death_frame_start"] = 19
 
 
 
@@ -1546,7 +1548,7 @@ def angle_from_vector(v):
     #     if x == 1:
     #         return 90
     #     return 270
-    tan_ratio = y / x
+    #tan_ratio = y / x
     angle = rad_to_deg(math.atan2(y, x))    
     # angle = rad_to_deg(math.atan(tan_ratio))    
     return angle + 180
@@ -1956,6 +1958,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                     play_pool_sound("stagger_hit_pool", sounds)                                
                                     particle_system = make_blood_spatter(5, start_color,  end_color, 0.1, 0.01, 100, bullet_hitting_us, entity.get("position"))
                                 entity["current_state"] = "dead"
+
+                                entity["animation_frame"] = "death_frame_start" # zzz TODO make this directional
                                 
                                 
                             
@@ -2460,8 +2464,8 @@ def direction_from_angle(angle):
     return rough_direction
 
 def animation_frame_number_from_direction(direction):
-    texture_name_number = f"{direction}_frame_start"
-    return texture_name_number
+    frame_number_name = f"{direction}_frame_start"
+    return frame_number_name # lol this isn't a number
 
 
 
