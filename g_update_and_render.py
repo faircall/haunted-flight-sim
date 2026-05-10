@@ -364,16 +364,26 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                     
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+
+            render_pos = pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y))
             if tile_type.get("type") == "wood":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 2, pr.WHITE)
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), render_pos, 0.0, 2, pr.WHITE)
             elif tile_type.get("type") == "wall":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), render_pos, 0.0, 1, pr.WHITE)
             elif tile_type.get("type") == "stone":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
             elif tile_type.get("type") == "carpet":  #change to other tile               
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y)), 0.0, 1, pr.WHITE)
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
             if is_highlight:
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
+
+            if "decals" in tile_to_draw:
+                for decal in tile_to_draw["decals"]:
+                    if decal["type"] == "blood":
+                        render_pos_x = render_pos.x + decal["offset_x"]
+                        render_pos_y = render_pos.y + decal["offset_y"]
+                        pr.draw_circle(int(render_pos_x), int(render_pos_y), decal.get("size",5), pr.RED)
+
 
     # draw the player also
 
@@ -468,8 +478,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                     "z_sort" : 0,                    
                 }
                 debug_queue.append(debug_item)
-            else:
-                pr.draw_text(debug_str, render_pos_x, render_pos_y-30, 20, pr.WHITE)
+            
             # texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
             # texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             
@@ -872,6 +881,19 @@ def new_pos_from_old(old):
         "tile_y" : old.get("tile_y", 0)
     }
     return new_pos
+
+def get_flat_tile_index(x, y, tile_map, debug_queue = None):    
+    return y*tile_map.get("map_width") + x
+
+def get_tile_at_index(flat_index, tile_map):
+    # bounds check
+    if flat_index < 0 or flat_index >= len(tile_map["tiles"]):
+        print("warning: bad tile index!")
+        flat_index = 0
+    tile_at_index = tile_map["tiles"][flat_index]
+    return tile_at_index
+
+
 
 def get_tile_index_from_pos(pos, tile_map, debug_queue = None):    
     map_width = tile_map["map_width"]
@@ -1842,16 +1864,51 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     for key, particle_system in entities["particle_systems"].items():        
         if key == "taken":
             continue
+        place_decal = False
+        if particle_system["timer"] >= particle_system["duration"]:
+            # mark for deletion
+            deletions.append({"subdict": "particle_systems", "id" : particle_system["id"]})            
+            place_decal = True
         for particle in particle_system["particles"]:
             next_particle_pos_offset = vec2_add(particle["position"], vec2_scale(particle["velocity"], dt))            
             next_pos = copy_entity_pos(particle["position"])
             next_pos["x"] = next_particle_pos_offset["x"]
             next_pos["y"] = next_particle_pos_offset["y"]
             particle["position"] = move_position_along_tiles(next_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
-        particle_system["timer"] += dt
-        if particle_system["timer"] >= particle_system["duration"]:
-            # mark for deletion
-            deletions.append({"subdict": "particle_systems", "id" : particle_system["id"]})            
+            if place_decal:
+                # and maybe just place decal randomly?
+                tile_x = particle["position"]["tile_x"]
+                tile_y = particle["position"]["tile_y"]
+                offset_x = particle["position"]["x"]
+                offset_y = particle["position"]["y"]
+                ground_particle_size = particle["size"] + 1
+                flat_index = get_flat_tile_index(tile_x, tile_y, tile_map)
+                
+                tile_at_index = get_tile_at_index(flat_index, tile_map)
+                if "decals" not in tile_at_index:
+                    tile_at_index["decals"] = []
+                 
+                # TODO (optimisation) : preallocate a certain amount of decals on each tile up front
+                decal = {
+                    "type" : "blood",
+                    "size" : ground_particle_size,
+                    "offset_x" : offset_x,
+                    "offset_y" : offset_y,
+                }
+
+                # enforce max length on decals per tile?
+                max_decals_for_now = 16
+                if len(tile_at_index["decals"]) >= max_decals_for_now:
+                    tile_at_index["decals"].pop()
+                tile_at_index["decals"].append(decal)   
+                
+
+                print("already have our tile indices, good on me")
+
+
+        particle_system["timer"] += dt                    
+            
+
 
     if "projectiles" not in entities:
         entities["projectiles"] = {}
@@ -1959,7 +2016,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                 # kill them here
                                 if entity["current_state"] != "dead":
                                     play_pool_sound("death_hit_pool", sounds)                                
-                                    particle_system = make_blood_spatter(20, start_color,  end_color, 3.0, 0.1, 100, bullet_hitting_us, entity.get("position"))
+                                    particle_system = make_blood_spatter(20, start_color,  end_color, 0.7, 0.1, 100, bullet_hitting_us, entity.get("position"))
                                 else:
                                     play_pool_sound("stagger_hit_pool", sounds)                                
                                     particle_system = make_blood_spatter(5, start_color,  end_color, 0.1, 0.01, 100, bullet_hitting_us, entity.get("position"))
@@ -2377,9 +2434,9 @@ def make_blood_spatter(particle_amount, start_color, end_color, total_duration, 
 
     for i in range(particle_amount):
         current_angle = angle_from_vector(bullet_normalized)
-        new_angle = current_angle + float(random.randint(-5, 5))
-        speed_offset = float(random.randint(-5, 5))
-        new_magnitude = bullet_magnitude / (10 + speed_offset)
+        new_angle = current_angle + float(random.randint(-10, 10))
+        speed_offset = float(random.randint(-2, 2))
+        new_magnitude = bullet_magnitude / (speed_offset + 10)#(10 + speed_offset)
         blood_velocity = vec2_scale(vector_from_angle(new_angle), new_magnitude)
         spawn_pos = copy_entity_pos(spawn_position)
         base_size = 2
@@ -2546,8 +2603,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
     # arena initialisation
     
     dt = pr.get_frame_time()
-    if dt > 0:
-        print(f"fps is {1/dt}")
+    # if dt > 0:
+    #     print(f"fps is {1/dt}")
     # issue here when debugging, people will accumulate insane time
     dt = min(dt, 0.016)
     mouse_pos = pr.get_mouse_position()
