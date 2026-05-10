@@ -1874,21 +1874,29 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             next_pos = copy_entity_pos(particle["position"])
             next_pos["x"] = next_particle_pos_offset["x"]
             next_pos["y"] = next_particle_pos_offset["y"]
+            
             particle["position"] = move_position_along_tiles(next_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
+            tile_x = particle["position"]["tile_x"]
+            tile_y = particle["position"]["tile_y"]
+            flat_index = get_flat_tile_index(tile_x, tile_y, tile_map)
+            tile_at_index = get_tile_at_index(flat_index, tile_map)
+
+            if tile_type_is_collidable(tile_map["tile_types"][tile_at_index["index"]]["type"]):
+                particle["velocity"] = {"x" : 0, "y" : 0}
+            # BUG we currently allow particles to travel through walls which is wrong obviously
             if place_decal:
                 # and maybe just place decal randomly?
-                tile_x = particle["position"]["tile_x"]
-                tile_y = particle["position"]["tile_y"]
+                
                 offset_x = particle["position"]["x"]
                 offset_y = particle["position"]["y"]
                 ground_particle_size = particle["size"] + 1
-                flat_index = get_flat_tile_index(tile_x, tile_y, tile_map)
-                
-                tile_at_index = get_tile_at_index(flat_index, tile_map)
+                                                
                 if "decals" not in tile_at_index:
                     tile_at_index["decals"] = []
                  
                 # TODO (optimisation) : preallocate a certain amount of decals on each tile up front
+                # zzz AND we already know the type of tile that it's landing on so we can properly like
+                # have different decals for different tile types!!
                 decal = {
                     "type" : "blood",
                     "size" : ground_particle_size,
@@ -1897,7 +1905,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 }
 
                 # enforce max length on decals per tile?
-                max_decals_for_now = 16
+                max_decals_for_now = 64
                 if len(tile_at_index["decals"]) >= max_decals_for_now:
                     tile_at_index["decals"].pop()
                 tile_at_index["decals"].append(decal)   
