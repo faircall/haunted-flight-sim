@@ -660,7 +660,19 @@ def make_default_player(x,y,z):
 
     player["health"] = 100
 
+    player["ammo"] = {}
+
+    player["ammo"]["pistol"] = 20    
+    player["ammo"]["spare_pistol"] = 20
+
     return player
+
+def get_clip_size(gun_type):
+    sizes = {
+        "pistol": 20
+    }
+
+    return sizes.get(gun_type, 0)
 
 def update_tile_selection(current_tile_selection, tile_types_amount):
     mouse_wheel =  pr.get_mouse_wheel_move()
@@ -804,11 +816,17 @@ def load_sounds(engine):
     
     pistol_hit_wall = load_sound(engine, "sounds/pistol_hit_wall.wav", False, 0.75, 1, 0)
 
+    pistol_reload = load_sound(engine, "sounds/pistol_reload.wav", False, 0.75, 1, 0)
+
+    result["pistol_reload"] = pistol_reload
+
     result["player_footstep_pool"] = load_sound_pool(engine, 10, "player_footstep.wav", 0.75, 0.7, 0)
     result["pistol_pool"] = load_pistol_pool(engine)
     result["stagger_hit_pool"] = load_sound_pool(engine, 10, "pistol_hit_body.wav", 0.75, 0.7, 0)
 
     result["death_hit_pool"] = load_sound_pool(engine, 10, "death_hit.wav", 0.5, 1, 0)
+
+    result["pistol_empty_pool"] = load_sound_pool(engine, 10, "pistol_empty.wav", 0.5, 1, 0)
         
     result["pistol_hit_wall"] = pistol_hit_wall    
 
@@ -1893,6 +1911,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                                 
                 if "decals" not in tile_at_index:
                     tile_at_index["decals"] = []
+                    tile_at_index["decal_counter"] = 0
+                
+
                  
                 # TODO (optimisation) : preallocate a certain amount of decals on each tile up front
                 # zzz AND we already know the type of tile that it's landing on so we can properly like
@@ -1907,8 +1928,13 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 # enforce max length on decals per tile?
                 max_decals_for_now = 64
                 if len(tile_at_index["decals"]) >= max_decals_for_now:
-                    tile_at_index["decals"].pop()
-                tile_at_index["decals"].append(decal)   
+                    counter = tile_at_index.get("decal_counter", 0)
+                    tile_at_index["decals"][counter % max_decals_for_now]
+                    tile_at_index["decal_counter"] = counter + 1
+                else:
+                    tile_at_index["decals"].append(decal)   
+
+                
                 
 
                 print("already have our tile indices, good on me")
@@ -1954,7 +1980,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
 
             # interp the tiles between this and next 
-    for entity in entities["brains"].values():                        
+    for entity in entities.get("brains",{}).values():                        
         if entity.get("type","") == "red head":
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
@@ -2221,6 +2247,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         player_accel *= 2
 
     player_velocity = vec2_add(player_velocity, vec2_scale(direction_vector, dt * player_accel))
+    # correct in the case that we're diagonal but not full speed?
     
     
     if vec2_norm(player_velocity) >= player_speed_max:
@@ -2387,39 +2414,51 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
 
     pr.draw_text(f"player angle is {int(player_angle_current)}", 80, 30, 10, pr.RED)
 
+    current_gun = "pistol" # TODO make more types of guns and make them selectable
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_R):
+        # reload!
+        clip_size = get_clip_size(current_gun)
+        spare_bullets = player_info["ammo"][f"spare_{current_gun}"]
+        clip_to_load = min(clip_size, spare_bullets)        
+        player_info["ammo"][current_gun] += clip_to_load
+        spare_bullets -= clip_to_load
+        player_info["ammo"][f"spare_{current_gun}"] = spare_bullets
+        play_sound(sounds["pistol_reload"])
+
 
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
-        bullet_pos = {"x" : spawn_pos["x"], "y" :spawn_pos["y"]} # world space I think
-        current_pos = {"x" : spawn_pos["x"], "y" : spawn_pos["y"]}
-        bullet_speed = 10000 # this will be kept constant effectively, since the bullet won't really slow down
-        if debug_state == "slow_bullets":
-            bullet_speed = 50
-        # in the horizontal before it hits the ground
-        if "projectiles" not in entities:
-            entities["projectiles"] = {}
-        bullet_id = len(entities["projectiles"])
-        bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
-        # bullet = {"entity_responsible" : "player",
-        #           "spawn_position" : bullet_pos,
-        #           "position" : current_pos,
-        #           "velocity" : vec2_scale(aim_heading_normal, bullet_speed),
-        #           "id" : bullet_id,
-        #           "type" : "bullet"
-        #           }
-        # if "projectiles" not in entities:
-        #     entities["projectiles"] = []
-
-        # if "particles" not in entities:
-        #     entities["particles"] = []
         
-        # zzz
-        # TODO! move this stuff to an audio manager, just need the sound info
+        current_ammo = player_info["ammo"][current_gun]
 
-        play_pool_sound("pistol_pool", sounds)        
+        if current_ammo <= 0:
+            print("no bullets")
+            play_pool_sound("pistol_empty_pool", sounds)
+            # play reload sound
+        else:
+            bullet_pos = {"x" : spawn_pos["x"], "y" :spawn_pos["y"]} # world space I think
+            current_pos = {"x" : spawn_pos["x"], "y" : spawn_pos["y"]}
+            bullet_speed = 10000 # this will be kept constant effectively, since the bullet won't really slow down
+            if debug_state == "slow_bullets":
+                bullet_speed = 50
+            # in the horizontal before it hits the ground
+            if "projectiles" not in entities:
+                entities["projectiles"] = {}
+            bullet_id = len(entities["projectiles"])
+            bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
+            
+            # TODO! move this stuff to an audio manager, just need the sound info
 
-        entities["projectiles"][bullet_id] = bullet
-        # spawn a bullet with our name on it
-        # try playing a gunshot sound directly here
+            play_pool_sound("pistol_pool", sounds)        
+
+            entities["projectiles"][bullet_id] = bullet
+
+            current_ammo -= 1
+
+            player_info["ammo"][current_gun] = current_ammo
+
+            # spawn a bullet with our name on it
+            # try playing a gunshot sound directly here
         
         
     player_info["aim_direction"] = aim_heading
