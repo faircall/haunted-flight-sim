@@ -349,12 +349,21 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
                         give_entity_stats_from_type(new_entity, entity_type)
 
-                        if "brains" not in entities:
-                            entities["brains"] = {}
-                        id = len(entities["brains"])
-                        new_entity["id"] = id
-                        
-                        entities["brains"][id] = new_entity
+                        if categorise_entity_type(entity_type) == "brains":
+                            if "brains" not in entities:
+                                entities["brains"] = {}
+                            id = len(entities["brains"]) # this id system could use some improving!
+                            new_entity["id"] = id                            
+                            entities["brains"][id] = new_entity
+                        elif categorise_entity_type(entity_type) == "pickups":
+                            # in the C version we might want to 
+                            # be slightly more clever about how we store ids 
+                            # and whatnot
+                            if "pickups" not in entities:
+                                entities["pickups"] = {}
+                            id = len(entities["pickups"]) # this id system could use some improving!
+                            new_entity["id"] = id                            
+                            entities["pickups"][id] = new_entity
 
                     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
                         latest_id = max(len(entities) - 1,0)
@@ -433,6 +442,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
         entities["brains"] = {}
     if "particle_systems" not in entities:
         entities["particle_systems"] = {}
+    if "pickups" not in entities:
+        entities["pickups"] = {}
 
     for key, particle_system in entities["particle_systems"].items():        
         if key == "taken":
@@ -447,7 +458,24 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
         if entity.get("type","") == "bullet":
             render_x = entity["position"]["x"] - game_camera.x
             render_y = entity["position"]["y"] - game_camera.y
-            pr.draw_rectangle(int(render_x), int(render_y), 4, 4, pr.BROWN)
+            pr.draw_rectangle(int(render_x), int(render_y), 4, 4, pr.BROWN)            
+    for entity in entities["pickups"].values():        
+        if entity.get("type","") == "pistol_ammo_pickup":
+            texture_scale = 3
+            texture_to_use = game_assets.get("textures",{}).get("pistol_ammo_pickup_texture")
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
+            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
+            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
+        elif entity.get("type","") == "health_pickup":
+            texture_scale = 3
+            texture_to_use = game_assets.get("textures",{}).get("health_pickup_texture")
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
+            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
+            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)            
     for entity in entities["brains"].values():        
         if entity.get("type","") == "buddha":
             texture_scale = 1
@@ -541,42 +569,6 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
 
-def update_projectiles(main_arena):
-    # this should be something like
-    # for each projectile
-    # test against the environment (easy, since it's a tilemap)
-    # test against the entities (couple hundred at most?)
-    # resolve collision to environment or entity
-    # or advance along the velocity line
-    # bullet drop is just a time limit, in a sense
-    # could also get bullets to collide with themselves?
-    # note that collisions need to be checked between frames,
-    # via raycasting/line intersection
-    # is a point on a line or not should just resolve to
-    # same direction vector with smaller magnitude?
-
-
-
-    # tile map collision
-    
-    # entity collision
-
-    # bullet-to-bullet collision
-
-    # then there is a question about which came first
-
-    # list of projectiles seems to make sense
-
-    projectile_list = []
-
-    for projectile in projectile_list:
-        velocity = projectile.get("velocity") # direction and speed
-        velocity = projectile.get("velocity")
-
-    pass
-
-def spawn_projectile(main_arena, origin, bullet_speed):
-    projectile_list = []
 
 def make_projectile(responsible, spawn_pos, velocity, id, type):
     current_pos = {"x" : spawn_pos["x"], "y" : spawn_pos["y"]}
@@ -597,6 +589,11 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["attack_damage"] = 5
     elif entity_type == "buddha":
         entity["health"] = 600
+    elif entity_type == "pistol_ammo_pickup":
+        entity["value"] = 20
+    elif entity_type == "health_pickup":
+        entity["value"] = 25
+
 
     
 
@@ -776,11 +773,22 @@ def get_saved_files():
 
 def load_entity_types():
     entity_types = [
-        "buddha",
-        "red head"
+        "buddha", 
+        "red head",
+        "pistol_ammo_pickup",
+        "health_pickup"
     ]
-
     return entity_types
+
+def categorise_entity_type(entity_type):
+    category_map =  {
+        "buddha" : "brains",
+        "red head" : "brains",
+        "pistol_ammo_pickup" : "pickups",
+        "health_pickup" : "pickups",
+    }
+
+    return category_map[entity_type]
 
 def load_sound(engine, file_name, looping, volume, pitch, pan):
     sound = cma.Sound(engine, file_name)
@@ -900,6 +908,9 @@ def load_textures():
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
     result["orange_tile_texture"] = pr.load_texture("art/orange_tile_32x.png")
+
+    result["pistol_ammo_pickup_texture"] = pr.load_texture("art/pistol_ammo_pickup.png")
+    result["health_pickup_texture"] = pr.load_texture("art/health_pickup.png")
 
     
 
@@ -1886,11 +1897,31 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     deletions = []
 
     bullet_tiles = {}
-    # TODO zzzz make a 'reverse particle' system style weapon that
+    # TODO make a 'reverse particle' system style weapon that
     # sucks up ammo from a corpse
     # like in Tenent
     # at the cost of reviving the corpse!
     
+
+    
+    if "pickups" not in entities:
+        entities["pickups"] = {}
+    for key, pickup in entities["pickups"].items():        
+        # we might want to handle this in player interactions,
+        # in which case we could have an 'e to pickup'
+        # system
+        pickup_rad = 10
+        if tiles_equal(player_pos, pickup["position"]):
+            if vec2_distance(player_pos, pickup["position"]) < pickup_rad:
+                deletions.append({"subdict": "pickups", "id" : pickup["id"]})            
+                if pickup.get("type") == "pistol_ammo_pickup":
+                    print("got ammo")
+                    # zzz TODO play a nice ammo sound
+                    player_info["ammo"]["spare_pistol"] += pickup.get("value", 0)                    
+                elif pickup.get("type") == "health_pickup":                                        
+                    print("got health")
+                    player_info["health"] += pickup.get("value", 0)
+        
 
     if "particle_systems" not in entities:
         entities["particle_systems"] = {}
@@ -2430,6 +2461,10 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
 
     pr.draw_text(f"player angle is {int(player_angle_current)}", 80, 30, 10, pr.RED)
 
+    pr.draw_text(f"player health is {int(player_info["health"])}", 80, 40, 10, pr.RED)
+
+    pr.draw_text(f"player ammo is {int(player_info["ammo"]["pistol"])} / {int(player_info["ammo"]["spare_pistol"])}", 80, 50, 10, pr.RED)
+
     current_gun = "pistol" # TODO make more types of guns and make them selectable
 
     if player_info.get("reload_state","") == "reloading":
@@ -2439,19 +2474,26 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
         if reload_timer >= get_reload_time(current_gun):
             player_info["reload_timer"] = 0
             player_info["reload_state"] = "reloaded"
+            # reload!
+            current_bullets = player_info["ammo"][f"{current_gun}"]
+            spare_bullets = player_info["ammo"][f"spare_{current_gun}"]
+            clip_size = get_clip_size(current_gun)
+
+            bullets_we_have_room_for = clip_size - current_bullets
+
+            
+            clip_to_load = min(bullets_we_have_room_for, spare_bullets)            
+
+            player_info["ammo"][current_gun] += clip_to_load # this would allow it to go over
+            #player_info["ammo"][f"{current_gun}"] = max(spare_bullets, 0)
+            spare_bullets -= clip_to_load                        
+            player_info["ammo"][f"spare_{current_gun}"] = max(spare_bullets, 0)
+
 
         # should also be able to interrupt this
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_R):
-
-        if player_info.get("reload_state","") != "reloading":
-            # reload!
-            clip_size = get_clip_size(current_gun)
-            spare_bullets = player_info["ammo"][f"spare_{current_gun}"]
-            clip_to_load = min(clip_size, spare_bullets)        
-            player_info["ammo"][current_gun] += clip_to_load # this would allow it to go over
-            spare_bullets -= clip_to_load
-            player_info["ammo"][f"spare_{current_gun}"] = spare_bullets
+        if player_info.get("reload_state","") != "reloading":                        
             play_sound(sounds["pistol_reload"])
             player_info["reload_state"] = "reloading"
 
