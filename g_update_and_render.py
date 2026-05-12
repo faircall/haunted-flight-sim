@@ -1910,6 +1910,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         # we might want to handle this in player interactions,
         # in which case we could have an 'e to pickup'
         # system
+        # zzz TODO fix the pickup situation
+        # to use minkowsky sum approach
+        # currently it feels awful
         pickup_rad = 10
         if tiles_equal(player_pos, pickup["position"]):
             if vec2_distance(player_pos, pickup["position"]) < pickup_rad:
