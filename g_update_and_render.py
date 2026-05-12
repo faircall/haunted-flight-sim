@@ -418,6 +418,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
         pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture_flipped"), updated_gun_pos, gun_angle + 180, 1, pr.WHITE)    
     else:
         pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, gun_angle, 1, pr.WHITE)    
+
+    # HERE also draw reload status I think
     
 
     # and a dot at his center for debug purposes
@@ -667,6 +669,13 @@ def make_default_player(x,y,z):
 
     return player
 
+def get_reload_time(gun_type):
+    times = {
+        "pistol": 1.8 # this should be timed to the actual sound but it's roughly this
+    }
+
+    return times.get(gun_type, 0)
+
 def get_clip_size(gun_type):
     sizes = {
         "pistol": 20
@@ -796,6 +805,13 @@ def load_sound_pool(engine, variants, base_file, base_volume, base_pitch, base_p
         pool_sound = load_sound(engine, f"sounds/{base_file}", False, base_volume, base_pitch , base_pan)
         result["pool"].append(pool_sound)
     return result
+
+def stop_pool_sounds(pool_name, sounds):
+    if pool_name in sounds and sounds[pool_name] is not None:            
+        for i in range(len(sounds[pool_name]["pool"])):
+            sound_to_play = sounds[pool_name]["pool"][i]            
+            sound_to_play.stop()
+            sound_to_play.seek(0)        
 
 def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25):
     if pool_name in sounds and sounds[pool_name] is not None:            
@@ -2381,7 +2397,7 @@ def apply_force():
     # A = F / m
     pass
 
-def update_player_interaction(tile_map, player_info, game_camera, entities, sounds, audio_engine, debug_state):
+def update_player_interaction(tile_map, player_info, game_camera, entities, sounds, audio_engine, dt, debug_state):
     player_pos = player_info["position"]
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
@@ -2416,23 +2432,41 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
 
     current_gun = "pistol" # TODO make more types of guns and make them selectable
 
+    if player_info.get("reload_state","") == "reloading":
+        reload_timer = player_info.get("reload_timer",0)
+        reload_timer += dt
+        player_info["reload_timer"] = reload_timer
+        if reload_timer >= get_reload_time(current_gun):
+            player_info["reload_timer"] = 0
+            player_info["reload_state"] = "reloaded"
+
+        # should also be able to interrupt this
+
     if pr.is_key_pressed(pr.KeyboardKey.KEY_R):
-        # reload!
-        clip_size = get_clip_size(current_gun)
-        spare_bullets = player_info["ammo"][f"spare_{current_gun}"]
-        clip_to_load = min(clip_size, spare_bullets)        
-        player_info["ammo"][current_gun] += clip_to_load
-        spare_bullets -= clip_to_load
-        player_info["ammo"][f"spare_{current_gun}"] = spare_bullets
-        play_sound(sounds["pistol_reload"])
+
+        if player_info.get("reload_state","") != "reloading":
+            # reload!
+            clip_size = get_clip_size(current_gun)
+            spare_bullets = player_info["ammo"][f"spare_{current_gun}"]
+            clip_to_load = min(clip_size, spare_bullets)        
+            player_info["ammo"][current_gun] += clip_to_load # this would allow it to go over
+            spare_bullets -= clip_to_load
+            player_info["ammo"][f"spare_{current_gun}"] = spare_bullets
+            play_sound(sounds["pistol_reload"])
+            player_info["reload_state"] = "reloading"
 
 
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
         
         current_ammo = player_info["ammo"][current_gun]
+        if player_info.get("reload_state","") == "reloading":
+            stop_sound(sounds["pistol_reload"])            
+            player_info["reload_timer"] = 0
+            player_info["reload_state"] = "interrupted" # could do something with this
+
 
         if current_ammo <= 0:
-            print("no bullets")
+            print("no bullets")            
             play_pool_sound("pistol_empty_pool", sounds)
             # play reload sound
         else:
@@ -2520,6 +2554,11 @@ def play_sound(sound):
     sound.stop()
     sound.seek(0)
     sound.start()
+
+def stop_sound(sound):
+    sound.stop()
+    sound.seek(0)
+
 
     
 
@@ -2783,7 +2822,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
-        update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, debug_state)
+        update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, dt, debug_state)
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
