@@ -1133,18 +1133,6 @@ def vec2_dot(a, b):
     # well there it is
     return a.get("x", 0) * b.get("x", 0) + a.get("y", 0) * b.get("y", 0)
 
-#def point_in_circle_of_radius_at_x_y(pos, circle):
-
-
-def update_sight_direction(entity, player_pos, tile_map, new_direction):
-    # zzz todo
-    # we probably want to do something like
-    # if we hear something, take a look
-    # if something is in our peripheral vision, take a look
-    # if we're bored, look at something interesting...? i.e not a wall
-    # in which case, look opposite direction of something boring...?
-
-    pass
 
 
 def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
@@ -1532,7 +1520,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     motion_angle = angle_from_vector(new_entity_velocity)
     print(f"motion angle is {motion_angle}")
     #risky!    
-    animation_direction = direction_from_angle(motion_angle) # zzz this is borked, not sure why i have the -180 yet 
+    animation_direction = direction_from_angle(motion_angle) 
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
     
 
@@ -1583,7 +1571,7 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
             # pick a new random direction...?
     entity["bored_timer"] = bored_timer
 
-    animation_direction = direction_from_angle(entity.get("sight_angle",0)) # zzz this is borked, not sure why i have the -180 yet 
+    animation_direction = direction_from_angle(entity.get("sight_angle",0)) 
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
     return next_state
 
@@ -1906,7 +1894,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     
     if "pickups" not in entities:
         entities["pickups"] = {}
-    for key, pickup in entities["pickups"].items():        
+    for key, pickup in entities["pickups"].items():             
         # we might want to handle this in player interactions,
         # in which case we could have an 'e to pickup'
         # system
@@ -1914,16 +1902,53 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         # to use minkowsky sum approach
         # currently it feels awful
         pickup_rad = 10
-        if tiles_equal(player_pos, pickup["position"]):
-            if vec2_distance(player_pos, pickup["position"]) < pickup_rad:
-                deletions.append({"subdict": "pickups", "id" : pickup["id"]})            
-                if pickup.get("type") == "pistol_ammo_pickup":
-                    print("got ammo")
-                    # zzz TODO play a nice ammo sound
-                    player_info["ammo"]["spare_pistol"] += pickup.get("value", 0)                    
-                elif pickup.get("type") == "health_pickup":                                        
-                    print("got health")
-                    player_info["health"] += pickup.get("value", 0)
+
+        # bad test actually but still not working
+
+        pickup_pos_abs = tile_and_offset_to_absolute(tile_map, pickup.get("position",{}))
+        player_pos_abs = tile_and_offset_to_absolute(tile_map, player_pos)
+        # player_pos_abs["x"] += player_info["entity_width"]/2
+        # player_pos_abs["y"] += player_info["entity_height"]/2
+        
+        minkowski_rect = {
+            "x" : pickup_pos_abs["x"] - player_info["entity_width"]/2,
+            "y" : pickup_pos_abs["y"] - player_info["entity_height"]/2,
+            "width" : 24 + player_info["entity_width"],
+            "height": 24 + player_info["entity_height"]
+        }
+
+        if debug_queue is not None:
+                minkowski_debug_item = {
+                    "type" : "rectangle",
+                    "drawing_function" : draw_debug_rect,
+                    "x" : minkowski_rect["x"],                    
+                    "y" : minkowski_rect["y"],                    
+                    "width" : minkowski_rect["width"],                    
+                    "height" : minkowski_rect["height"],                    
+                    "color" : "GREEN",
+                    "z_sort" : 0,                    
+                }
+                debug_queue.append(minkowski_debug_item)
+
+                debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle_abs,
+                    "pos" : player_pos_abs,                                        
+                    "radius" : 8,
+                    "color" : "RED",
+                    "z_sort" : 0,                    
+                }
+                debug_queue.append(debug_item)
+
+        if point_in_rect(player_pos_abs, minkowski_rect):#vec2_distance(player_pos, pickup["position"]) < pickup_rad:
+            deletions.append({"subdict": "pickups", "id" : pickup["id"]})            
+            if pickup.get("type") == "pistol_ammo_pickup":
+                print("got ammo")
+                # zzz TODO play a nice ammo sound
+                player_info["ammo"]["spare_pistol"] += pickup.get("value", 0)                    
+            elif pickup.get("type") == "health_pickup":                                        
+                print("got health")
+                player_info["health"] += pickup.get("value", 0)
         
 
     if "particle_systems" not in entities:
@@ -2196,6 +2221,14 @@ def pathfind_test_on_player(player_info, tile_map, game_camera, debug_queue = No
 
             }    
             debug_queue.append(debug_item)
+
+
+def point_in_rect(point_position, rectangle):
+    rect_left = rectangle["x"]
+    rect_right = rectangle["x"] + rectangle["width"]
+    rect_top = rectangle["y"]
+    rect_bottom = rectangle["y"] + rectangle["height"]
+    return point_position["x"] >= rect_left and point_position["x"] <= rect_right and point_position["y"] >= rect_top and point_position["y"] <= rect_bottom 
     
 
 def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, sounds, debug_queue = None):
@@ -2662,6 +2695,14 @@ def animation_frame_number_from_direction(direction):
     return frame_number_name # lol this isn't a number
 
 
+def draw_debug_circle_abs(debug_item, camera):
+    x = debug_item.get("pos", {}).get("x") 
+    y = debug_item.get("pos", {}).get("y") 
+    cx = int(x - camera.position.x)
+    cy = int(y - camera.position.y)
+    rad = debug_item.get("radius", 0)
+    color = color_map(debug_item.get("color", ""))
+    pr.draw_circle(cx, cy, rad, color)
 
 
 def draw_debug_circle(debug_item, camera):
@@ -2685,6 +2726,20 @@ def draw_debug_tile(debug_item, camera):
     draw_y = int(y - camera_y)
 
     pr.draw_rectangle(draw_x, draw_y, tile_width, tile_height, color)
+
+
+def draw_debug_rect(debug_item, camera):
+    width = debug_item.get("width", 0)
+    height = debug_item.get("height", 0)
+    color = color_map(debug_item.get("color", "PINK"))
+    x = debug_item.get("x", 0) 
+    y = debug_item.get("y", 0) 
+    camera_x = camera.position.x
+    camera_y = camera.position.y
+    draw_x = int(x - camera_x)
+    draw_y = int(y - camera_y)
+
+    pr.draw_rectangle(draw_x, draw_y, width, height, color)
 
 def draw_debug_line(debug_item, camera):
     color = color_map(debug_item.get("color", "PINK"))
