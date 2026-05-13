@@ -1907,14 +1907,16 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
         pickup_pos_abs = tile_and_offset_to_absolute(tile_map, pickup.get("position",{}))
         player_pos_abs = tile_and_offset_to_absolute(tile_map, player_pos)
+        player_pos_abs["x"] += 12
+        player_pos_abs["y"] += 12
         # player_pos_abs["x"] += player_info["entity_width"]/2
         # player_pos_abs["y"] += player_info["entity_height"]/2
         
         minkowski_rect = {
-            "x" : pickup_pos_abs["x"] - player_info["entity_width"]/2,
-            "y" : pickup_pos_abs["y"] - player_info["entity_height"]/2,
-            "width" : 24 + player_info["entity_width"],
-            "height": 24 + player_info["entity_height"]
+            "x" : pickup_pos_abs["x"] - player_info["entity_width"] - 12,
+            "y" : pickup_pos_abs["y"] - player_info["entity_height"] - 12,
+            "width" : 24 + player_info["entity_width"] + 12,
+            "height": 24 + player_info["entity_height"] + 12
         }
 
         if debug_queue is not None:
