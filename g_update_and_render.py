@@ -848,6 +848,10 @@ def load_sounds(engine):
     result["pistol_pool"] = load_pistol_pool(engine)
     result["stagger_hit_pool"] = load_sound_pool(engine, 10, "pistol_hit_body.wav", 0.75, 0.7, 0)
 
+    result["ammo_pickup_pool"] = load_sound_pool(engine, 10, "ammo_pickup.wav", 0.75, 0.7, 0)
+
+    result["health_pickup_pool"] = load_sound_pool(engine, 10, "health_apply.wav", 0.75, 0.7, 0)
+
     result["death_hit_pool"] = load_sound_pool(engine, 10, "death_hit.wav", 0.5, 1, 0)
 
     result["pistol_empty_pool"] = load_sound_pool(engine, 10, "pistol_empty.wav", 0.5, 1, 0)
@@ -1898,7 +1902,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         # we might want to handle this in player interactions,
         # in which case we could have an 'e to pickup'
         # system
-        # zzz TODO fix the pickup situation
+        
         # to use minkowsky sum approach
         # currently it feels awful
         pickup_rad = 10
@@ -1948,9 +1952,11 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 print("got ammo")
                 # zzz TODO play a nice ammo sound
                 player_info["ammo"]["spare_pistol"] += pickup.get("value", 0)                    
+                play_pool_sound("ammo_pickup_pool", sounds, -1, 1)
             elif pickup.get("type") == "health_pickup":                                        
                 print("got health")
                 player_info["health"] += pickup.get("value", 0)
+                play_pool_sound("health_pickup_pool", sounds, -1, 1)
         
 
     if "particle_systems" not in entities:
