@@ -1749,7 +1749,151 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     
     return next_state
     
+
+
+def attack_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     
+    next_state = current_state
+    can_see = True    
+    if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+        # on some interval we should also update the path to the player here...I think
+        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+    else:
+        can_see = False
+        # this should be on a timer tho
+        next_state = "idle" # also probably should be a 'searching' state
+    entity_collide_distance = 5
+    tile_width = tile_map.get("tile_width", 0)
+    tile_height = tile_map.get("tile_height", 0)
+    # TODO: mismatch here between player position which is offset, turned into abs
+    # and entity positions, which are currenty only abs
+    entity_pos = entity.get("position",{})
+
+    player_pos_abs = get_abs_pos_from_index(player_pos, tile_map)                              
+    entity_pos_abs = get_abs_pos_from_index(entity_pos, tile_map)
+
+
+
+
+                     
+        
+    
+    # check if our distance to the player allows us to do our attack
+    # if not we need to chase again to last known position
+    attack_substate = get_or_set(entity, "attack_substate", "windup")
+    attack_direction = get_or_set(entity, "attack_direction")
+    attack_windup_duration = 1 
+    attack_coold = 1 
+    attack_timer = get_or_set(entity, "attack_timer", 0)
+    attack_timer += dt
+    attack_range = 10
+    windup_direction_window = 0.3
+
+    if attack_timer < windup_direction_window:
+        # set direction
+        attack_direction = vec2_normalize(vec2_subtract(player_pos_abs, entity_pos_abs))
+        entity["attack_direction"] = attack_direction
+
+    if attack_timer >= attack_windup_duration:
+        attack_substate = "attacking"
+        attack_point = vec2_add(entity_pos_abs, vec2_scale(attack_direction, attack_range))
+        # just straightup check if player is in the line of sight?
+        # zzzz pickup here 16/5/26 important
+        # do the attack!
+        # make a point
+
+
+
+
+
+    # this should be on a per entity basis?
+    # though I don't really mind implementing a function for each
+    # enemy either
+    
+
+
+
+
+
+    
+
+    # fundamentally two types of attack:
+    # melee and projectile
+    # -melee is like a punch: windup 
+    # --(whilst maintaining a vector on the player for at least some of that, though it feels cheap if it's the whole thing because you can't dodge)
+    # -projectile is shooting bullets/some exotic thing
+    # --and could also even be spawning some kinda heat seeking mini-monster/missile thing,
+    # ---basically a smart projectile
+
+    # melee attacks need to be done in close range
+    # since the 'attack' will basically instantly spawn a 
+    # region slightly in front of the entity for a frame that will damage the player
+    # whereas projectiles obviously, will travel 
+    # you could also imagine a hit-scanning attack based on
+    # line of sight, these can be less fun but
+    # there could be an angle that is ok (like a psychic attack that you need to just
+    # break the line of sight by getting behind something?)
+
+    # one other type would be a sort of magic attack
+    # which is kinda a hybrid where you maybe spawn in a 
+    # region of fire for a short duration, not really 
+    # a projectile, but unlike a melee it would last longer
+    # than one frame
+    waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
+    # if our last position here doesn't match tiles on the last_seen_player_position we should recalculate?
+    # OR if enough time has elapsed
+    # really depends how slow this thing is
+
+    if debug_queue is not None:
+        for tile in entity["path_to_player"]:
+            debug_item = {
+                "type" : "tile",
+                "tile_x" : tile.get("tile_x"),
+                "tile_y" : tile.get("tile_y"),
+                "tile_width" : tile_width,
+                "tile_height" : tile_height,
+                "color" : "GREEN",
+                "drawing_function" : draw_debug_tile,
+                "z_sort" : 1
+
+            }    
+            debug_queue.append(debug_item)
+
+    if tiles_close(entity_pos, waypoint_pos, 1) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
+        entity["path_to_player_current_index"] += 1
+    target_pos = get_abs_pos_from_index(waypoint_pos, tile_map, debug_queue)
+
+    
+    new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
+    # we could do a raycast along positions to check if we 'hit' the target on the way maybe
+
+    entity["position"] = new_position
+    
+    # entity.get("position",{})["x"] = new_position.get("x", 0)
+    # entity.get("position",{})["y"] = new_position.get("y", 0)        
+
+    dest_threshold = 5
+    give_up_threshold = 3
+
+    if not fast_distance_within_tiles(new_position, player_pos, dest_threshold):
+        next_state = "angry chase"
+
+    
+    if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
+        get_or_set(entity, "give_up_time", 0)
+        entity["give_up_time"] += dt
+        if entity["give_up_time"] > give_up_threshold:
+            next_state = "idle"
+
+    
+    if can_see and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
+        target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
+        start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
+        path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
+        entity["path_to_player"] = path_to_player
+        entity["path_to_player_current_index"] = 0        
+    return next_state
+
 
 def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     # We need a 'transition into 
@@ -1864,11 +2008,12 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
     elif current_state == "dead":        
         next_state = death_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
     elif current_state == "angry and attacking":        
-        if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
-            # keep attacking
-            pass
-        else:
-            next_state = "idle"            
+        next_state = attack_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
+        # if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+        #     # keep try attacking if close enough
+        #     pass
+        # else:
+        #     next_state = "idle"            
     entity["previous_state"] = current_state
     entity["entered_new_state"] = False
 
