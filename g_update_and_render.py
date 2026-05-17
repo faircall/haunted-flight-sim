@@ -494,6 +494,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             render_pos_x = int(tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x)
             render_pos_y = int(tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y)
 
+
+
             texture_x = render_pos_x - 24
             texture_y = render_pos_y - 24            
             debug_str = f"angle is {entity.get("sight_angle",0)}"
@@ -517,6 +519,13 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             entity_dest_rect = pr.Rectangle(int(texture_x), int(texture_y), 24*2, 24*2) 
             entity_source_rect = pr.Rectangle(entity_frame_number*24, 0, 24, 24) 
             pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet"), entity_source_rect, entity_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
+
+            # also put some debut stuff here for the attack
+            if entity.get("current_state","") == "angry and attacking":
+                if entity.get("attack_substate","") == "windup":
+                    pr.draw_text(f"windup...", texture_x, texture_y - 20, 10, pr.WHITE)
+                elif entity.get("attack_substate","") == "attacking":
+                    pr.draw_text(f"BAM", texture_x, texture_y - 20, 10, pr.RED)
 
 
 def transition_debug_state(current):
@@ -1368,6 +1377,8 @@ def tiles_close(a, b, epsilon):
     return False
 
 
+
+
 def make_player_points(player_info, tile_width, tile_height):
     # ZZZ
     # not taking into account that the tiles will be different when adding width/height
@@ -1751,8 +1762,8 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     
 
 
-def attack_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
-    
+def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
+    player_pos = player_info.get("position",{}) # top left
     next_state = current_state
     can_see = True    
     if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
@@ -1781,30 +1792,53 @@ def attack_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     # check if our distance to the player allows us to do our attack
     # if not we need to chase again to last known position
     attack_substate = get_or_set(entity, "attack_substate", "windup")
-    attack_direction = get_or_set(entity, "attack_direction")
+    attack_direction = get_or_set(entity, "attack_direction", {"x" : 0, "y" : 0})
     attack_windup_duration = 1 
-    attack_coold = 1 
+    attack_cooldown = 1 
     attack_timer = get_or_set(entity, "attack_timer", 0)
     attack_timer += dt
     attack_range = 10
     windup_direction_window = 0.3
 
-    if attack_timer < windup_direction_window:
+    if attack_timer < windup_direction_window and attack_substate == "windup":
         # set direction
         attack_direction = vec2_normalize(vec2_subtract(player_pos_abs, entity_pos_abs))
         entity["attack_direction"] = attack_direction
 
-    if attack_timer >= attack_windup_duration:
+    if attack_timer >= attack_cooldown and attack_substate == "attacking":
+        attack_timer = 0
+        attack_substate = "windup"
+
+    if attack_timer >= attack_windup_duration and attack_substate == "windup":
+        attack_timer = 0
         attack_substate = "attacking"
         attack_point = vec2_add(entity_pos_abs, vec2_scale(attack_direction, attack_range))
+
+        minkowski_rect = {
+            "x" : player_pos_abs["x"] - player_info["entity_width"] - 12,
+            "y" : player_pos_abs["y"] - player_info["entity_height"] - 12,
+            "width" : 24 + player_info["entity_width"] + 12,
+            "height": 24 + player_info["entity_height"] + 12
+        }
+        
+
+        
+        if point_in_rect(player_pos_abs, minkowski_rect):#vec2_distance(player_pos, pickup["position"]) < pickup_rad:
+            # now we do damage
+            damage_per_hit = 20
+            player_info["health"] -= damage_per_hit
+
+    
+
+        # simple radius of damage?
         # just straightup check if player is in the line of sight?
         # zzzz pickup here 16/5/26 important
         # do the attack!
         # make a point
 
 
-
-
+    entity["attack_timer"] = attack_timer
+    entity["attack_substate"] = attack_substate
 
     # this should be on a per entity basis?
     # though I don't really mind implementing a function for each
@@ -1951,7 +1985,7 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     # entity.get("position",{})["x"] = new_position.get("x", 0)
     # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    dest_threshold = 5
+    dest_threshold = 20
     give_up_threshold = 3
 
     if fast_distance_within_tiles(new_position, player_pos, dest_threshold):
@@ -1987,7 +2021,8 @@ def apply_force(entity, force):
     pass
     
 
-def transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+def transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, dt):    
+    player_pos = player_info.get("position",{}) # top left
     # TODO in addition to line of sight
     # need like a line of sound / within earshot function
     if entity.get("previous_state") != current_state:
@@ -2008,7 +2043,7 @@ def transition_entity_state(entity, current_state, player_pos, tile_map, debug_q
     elif current_state == "dead":        
         next_state = death_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
     elif current_state == "angry and attacking":        
-        next_state = attack_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
+        next_state = attack_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
         # if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
         #     # keep try attacking if close enough
         #     pass
@@ -2219,7 +2254,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
             current_state = get_or_set(entity, "current_state", "idle")
             # there's a lot of logic happening in these states!
-            next_state = transition_entity_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+            next_state = transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, dt)
             entity["current_state"] = next_state
             pos_abs = tile_and_offset_to_absolute(tile_map, entity.get("position",{}))
             bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
