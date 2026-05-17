@@ -1380,7 +1380,7 @@ def tiles_close(a, b, epsilon):
 
 
 def make_player_points(player_info, tile_width, tile_height):
-    # ZZZ
+    # TODO
     # not taking into account that the tiles will be different when adding width/height
     player_pos = player_info.get("position",{}) # top left
     # true if we think in terms of offset
@@ -1420,7 +1420,7 @@ def make_player_points(player_info, tile_width, tile_height):
     return player_points
 
 def check_collisions_on_tilemap(player_points, new_pos_velocity, tile_map, debug_queue):
-    # zzz use this for any entity
+    # TODO use this for any entity
     collisions = { "x" : False, "y" : False}
     for potential_pos in player_points.values():    
         new_pos_x_direction = new_pos_from_old(potential_pos)
@@ -1576,7 +1576,7 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
         entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
     else:
         bored_timer += dt
-        # zzz this is also update sight direction for now
+        # TODO
         if bored_timer >= bored_threshold:
             bored_timer = 0
             new_angle = random.randint(0,360)
@@ -1694,7 +1694,7 @@ def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     new_pos = vec2_add_just(entity["position"], new_entity_velocity)
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
-    # zzz
+    # TODO
     # need to check for collisions still...!
 
     entity["position"] = new_entity_pos
@@ -1748,7 +1748,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
         
     new_pos = vec2_add_just(entity["position"], new_entity_velocity)
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
-    # zzz
+    # TODO
     # need to check for collisions still...!
 
     entity["position"] = new_entity_pos
@@ -1830,11 +1830,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
 
     
 
-        # simple radius of damage?
-        # just straightup check if player is in the line of sight?
-        # zzzz pickup here 16/5/26 important
-        # do the attack!
-        # make a point
+        
 
 
     entity["attack_timer"] = attack_timer
@@ -1985,10 +1981,13 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     # entity.get("position",{})["x"] = new_position.get("x", 0)
     # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    dest_threshold = 20
+    dest_threshold = 40
     give_up_threshold = 3
 
     if fast_distance_within_tiles(new_position, player_pos, dest_threshold):
+        # zzz pickup from here
+        # don't need to be in the same tile,
+        # just within a certain distance
         next_state = "angry and attacking"
 
     
@@ -2129,8 +2128,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         if point_in_rect(player_pos_abs, minkowski_rect):#vec2_distance(player_pos, pickup["position"]) < pickup_rad:
             deletions.append({"subdict": "pickups", "id" : pickup["id"]})            
             if pickup.get("type") == "pistol_ammo_pickup":
-                print("got ammo")
-                # zzz TODO play a nice ammo sound
+                print("got ammo")                
                 player_info["ammo"]["spare_pistol"] += pickup.get("value", 0)                    
                 play_pool_sound("ammo_pickup_pool", sounds, -1, 1)
             elif pickup.get("type") == "health_pickup":                                        
