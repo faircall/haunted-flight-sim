@@ -1557,12 +1557,15 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
     player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
                           "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
     
+    entity_pos_abs = get_abs_pos_from_index(entity_pos, tile_map)
+    
     entity_collide_distance = 5
     bored_timer = entity.get("bored_timer", 0)
 
     bored_threshold = 5
         
-    if vec2_distance(entity_pos, player_pos_abs) < entity_collide_distance:
+    if vec2_distance(entity_pos_abs, player_pos_abs) < entity_collide_distance:
+        
         next_state = "angry and attacking"
     elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
         next_state = "angry chase"
@@ -1984,7 +1987,9 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     dest_threshold = 40
     give_up_threshold = 3
 
-    if fast_distance_within_tiles(new_position, player_pos, dest_threshold):
+    
+
+    if vec2_distance(get_abs_pos_from_index(new_position, tile_map), get_abs_pos_from_index(player_pos, tile_map)) <= dest_threshold:
         # zzz pickup from here
         # don't need to be in the same tile,
         # just within a certain distance
