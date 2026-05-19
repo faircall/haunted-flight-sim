@@ -522,10 +522,17 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
             # also put some debut stuff here for the attack
             if entity.get("current_state","") == "angry and attacking":
+                attack_point = entity["attack_point"]
+                attack_timer = round(entity["attack_timer"], 2)
+                attack_cooldown = entity["attack_cooldown"]
+                attack_windup = entity["attack_windup_duration"]
                 if entity.get("attack_substate","") == "windup":
-                    pr.draw_text(f"windup...", texture_x, texture_y - 20, 10, pr.WHITE)
+                    pr.draw_text(f"{attack_timer}/{attack_windup} windup...", texture_x, texture_y - 20, 10, pr.WHITE)
+                    pr.draw_circle(int(attack_point["x"] - game_camera.x), int(attack_point["y"] - game_camera.y), 10, pr.YELLOW)
                 elif entity.get("attack_substate","") == "attacking":
-                    pr.draw_text(f"BAM", texture_x, texture_y - 20, 10, pr.RED)
+                    
+                    pr.draw_circle(int(attack_point["x"] - game_camera.x), int(attack_point["y"] - game_camera.y), 10, pr.RED)
+                    pr.draw_text(f"BAM {attack_timer}/{attack_cooldown}", texture_x, texture_y - 20, 10, pr.RED)
 
 
 def transition_debug_state(current):
@@ -1784,13 +1791,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     entity_pos = entity.get("position",{})
 
     player_pos_abs = get_abs_pos_from_index(player_pos, tile_map)                              
-    entity_pos_abs = get_abs_pos_from_index(entity_pos, tile_map)
-
-
-
-
-                     
-        
+    entity_pos_abs = get_abs_pos_from_index(entity_pos, tile_map)                             
     
     # check if our distance to the player allows us to do our attack
     # if not we need to chase again to last known position
@@ -1798,6 +1799,8 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     attack_direction = get_or_set(entity, "attack_direction", {"x" : 0, "y" : 0})
     attack_windup_duration = 1 
     attack_cooldown = 1 
+    entity["attack_cooldown"] = attack_cooldown
+    entity["attack_windup_duration"] = attack_windup_duration
     attack_timer = get_or_set(entity, "attack_timer", 0)
     attack_timer += dt
     attack_range = 10
@@ -1807,6 +1810,9 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
         # set direction
         attack_direction = vec2_normalize(vec2_subtract(player_pos_abs, entity_pos_abs))
         entity["attack_direction"] = attack_direction
+    
+    attack_point = vec2_add(entity_pos_abs, vec2_scale(attack_direction, attack_range))
+    entity["attack_point"] = attack_point
 
     if attack_timer >= attack_cooldown and attack_substate == "attacking":
         attack_timer = 0
@@ -1817,6 +1823,8 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
         attack_substate = "attacking"
         attack_point = vec2_add(entity_pos_abs, vec2_scale(attack_direction, attack_range))
 
+        entity["attack_point"] = attack_point
+
         minkowski_rect = {
             "x" : player_pos_abs["x"] - player_info["entity_width"] - 12,
             "y" : player_pos_abs["y"] - player_info["entity_height"] - 12,
@@ -1826,7 +1834,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
         
 
         
-        if point_in_rect(player_pos_abs, minkowski_rect):#vec2_distance(player_pos, pickup["position"]) < pickup_rad:
+        if point_in_rect(attack_point, minkowski_rect):#vec2_distance(player_pos, pickup["position"]) < pickup_rad:
             # now we do damage
             damage_per_hit = 20
             player_info["health"] -= damage_per_hit
@@ -1872,6 +1880,13 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     # region of fire for a short duration, not really 
     # a projectile, but unlike a melee it would last longer
     # than one frame
+    if "path_to_player" not in entity:
+        target_tile_from_tile_map = tile_map.get("tiles")[player_pos.get("tile_y")*tile_map.get("map_width") + player_pos.get("tile_x")]
+        start_tile_from_tile_map = tile_map.get("tiles")[entity_pos.get("tile_y")*tile_map.get("map_width") + entity_pos.get("tile_x")]
+        path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
+        entity["path_to_player"] = path_to_player
+        entity["path_to_player_current_index"] = 0
+        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)        
     waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
     # if our last position here doesn't match tiles on the last_seen_player_position we should recalculate?
     # OR if enough time has elapsed
@@ -1902,14 +1917,16 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
 
     entity["position"] = new_position
     
-    # entity.get("position",{})["x"] = new_position.get("x", 0)
-    # entity.get("position",{})["y"] = new_position.get("y", 0)        
+    entity.get("position",{})["x"] = new_position.get("x", 0)
+    entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    dest_threshold = 5
+    dest_threshold = 20
     give_up_threshold = 3
 
     if not fast_distance_within_tiles(new_position, player_pos, dest_threshold):
         next_state = "angry chase"
+        entity["attack_substate"] = "windup"
+        entity["attack_timer"] = 0
 
     
     if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
@@ -1917,6 +1934,8 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
         entity["give_up_time"] += dt
         if entity["give_up_time"] > give_up_threshold:
             next_state = "idle"
+            entity["attack_substate"] = "windup"
+            entity["attack_timer"] = 0
 
     
     if can_see and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
