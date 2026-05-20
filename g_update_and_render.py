@@ -1464,11 +1464,30 @@ def copy_entity_pos(existing):
 
 
 
-def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map):
-    pass
-    # old_tile = tile_map["tiles"][]
-    # if "current_entities" not in 
-    # pass
+def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, debug_queue = None):    
+    old_tile_index = get_flat_tile_index(old_entity_pos["tile_x"], old_entity_pos["tile_y"], tile_map, debug_queue)
+    old_tile = tile_map["tiles"][old_tile_index]
+    if "current_entities" not in old_tile:
+        pass # technically this would be fine? though we should add it
+        old_tile["current_entities"] = {}
+    else:
+        del old_tile["current_entities"][entity_id]
+
+    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
+    new_tile = tile_map["tiles"][new_tile_index]
+
+    if "current_entities" not in new_tile:
+        pass # technically this would be fine? though we should add it
+        new_tile["current_entities"] = {}
+    
+    new_tile["current_entities"][entity_id] = {"tile_x" : new_entity_pos["tile_x"],
+                                                "tile_y" : new_entity_pos["tile_y"],
+                                                "y" : new_entity_pos["y"],
+                                                "x" : new_entity_pos["x"]}
+                                                
+
+    
+
 
 def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queue, dt):
     # start with a straight line
@@ -1486,11 +1505,14 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
     # TODO (Cooper) we also need to do our collision logic here    
     tile_manager_needs_update = False
-    if "old_tile" not in entity:
+    if "old_tile" not in entity:        
         entity["old_tile"] = {}
-        update_tile_manager = True
+        tile_manager_needs_update = True
+        
     entity["old_tile"]["tile_x"] = entity["position"]["tile_x"]
     entity["old_tile"]["tile_y"] = entity["position"]["tile_y"]
+    entity["old_tile"]["x"] = entity["position"]["x"]
+    entity["old_tile"]["y"] = entity["position"]["y"]
     
     
 
