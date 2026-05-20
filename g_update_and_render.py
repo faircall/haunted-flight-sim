@@ -521,8 +521,10 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet"), entity_source_rect, entity_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
 
             # also put some debut stuff here for the attack
+            pr.draw_text(f"{entity.get("current_state","")}", texture_x, texture_y - 40, 10, pr.WHITE)
+            pr.draw_text(f"{entity.get("attack_substate","")}", texture_x, texture_y - 60, 10, pr.WHITE)
             if entity.get("current_state","") == "angry and attacking":
-                attack_point = entity["attack_point"]
+                attack_point = entity.get("attack_point", {"x" : 0, "y" :0})
                 attack_timer = round(entity["attack_timer"], 2)
                 attack_cooldown = entity["attack_cooldown"]
                 attack_windup = entity["attack_windup_duration"]
@@ -858,7 +860,10 @@ def load_sounds(engine):
 
     pistol_reload = load_sound(engine, "sounds/pistol_reload.wav", False, 0.75, 1, 0)
 
+
     result["pistol_reload"] = pistol_reload
+
+    result["whoosh_pool"] = load_sound_pool(engine, 10, "whoosh.wav", 0.75, 0.7, 0)
 
     result["player_footstep_pool"] = load_sound_pool(engine, 10, "player_footstep.wav", 0.75, 0.7, 0)
     result["pistol_pool"] = load_pistol_pool(engine)
@@ -1874,9 +1879,10 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
         # on some interval we should also update the path to the player here...I think
         entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
     else:
-        can_see = False
-        # this should be on a timer tho
-        next_state = "idle" # also probably should be a 'searching' state
+        if entity.get("attack_substate","") != "committed":
+            can_see = False
+            # this should be on a timer tho
+            next_state = "idle" # also probably should be a 'searching' state
     entity_collide_distance = 5
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)
@@ -1912,7 +1918,10 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
         attack_timer = 0
         attack_substate = "windup"
 
-    if attack_timer >= attack_windup_duration and attack_substate == "windup":
+    if attack_timer > windup_direction_window and attack_substate == "windup":
+        attack_substate = "committed"
+
+    if attack_timer >= attack_windup_duration and attack_substate == "committed":
         attack_timer = 0
         attack_substate = "attacking"
         attack_point = vec2_add(entity_pos_abs, vec2_scale(attack_direction, attack_range))
@@ -1934,7 +1943,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
             player_info["health"] -= damage_per_hit
             play_pool_sound("stagger_hit_pool", sounds)                                
         else:
-            print("a swing and a miss!")
+            play_pool_sound("whoosh_pool", sounds)                                            
             # TODO play the miss ound
 
     
@@ -2022,7 +2031,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     dest_threshold = 20
     give_up_threshold = 3
 
-    if not fast_distance_within_tiles(new_position, player_pos, dest_threshold):
+    if not fast_distance_within_tiles(new_position, player_pos, dest_threshold) and attack_substate != "committed":
         next_state = "angry chase"
         entity["attack_substate"] = "windup"
         entity["attack_timer"] = 0
@@ -2031,7 +2040,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
         get_or_set(entity, "give_up_time", 0)
         entity["give_up_time"] += dt
-        if entity["give_up_time"] > give_up_threshold:
+        if entity["give_up_time"] > give_up_threshold and attack_substate != "committed":
             next_state = "idle"
             entity["attack_substate"] = "windup"
             entity["attack_timer"] = 0
