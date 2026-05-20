@@ -947,6 +947,11 @@ def new_pos_from_old(old):
     }
     return new_pos
 
+def get_tile_at_x_y(x, y, tile_map, debug_queue = None):
+    tile_index = get_flat_tile_index(x, y, tile_map, debug_queue)
+    tile_at_index = get_tile_at_index(tile_index)
+    return tile_at_index
+
 def get_flat_tile_index(x, y, tile_map, debug_queue = None):    
     return y*tile_map.get("map_width") + x
 
@@ -1459,6 +1464,12 @@ def copy_entity_pos(existing):
 
 
 
+def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map):
+    pass
+    # old_tile = tile_map["tiles"][]
+    # if "current_entities" not in 
+    # pass
+
 def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queue, dt):
     # start with a straight line
     # returns an updated position, doesn't     
@@ -1474,9 +1485,18 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     new_entity_velocity = vec2_scale(vec2_between, entity_speed * dt)
 
     # TODO (Cooper) we also need to do our collision logic here    
+    tile_manager_needs_update = False
+    if "old_tile" not in entity:
+        entity["old_tile"] = {}
+        update_tile_manager = True
+    entity["old_tile"]["tile_x"] = entity["position"]["tile_x"]
+    entity["old_tile"]["tile_y"] = entity["position"]["tile_y"]
+    
     
 
     new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
+
+    
     new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
     new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)    
 
@@ -1538,6 +1558,17 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
         new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)    
         # new_entity_velocity['y'] = 0
         # new_entity_velocity = vec2_normalize(new_entity_velocity)
+
+    #maybe here we could also check out new position against other enemies
+    if not tiles_equal(entity["old_tile"], new_entity_position) or tile_manager_needs_update:            
+        update_tile_manager(entity["old_tile", new_entity_position], entity["id"], tile_map)
+
+
+    
+
+
+
+
 
     motion_angle = angle_from_vector(new_entity_velocity)
     print(f"motion angle is {motion_angle}")
@@ -1909,6 +1940,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
 
     if tiles_close(entity_pos, waypoint_pos, 1) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
         entity["path_to_player_current_index"] += 1
+    # this should be adjusted if it's the last tile and we don't wanna crowd
     target_pos = get_abs_pos_from_index(waypoint_pos, tile_map, debug_queue)
 
     
