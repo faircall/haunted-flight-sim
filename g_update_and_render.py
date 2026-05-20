@@ -1463,6 +1463,42 @@ def copy_entity_pos(existing):
     }
 
 
+def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
+    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
+    new_tile = tile_map["tiles"][new_tile_index]
+    result = {"space" : "totally_spare"}
+    if "current_entities" not in new_tile:
+        new_tile["current_entities"] = {}
+        return result        
+
+
+    # it's more like
+    # 'drag' the circle across the square 
+    # by a certain amount and then if we
+    # find a spare spot, take it
+    entity_radius_for_now = 20
+    invalid_spots = []
+    for entity_key, entity_val in new_tile["current_entities"].items():
+        if entity_key != entity_id:            
+            if vec2_distance(new_entity_pos, entity_val) <= entity_radius_for_now:
+                invalid_spots.append(entity_val)                
+    
+    if invalid_spots:        
+        # will be a bit spenny
+        found_spot = False
+        x_start = 0
+        y_start = 0
+
+        # ZZZ zzz pickup here        
+        pass
+                        
+
+        
+    
+    
+    
+
+    return result
 
 def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, debug_queue = None):    
     old_tile_index = get_flat_tile_index(old_entity_pos["tile_x"], old_entity_pos["tile_y"], tile_map, debug_queue)
@@ -1582,8 +1618,13 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
         # new_entity_velocity = vec2_normalize(new_entity_velocity)
 
     #maybe here we could also check out new position against other enemies
+
+
+
+    # THEN update the tiles
     if not tiles_equal(entity["old_tile"], new_entity_position) or tile_manager_needs_update:            
         update_tile_manager(entity["old_tile", new_entity_position], entity["id"], tile_map)
+
 
 
     
