@@ -528,7 +528,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                 attack_timer = round(entity["attack_timer"], 2)
                 attack_cooldown = entity["attack_cooldown"]
                 attack_windup = entity["attack_windup_duration"]
-                if entity.get("attack_substate","") == "windup":
+                if entity.get("attack_substate","") == "windup" or entity.get("attack_substate","") == "committed":
                     pr.draw_text(f"{attack_timer}/{attack_windup} windup...", texture_x, texture_y - 20, 10, pr.WHITE)
                     pr.draw_circle(int(attack_point["x"] - game_camera.x), int(attack_point["y"] - game_camera.y), 10, pr.YELLOW)
                 elif entity.get("attack_substate","") == "attacking":
