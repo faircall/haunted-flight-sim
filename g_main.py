@@ -6,8 +6,10 @@ import importlib
 import time
 from pyrsistent import m, pmap, v
 
-g_screen_width = 1280
-g_screen_height = 720
+import cyminiaudio as cma
+
+g_screen_width = 1920
+g_screen_height = 1080 
 
 
 update_and_render_file = "g_update_and_render"
@@ -37,11 +39,12 @@ def reload_modules_if_needed(module_write_times):
                 mod = importlib.reload(mod)            
                 render_error_message("reloaded module!")                
                 module_write_times[name] = get_file_write_time(file_name)
-            except (ImportError, SyntaxError) as e:
+            except (ImportError, SyntaxError) as e:                
                 render_error_message(f"An error occurred while reloading the viz module: {e}")                
             
 
 def render_error_message(msg):
+    print(msg)
     pr.begin_drawing()
     pr.clear_background(pr.RED)
     pr.draw_text(msg, 20, 20, 20, pr.WHITE)
@@ -49,6 +52,8 @@ def render_error_message(msg):
 
 
 def g_main():
+    
+    
     program_name = "Horror Flightsim"
     pr.set_config_flags(pr.ConfigFlags.FLAG_WINDOW_RESIZABLE)
     
@@ -76,6 +81,9 @@ def g_main():
     auto_reload = True
     main_arena = main_arena.set("auto_reload", auto_reload)
 
+    cma_engine = cma.Engine()
+    
+
     while not pr.window_should_close():                
         reload_timer += pr.get_frame_time()
         do_reload = False        
@@ -88,19 +96,19 @@ def g_main():
             update_timer = 0.0
             reload_timer = 0.0
             reload_modules_if_needed(module_write_times)
-        if pr.is_key_released(pr.KeyboardKey.KEY_F5):                                    
-            main_arena = pmap()
-            main_arena = main_arena.set("screen_width", g_screen_width)
-            main_arena = main_arena.set("screen_height",  g_screen_height)                        
-            # NOTE (Cooper) : I think we'd also want to do this, or at least there'd be times where you'd want to do both like this
-            skip_update = False
-            update_timer = 0.0
-            reload_modules_if_needed(module_write_times)
+        # if pr.is_key_released(pr.KeyboardKey.KEY_F5):                                    
+        #     main_arena = pmap()
+        #     main_arena = main_arena.set("screen_width", g_screen_width)
+        #     main_arena = main_arena.set("screen_height",  g_screen_height)                        
+        #     # NOTE (Cooper) : I think we'd also want to do this, or at least there'd be times where you'd want to do both like this
+        #     skip_update = False
+        #     update_timer = 0.0
+        #     reload_modules_if_needed(module_write_times)
         
         if not skip_update:
             try:
                 backup_arena = main_arena
-                main_arena = update_and_render_module.update_and_render(main_arena, game_assets)                        
+                main_arena = update_and_render_module.update_and_render(main_arena, game_assets, cma_engine)                        
                 auto_reload = main_arena.get("auto_reload", True)
             except Exception as e:
                 skip_update = True
