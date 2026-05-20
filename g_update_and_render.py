@@ -1623,7 +1623,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
     # THEN update the tiles
     if not tiles_equal(entity["old_tile"], new_entity_position) or tile_manager_needs_update:            
-        update_tile_manager(entity["old_tile", new_entity_position], entity["id"], tile_map)
+        update_tile_manager(entity["old_tile"], new_entity_position, entity["id"], tile_map)
 
 
 
@@ -1866,7 +1866,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     
 
 
-def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
+def attack_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
     player_pos = player_info.get("position",{}) # top left
     next_state = current_state
     can_see = True    
@@ -1932,6 +1932,10 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, dt):
             # now we do damage
             damage_per_hit = 20
             player_info["health"] -= damage_per_hit
+            play_pool_sound("stagger_hit_pool", sounds)                                
+        else:
+            print("a swing and a miss!")
+            # TODO play the miss ound
 
     
 
@@ -2139,7 +2143,7 @@ def apply_force(entity, force):
     pass
     
 
-def transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, dt):    
+def transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):    
     player_pos = player_info.get("position",{}) # top left
     # TODO in addition to line of sight
     # need like a line of sound / within earshot function
@@ -2161,7 +2165,7 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
     elif current_state == "dead":        
         next_state = death_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
     elif current_state == "angry and attacking":        
-        next_state = attack_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
+        next_state = attack_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)        
         # if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
         #     # keep try attacking if close enough
         #     pass
@@ -2371,7 +2375,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
             current_state = get_or_set(entity, "current_state", "idle")
             # there's a lot of logic happening in these states!
-            next_state = transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, dt)
+            next_state = transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)
             entity["current_state"] = next_state
             pos_abs = tile_and_offset_to_absolute(tile_map, entity.get("position",{}))
             bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
