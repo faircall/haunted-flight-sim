@@ -1082,6 +1082,8 @@ def get_tile_type_from_pos(pos, tile_map, debug_queue = None):
         }    
         debug_queue.append(debug_item)
 
+    # if pos["tile_x"] < 0 or pos["tile_y"] < 0:
+    #     return "wall"
     tile_index_to_test = tile_map["tiles"][tile_y*map_width + tile_x].get("index",0)
     tile_type = tile_map["tile_types"][tile_index_to_test]
     return tile_type.get("type","blank")
@@ -1468,14 +1470,23 @@ def copy_entity_pos(existing):
     }
 
 
+
+
 def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
+    # we could allow very close 
+    # if every tile had partitions maybe?
     new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
     new_tile = tile_map["tiles"][new_tile_index]
     result = {"space" : "totally_spare"}
     if "current_entities" not in new_tile:
         new_tile["current_entities"] = {}
         return result        
+    
+    if "subtiles" not in new_tile:
+        new_tile["subtiles"] = {}
 
+
+    
 
     # it's more like
     # 'drag' the circle across the square 
@@ -2992,6 +3003,18 @@ def move_position_along_tiles(new_pos, tile_width, tile_height):
         pr.draw_text(f"tile x: {new_pos.get("tile_x","")}", 80, 30, 10, pr.WHITE)
         print(f"tile x: {new_pos.get("tile_x","")}")
         print(f"tile y: {new_pos.get("tile_y","")}")
+
+
+    # somewhat heavy handed bounds check
+    if new_pos["tile_x"] < 0:
+        new_pos["tile_x"] = 0
+        new_pos["x"] = 0
+    if new_pos["tile_y"] < 0:
+        new_pos["tile_y"] = 0
+        new_pos["y"] = 0
+
+    # TODO also add the 'positive' edges, i.e right-most and bottom-most
+    
 
     return new_pos
 
