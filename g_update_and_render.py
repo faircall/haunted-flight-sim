@@ -1438,7 +1438,7 @@ def make_player_points(player_info, tile_width, tile_height):
     
     return player_points
 
-def check_collisions_on_tilemap(player_points, new_pos_velocity, tile_map, debug_queue):
+def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile_map, debug_queue):
     # TODO use this for any entity
     collisions = { "x" : False, "y" : False}
     for potential_pos in player_points.values():    
@@ -1453,10 +1453,13 @@ def check_collisions_on_tilemap(player_points, new_pos_velocity, tile_map, debug
         tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
         tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
 
+        x_entity_collides = collides_within_tile(new_pos_x_direction, entity_id, tile_map, debug_queue)
+        y_entity_collides = collides_within_tile(new_pos_y_direction, entity_id, tile_map, debug_queue)
+
         
-        if tile_type_is_collidable(tile_at_pos_x):
+        if tile_type_is_collidable(tile_at_pos_x) or x_entity_collides:
             collisions["x"] = True            
-        if tile_type_is_collidable(tile_at_pos_y):
+        if tile_type_is_collidable(tile_at_pos_y) or y_entity_collides:
             collisions["y"] = True            
     return collisions
 
@@ -1470,6 +1473,20 @@ def copy_entity_pos(existing):
     }
 
 
+
+def collides_within_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
+    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
+    new_tile = tile_map["tiles"][new_tile_index]
+    if "current_entities" not in new_tile:
+        new_tile["current_entities"] = {}
+        return False
+    
+    entity_radius_for_now = 10
+    
+    for entity_key, entity_val in new_tile["current_entities"].items():
+        if entity_key != entity_id:            
+            if vec2_distance(new_entity_pos, entity_val) <= entity_radius_for_now:
+                return True
 
 
 def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
@@ -1519,11 +1536,11 @@ def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue
 def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, debug_queue = None):    
     old_tile_index = get_flat_tile_index(old_entity_pos["tile_x"], old_entity_pos["tile_y"], tile_map, debug_queue)
     old_tile = tile_map["tiles"][old_tile_index]
-    if "current_entities" not in old_tile:
-        pass # technically this would be fine? though we should add it
+    if "current_entities" not in old_tile:        
         old_tile["current_entities"] = {}
     else:
-        del old_tile["current_entities"][entity_id]
+        if entity_id in old_tile["current_entities"]:
+            del old_tile["current_entities"][entity_id]
 
     new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
     new_tile = tile_map["tiles"][new_tile_index]
@@ -1605,7 +1622,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
                 }
                 debug_queue.append(debug_item)
 
-    entity_collisions = check_collisions_on_tilemap(entity_points, new_entity_velocity, tile_map, debug_queue)
+    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, debug_queue)
     if entity_collisions.get("x", False):
         new_entity_velocity['x'] = 0
         new_entity_velocity = vec2_normalize(new_entity_velocity)
@@ -1621,6 +1638,10 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
     new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)            
     new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
+
+    
+    # x_entity_collides = collides_within_tile(new_pos_x_direction, "player", tile_map, debug_queue)
+    # y_entity_collides = collides_within_tile(new_pos_y_direction, "player", tile_map, debug_queue)
 
     if entity_collisions.get("x", False):
         # new_entity_velocity['x'] = 0
@@ -1796,7 +1817,7 @@ def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
 
-    entity_collisions = check_collisions_on_tilemap(entity_points, new_entity_velocity, tile_map, debug_queue)
+    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, debug_queue)
 
     
 
@@ -1851,7 +1872,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
 
-    entity_collisions = check_collisions_on_tilemap(entity_points, new_entity_velocity, tile_map, debug_queue)
+    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, debug_queue)
 
     
 
@@ -2720,6 +2741,9 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             # we should probably address rebindable keys somewhat early on        
             
             new_pos_x_direction["x"] += player_velocity["x"]*dt
+
+            x_entity_collides = collides_within_tile(new_pos_x_direction, "player", tile_map, debug_queue)
+            y_entity_collides = collides_within_tile(new_pos_y_direction, "player", tile_map, debug_queue)
             
             new_pos_y_direction["y"] += player_velocity["y"]*dt
 
@@ -2730,9 +2754,9 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             
             tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
             tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
-            if tile_type_is_collidable(tile_at_pos_x):
+            if tile_type_is_collidable(tile_at_pos_x) or x_entity_collides:
                 collisions["x"] = True
-            if tile_type_is_collidable(tile_at_pos_y):
+            if tile_type_is_collidable(tile_at_pos_y) or y_entity_collides:
                 collisions["y"] = True
 
     
@@ -2744,6 +2768,8 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
     
     new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
+
+    update_tile_manager(player_pos, new_pos, "player", tile_map, debug_queue)
 
     # need the screen space of the player to get the mouse screen space to make a direction vector
     
@@ -3014,7 +3040,7 @@ def move_position_along_tiles(new_pos, tile_width, tile_height):
         new_pos["y"] = 0
 
     # TODO also add the 'positive' edges, i.e right-most and bottom-most
-    
+
 
     return new_pos
 
