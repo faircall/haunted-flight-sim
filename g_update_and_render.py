@@ -1533,7 +1533,7 @@ def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue
 
     return result
 
-def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, debug_queue = None):    
+def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, debug_queue = None, remove_only = False):    
     old_tile_index = get_flat_tile_index(old_entity_pos["tile_x"], old_entity_pos["tile_y"], tile_map, debug_queue)
     old_tile = tile_map["tiles"][old_tile_index]
     if "current_entities" not in old_tile:        
@@ -1548,12 +1548,15 @@ def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, deb
     if "current_entities" not in new_tile:
         pass # technically this would be fine? though we should add it
         new_tile["current_entities"] = {}
-    
-    new_tile["current_entities"][entity_id] = {"tile_x" : new_entity_pos["tile_x"],
-                                                "tile_y" : new_entity_pos["tile_y"],
-                                                "y" : new_entity_pos["y"],
-                                                "x" : new_entity_pos["x"]}
-                                                
+
+    if not remove_only:    
+        new_tile["current_entities"][entity_id] = {"tile_x" : new_entity_pos["tile_x"],
+                                                    "tile_y" : new_entity_pos["tile_y"],
+                                                    "y" : new_entity_pos["y"],
+                                                    "x" : new_entity_pos["x"]}
+    else:
+        if entity_id in new_tile["current_entities"]:
+            del new_tile["current_entities"][entity_id]
 
     
 
@@ -1835,6 +1838,7 @@ def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     new_pos = vec2_add_just(entity["position"], new_entity_velocity)
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
+    update_tile_manager(entity["position"], new_entity_pos, entity["id"], tile_map, debug_queue, True)
     # TODO
     # need to check for collisions still...!
 
@@ -1890,7 +1894,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     new_pos = vec2_add_just(entity["position"], new_entity_velocity)
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
     # TODO
-    # need to check for collisions still...!
+    # need to check for more collisions still...!
 
     entity["position"] = new_entity_pos
 
