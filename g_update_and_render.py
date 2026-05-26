@@ -605,6 +605,12 @@ def give_entity_stats_from_type(entity, entity_type):
     if entity_type == "red head":
         entity["health"] = 60
         entity["attack_damage"] = 5
+        entity["attack_timer"] = 0        
+        entity["attack_cooldown"] = 1
+        attack_windup_duration = 1 
+    
+    
+        entity["attack_windup_duration"] = attack_windup_duration
     elif entity_type == "buddha":
         entity["health"] = 600
     elif entity_type == "pistol_ammo_pickup":
@@ -1248,12 +1254,15 @@ def get_neighbouring_tiles(tile, tile_map):
     {"tile_x" : tile_x-1,  "tile_y" : tile_y+1}, #F
     {"tile_x" : tile_x-1,  "tile_y" : tile_y}, #G
     {"tile_x" : tile_x-1,  "tile_y" : tile_y-1}] #H
+    
+    filtered = []
 
     for new_tile in adjacent_tiles:
         if new_tile.get("tile_x") < 0 or new_tile.get("tile_x") >= tile_map.get("map_width") or new_tile.get("tile_y") < 0 or new_tile.get("tile_y") >= tile_map.get("map_height"):
-            adjacent_tiles.remove(new_tile)
+            continue
+        filtered.append(new_tile)
 
-    return adjacent_tiles
+    return filtered
 
 
 
@@ -1487,6 +1496,7 @@ def collides_within_tile(new_entity_pos, entity_id, tile_map, debug_queue = None
         if entity_key != entity_id:            
             if vec2_distance(new_entity_pos, entity_val) <= entity_radius_for_now:
                 return True
+    return False
 
 
 def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
@@ -1662,8 +1672,8 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
 
     # THEN update the tiles
-    if not tiles_equal(entity["old_tile"], new_entity_position) or tile_manager_needs_update:            
-        update_tile_manager(entity["old_tile"], new_entity_position, entity["id"], tile_map)
+    # if not tiles_equal(entity["old_tile"], new_entity_position) or tile_manager_needs_update:            
+    update_tile_manager(entity["old_tile"], new_entity_position, entity["id"], tile_map)
 
 
 
@@ -1893,6 +1903,8 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
         
     new_pos = vec2_add_just(entity["position"], new_entity_velocity)
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
+
+    update_tile_manager(entity["position"], new_entity_pos, entity["id"], tile_map, debug_queue)
     # TODO
     # need to check for more collisions still...!
 
@@ -1934,9 +1946,6 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     attack_substate = get_or_set(entity, "attack_substate", "windup")
     attack_direction = get_or_set(entity, "attack_direction", {"x" : 0, "y" : 0})
     attack_windup_duration = 1 
-    attack_cooldown = 1 
-    entity["attack_cooldown"] = attack_cooldown
-    entity["attack_windup_duration"] = attack_windup_duration
     attack_timer = get_or_set(entity, "attack_timer", 0)
     attack_timer += dt
     attack_range = 10
@@ -1950,7 +1959,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     attack_point = vec2_add(entity_pos_abs, vec2_scale(attack_direction, attack_range))
     entity["attack_point"] = attack_point
 
-    if attack_timer >= attack_cooldown and attack_substate == "attacking":
+    if attack_timer >= entity["attack_cooldown"] and attack_substate == "attacking":
         attack_timer = 0
         attack_substate = "windup"
 
@@ -2744,12 +2753,10 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             
             # we should probably address rebindable keys somewhat early on        
             
-            new_pos_x_direction["x"] += player_velocity["x"]*dt
-
+            new_pos_x_direction["x"] += player_velocity["x"]*dt                                    
+            new_pos_y_direction["y"] += player_velocity["y"]*dt
             x_entity_collides = collides_within_tile(new_pos_x_direction, "player", tile_map, debug_queue)
             y_entity_collides = collides_within_tile(new_pos_y_direction, "player", tile_map, debug_queue)
-            
-            new_pos_y_direction["y"] += player_velocity["y"]*dt
 
             
             
