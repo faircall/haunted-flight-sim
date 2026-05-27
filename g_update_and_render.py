@@ -1448,7 +1448,7 @@ def make_player_points(player_info, tile_width, tile_height):
     return player_points
 
 def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile_map, debug_queue):
-    # TODO use this for any entity
+    # TODO use this for any entity but only for walls
     collisions = { "x" : False, "y" : False}
     for potential_pos in player_points.values():    
         new_pos_x_direction = new_pos_from_old(potential_pos)
@@ -1461,14 +1461,11 @@ def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile
         # these need to be adjusted!!!!
         tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
         tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
-
-        x_entity_collides = collides_within_tile(new_pos_x_direction, entity_id, tile_map, debug_queue)
-        y_entity_collides = collides_within_tile(new_pos_y_direction, entity_id, tile_map, debug_queue)
-
         
-        if tile_type_is_collidable(tile_at_pos_x) or x_entity_collides:
+        
+        if tile_type_is_collidable(tile_at_pos_x):
             collisions["x"] = True            
-        if tile_type_is_collidable(tile_at_pos_y) or y_entity_collides:
+        if tile_type_is_collidable(tile_at_pos_y):
             collisions["y"] = True            
     return collisions
 
@@ -1494,9 +1491,42 @@ def collides_within_tile(new_entity_pos, entity_id, tile_map, debug_queue = None
     
     for entity_key, entity_val in new_tile["current_entities"].items():
         if entity_key != entity_id:            
-            if vec2_distance(new_entity_pos, entity_val) <= entity_radius_for_now:
+            
+            minkowski_rect = {
+                "x" : entity_val["x"] - 24,
+                "y" : entity_val["y"] - 24,
+                "width" : 48, # TODO tweak this, test idea first
+                "height" : 48
+            }
+
+            if point_in_rect(new_entity_pos, minkowski_rect):
                 return True
     return False
+
+def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue = None):    
+    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
+    new_tile = tile_map["tiles"][new_tile_index]
+    if "current_entities" not in new_tile:
+        new_tile["current_entities"] = {}
+        return False, None
+    
+    entity_radius_for_now = 5
+    
+    for entity_key, entity_val in new_tile["current_entities"].items():
+        if entity_key != entity_id:            
+            
+            minkowski_rect = {
+                "x" : entity_val["x"] - 24,
+                "y" : entity_val["y"] - 24,
+                "width" : 48, # TODO tweak this, test idea first
+                "height" : 48
+            }
+
+            if point_in_rect(new_entity_pos, minkowski_rect):
+                return True,  entity_val
+    return False, None
+
+
 
 
 def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
@@ -1561,9 +1591,9 @@ def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, deb
 
     if not remove_only:    
         new_tile["current_entities"][entity_id] = {"tile_x" : new_entity_pos["tile_x"],
-                                                    "tile_y" : new_entity_pos["tile_y"],
-                                                    "y" : new_entity_pos["y"],
-                                                    "x" : new_entity_pos["x"]}
+                                                    "tile_y" : new_entity_pos["tile_y"],                                                    
+                                                    "x" : new_entity_pos["x"], 
+                                                    "y" : new_entity_pos["y"]}
     else:
         if entity_id in new_tile["current_entities"]:
             del new_tile["current_entities"][entity_id]
@@ -1651,6 +1681,22 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
     new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)            
     new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
+
+    still_collides, point = collides_within_tile_at_position(new_entity_position, entity["id"], tile_map, debug_queue)
+    if still_collides:
+        away_direction = vec2_subtract(new_entity_position, point)
+        iter_count = 0
+        max_iterations = 4
+        back_speed = 2
+        new_entity_position = vec2_add_just(new_entity_position ,vec2_scale(away_direction, back_speed * dt))
+        new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
+        while iter_count < max_iterations and still_collides:
+            new_entity_position = vec2_add_just(new_entity_position ,vec2_scale(away_direction, back_speed * dt))
+            new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)            
+            still_collides, point = collides_within_tile_at_position(new_entity_position, entity["id"], tile_map, debug_queue)
+            if still_collides:
+                away_direction = vec2_subtract(new_entity_position, point)            
+            iter_count += 1
 
     
     # x_entity_collides = collides_within_tile(new_pos_x_direction, "player", tile_map, debug_queue)
@@ -1946,7 +1992,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     attack_substate = get_or_set(entity, "attack_substate", "windup")
     attack_direction = get_or_set(entity, "attack_direction", {"x" : 0, "y" : 0})
     attack_windup_duration = 1 
-    attack_timer = get_or_set(entity, "attack_timer", 0)
+    attack_timer = entity["attack_timer"]
     attack_timer += dt
     attack_range = 10
     windup_direction_window = 0.3
@@ -2073,7 +2119,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     entity.get("position",{})["x"] = new_position.get("x", 0)
     entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    dest_threshold = 20
+    dest_threshold = 40
     give_up_threshold = 3
 
     if not fast_distance_within_tiles(new_position, player_pos, dest_threshold) and attack_substate != "committed":
@@ -2755,8 +2801,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             
             new_pos_x_direction["x"] += player_velocity["x"]*dt                                    
             new_pos_y_direction["y"] += player_velocity["y"]*dt
-            x_entity_collides = collides_within_tile(new_pos_x_direction, "player", tile_map, debug_queue)
-            y_entity_collides = collides_within_tile(new_pos_y_direction, "player", tile_map, debug_queue)
+            
 
             
             
@@ -2765,22 +2810,49 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             
             tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
             tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
-            if tile_type_is_collidable(tile_at_pos_x) or x_entity_collides:
+            if tile_type_is_collidable(tile_at_pos_x):
                 collisions["x"] = True
-            if tile_type_is_collidable(tile_at_pos_y) or y_entity_collides:
+            if tile_type_is_collidable(tile_at_pos_y):
                 collisions["y"] = True
 
     
     if collisions["x"]:
         new_pos["x"] = player_pos["x"]
+        player_velocity["x"] = 0
     if collisions["y"]:
         new_pos["y"] = player_pos["y"]    
+        player_velocity["y"] = 0
     
     
     
     new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
 
+    
+    
+
+    # do one final check on our new position to see if we need to resolve?
+    still_collides, point = collides_within_tile_at_position(new_pos, "player", tile_map, debug_queue)
+    if still_collides:
+        away_direction = vec2_subtract(new_pos, point)
+        iter_count = 0
+        max_iterations = 4
+        back_speed = 2
+        new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
+        new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
+        while iter_count < max_iterations and still_collides:
+            new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
+            new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)            
+            still_collides, point = collides_within_tile_at_position(new_pos, "player", tile_map, debug_queue)
+            if still_collides:
+                away_direction = vec2_subtract(new_pos, point)            
+            iter_count += 1
+
+        
+
+
     update_tile_manager(player_pos, new_pos, "player", tile_map, debug_queue)
+
+
 
     # need the screen space of the player to get the mouse screen space to make a direction vector
     
