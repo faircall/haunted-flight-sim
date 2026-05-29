@@ -2818,10 +2818,10 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
     if collisions["x"]:
         new_pos["x"] = player_pos["x"]
-        player_velocity["x"] = 0
+        # player_velocity["x"] = 0
     if collisions["y"]:
         new_pos["y"] = player_pos["y"]    
-        player_velocity["y"] = 0
+        # player_velocity["y"] = 0
     
     
     
