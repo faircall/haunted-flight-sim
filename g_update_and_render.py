@@ -1183,7 +1183,9 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     # a does need a direction
     # should have a size of object too obviously
-    ray_to_bob = (vec2_subtract(get_abs_pos_from_index(bob_position, tile_map), get_abs_pos_from_index(alice,tile_map)))
+    bob_abs = get_abs_pos_from_index(bob_position, tile_map)
+    alice_abs = get_abs_pos_from_index(alice["position"], tile_map)
+    ray_to_bob = (vec2_subtract(bob_abs, alice_abs))
     ray_to_bob_normal = vec2_normalize(ray_to_bob)
     # you could model bob as a sphere
     # then just trace down the line of sight?
@@ -1214,11 +1216,11 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     sight_range = 300
 
+
+
     if vec2_distance_tile(alice_pos, bob_position, tile_map) > sight_range:
         return False
 
-    # zzzz pickup here, step 1 of the plan complete,
-    # next check if Bob is in the 'angle' window
     
 
     bob_radius = 20
@@ -1231,9 +1233,22 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     angle_start = alice_sight_angle - int(alice_fov/2)
     angle_end = alice_sight_angle + int(alice_fov/2)
-    print(f"angle to bob is {angle_to_bob}")
-    if angle_to_bob < angle_start or angle_to_bob > angle_end:
-        print("in radius but out of range")
+
+    if debug_queue is not None:
+        debug_item = {
+                    "type" : "text",
+                    "drawing_function" : draw_debug_text,
+                    "pos" : {"x" : alice_abs.get("x",0), "y" : alice_abs.get("y",0) - 50},                                        
+                    "font_size" : 16,
+                    "text" : f"angle to bob: {angle_to_bob}",
+                    "color" : "RED",
+                    "z_sort" : 0,                    
+                }
+        debug_queue.append(debug_item)
+
+    
+    
+    if angle_to_bob < angle_start or angle_to_bob > angle_end:        
         return False
 
     step_size = 10
@@ -1243,6 +1258,10 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # so people can see far ahead
     # but less so in their peripheral
     # it might also be fun to play with the idea of 'motion' as a giveway
+
+    # zzzz pickup here, the idea is right
+    # but there's a math bug somewhere, probably should be using a dot product or something
+    # i dunno yet
     
     alice_direction_of_sight_normalized = vector_from_angle(angle_to_bob)
     can_see = ray_along_tiles_hits_target_tile(alice_pos, bob_tiles, sight_range, int(bob_radius)/2, alice_direction_of_sight_normalized, tile_map, debug_queue)
