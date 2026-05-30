@@ -1222,7 +1222,8 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     if vec2_distance_tile(alice_pos, bob_position, tile_map) > sight_range:
         return False
 
-
+    # zzzz pickup here, step 1 of the plan complete,
+    # next check if Bob is in the 'angle' window
     
 
     bob_radius = 20
