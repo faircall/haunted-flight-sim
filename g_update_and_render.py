@@ -1003,13 +1003,7 @@ def get_tile_index_and_offset_from_pos(pos, tile_map, debug_queue = None):
 
     return {"tile_x" : tile_x, "tile_y" : tile_y, "x" : offset_x, "y" : offset_y}
 
-def get_abs_pos_from_index(pos, tile_map, debug_queue = None):    
-    map_width = tile_map["map_width"]
-    map_height = tile_map["map_height"]
-    tile_width = tile_map["tile_width"]
-    tile_height = tile_map["tile_height"]    
-
-    
+def get_abs_pos_from_index(pos, tile_map, debug_queue = None):            
     abs_x = tile_map["tile_width"] * pos.get("tile_x",0) + pos.get("x",16)
     abs_y = tile_map["tile_height"] * pos.get("tile_y",0) + pos.get("y",16)
     
@@ -1189,7 +1183,8 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     # a does need a direction
     # should have a size of object too obviously
-    line_to_bob = vec2_normalize(vec2_subtract(bob_position, alice))
+    ray_to_bob = (vec2_subtract(get_abs_pos_from_index(bob_position, tile_map), get_abs_pos_from_index(alice,tile_map)))
+    ray_to_bob_normal = vec2_normalize(ray_to_bob)
     # you could model bob as a sphere
     # then just trace down the line of sight?
 
@@ -1230,8 +1225,16 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     alice_fov = 180
 
+    
+
+    angle_to_bob = angle_from_vector(ray_to_bob_normal)
+
     angle_start = alice_sight_angle - int(alice_fov/2)
     angle_end = alice_sight_angle + int(alice_fov/2)
+    print(f"angle to bob is {angle_to_bob}")
+    if angle_to_bob < angle_start or angle_to_bob > angle_end:
+        print("in radius but out of range")
+        return False
 
     step_size = 10
 
@@ -1240,14 +1243,11 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # so people can see far ahead
     # but less so in their peripheral
     # it might also be fun to play with the idea of 'motion' as a giveway
-    for angle in range(angle_start, angle_end, step_size):        
-        alice_direction_of_sight_normalized = vector_from_angle(angle)
-        can_see = ray_along_tiles_hits_target_tile(alice_pos, bob_tiles, sight_range, int(bob_radius)/2, alice_direction_of_sight_normalized, tile_map, debug_queue)
-        if can_see:            
-            return True        
-    result = False
-
-    return result
+    
+    alice_direction_of_sight_normalized = vector_from_angle(angle_to_bob)
+    can_see = ray_along_tiles_hits_target_tile(alice_pos, bob_tiles, sight_range, int(bob_radius)/2, alice_direction_of_sight_normalized, tile_map, debug_queue)
+    
+    return can_see
 
 def get_neighbouring_tiles(tile, tile_map):
     # the idea here is we return the neighbouring tiles
