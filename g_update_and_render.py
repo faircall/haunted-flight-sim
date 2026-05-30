@@ -1156,9 +1156,12 @@ def get_or_set(map, key, val):
     map[key] = val
     return val
 
-def vec2_distance_tile(a, b):
+def vec2_distance_tile(a, b, tile_map):
     # TODO (Cooper) : make this also use the tiles they're on!
-    return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
+    tile_abs_a = get_abs_pos_from_index(a, tile_map)
+    tile_abs_b = get_abs_pos_from_index(b, tile_map)
+    return vec2_distance(tile_abs_a, tile_abs_b)
+    
 
 def vec2_distance(a, b):    
     return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
@@ -1174,6 +1177,16 @@ def vec2_dot(a, b):
 
 
 def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
+    # we can actually super optimze this
+    # first, see if bob is in the radius at all (distance)
+
+    # then see if he's in the sight angle
+    # (still don't do any raycasting yet)
+
+    # then finally if he's both in-range and in-angle
+    # THEN do like, a single raycast from bob to alice to see if there's walls hiding
+    # (you could also do a very small amount to represent a radius)
+
     # a does need a direction
     # should have a size of object too obviously
     line_to_bob = vec2_normalize(vec2_subtract(bob_position, alice))
@@ -1205,6 +1218,13 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
         debug_queue.append(debug_item)
 
     sight_range = 300
+
+    if vec2_distance_tile(alice_pos, bob_position, tile_map) > sight_range:
+        return False
+
+
+    
+
     bob_radius = 20
 
     alice_fov = 180
@@ -1823,6 +1843,7 @@ def angle_from_vector(v):
     angle = rad_to_deg(math.atan2(y, x))    
     # angle = rad_to_deg(math.atan(tan_ratio))    
     return angle + 180
+
 
 def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
     collides = False
@@ -2800,7 +2821,10 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             # we should probably address rebindable keys somewhat early on        
             
             new_pos_x_direction["x"] += player_velocity["x"]*dt                                    
+            new_pos_x_direction = move_position_along_tiles(new_pos_x_direction, tile_width, tile_height)
+
             new_pos_y_direction["y"] += player_velocity["y"]*dt
+            new_pos_y_direction = move_position_along_tiles(new_pos_y_direction, tile_width, tile_height)
             
 
             
