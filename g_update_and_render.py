@@ -1168,7 +1168,17 @@ def vec2_dot(a, b):
     # well there it is
     return a.get("x", 0) * b.get("x", 0) + a.get("y", 0) * b.get("y", 0)
 
+def cos_flexible(angle, unit="degrees"):
+    angle_in_radians = angle
+    if unit == "degrees":
+        angle_in_radians = deg_to_rad(angle)
+    return math.cos(angle_in_radians)
 
+def sin_flexible(angle, unit="degrees"):
+    angle_in_radians = angle
+    if unit == "degrees":
+        angle_in_radians = deg_to_rad(angle)
+    return math.sin(angle_in_radians)
 
 def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # we can actually super optimze this
@@ -1225,14 +1235,14 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
 
     bob_radius = 20
 
-    alice_fov = 180
+    alice_fov = 140
 
     
 
-    angle_to_bob = angle_from_vector(ray_to_bob_normal)
+    angle_to_bob = vec2_dot(ray_to_bob_normal, main_direction)
 
-    angle_start = alice_sight_angle - int(alice_fov/2)
-    angle_end = alice_sight_angle + int(alice_fov/2)
+    angle_start = vec2_scale(vector_from_angle(alice_sight_angle - int(alice_fov/2) ), 50)
+    angle_end = vec2_scale(vector_from_angle(alice_sight_angle + int(alice_fov/2)), 50)
 
     if debug_queue is not None:
         debug_item = {
@@ -1245,10 +1255,31 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "z_sort" : 0,                    
                 }
         debug_queue.append(debug_item)
+        debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : abs_alice.get("x"), "y" : abs_alice.get("y")},                                        
+                    "pos_end" : {"x" : abs_alice.get("x") + angle_start.get("x"), "y" : abs_alice.get("y") + angle_start.get("y")},                                        
+                    "line_width" : 1,                    
+                    "color" : "PURPLE",
+                    "z_sort" : -1,                    
+                }
+        debug_queue.append(debug_item)
+
+        debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : abs_alice.get("x"), "y" : abs_alice.get("y")},                                        
+                    "pos_end" : {"x" : abs_alice.get("x") + angle_end.get("x"), "y" : abs_alice.get("y") + angle_end.get("y")},                                        
+                    "line_width" : 1,                    
+                    "color" : "PURPLE",
+                    "z_sort" : -1,                    
+                }
+        debug_queue.append(debug_item)
 
     
     
-    if angle_to_bob < angle_start or angle_to_bob > angle_end:        
+    if angle_to_bob < cos_flexible(alice_fov/2):
         return False
 
     step_size = 10
@@ -1258,12 +1289,9 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # so people can see far ahead
     # but less so in their peripheral
     # it might also be fun to play with the idea of 'motion' as a giveway
-
-    # zzzz pickup here, the idea is right
-    # but there's a math bug somewhere, probably should be using a dot product or something
-    # i dunno yet
     
-    alice_direction_of_sight_normalized = vector_from_angle(angle_to_bob)
+    
+    alice_direction_of_sight_normalized = ray_to_bob_normal
     can_see = ray_along_tiles_hits_target_tile(alice_pos, bob_tiles, sight_range, int(bob_radius)/2, alice_direction_of_sight_normalized, tile_map, debug_queue)
     
     return can_see
