@@ -1008,6 +1008,12 @@ def get_abs_pos_from_index(pos, tile_map, debug_queue = None):
     abs_y = tile_map["tile_height"] * pos.get("tile_y",0) + pos.get("y",16)
     
     return {"x" : abs_x, "y" : abs_y}
+
+def get_abs_pos_from_index_given_offset(pos, offset, tile_map, debug_queue = None):            
+    abs_x = tile_map["tile_width"] * pos.get("tile_x",0) + offset.get("x",16)
+    abs_y = tile_map["tile_height"] * pos.get("tile_y",0) + offset.get("y",16)
+    
+    return {"x" : abs_x, "y" : abs_y}
                   
 
 
@@ -1578,7 +1584,7 @@ def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_
         new_tile["current_entities"] = {}
         return False, None
     
-    entity_radius_for_now = 5
+    entity_radius_for_now = 30
     
     for entity_key, entity_val in new_tile["current_entities"].items():
         if entity_key != entity_id:            
@@ -1595,7 +1601,38 @@ def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_
     return False, None
 
 
+def collides_within_tile_at_position_circle(new_entity_pos, entity_id, tile_map, debug_queue = None):    
+    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
+    new_tile = tile_map["tiles"][new_tile_index]
+    if "current_entities" not in new_tile:
+        new_tile["current_entities"] = {}
+        return False, None
+    
+    entity_radius_for_now = 60
 
+    # the actual issue here is we're only checking a single tile so
+    # we never hit the ones on the border
+
+    # ZZZ TODO pickup here
+    # the idea is to consider a region of tiles (still bounded!)
+    # and collect all the enemy points to do collision tests on
+    
+    for entity_key, entity_val in new_tile["current_entities"].items():
+        if entity_key != entity_id:            
+            
+            minkowski_circle = {
+                "x" : entity_val["x"],
+                "y" : entity_val["y"],
+                "radius" : entity_radius_for_now, # TODO tweak this, test idea first                
+            }
+
+            if point_in_circle(new_entity_pos, minkowski_circle):
+                return True,  entity_val
+    return False, None
+
+
+def point_in_circle(point, circle):
+    return (point["x"] - circle["x"]) ** 2 + (point["y"] - circle["y"])  <= circle["radius"]**2
 
 def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
     # we could allow very close 
@@ -2147,14 +2184,14 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     # region of fire for a short duration, not really 
     # a projectile, but unlike a melee it would last longer
     # than one frame
-    if "path_to_player" not in entity:
-        target_tile_from_tile_map = tile_map.get("tiles")[player_pos.get("tile_y")*tile_map.get("map_width") + player_pos.get("tile_x")]
-        start_tile_from_tile_map = tile_map.get("tiles")[entity_pos.get("tile_y")*tile_map.get("map_width") + entity_pos.get("tile_x")]
-        path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
-        entity["path_to_player"] = path_to_player
-        entity["path_to_player_current_index"] = 0
-        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)        
-    waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
+    # if "path_to_player" not in entity:
+    #     target_tile_from_tile_map = tile_map.get("tiles")[player_pos.get("tile_y")*tile_map.get("map_width") + player_pos.get("tile_x")]
+    #     start_tile_from_tile_map = tile_map.get("tiles")[entity_pos.get("tile_y")*tile_map.get("map_width") + entity_pos.get("tile_x")]
+    #     path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
+    #     entity["path_to_player"] = path_to_player
+    #     entity["path_to_player_current_index"] = 0
+    #     entity["last_seen_player_pos"] = copy_entity_pos(player_pos)        
+    # waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
     # if our last position here doesn't match tiles on the last_seen_player_position we should recalculate?
     # OR if enough time has elapsed
     # really depends how slow this thing is
@@ -2174,27 +2211,27 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
             }    
             debug_queue.append(debug_item)
 
-    if tiles_close(entity_pos, waypoint_pos, 1) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
-        entity["path_to_player_current_index"] += 1
+    # if tiles_close(entity_pos, waypoint_pos, 1) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
+    #     entity["path_to_player_current_index"] += 1
     # this should be adjusted if it's the last tile and we don't wanna crowd
-    target_pos = get_abs_pos_from_index(waypoint_pos, tile_map, debug_queue)
+    # target_pos = get_abs_pos_from_index(waypoint_pos, tile_map, debug_queue)
 
     
-    new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
+    # new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
     # we could do a raycast along positions to check if we 'hit' the target on the way maybe
 
-    entity["position"] = new_position
+    # entity["position"] = new_position
     
-    entity.get("position",{})["x"] = new_position.get("x", 0)
-    entity.get("position",{})["y"] = new_position.get("y", 0)        
+    # entity.get("position",{})["x"] = new_position.get("x", 0)
+    # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
     dest_threshold = 40
     give_up_threshold = 3
 
-    if not fast_distance_within_tiles(new_position, player_pos, dest_threshold) and attack_substate != "committed":
-        next_state = "angry chase"
-        entity["attack_substate"] = "windup"
-        entity["attack_timer"] = 0
+    # if not fast_distance_within_tiles(new_position, player_pos, dest_threshold) and attack_substate != "committed":
+    #     next_state = "angry chase"
+    #     entity["attack_substate"] = "windup"
+    #     entity["attack_timer"] = 0
 
     
     if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
@@ -2206,12 +2243,12 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
             entity["attack_timer"] = 0
 
     
-    if can_see and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
-        target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
-        start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
-        path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
-        entity["path_to_player"] = path_to_player
-        entity["path_to_player_current_index"] = 0        
+    # if can_see and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
+    #     target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
+    #     start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
+    #     path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
+    #     entity["path_to_player"] = path_to_player
+    #     entity["path_to_player_current_index"] = 0        
     return next_state
 
 
@@ -2237,7 +2274,7 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
                           "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
         
-    
+    current_tile_target_offset = entity.get("current_tile_target_offset", {"x" : 16, "y" : 16})
     waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
     # if our last position here doesn't match tiles on the last_seen_player_position we should recalculate?
     # OR if enough time has elapsed
@@ -2260,7 +2297,11 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
 
     if tiles_close(entity_pos, waypoint_pos, 1) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
         entity["path_to_player_current_index"] += 1
-    target_pos = get_abs_pos_from_index(waypoint_pos, tile_map, debug_queue)
+        current_tile_target_offset["x"] = random.randint(4,12)
+        current_tile_target_offset["y"] = random.randint(4,12)
+        entity["current_tile_target_offset"] = current_tile_target_offset
+
+    target_pos = get_abs_pos_from_index_given_offset(waypoint_pos, current_tile_target_offset, tile_map, debug_queue)
 
     
     new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
@@ -2903,12 +2944,12 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
 
     # do one final check on our new position to see if we need to resolve?
-    still_collides, point = collides_within_tile_at_position(new_pos, "player", tile_map, debug_queue)
+    still_collides, point = collides_within_tile_at_position_circle(new_pos, "player", tile_map, debug_queue)
     if still_collides:
         away_direction = vec2_subtract(new_pos, point)
         iter_count = 0
         max_iterations = 4
-        back_speed = 2
+        back_speed = 1
         new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
         new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
         while iter_count < max_iterations and still_collides:
@@ -3396,7 +3437,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
     entities = main_arena.get("entities")
 
     if not tile_map:
-        tile_map = make_tile_map(1000, 1000, 32, 32)        
+        tile_map = make_tile_map(100, 100, 32, 32)        
 
     if not entities:
         entities = {}
