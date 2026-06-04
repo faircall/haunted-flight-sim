@@ -1601,7 +1601,7 @@ def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_
     return False, None
 
 
-def collides_within_tile_at_position_circle(new_entity_pos, entity_id, tile_map, debug_queue = None):    
+def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map, debug_queue = None):    
     new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
     new_tile = tile_map["tiles"][new_tile_index]
     if "current_entities" not in new_tile:
@@ -1616,18 +1616,40 @@ def collides_within_tile_at_position_circle(new_entity_pos, entity_id, tile_map,
     # ZZZ TODO pickup here
     # the idea is to consider a region of tiles (still bounded!)
     # and collect all the enemy points to do collision tests on
+
+    new_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_pos)
     
     for entity_key, entity_val in new_tile["current_entities"].items():
         if entity_key != entity_id:            
             
+            entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
+
             minkowski_circle = {
-                "x" : entity_val["x"],
-                "y" : entity_val["y"],
+                "x" : entity_pos_abs["x"],
+                "y" : entity_pos_abs["y"],
                 "radius" : entity_radius_for_now, # TODO tweak this, test idea first                
             }
 
-            if point_in_circle(new_entity_pos, minkowski_circle):
-                return True,  entity_val
+            if point_in_circle(new_pos_abs, minkowski_circle):
+                return True,  entity_pos_abs
+    
+    for neighbour in new_tile["neighbours"]:
+        neighbour_tile_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
+        neighbour_tile = tile_map["tiles"][neighbour_tile_index]
+        for entity_key, entity_val in neighbour_tile.get("current_entities",{}).items():
+            if entity_key != entity_id:     
+                entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
+
+                minkowski_circle = {
+                    "x" : entity_pos_abs["x"],
+                    "y" : entity_pos_abs["y"],
+                    "radius" : entity_radius_for_now, # TODO tweak this, test idea first                
+                }
+
+                if point_in_circle(new_pos_abs, minkowski_circle):
+                    return True, entity_pos_abs                                       
+
+
     return False, None
 
 
@@ -2944,9 +2966,10 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
 
     # do one final check on our new position to see if we need to resolve?
-    still_collides, point = collides_within_tile_at_position_circle(new_pos, "player", tile_map, debug_queue)
+    still_collides, point = collides_within_tiles_at_position_circle(new_pos, "player", tile_map, debug_queue)
     if still_collides:
-        away_direction = vec2_subtract(new_pos, point)
+        new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
+        away_direction = vec2_subtract(new_pos_abs, point)
         iter_count = 0
         max_iterations = 4
         back_speed = 1
@@ -2957,7 +2980,8 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)            
             still_collides, point = collides_within_tile_at_position(new_pos, "player", tile_map, debug_queue)
             if still_collides:
-                away_direction = vec2_subtract(new_pos, point)            
+                new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
+                away_direction = vec2_subtract(new_pos_abs, point)            
             iter_count += 1
 
         
