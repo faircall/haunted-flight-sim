@@ -1809,20 +1809,22 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)            
     new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
 
-    still_collides, point = collides_within_tile_at_position(new_entity_position, entity["id"], tile_map, debug_queue)
+    still_collides, point = collides_within_tiles_at_position_circle(new_entity_position, entity["id"], tile_map, debug_queue)
     if still_collides:
-        away_direction = vec2_subtract(new_entity_position, point)
+        new_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_position)
+        away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
         iter_count = 0
         max_iterations = 4
-        back_speed = 2
+        back_speed = 1 # vec2_norm(new_entity_velocity) * dt
         new_entity_position = vec2_add_just(new_entity_position ,vec2_scale(away_direction, back_speed * dt))
         new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
         while iter_count < max_iterations and still_collides:
             new_entity_position = vec2_add_just(new_entity_position ,vec2_scale(away_direction, back_speed * dt))
             new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)            
-            still_collides, point = collides_within_tile_at_position(new_entity_position, entity["id"], tile_map, debug_queue)
+            still_collides, point = collides_within_tiles_at_position_circle(new_entity_position, entity["id"], tile_map, debug_queue)
             if still_collides:
-                away_direction = vec2_subtract(new_entity_position, point)            
+                new_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_position)
+                away_direction = vec2_subtract(new_pos_abs, point)            
             iter_count += 1
 
     
@@ -1857,7 +1859,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
 
     motion_angle = angle_from_vector(new_entity_velocity)
-    print(f"motion angle is {motion_angle}")
+    
     #risky!    
     animation_direction = direction_from_angle(motion_angle) 
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
@@ -2945,6 +2947,9 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             
             tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
             tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
+
+            entity_col_x, x_point = collides_within_tiles_at_position_circle(new_pos_x_direction, "player", tile_map, debug_queue)
+            entity_col_y, y_point = collides_within_tiles_at_position_circle(new_pos_y_direction, "player", tile_map, debug_queue)
             if tile_type_is_collidable(tile_at_pos_x):
                 collisions["x"] = True
             if tile_type_is_collidable(tile_at_pos_y):
@@ -2969,16 +2974,16 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     still_collides, point = collides_within_tiles_at_position_circle(new_pos, "player", tile_map, debug_queue)
     if still_collides:
         new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
-        away_direction = vec2_subtract(new_pos_abs, point)
+        away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
         iter_count = 0
         max_iterations = 4
-        back_speed = 1
+        back_speed = vec2_norm(player_velocity) * dt
         new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
         new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
         while iter_count < max_iterations and still_collides:
             new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
             new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)            
-            still_collides, point = collides_within_tile_at_position(new_pos, "player", tile_map, debug_queue)
+            still_collides, point = collides_within_tiles_at_position_circle(new_pos, "player", tile_map, debug_queue)
             if still_collides:
                 new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
                 away_direction = vec2_subtract(new_pos_abs, point)            
@@ -2989,7 +2994,8 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
     update_tile_manager(player_pos, new_pos, "player", tile_map, debug_queue)
 
-
+    
+    
 
     # need the screen space of the player to get the mouse screen space to make a direction vector
     
