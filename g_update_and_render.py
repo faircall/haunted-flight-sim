@@ -1600,51 +1600,6 @@ def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_
                 return True,  entity_val
     return False, None
 
-def collides_within_tiles_at_position(new_entity_pos, entity_id, tile_map, debug_queue = None):    
-    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
-    new_tile = tile_map["tiles"][new_tile_index]
-    if "current_entities" not in new_tile:
-        new_tile["current_entities"] = {}
-        return False, None
-    
-    entity_radius_for_now = 30
-
-    new_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_pos)
-    
-    for entity_key, entity_val in new_tile["current_entities"].items():
-        if entity_key != entity_id:            
-            entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
-            
-            minkowski_rect = {
-                "x" : entity_pos_abs["x"] - 24,
-                "y" : entity_pos_abs["y"] - 24,
-                "width" : 48, # TODO tweak this, test idea first
-                "height" : 48
-            }
-
-            if point_in_rect(new_pos_abs, minkowski_rect):
-                return True,  entity_pos_abs
-            
-    for neighbour in new_tile["neighbours"]:
-        neighbour_tile_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
-        neighbour_tile = tile_map["tiles"][neighbour_tile_index]
-        for entity_key, entity_val in neighbour_tile.get("current_entities",{}).items():
-            if entity_key != entity_id:     
-                entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
-
-                minkowski_rect = {
-                "x" : entity_pos_abs["x"] - 24,
-                "y" : entity_pos_abs["y"] - 24,
-                "width" : 48, # TODO tweak this, test idea first
-                "height" : 48
-                }
-
-                if point_in_rect(new_pos_abs, minkowski_rect):
-                    return True,  entity_pos_abs                                
-            
-
-    return False, None
-
 
 def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map, debug_queue = None):    
     new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
@@ -1653,8 +1608,14 @@ def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map
         new_tile["current_entities"] = {}
         return False, None
     
-    entity_radius_for_now = 30
-    
+    entity_radius_for_now = 60
+
+    # the actual issue here is we're only checking a single tile so
+    # we never hit the ones on the border
+
+    # ZZZ TODO pickup here
+    # the idea is to consider a region of tiles (still bounded!)
+    # and collect all the enemy points to do collision tests on
 
     new_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_pos)
     
@@ -1693,7 +1654,7 @@ def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map
 
 
 def point_in_circle(point, circle):
-    return (point["x"] - circle["x"])**2 + (point["y"] - circle["y"])**2  <= circle["radius"]**2
+    return (point["x"] - circle["x"]) ** 2 + (point["y"] - circle["y"])  <= circle["radius"]**2
 
 def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
     # we could allow very close 
@@ -1783,9 +1744,8 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
     # TODO (Cooper) we also need to do our collision logic here    
     tile_manager_needs_update = False
-    if "old_tile" not in entity:        
-        entity["old_tile"] = {}
-        tile_manager_needs_update = True
+    
+    tile_manager_needs_update = True
         
     entity["old_tile"]["tile_x"] = entity["position"]["tile_x"]
     entity["old_tile"]["tile_y"] = entity["position"]["tile_y"]
@@ -2645,10 +2605,14 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             # the 'other entities' is interesting because it opens up
             # bioshock like interactions where one monster could do something with another
             # I kind of like that potential
+            if "old_tile" not in entity:        
+                entity["old_tile"] = {}
             
             current_state = get_or_set(entity, "current_state", "idle")
             # there's a lot of logic happening in these states!
             next_state = transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)
+            # next_state = "idle"
+            # update_tile_manager(entity["old_tile"], entity["position"], entity["id"], tile_map)
             entity["current_state"] = next_state
             pos_abs = tile_and_offset_to_absolute(tile_map, entity.get("position",{}))
             bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
@@ -2987,18 +2951,28 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
             tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
 
-            entity_col_x, x_point = collides_within_tiles_at_position_circle(new_pos_x_direction, "player", tile_map, debug_queue)
-            entity_col_y, y_point = collides_within_tiles_at_position_circle(new_pos_y_direction, "player", tile_map, debug_queue)
+            
             if tile_type_is_collidable(tile_at_pos_x):
                 collisions["x"] = True
             if tile_type_is_collidable(tile_at_pos_y):
                 collisions["y"] = True
 
+    entity_collsion_pos_x = new_pos_from_old(player_pos)
+    entity_collsion_pos_x["x"] += player_velocity["x"]*dt                                    
+    entity_collsion_pos_x = move_position_along_tiles(entity_collsion_pos_x, tile_width, tile_height)
+    entity_col_x, x_point = collides_within_tiles_at_position_circle(entity_collsion_pos_x, "player", tile_map, debug_queue)
+            
+
+    entity_collsion_pos_y = new_pos_from_old(player_pos)
+    entity_collsion_pos_y["y"] += player_velocity["y"]*dt                                    
+    entity_collsion_pos_y = move_position_along_tiles(entity_collsion_pos_y, tile_width, tile_height)
+    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collsion_pos_y, "player", tile_map, debug_queue)
+
     
-    if collisions["x"]:
+    if collisions["x"] or entity_col_x:
         new_pos["x"] = player_pos["x"]
         # player_velocity["x"] = 0
-    if collisions["y"]:
+    if collisions["y"] or entity_col_y:
         new_pos["y"] = player_pos["y"]    
         # player_velocity["y"] = 0
     
@@ -3010,8 +2984,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     
 
     # do one final check on our new position to see if we need to resolve?
-    # still_collides, point = collides_within_tiles_at_position_circle(new_pos, "player", tile_map, debug_queue)
-    still_collides, point = collides_within_tiles_at_position(new_pos, "player", tile_map, debug_queue)
+    still_collides, point = collides_within_tiles_at_position_circle(new_pos, "player", tile_map, debug_queue)
     if still_collides:
         new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
         away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
@@ -3023,7 +2996,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         while iter_count < max_iterations and still_collides:
             new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
             new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)            
-            still_collides, point = collides_within_tiles_at_position(new_pos, "player", tile_map, debug_queue)
+            still_collides, point = collides_within_tiles_at_position_circle(new_pos, "player", tile_map, debug_queue)
             if still_collides:
                 new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
                 away_direction = vec2_subtract(new_pos_abs, point)            
