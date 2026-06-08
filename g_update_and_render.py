@@ -1521,16 +1521,16 @@ def make_player_points(player_info, tile_width, tile_height):
     
     return player_points
 
-def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile_map, debug_queue):
+def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile_map, dt, debug_queue = None):
     # TODO use this for any entity but only for walls
     collisions = { "x" : False, "y" : False}
     for potential_pos in player_points.values():    
         new_pos_x_direction = new_pos_from_old(potential_pos)
         new_pos_y_direction = new_pos_from_old(potential_pos)
 
-        new_pos_x_direction['x'] += new_pos_velocity['x']
+        new_pos_x_direction['x'] += new_pos_velocity['x'] * dt
 
-        new_pos_y_direction['y'] += new_pos_velocity['y']
+        new_pos_y_direction['y'] += new_pos_velocity['y'] * dt
 
         # these need to be adjusted!!!!
         tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
@@ -1654,7 +1654,7 @@ def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map
 
 
 def point_in_circle(point, circle):
-    return (point["x"] - circle["x"]) ** 2 + (point["y"] - circle["y"])  <= circle["radius"]**2
+    return (point["x"] - circle["x"]) ** 2 + (point["y"] - circle["y"]) ** 2  <= circle["radius"]**2
 
 def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
     # we could allow very close 
@@ -1740,7 +1740,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     # obviously we should move to 'proper' velocity but it's just a tad harder
     default_speed = 50
     entity_speed = entity.get("speed", default_speed)
-    new_entity_velocity = vec2_scale(vec2_between, entity_speed * dt)
+    new_entity_velocity = vec2_scale(vec2_between, entity_speed)
 
     # TODO (Cooper) we also need to do our collision logic here    
     tile_manager_needs_update = False
@@ -1753,8 +1753,9 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     entity["old_tile"]["y"] = entity["position"]["y"]
     
     
+    
 
-    new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
+    new_entity_position = vec2_add(entity.get("position",{}), vec2_scale(new_entity_velocity, dt))    
 
     
     new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
@@ -1791,21 +1792,35 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
                 }
                 debug_queue.append(debug_item)
 
-    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, debug_queue)
-    if entity_collisions.get("x", False):
-        new_entity_velocity['x'] = 0
-        new_entity_velocity = vec2_normalize(new_entity_velocity)
-        new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
-        # new_entity_position["x"] = entity.get("position",{}).get("x",0)    
-        # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
-    if entity_collisions.get("y", False):
-        new_entity_velocity['y'] = 0
-        new_entity_velocity = vec2_normalize(new_entity_velocity)
-        new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+    wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
 
-    new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
-    new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
-    new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)            
+    entity_collision_pos_x = new_pos_from_old(entity.get("position"))
+    entity_collision_pos_x["x"] += new_entity_velocity["x"]*dt                                    
+    entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_width, tile_height)
+    entity_col_x, x_point = collides_within_tiles_at_position_circle(entity_collision_pos_x, entity["id"], tile_map, debug_queue)
+
+    entity_collision_pos_y = new_pos_from_old(entity.get("position"))
+    entity_collision_pos_y["y"] += new_entity_velocity["y"]*dt                                    
+    entity_collision_pos_y = move_position_along_tiles(entity_collision_pos_y, tile_width, tile_height)
+    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collision_pos_y, entity["id"], tile_map, debug_queue)
+
+
+    if wall_collisions.get("x", False) or entity_col_x:
+        # new_entity_velocity['x'] = 0
+        # new_entity_velocity = vec2_normalize(new_entity_velocity)
+        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+        new_entity_position["x"] = entity.get("position",{}).get("x",0)            
+        new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
+        # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
+    if wall_collisions.get("y", False) or entity_col_y:
+        # new_entity_velocity['y'] = 0
+        new_entity_position["y"] = entity.get("position",{}).get("y",0)    
+        new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)    
+        
+
+    # new_entity_position = vec2_add(entity.get("position",{}), new_entity_velocity)    
+    # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
+    # new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)            
     new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
 
     still_collides, point = collides_within_tiles_at_position_circle(new_entity_position, entity["id"], tile_map, debug_queue)
@@ -1814,7 +1829,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
         away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
         iter_count = 0
         max_iterations = 4
-        back_speed = 1 # vec2_norm(new_entity_velocity) * dt
+        back_speed = 1 #vec2_norm(new_entity_velocity) * dt 
         new_entity_position = vec2_add_just(new_entity_position ,vec2_scale(away_direction, back_speed * dt))
         new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
         while iter_count < max_iterations and still_collides:
@@ -1830,16 +1845,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     # x_entity_collides = collides_within_tile(new_pos_x_direction, "player", tile_map, debug_queue)
     # y_entity_collides = collides_within_tile(new_pos_y_direction, "player", tile_map, debug_queue)
 
-    if entity_collisions.get("x", False):
-        # new_entity_velocity['x'] = 0
-        # new_entity_velocity = vec2_normalize(new_entity_velocity)
-        new_entity_position["x"] = entity.get("position",{}).get("x",0)    
-        new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
-    if entity_collisions.get("y", False):
-        new_entity_position["y"] = entity.get("position",{}).get("y",0)    
-        new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)    
-        # new_entity_velocity['y'] = 0
-        # new_entity_velocity = vec2_normalize(new_entity_velocity)
+    
 
     #maybe here we could also check out new position against other enemies
 
@@ -2005,7 +2011,7 @@ def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
 
-    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, debug_queue)
+    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
 
     
 
@@ -2957,16 +2963,16 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             if tile_type_is_collidable(tile_at_pos_y):
                 collisions["y"] = True
 
-    entity_collsion_pos_x = new_pos_from_old(player_pos)
-    entity_collsion_pos_x["x"] += player_velocity["x"]*dt                                    
-    entity_collsion_pos_x = move_position_along_tiles(entity_collsion_pos_x, tile_width, tile_height)
-    entity_col_x, x_point = collides_within_tiles_at_position_circle(entity_collsion_pos_x, "player", tile_map, debug_queue)
+    entity_collision_pos_x = new_pos_from_old(player_pos)
+    entity_collision_pos_x["x"] += player_velocity["x"]*dt                                    
+    entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_width, tile_height)
+    entity_col_x, x_point = collides_within_tiles_at_position_circle(entity_collision_pos_x, "player", tile_map, debug_queue)
             
 
-    entity_collsion_pos_y = new_pos_from_old(player_pos)
-    entity_collsion_pos_y["y"] += player_velocity["y"]*dt                                    
-    entity_collsion_pos_y = move_position_along_tiles(entity_collsion_pos_y, tile_width, tile_height)
-    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collsion_pos_y, "player", tile_map, debug_queue)
+    entity_collision_pos_y = new_pos_from_old(player_pos)
+    entity_collision_pos_y["y"] += player_velocity["y"]*dt                                    
+    entity_collision_pos_y = move_position_along_tiles(entity_collision_pos_y, tile_width, tile_height)
+    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collision_pos_y, "player", tile_map, debug_queue)
 
     
     if collisions["x"] or entity_col_x:
