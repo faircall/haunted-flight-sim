@@ -2067,7 +2067,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
 
-    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, debug_queue)
+    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
 
     
 
