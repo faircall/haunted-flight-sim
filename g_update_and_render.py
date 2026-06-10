@@ -1613,9 +1613,7 @@ def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map
     # the actual issue here is we're only checking a single tile so
     # we never hit the ones on the border
 
-    # ZZZ TODO pickup here
-    # the idea is to consider a region of tiles (still bounded!)
-    # and collect all the enemy points to do collision tests on
+    
 
     new_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_pos)
     
@@ -2062,12 +2060,16 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     entity["bullet_impulse"] = velocity
 
     new_entity_velocity = vec2_scale(velocity, dt)
+    new_entity_velocity_unscaled = velocity
 
     
 
     entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
 
-    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
+    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity_unscaled, tile_map, dt, debug_queue)
+    
+    # zzz TODO collide against other guys here also
+    
 
     
 
@@ -2080,7 +2082,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     if entity_collisions.get("y", False):
         new_entity_velocity['y'] = 0
         # new_entity_velocity = vec2_normalize(new_entity_velocity)
-        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)        
         
     new_pos = vec2_add_just(entity["position"], new_entity_velocity)
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
@@ -2093,7 +2095,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     if entity["stagger_timer"] >= 0.1:
         entity["velocity"] = {"x" : 0, "y" : 0}
-        next_state = entity.get("previous_state_on_stagger","idle") # go to whatever you had
+        next_state = entity.get("previous_state_on_stagger","idle") # go to whatever you had    
 
     
     return next_state
@@ -2346,10 +2348,7 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
 
     
 
-    if vec2_distance(get_abs_pos_from_index(new_position, tile_map), get_abs_pos_from_index(player_pos, tile_map)) <= dest_threshold:
-        # zzz pickup from here
-        # don't need to be in the same tile,
-        # just within a certain distance
+    if vec2_distance(get_abs_pos_from_index(new_position, tile_map), get_abs_pos_from_index(player_pos, tile_map)) <= dest_threshold:                        
         next_state = "angry and attacking"
 
     
@@ -2824,6 +2823,8 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
 
     collisions = { "x" : False, "y" : False}
 
+    old_frame_collisions = { "x" : False, "y" : False}
+
     
 
     #need to test 4 corners I believe
@@ -2918,7 +2919,8 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     new_pos["x"] += player_velocity["x"] * dt 
     new_pos["y"] += player_velocity["y"] * dt 
         
-
+    # should probably check if we STARTED this function inside a wall, because if so, something went pretty wrong!
+    
 
     if collision_mode != "noclip":
         # apply collision detection if needed
@@ -2952,6 +2954,8 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             
             
             # now check for collision
+            
+            old_tile_at_old_pos = get_tile_type_from_pos(potential_pos, tile_map, debug_queue)
             
             
             tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
@@ -3007,6 +3011,9 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
                 new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
                 away_direction = vec2_subtract(new_pos_abs, point)            
             iter_count += 1
+
+            # TODO zzzz there's a risk here that we've ended up inside a wall!
+            # so technically need to check against walls here also before allowing the position
 
         
 
