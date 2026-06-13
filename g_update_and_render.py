@@ -2069,18 +2069,27 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
     entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity_unscaled, tile_map, dt, debug_queue)
     
     # zzz TODO collide against other guys here also
+    entity_collision_pos_x = new_pos_from_old(entity.get("position"))
+    entity_collision_pos_x["x"] += new_entity_velocity["x"]*dt                                    
+    entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_map["tile_width"], tile_map["tile_height"])
+    entity_col_x, x_point = collides_within_tiles_at_position_circle(entity_collision_pos_x, entity["id"], tile_map, debug_queue)
+
+    entity_collision_pos_y = new_pos_from_old(entity.get("position"))
+    entity_collision_pos_y["y"] += new_entity_velocity["y"]*dt                                    
+    entity_collision_pos_y = move_position_along_tiles(entity_collision_pos_y, tile_map["tile_width"], tile_map["tile_height"])
+    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collision_pos_y, entity["id"], tile_map, debug_queue)
     
 
     
 
-    if entity_collisions.get("x", False):
+    if entity_collisions.get("x", False) or entity_col_x:
         new_entity_velocity['x'] = 0
         # new_entity_velocity = vec2_normalize(new_entity_velocity)
         # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
         # new_entity_position["x"] = entity.get("position",{}).get("x",0)    
         # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
-    if entity_collisions.get("y", False):
-        new_entity_velocity['y'] = 0
+    if entity_collisions.get("y", False) or entity_col_y:
+        new_entity_velocity['y'] = 0        
         # new_entity_velocity = vec2_normalize(new_entity_velocity)
         # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)        
         
