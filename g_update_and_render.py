@@ -346,6 +346,9 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                         # much faster for 'find the entities who are at location x/y/z'
 
                         new_entity["position"] = {"x" : offset_x, "y" : offset_y, "tile_x" : x, "tile_y" : y}
+                        new_entity["entity_width"] = g_default_entity_width 
+                        new_entity["entity_height"] = g_default_entity_height 
+                        
 
                         give_entity_stats_from_type(new_entity, entity_type)
 
@@ -1481,12 +1484,11 @@ def tiles_close(a, b, epsilon):
 
 
 
-def make_player_points(player_info, tile_width, tile_height):
+def make_player_points(player_pos, entity_width, entity_height, tile_width, tile_height):
     # TODO
-    # not taking into account that the tiles will be different when adding width/height
-    player_pos = player_info.get("position",{}) # top left
+    # not taking into account that the tiles will be different when adding width/height    
     # true if we think in terms of offset
-    player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",g_default_entity_width),
+    player_pos_top_right = {"x" : player_pos.get("x",0) + entity_width,
                             "y" : player_pos.get("y",0),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0)  
@@ -1496,8 +1498,8 @@ def make_player_points(player_info, tile_width, tile_height):
     
 
     
-    player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",g_default_entity_width),
-                            "y" : player_pos.get("y",0) + player_info.get("entity_height",g_default_entity_height),
+    player_pos_bottom_right = {"x" : player_pos.get("x",0) + entity_width,
+                            "y" : player_pos.get("y",0) + entity_height,
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
@@ -1505,7 +1507,7 @@ def make_player_points(player_info, tile_width, tile_height):
     player_pos_bottom_right = move_position_along_tiles(player_pos_bottom_right, tile_width, tile_height)
     
     player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + player_info.get("entity_height",g_default_entity_height),
+                            "y" : player_pos.get("y",0) + entity_height,
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
@@ -1541,6 +1543,28 @@ def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile
             collisions["x"] = True            
         if tile_type_is_collidable(tile_at_pos_y):
             collisions["y"] = True            
+    return collisions
+
+def check_collision_on_tilemap(entity_id, potential_pos, new_pos_velocity, tile_map, dt, debug_queue = None):
+    # TODO use this for any entity but only for walls
+    collisions = { "x" : False, "y" : False}
+    
+    new_pos_x_direction = new_pos_from_old(potential_pos)
+    new_pos_y_direction = new_pos_from_old(potential_pos)
+
+    new_pos_x_direction['x'] += new_pos_velocity['x'] * dt
+
+    new_pos_y_direction['y'] += new_pos_velocity['y'] * dt
+
+    # these need to be adjusted!!!!
+    tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
+    tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
+    
+    
+    if tile_type_is_collidable(tile_at_pos_x):
+        collisions["x"] = True            
+    if tile_type_is_collidable(tile_at_pos_y):
+        collisions["y"] = True            
     return collisions
 
 def copy_entity_pos(existing):
@@ -1772,7 +1796,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     
     
 
-    entity_points = make_player_points(entity, tile_width, tile_height)
+    entity_points = make_player_points(entity["position"], entity["entity_width"], entity["entity_height"], tile_width, tile_height)
 
     for potential_pos in entity_points.values():
         if debug_queue is not None:
@@ -1823,21 +1847,37 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
 
     still_collides, point = collides_within_tiles_at_position_circle(new_entity_position, entity["id"], tile_map, debug_queue)
     if still_collides:
-        new_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_position)
+        corrected_new_entity_position = new_pos_from_old(new_entity_position)
+        new_pos_abs = tile_and_offset_to_absolute(tile_map, corrected_new_entity_position)
         away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
         iter_count = 0
         max_iterations = 4
         back_speed = 1 #vec2_norm(new_entity_velocity) * dt 
-        new_entity_position = vec2_add_just(new_entity_position ,vec2_scale(away_direction, back_speed * dt))
-        new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
+        # corrected_new_entity_position = vec2_add_just(corrected_new_entity_position ,vec2_scale(away_direction, back_speed * dt))
+        # corrected_new_entity_position = move_position_along_tiles(corrected_new_entity_position, tile_width, tile_height)
+        entity_points = make_player_points(corrected_new_entity_position, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
+
         while iter_count < max_iterations and still_collides:
-            new_entity_position = vec2_add_just(new_entity_position ,vec2_scale(away_direction, back_speed * dt))
-            new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)            
-            still_collides, point = collides_within_tiles_at_position_circle(new_entity_position, entity["id"], tile_map, debug_queue)
+            old_pos = new_pos_from_old(corrected_new_entity_position)
+            corrected_new_entity_position = vec2_add_just(corrected_new_entity_position ,vec2_scale(away_direction, back_speed * dt))
+            corrected_new_entity_position = move_position_along_tiles(corrected_new_entity_position, tile_width, tile_height)            
+            entity_points = make_player_points(new_entity_position, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
+            wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, vec2_scale(away_direction, back_speed), tile_map, dt, debug_queue)
+            
+
+            if wall_collisions["x"]:
+                corrected_new_entity_position["x"] = old_pos["x"]
+
+            if wall_collisions["y"]:
+                corrected_new_entity_position["y"] = old_pos["y"]
+
+            still_collides, point = collides_within_tiles_at_position_circle(corrected_new_entity_position, entity["id"], tile_map, debug_queue)
+            
             if still_collides:
-                new_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_position)
-                away_direction = vec2_subtract(new_pos_abs, point)            
+                new_pos_abs = tile_and_offset_to_absolute(tile_map, corrected_new_entity_position)
+                away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))                    
             iter_count += 1
+        new_entity_position = corrected_new_entity_position
 
     
     # x_entity_collides = collides_within_tile(new_pos_x_direction, "player", tile_map, debug_queue)
@@ -2007,7 +2047,7 @@ def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     
 
-    entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
+    entity_points = make_player_points(entity["position"], entity["entity_width"], entity["entity_height"], tile_map.get("tile_width"), tile_map.get("tile_height"))
 
     entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
 
@@ -2064,7 +2104,7 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     
 
-    entity_points = make_player_points(entity, tile_map.get("tile_width"), tile_map.get("tile_height"))
+    entity_points = make_player_points(entity["position"], entity["entity_width"], entity["entity_height"], tile_map.get("tile_width"), tile_map.get("tile_height"))
 
     entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity_unscaled, tile_map, dt, debug_queue)
     
@@ -2828,7 +2868,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     #     "bottom_right" : player_pos_bottom_right,
     # }
 
-    player_points = make_player_points(player_info, tile_width, tile_height)
+    player_points = make_player_points(player_info["position"], player_info["entity_width"], player_info["entity_height"], tile_width, tile_height)
 
     collisions = { "x" : False, "y" : False}
 
@@ -3010,19 +3050,32 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         iter_count = 0
         max_iterations = 4
         back_speed = vec2_norm(player_velocity) * dt
-        new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
-        new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
+        corrected_new_entity_position = new_pos_from_old(new_pos)
+
+        # new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
+        # new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)
+        
+        
         while iter_count < max_iterations and still_collides:
-            new_pos = vec2_add_just(new_pos ,vec2_scale(away_direction, back_speed * dt))
-            new_pos = move_position_along_tiles(new_pos, tile_width, tile_height)            
-            still_collides, point = collides_within_tiles_at_position_circle(new_pos, "player", tile_map, debug_queue)
+            old_pos = new_pos_from_old(corrected_new_entity_position)
+            corrected_new_entity_position = vec2_add_just(corrected_new_entity_position ,vec2_scale(away_direction, back_speed * dt))
+            corrected_new_entity_position = move_position_along_tiles(corrected_new_entity_position, tile_width, tile_height)            
+            entity_points = make_player_points(old_pos, player_info["entity_width"], player_info["entity_height"], tile_width, tile_height)
+            wall_collisions = check_collisions_on_tilemap("player", entity_points, vec2_scale(away_direction, back_speed), tile_map, dt, debug_queue)
+            if wall_collisions["x"]:
+                corrected_new_entity_position["x"] = old_pos["x"]
+            if wall_collisions["y"]:
+                corrected_new_entity_position["y"] = old_pos["y"]
+            
+            still_collides, point = collides_within_tiles_at_position_circle(corrected_new_entity_position, "player", tile_map, debug_queue)
             if still_collides:
-                new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
-                away_direction = vec2_subtract(new_pos_abs, point)            
+                new_pos_abs = tile_and_offset_to_absolute(tile_map, corrected_new_entity_position)
+                away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
             iter_count += 1
 
-            # TODO zzzz there's a risk here that we've ended up inside a wall!
-            # so technically need to check against walls here also before allowing the position
+        new_pos = corrected_new_entity_position
+
+            
 
         
 
@@ -3562,7 +3615,9 @@ def update_and_render(main_arena, game_assets, cma_engine):
 
     # rendering code
     # this seems to be about the shade of the sky
-    color_to_draw = pr.Color(60, 160, 250, 255)    
+    #color_to_draw = pr.Color(60, 160, 250, 255)    
+
+    color_to_draw = pr.Color(160, 150, 150, 255)    
     pr.begin_drawing()
     pr.clear_background(color_to_draw)    
     
