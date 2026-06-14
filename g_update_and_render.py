@@ -1841,12 +1841,7 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     entity_collision_pos_x["x"] += new_entity_velocity["x"]*dt                                    
     entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_width, tile_height)
     entity_col_x, x_point = collides_within_tiles_at_position_circle(entity_collision_pos_x, entity["id"], tile_map, debug_queue)
-
-    entity_collision_pos_y = new_pos_from_old(entity.get("position"))
-    entity_collision_pos_y["y"] += new_entity_velocity["y"]*dt                                    
-    entity_collision_pos_y = move_position_along_tiles(entity_collision_pos_y, tile_width, tile_height)
-    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collision_pos_y, entity["id"], tile_map, debug_queue)
-
+    
 
     if wall_collisions.get("x", False) or entity_col_x:
         # new_entity_velocity['x'] = 0
@@ -1855,6 +1850,17 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
         new_entity_position["x"] = entity.get("position",{}).get("x",0)            
         new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
         # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
+    else:
+        entity["position"]["x"] = new_entity_position["x"]
+        entity["position"]["tile_x"] = new_entity_position["tile_x"]
+
+    entity_points = make_player_points(entity["position"], entity["entity_width"], entity["entity_height"], tile_width, tile_height)
+    wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
+    entity_collision_pos_y = new_pos_from_old(entity.get("position"))
+    entity_collision_pos_y["y"] += new_entity_velocity["y"]*dt                                    
+    entity_collision_pos_y = move_position_along_tiles(entity_collision_pos_y, tile_width, tile_height)
+    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collision_pos_y, entity["id"], tile_map, debug_queue)
+
     if wall_collisions.get("y", False) or entity_col_y:
         # new_entity_velocity['y'] = 0
         new_entity_position["y"] = entity.get("position",{}).get("y",0)    
