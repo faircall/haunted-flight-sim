@@ -259,11 +259,11 @@ def reconstruct_path(came_from, target, origin):
     
 
 
-def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_info, mode, debug_queue):
+def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_entity, mode, debug_queue):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
-    player_pos = player_info.get("position",{})
+    player_pos = player_entity.get("position",{})
     if ignore:
         return
 
@@ -406,20 +406,20 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
     player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
     
-    if "aim_direction" not in player_info:
-        player_info["aim_direction"] = {"x" : 0, "y" : 0}
-    gun_pos = vec2_add_any(player_render_pos_center, player_info.get("aim_direction", {"x" : 0, "y" : 0}))
-    if player_info.get("aim_direction", {"x" : 0, "y" : 0}).get("x") < 0:
-        updated_gun_pos = vec2_add(vec2_scale(vec2_normalize(player_info.get("aim_direction")), 8), gun_pos)        
+    if "aim_direction" not in player_entity:
+        player_entity["aim_direction"] = {"x" : 0, "y" : 0}
+    gun_pos = vec2_add_any(player_render_pos_center, player_entity.get("aim_direction", {"x" : 0, "y" : 0}))
+    if player_entity.get("aim_direction", {"x" : 0, "y" : 0}).get("x") < 0:
+        updated_gun_pos = vec2_add(vec2_scale(vec2_normalize(player_entity.get("aim_direction")), 8), gun_pos)        
         gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
     else:
         gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
 
-    gun_angle = angle_from_vector(player_info.get("aim_direction")) - 180 # some bs here
+    gun_angle = angle_from_vector(player_entity.get("aim_direction")) - 180 # some bs here
 
     #pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
 
-    oxford_frame_key =  player_info.get("animation_frame", 0)   
+    oxford_frame_key =  player_entity.get("animation_frame", 0)   
     oxford_frame_number = game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get(oxford_frame_key, 0)
     oxford_dest_rect = pr.Rectangle(int(player_render_pos.x), int(player_render_pos.y), 32*2, 32*2) # these 32s are in the thing actually
     oxford_source_rect = pr.Rectangle(oxford_frame_number*32, 0, 32, 32) # these 32s are in the thing actually
@@ -427,7 +427,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     pr.draw_line(int(player_render_pos_center.x), int(player_render_pos_center.y), int(gun_pos.x), int(gun_pos.y), pr.WHITE)
     
     
-    if player_info.get("aim_direction").get("x") < 0:
+    if player_entity.get("aim_direction").get("x") < 0:
         # zzz super slight bug here where it's drawing at the start and not accounting for the flip
         pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture_flipped"), updated_gun_pos, gun_angle + 180, 1, pr.WHITE)    
     else:
@@ -2823,7 +2823,7 @@ def point_in_rect(point_position, rectangle):
     return point_position["x"] >= rect_left and point_position["x"] <= rect_right and point_position["y"] >= rect_top and point_position["y"] <= rect_bottom 
     
 
-def update_player_position(tile_map, player_info, editor_mode, collision_mode, dt, sounds, debug_queue = None):
+def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, sounds, debug_queue = None):
     # i think the offset should be relative to _actual_ tile width
     # and so our world position is always a sum of the tile start pos + offset
 
@@ -2831,24 +2831,24 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     tile_width = tile_map["tile_width"]
 
     if editor_mode != "play":
-        return player_info.get("position",{})
+        return entity.get("position",{})
     
-    player_pos = player_info.get("position",{}) # top left
+    player_pos = entity.get("position",{}) # top left
     # true if we think in terms of offset
-    player_pos_top_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",0),
+    player_pos_top_right = {"x" : player_pos.get("x",0) + entity.get("entity_width",0),
                             "y" : player_pos.get("y",0),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0)  
                             }
     
-    player_pos_bottom_right = {"x" : player_pos.get("x",0) + player_info.get("entity_width",0),
-                            "y" : player_pos.get("y",0) + player_info.get("entity_height",0),
+    player_pos_bottom_right = {"x" : player_pos.get("x",0) + entity.get("entity_width",0),
+                            "y" : player_pos.get("y",0) + entity.get("entity_height",0),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
     
     player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + player_info.get("entity_height",0),
+                            "y" : player_pos.get("y",0) + entity.get("entity_height",0),
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
@@ -2860,7 +2860,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     #     "bottom_right" : player_pos_bottom_right,
     # }
 
-    player_points = make_player_points(player_info["position"], player_info["entity_width"], player_info["entity_height"], tile_width, tile_height)
+    player_points = make_player_points(entity["position"], entity["entity_width"], entity["entity_height"], tile_width, tile_height)
 
     collisions = { "x" : False, "y" : False}
 
@@ -2871,9 +2871,9 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
     #need to test 4 corners I believe
         
 
-    player_velocity = get_or_set(player_info, "player_velocity", {"x" : 0, "y" : 0})
+    player_velocity = get_or_set(entity, "player_velocity", {"x" : 0, "y" : 0})
 
-    player_footstep_timer = get_or_set(player_info, "player_footstep_timer", 0)
+    player_footstep_timer = get_or_set(entity, "player_footstep_timer", 0)
 
     player_footstep_timer_base_gap = 0.3
 
@@ -2945,7 +2945,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         play_pool_sound("player_footstep_pool", sounds, -3, 3, 40)
         # print("playing pool sound")
 
-    player_info["player_footstep_timer"] = player_footstep_timer
+    entity["player_footstep_timer"] = player_footstep_timer
 
     if vec2_norm(direction_vector) < 0.1 and vec2_norm(player_velocity) > min_speed:
         player_decel = 10
@@ -2956,7 +2956,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
         # print("killing velocity")
         player_velocity = {"x" : 0, "y" : 0}
     
-    player_info["player_velocity"] = player_velocity
+    entity["player_velocity"] = player_velocity
     new_pos["x"] += player_velocity["x"] * dt 
     new_pos["y"] += player_velocity["y"] * dt 
         
@@ -3051,7 +3051,7 @@ def update_player_position(tile_map, player_info, editor_mode, collision_mode, d
             old_pos = new_pos_from_old(corrected_new_entity_position)
             corrected_new_entity_position = vec2_add_just(corrected_new_entity_position ,vec2_scale(away_direction, back_speed * dt))
             corrected_new_entity_position = move_position_along_tiles(corrected_new_entity_position, tile_width, tile_height)            
-            entity_points = make_player_points(old_pos, player_info["entity_width"], player_info["entity_height"], tile_width, tile_height)
+            entity_points = make_player_points(old_pos, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
             wall_collisions = check_collisions_on_tilemap("player", entity_points, vec2_scale(away_direction, back_speed), tile_map, dt, debug_queue)
             if wall_collisions["x"]:
                 corrected_new_entity_position["x"] = old_pos["x"]
@@ -3126,8 +3126,8 @@ def apply_force():
     # A = F / m
     pass
 
-def update_player_interaction(tile_map, player_info, game_camera, entities, sounds, audio_engine, dt, debug_state):
-    player_pos = player_info["position"]
+def update_player_interaction(tile_map, entity, game_camera, entities, sounds, audio_engine, dt, debug_state):
+    player_pos = entity["position"]
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     # really need to have a 'player center' position
@@ -3155,26 +3155,26 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
     #player_angle_current += 180
     animation_direction = direction_from_angle(player_angle_current)
 
-    player_info["animation_frame"] = animation_frame_number_from_direction(animation_direction)
+    entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
 
     pr.draw_text(f"player angle is {int(player_angle_current)}", 80, 30, 10, pr.RED)
 
-    pr.draw_text(f"player health is {int(player_info["health"])}", 80, 40, 10, pr.RED)
+    pr.draw_text(f"player health is {int(entity["health"])}", 80, 40, 10, pr.RED)
 
-    pr.draw_text(f"player ammo is {int(player_info["ammo"]["pistol"])} / {int(player_info["ammo"]["spare_pistol"])}", 80, 50, 10, pr.RED)
+    pr.draw_text(f"player ammo is {int(entity["ammo"]["pistol"])} / {int(entity["ammo"]["spare_pistol"])}", 80, 50, 10, pr.RED)
 
     current_gun = "pistol" # TODO make more types of guns and make them selectable
 
-    if player_info.get("reload_state","") == "reloading":
-        reload_timer = player_info.get("reload_timer",0)
+    if entity.get("reload_state","") == "reloading":
+        reload_timer = entity.get("reload_timer",0)
         reload_timer += dt
-        player_info["reload_timer"] = reload_timer
+        entity["reload_timer"] = reload_timer
         if reload_timer >= get_reload_time(current_gun):
-            player_info["reload_timer"] = 0
-            player_info["reload_state"] = "reloaded"
+            entity["reload_timer"] = 0
+            entity["reload_state"] = "reloaded"
             # reload!
-            current_bullets = player_info["ammo"][f"{current_gun}"]
-            spare_bullets = player_info["ammo"][f"spare_{current_gun}"]
+            current_bullets = entity["ammo"][f"{current_gun}"]
+            spare_bullets = entity["ammo"][f"spare_{current_gun}"]
             clip_size = get_clip_size(current_gun)
 
             bullets_we_have_room_for = clip_size - current_bullets
@@ -3182,27 +3182,27 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
             
             clip_to_load = min(bullets_we_have_room_for, spare_bullets)            
 
-            player_info["ammo"][current_gun] += clip_to_load # this would allow it to go over
-            #player_info["ammo"][f"{current_gun}"] = max(spare_bullets, 0)
+            entity["ammo"][current_gun] += clip_to_load # this would allow it to go over
+            #entity["ammo"][f"{current_gun}"] = max(spare_bullets, 0)
             spare_bullets -= clip_to_load                        
-            player_info["ammo"][f"spare_{current_gun}"] = max(spare_bullets, 0)
+            entity["ammo"][f"spare_{current_gun}"] = max(spare_bullets, 0)
 
 
         # should also be able to interrupt this
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_R):
-        if player_info.get("reload_state","") != "reloading":                        
+        if entity.get("reload_state","") != "reloading":                        
             play_sound(sounds["pistol_reload"])
-            player_info["reload_state"] = "reloading"
+            entity["reload_state"] = "reloading"
 
 
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
         
-        current_ammo = player_info["ammo"][current_gun]
-        if player_info.get("reload_state","") == "reloading":
+        current_ammo = entity["ammo"][current_gun]
+        if entity.get("reload_state","") == "reloading":
             stop_sound(sounds["pistol_reload"])            
-            player_info["reload_timer"] = 0
-            player_info["reload_state"] = "interrupted" # could do something with this
+            entity["reload_timer"] = 0
+            entity["reload_state"] = "interrupted" # could do something with this
 
 
         if current_ammo <= 0:
@@ -3233,13 +3233,13 @@ def update_player_interaction(tile_map, player_info, game_camera, entities, soun
             if g_infinite_ammo:
                 current_ammo += 1
 
-            player_info["ammo"][current_gun] = current_ammo
+            entity["ammo"][current_gun] = current_ammo
 
             # spawn a bullet with our name on it
             # try playing a gunshot sound directly here
         
         
-    player_info["aim_direction"] = aim_heading
+    entity["aim_direction"] = aim_heading
 
 
 def copy_position_dict(original):
@@ -3582,7 +3582,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
     #input handling
 
     if pause_state != "paused":
-        player_info["position"] = update_player_position(player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, sounds=sounds, tile_map=tile_map, debug_queue=debug_queue)
+        player_info["position"] = update_player_position(entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, sounds=sounds, tile_map=tile_map, debug_queue=debug_queue)
     
     if pause_state != "paused":
         # I think we want to have the current 'hot spots' in terms of bullets cached
@@ -3596,7 +3596,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
         # square, so we avoid the quadratic thing
         # and then if there is a bullet(s) in the square,
         # we check against only those (there may be more than one I suppose)
-        update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
+        update_entities(entities=entities,entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
