@@ -1612,6 +1612,8 @@ def collides_within_tile(new_entity_pos, entity_id, tile_map, debug_queue = None
     return False
 
 def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue = None):    
+    # zzz TODO make this cross tile boundaries using neighboughrs
+    # and use absolute coords
     new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
     new_tile = tile_map["tiles"][new_tile_index]
     if "current_entities" not in new_tile:
@@ -1632,6 +1634,7 @@ def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_
 
             if point_in_rect(new_entity_pos, minkowski_rect):
                 return True,  entity_val
+            
     return False, None
 
 
@@ -3008,6 +3011,8 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
             if tile_type_is_collidable(tile_at_pos_y):
                 collisions["y"] = True
 
+
+    # ZZZ TODO also do the sequential thing rather than the concurrent thing (check how entityu collision does it)
     entity_collision_pos_x = new_pos_from_old(player_pos)
     entity_collision_pos_x["x"] += player_velocity["x"]*dt                                    
     entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_width, tile_height)
