@@ -1848,7 +1848,7 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     entity_collision_pos_x = new_pos_from_old(candidate_start_pos)
     entity_collision_pos_x["x"] += new_entity_velocity["x"]*dt                                    
     entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_width, tile_height)
-    entity_col_x, x_point = collides_within_tiles_at_position_circle(entity_collision_pos_x, entity["id"], tile_map, debug_queue)
+    entity_col_x, x_point = collides_within_tile_at_position(entity_collision_pos_x, entity["id"], tile_map, debug_queue)
     
 
     if wall_collisions.get("x", False) or entity_col_x:
@@ -1867,7 +1867,7 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     entity_collision_pos_y = new_pos_from_old(candidate_start_pos)
     entity_collision_pos_y["y"] += new_entity_velocity["y"]*dt                                    
     entity_collision_pos_y = move_position_along_tiles(entity_collision_pos_y, tile_width, tile_height)
-    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collision_pos_y, entity["id"], tile_map, debug_queue)
+    entity_col_y, y_point = collides_within_tile_at_position(entity_collision_pos_y, entity["id"], tile_map, debug_queue)
 
     if wall_collisions.get("y", False) or entity_col_y:
         # new_entity_velocity['y'] = 0
@@ -1878,7 +1878,7 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     
     new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
 
-    still_collides, point = collides_within_tiles_at_position_circle(new_entity_position, entity["id"], tile_map, debug_queue)
+    still_collides, point = collides_within_tile_at_position(new_entity_position, entity["id"], tile_map, debug_queue)
     if still_collides:
         corrected_new_entity_position = new_pos_from_old(new_entity_position)
         new_pos_abs = tile_and_offset_to_absolute(tile_map, corrected_new_entity_position)
@@ -1909,7 +1909,7 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
                 corrected_new_entity_position["y"] = old_pos["y"]
                 corrected_new_entity_position["tile_y"] = old_pos["tile_y"]
 
-            still_collides, point = collides_within_tiles_at_position_circle(corrected_new_entity_position, entity["id"], tile_map, debug_queue)
+            still_collides, point = collides_within_tile_at_position(corrected_new_entity_position, entity["id"], tile_map, debug_queue)
             
             if still_collides:
                 new_pos_abs = tile_and_offset_to_absolute(tile_map, corrected_new_entity_position)
@@ -3011,13 +3011,13 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
     entity_collision_pos_x = new_pos_from_old(player_pos)
     entity_collision_pos_x["x"] += player_velocity["x"]*dt                                    
     entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_width, tile_height)
-    entity_col_x, x_point = collides_within_tiles_at_position_circle(entity_collision_pos_x, "player", tile_map, debug_queue)
+    entity_col_x, x_point = collides_within_tile_at_position(entity_collision_pos_x, "player", tile_map, debug_queue)
             
 
     entity_collision_pos_y = new_pos_from_old(player_pos)
     entity_collision_pos_y["y"] += player_velocity["y"]*dt                                    
     entity_collision_pos_y = move_position_along_tiles(entity_collision_pos_y, tile_width, tile_height)
-    entity_col_y, y_point = collides_within_tiles_at_position_circle(entity_collision_pos_y, "player", tile_map, debug_queue)
+    entity_col_y, y_point = collides_within_tile_at_position(entity_collision_pos_y, "player", tile_map, debug_queue)
 
     
     if collisions["x"] or entity_col_x:
@@ -3037,7 +3037,7 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
     
 
     # do one final check on our new position to see if we need to resolve?
-    still_collides, point = collides_within_tiles_at_position_circle(new_pos, "player", tile_map, debug_queue)
+    still_collides, point = collides_within_tile_at_position(new_pos, "player", tile_map, debug_queue)
     if still_collides:
         new_pos_abs = tile_and_offset_to_absolute(tile_map, new_pos)
         away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
@@ -3060,7 +3060,7 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
                 corrected_new_entity_position["y"] = old_pos["y"]
                 corrected_new_entity_position["tile_y"] = old_pos["tile_y"]
             
-            still_collides, point = collides_within_tiles_at_position_circle(corrected_new_entity_position, "player", tile_map, debug_queue)
+            still_collides, point = collides_within_tile_at_position(corrected_new_entity_position, "player", tile_map, debug_queue)
             if still_collides:
                 new_pos_abs = tile_and_offset_to_absolute(tile_map, corrected_new_entity_position)
                 away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
@@ -3596,7 +3596,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
         # square, so we avoid the quadratic thing
         # and then if there is a bullet(s) in the square,
         # we check against only those (there may be more than one I suppose)
-        update_entities(entities=entities,entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
+        update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
