@@ -322,7 +322,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                         seen = {}
                         do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen)
 
-                    if pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT):
+                    if interactive_mouse_left():
                         tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
@@ -330,7 +330,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             if mode == "entity_placing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     is_highlight = True
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
+                    if interactive_mouse_left():
                         new_entity = {}
                         entity_types = game_assets.get("entity_types", [])
                         if current_entity_selection < len(entity_types):
@@ -3619,4 +3619,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
             g_mouse_is_ui_captured_frames = 0
 
     return result
+
+def interactive_mouse_left():
+    return pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured
     
