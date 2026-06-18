@@ -1629,19 +1629,40 @@ def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_
         return False, None
     
     entity_radius_for_now = 30
+
+    new_entity_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_pos)
     
     for entity_key, entity_val in new_tile["current_entities"].items():
         if entity_key != entity_id:            
             
+            entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
+
             minkowski_rect = {
-                "x" : entity_val["x"] - 24,
-                "y" : entity_val["y"] - 24,
+                "x" : entity_pos_abs["x"] - 24,
+                "y" : entity_pos_abs["y"] - 24,
                 "width" : 48, # TODO tweak this, test idea first
                 "height" : 48
             }
 
-            if point_in_rect(new_entity_pos, minkowski_rect):
+            if point_in_rect(new_entity_pos_abs, minkowski_rect):
                 return True,  entity_val
+            
+    for neighbour in new_tile["neighbours"]:
+        neighbour_tile_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
+        neighbour_tile = tile_map["tiles"][neighbour_tile_index]
+        for entity_key, entity_val in neighbour_tile.get("current_entities",{}).items():
+            if entity_key != entity_id:     
+                entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
+                minkowski_rect = {
+                    "x" : entity_pos_abs["x"] - 24,
+                    "y" : entity_pos_abs["y"] - 24,
+                    "width" : 48, # TODO tweak this, test idea first
+                    "height" : 48
+                }
+
+                if point_in_rect(new_entity_pos_abs, minkowski_rect):
+                    return True,  entity_val
+             
             
     return False, None
 
@@ -3163,7 +3184,7 @@ def make_blood_spatter(particle_amount, start_color, end_color, total_duration, 
         current_angle = angle_from_vector(bullet_normalized)
         new_angle = current_angle + float(random.randint(-10, 10))
         speed_offset = float(random.randint(-2, 2))
-        new_magnitude = bullet_magnitude / (speed_offset + 10)#(10 + speed_offset)
+        new_magnitude = bullet_magnitude / (max(1, speed_offset + 10))#(10 + speed_offset)
         blood_velocity = vec2_scale(vector_from_angle(new_angle), new_magnitude)
         spawn_pos = copy_entity_pos(spawn_position)
         base_size = 2
