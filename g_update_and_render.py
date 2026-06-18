@@ -25,6 +25,9 @@ g_test_see_through_walls = False
 
 g_infinite_ammo = True
 
+g_mouse_is_ui_captured = False
+g_mouse_is_ui_captured_frames = 0
+
 @dataclass(order=True)
 class PriorityQueueEntry:
     priority: float
@@ -578,6 +581,7 @@ def make_default_camera():
     return game_camera
 
 def do_button(pos, width = 50, height = 20, name = "some buttons"):
+    global g_mouse_is_ui_captured
     font_width = 6
     width = len(name) * font_width
     base_rect = pr.Rectangle(int(pos.x), int(pos.y), width, height)
@@ -585,9 +589,11 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     
     result = False
     if pr.check_collision_point_rec(pr.get_mouse_position(), base_rect):
+        g_mouse_is_ui_captured = True
         rect_col = pr.YELLOW
         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
             result = True
+            
     pr.draw_rectangle(int(pos.x), int(pos.y), width, height, rect_col)
     pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
     return result
@@ -3092,7 +3098,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
             entity["reload_state"] = "reloading"
 
 
-    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
+    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured:
         
         current_ammo = entity["ammo"][current_gun]
         if entity.get("reload_state","") == "reloading":
@@ -3359,6 +3365,8 @@ def draw_debug_item(debug_item, camera):
     
 
 def update_and_render(main_arena, game_assets, cma_engine):
+    global g_mouse_is_ui_captured
+    global g_mouse_is_ui_captured_frames
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
     
@@ -3602,6 +3610,13 @@ def update_and_render(main_arena, game_assets, cma_engine):
     game_assets["camera_3d"] = camera_3d
     if reset_all:
         del game_assets["camera_3d"]
+
+    if g_mouse_is_ui_captured:
+        frames_to_hide_game_input = 3
+        g_mouse_is_ui_captured_frames += 1
+        if g_mouse_is_ui_captured_frames > frames_to_hide_game_input:
+            g_mouse_is_ui_captured = False
+            g_mouse_is_ui_captured_frames = 0
 
     return result
     
