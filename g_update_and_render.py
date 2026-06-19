@@ -335,20 +335,10 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                         entity_types = game_assets.get("entity_types", [])
                         if current_entity_selection < len(entity_types):
                             entity_type = entity_types[current_entity_selection]
-                        new_entity["type"] = entity_type
-                        
-                        # TODO : this is where we messed up!
+                        new_entity["type"] = entity_type                                                
 
                         offset_x = mouse_tile_pos_offset_x
-                        offset_y = mouse_tile_pos_offset_y
-
-                        # EXPLORE 
-                        # opportunity to do interesting thing here
-                        # where we store (and update!) entities on tiles
-                        # which would allow us to do things like
-                        # know about an explosion on a tile 
-                        # and immediately damage all the entities on it 
-                        # much faster for 'find the entities who are at location x/y/z'
+                        offset_y = mouse_tile_pos_offset_y                        
 
                         new_entity["position"] = {"x" : offset_x, "y" : offset_y, "tile_x" : x, "tile_y" : y}
                         new_entity["entity_width"] = g_default_entity_width 
