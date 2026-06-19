@@ -322,7 +322,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                         seen = {}
                         do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen)
 
-                    if interactive_mouse_left():
+                    if interactive_mouse_left_down():
                         tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
@@ -3641,6 +3641,9 @@ def update_and_render(main_arena, game_assets, cma_engine):
 
     return result
 
-def interactive_mouse_left():
+def interactive_mouse_left_pressed():
     return pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured
+
+def interactive_mouse_left_down():
+    return pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured
     
