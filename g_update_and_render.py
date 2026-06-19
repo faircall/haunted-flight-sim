@@ -330,7 +330,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             if mode == "entity_placing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     is_highlight = True
-                    if interactive_mouse_left():
+                    if interactive_mouse_left_pressed():
                         new_entity = {}
                         entity_types = game_assets.get("entity_types", [])
                         if current_entity_selection < len(entity_types):
