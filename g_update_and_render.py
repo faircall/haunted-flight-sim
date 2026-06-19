@@ -1477,7 +1477,7 @@ def tiles_equal(a, b):
 
 def tiles_close(a, b, epsilon):
     if a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0):
-        if vec2_distance(a, {"x": 16, "y" : 16}):
+        if vec2_distance(a, {"x": 16, "y" : 16}) < epsilon:
             return True
     return False
 
@@ -2390,13 +2390,16 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
             }    
             debug_queue.append(debug_item)
 
-    if tiles_close(entity_pos, waypoint_pos, 1) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
+    if tiles_close(entity_pos, waypoint_pos, 20) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
         entity["path_to_player_current_index"] += 1
         current_tile_target_offset["x"] = random.randint(4,12)
         current_tile_target_offset["y"] = random.randint(4,12)
         entity["current_tile_target_offset"] = current_tile_target_offset
 
     target_pos = get_abs_pos_from_index_given_offset(waypoint_pos, current_tile_target_offset, tile_map, debug_queue)
+    if can_see:
+        player_abs = make_player_pos_abs(player_pos, tile_width, tile_height)
+        target_pos = player_abs
 
     
     new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
