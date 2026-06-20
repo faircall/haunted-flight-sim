@@ -1189,6 +1189,19 @@ def sin_flexible(angle, unit="degrees"):
         angle_in_radians = deg_to_rad(angle)
     return math.sin(angle_in_radians)
 
+def alice_can_see_bob_points(alice, bob_entity, tile_map, debug_queue):
+
+    bob_position = bob_entity["position"]
+
+    bob_points = make_entity_boundary_points(bob_position, bob_entity["entity_width"], bob_entity["entity_height"], tile_map["tile_width"], tile_map["tile_height"], 4)
+
+    for position in bob_points.values():
+        if alice_can_see_bob(alice, position, tile_map, debug_queue):
+            return True, position
+    return False, None
+
+    
+
 def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # we can actually super optimze this
     # first, see if bob is in the radius at all (distance)
@@ -1483,6 +1496,59 @@ def tiles_close(a, b, epsilon):
 
 
 
+def make_entity_boundary_points(entity_pos, entity_width, entity_height, tile_width, tile_height, sub_divisions):
+    # TODO
+    # not taking into account that the tiles will be different when adding width/height    
+    # true if we think in terms of offset
+
+    for sub_i in range(0, sub_divisions):
+        # left to right, semi-open interval (i.e includes left most, excludes right most)
+        entity_pos_top = {"x" : entity_pos.get("x",0) + (entity_width * sub_i / sub_divisions),
+                                "y" : entity_pos.get("y",0),
+                                "tile_x" : entity_pos.get("tile_x", 0),
+                                "tile_y" : entity_pos.get("tile_y", 0)  
+                                }
+        
+        entity_pos_top = move_position_along_tiles(entity_pos_top, tile_width, tile_height)
+    
+        
+        # includes top right, excludes bottom right
+        entity_pos_right = {"x" : entity_pos.get("x",0) + entity_width,
+                                "y" : entity_pos.get("y",0) + entity_height * (sub_i / sub_divisions),
+                                "tile_x" : entity_pos.get("tile_x", 0),
+                                "tile_y" : entity_pos.get("tile_y", 0)  
+                                }
+        entity_pos_right = move_position_along_tiles(entity_pos_right, tile_width, tile_height)
+    
+        
+    
+
+        # so this has to go FROM bottom right (inc) to bottom left (exc.)
+        entity_pos_bottom = {"x" : entity_pos.get("x",0) + entity_width - entity_width * (sub_i / sub_divisions),
+                                "y" : entity_pos.get("y",0) + entity_height,
+                                "tile_x" : entity_pos.get("tile_x", 0),
+                                "tile_y" : entity_pos.get("tile_y", 0) 
+                                }
+    
+        entity_pos_bottom = move_position_along_tiles(entity_pos_bottom, tile_width, tile_height)
+
+        # and THIS has to go from bottom left (inc.) to top left (exc.)
+        entity_pos_left = {"x" : entity_pos.get("x",0),
+                                "y" : entity_pos.get("y",0) + entity_height - entity_height * (sub_i / sub_divisions),
+                                "tile_x" : entity_pos.get("tile_x", 0),
+                                "tile_y" : entity_pos.get("tile_y", 0) 
+                                }
+    
+        entity_pos_left = move_position_along_tiles(entity_pos_left, tile_width, tile_height)
+
+        entity_points = {
+            f"top_{sub_i}" : entity_pos_top,
+            f"right_{sub_i}" : entity_pos_right,
+            f"left_{sub_i}" : entity_pos_left,
+            f"bottom_{sub_i}" : entity_pos_bottom,
+        }        
+    
+    return entity_points
 
 def make_player_points(player_pos, entity_width, entity_height, tile_width, tile_height):
     # TODO
@@ -1970,7 +2036,8 @@ def make_player_pos_abs(player_pos, tile_width, tile_height):
     
     return player_pos_abs
 
-def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt):
+    player_pos = player_info["position"]
     entity_pos = entity.get("position",{})        
     next_state = current_state
     tile_width = tile_map.get("tile_width", 0)
@@ -2057,7 +2124,7 @@ def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
             collides = True        
     return collides
 
-def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+def death_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     get_or_set(entity, "death_timer", 0)
     entity["death_timer"] += dt
 
@@ -2131,7 +2198,7 @@ def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     return next_state
 
-def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+def stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     entity["stagger_timer"] += dt
     
     
@@ -2347,7 +2414,20 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     return next_state
 
 
-def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, dt):
+
+    player_pos = player_info["position"]
+    # this state exists for 
+    # entities to get into position to attack the player
+
+    # for enemies with a ranged attack
+    # that means a line of sight usually
+
+    # for melee enemies, that means close enough 
+    # to a point around the edge of the player
+
+    #
+
     # We need a 'transition into 
     # portion of these state functions because there's some book keeping
     # that will need to be done only once
@@ -2420,6 +2500,13 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
 
     
     if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
+        # so here....you could either
+        # go into a "start looking around in all directions" state
+        # OR
+        # maybe simulate a 'guess' by picking a random
+        # valid tile 'nearish' the player?
+        # OR
+        # 
         get_or_set(entity, "give_up_time", 0)
         entity["give_up_time"] += dt
         if entity["give_up_time"] > give_up_threshold:
@@ -2460,15 +2547,15 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
     tile_height = tile_map.get("tile_height", 0)    
 
     if current_state == "idle":
-        next_state = idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
+        next_state = idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
     elif current_state == "angry chase":        
         # this is essentially a 'go to last position' state
         # with maybe a different animation and / or speed
-        next_state = angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+        next_state = angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, dt)
     elif current_state == "stagger":        
-        next_state = stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+        next_state = stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt)
     elif current_state == "dead":        
-        next_state = death_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
+        next_state = death_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
     elif current_state == "angry and attacking":        
         next_state = attack_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)        
         # if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
