@@ -1868,7 +1868,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     # we can also set our heading here
     entity["sight_angle"] = angle_from_vector(vec2_between) 
     # obviously we should move to 'proper' velocity but it's just a tad harder
-    default_speed = 50
+    default_speed = 150
     entity_speed = entity.get("speed", default_speed)
     new_entity_velocity = vec2_scale(vec2_between, entity_speed)
 
