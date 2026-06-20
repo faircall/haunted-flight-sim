@@ -1194,11 +1194,21 @@ def alice_can_see_bob_points(alice, bob_entity, tile_map, debug_queue):
     bob_position = bob_entity["position"]
 
     bob_points = make_entity_boundary_points(bob_position, bob_entity["entity_width"], bob_entity["entity_height"], tile_map["tile_width"], tile_map["tile_height"], 4)
+    min_dist = 999999999999999999999999999999
+
+    can_see = False
+
+    found_pos = None
 
     for position in bob_points.values():
         if alice_can_see_bob(alice, position, tile_map, debug_queue):
-            return True, position
-    return False, None
+            can_see = True
+            if vec2_distance_tile(alice, position, tile_map) < min_dist:
+                found_pos = position
+                min_dist = vec2_distance_tile(alice, position, tile_map)                            
+    
+
+    return can_see, found_pos
 
     
 
@@ -2052,20 +2062,21 @@ def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue
     bored_timer = entity.get("bored_timer", 0)
 
     bored_threshold = 5
+    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
         
     if vec2_distance(entity_pos_abs, player_pos_abs) < entity_collide_distance:
         
         next_state = "angry and attacking"
-    elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+    elif can_see:
         next_state = "angry chase"
         # path to player needed here
         
-        target_tile_from_tile_map = tile_map.get("tiles")[player_pos.get("tile_y")*tile_map.get("map_width") + player_pos.get("tile_x")]
+        target_tile_from_tile_map = tile_map.get("tiles")[seen_pos.get("tile_y")*tile_map.get("map_width") + seen_pos.get("tile_x")]
         start_tile_from_tile_map = tile_map.get("tiles")[entity_pos.get("tile_y")*tile_map.get("map_width") + entity_pos.get("tile_x")]
         path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
         entity["path_to_player"] = path_to_player
         entity["path_to_player_current_index"] = 0
-        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+        entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
     else:
         bored_timer += dt
         # TODO
@@ -2236,10 +2247,10 @@ def stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt)
 def attack_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
     player_pos = player_info.get("position",{}) # top left
     next_state = current_state
-    can_see = True    
-    if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
+    if can_see:
         # on some interval we should also update the path to the player here...I think
-        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+        entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
     else:
         if entity.get("attack_substate","") != "committed":
             can_see = False
@@ -2434,10 +2445,10 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     # zzzz do that here
     
     next_state = current_state
-    can_see = True    
-    if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
+    if can_see:
         # on some interval we should also update the path to the player here...I think
-        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+        entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
     else:
         can_see = False
     entity_collide_distance = 5
