@@ -2061,7 +2061,7 @@ def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue
     entity_collide_distance = 5
     bored_timer = entity.get("bored_timer", 0)
 
-    bored_threshold = 5
+    bored_threshold = 1
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
         
     if vec2_distance(entity_pos_abs, player_pos_abs) < entity_collide_distance:
@@ -2481,10 +2481,10 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
             }    
             debug_queue.append(debug_item)
 
-    if tiles_close(entity_pos, waypoint_pos, 20) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
+    if tiles_close(entity_pos, waypoint_pos, 8) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
         entity["path_to_player_current_index"] += 1
-        current_tile_target_offset["x"] = random.randint(4,12)
-        current_tile_target_offset["y"] = random.randint(4,12)
+        # current_tile_target_offset["x"] = random.randint(4,12)
+        # current_tile_target_offset["y"] = random.randint(4,12)
         entity["current_tile_target_offset"] = current_tile_target_offset
 
     target_pos = get_abs_pos_from_index_given_offset(waypoint_pos, current_tile_target_offset, tile_map, debug_queue)
