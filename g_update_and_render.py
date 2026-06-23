@@ -246,6 +246,11 @@ def a_star_path(start_tile, target_tile, tile_map):
     # i guess we want the reconstruct function
     return came_from
 
+def filter_invalid_neighbours(current_neighbours):
+    # TODO zzz here, provide a version that 'disallows' diagonal movement 
+    # appropriately (no diagonals if they have tiles on both 'sides'
+    pass
+
 def reconstruct_path(came_from, target, origin):
     next = target
     result = []
@@ -1510,6 +1515,7 @@ def make_entity_boundary_points(entity_pos, entity_width, entity_height, tile_wi
     # TODO
     # not taking into account that the tiles will be different when adding width/height    
     # true if we think in terms of offset
+    entity_points = {}        
 
     for sub_i in range(0, sub_divisions):
         # left to right, semi-open interval (i.e includes left most, excludes right most)
@@ -1551,12 +1557,11 @@ def make_entity_boundary_points(entity_pos, entity_width, entity_height, tile_wi
     
         entity_pos_left = move_position_along_tiles(entity_pos_left, tile_width, tile_height)
 
-        entity_points = {
-            f"top_{sub_i}" : entity_pos_top,
-            f"right_{sub_i}" : entity_pos_right,
-            f"left_{sub_i}" : entity_pos_left,
-            f"bottom_{sub_i}" : entity_pos_bottom,
-        }        
+        entity_points[f"top_{sub_i}"] = entity_pos_top,             
+        entity_points[f"right_{sub_i}"] = entity_pos_right,
+        entity_points[f"left_{sub_i}"] =  entity_pos_left,
+        entity_points[f"bottom_{sub_i}"] = entity_pos_bottom,
+        
     
     return entity_points
 
