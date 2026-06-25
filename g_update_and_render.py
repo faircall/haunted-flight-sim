@@ -228,7 +228,8 @@ def a_star_path(start_tile, target_tile, tile_map):
 
         if current.get("neighbours") is None:
             print("well damn")
-        for next_tile in current.get("neighbours").values():
+        for next_tile in filter_invalid_neighbours(current.get("neighbours"), tile_map):
+        # for next_tile in current.get("neighbours").values():
             # need to deref via the tile map actually
             next_tile_from_map = tile_map.get("tiles")[tile_map.get("map_width")*next_tile.get("tile_y") + next_tile.get("tile_x") ]
             # if next_tile_from_map.get("neighbours") is None:
@@ -246,13 +247,46 @@ def a_star_path(start_tile, target_tile, tile_map):
     # i guess we want the reconstruct function
     return came_from
 
-def filter_invalid_neighbours(current_neighbours):
+def filter_invalid_neighbours(current_neighbours, tile_map):
     # TODO zzz here, provide a version that 'disallows' diagonal movement 
     # appropriately (no diagonals if they have tiles on both 'sides'
+    result = []
 
 
-    pass
+    #tileH tileA tileB
+    #tileG tile  tileC
+    #tileF tileE tileD
 
+    tile_type_a = get_tile_type_from_indices(current_neighbours.get("A",{})["tile_x"], current_neighbours.get("A",{})["tile_y"], tile_map)
+    tile_type_g = get_tile_type_from_indices(current_neighbours["G"]["tile_x"], current_neighbours["G"]["tile_y"], tile_map)
+    tile_type_c = get_tile_type_from_indices(current_neighbours["C"]["tile_x"], current_neighbours["C"]["tile_y"], tile_map)
+    
+    # tile a, tile g
+    # tile a, tile c
+
+    tile_type_e = get_tile_type_from_indices(current_neighbours["E"]["tile_x"], current_neighbours["E"]["tile_y"], tile_map)
+    # tile e, tile g
+    # tile e, tile c
+
+    to_remove = []
+
+    if tile_type_is_collidable(tile_type_a.get("type","")) and tile_type_is_collidable(tile_type_g.get("type","")):        
+        to_remove.append("h")
+        # remove         
+    if tile_type_is_collidable(tile_type_a.get("type","")) and tile_type_is_collidable(tile_type_c.get("type","")):                
+        to_remove.append("b")
+
+    if tile_type_is_collidable(tile_type_g.get("type","")) and tile_type_is_collidable(tile_type_e.get("type","")):                
+        to_remove.append("f")
+
+    if tile_type_is_collidable(tile_type_c.get("type","")) and tile_type_is_collidable(tile_type_e.get("type","")):                
+        to_remove.append("d")
+
+    for key, tile in current_neighbours.items():        
+        if key not in to_remove:
+            result.append(tile)
+    return result
+    
 def reconstruct_path(came_from, target, origin):
     next = target
     result = []
@@ -1244,7 +1278,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     
     alice_pos = alice.get("position")
 
-    abs_alice = get_abs_pos_from_index(alice_pos, tile_map, )
+    abs_alice = get_abs_pos_from_index(alice_pos, tile_map)
     alice_sight_angle = int(alice.get("sight_angle", 0)) #+ 180 #here?
 
     main_direction = vector_from_angle(alice_sight_angle) # I think we want to 180 this
@@ -1560,10 +1594,10 @@ def make_entity_boundary_points(entity_pos, entity_width, entity_height, tile_wi
     
         entity_pos_left = move_position_along_tiles(entity_pos_left, tile_width, tile_height)
 
-        entity_points[f"top_{sub_i}"] = entity_pos_top,             
-        entity_points[f"right_{sub_i}"] = entity_pos_right,
-        entity_points[f"left_{sub_i}"] =  entity_pos_left,
-        entity_points[f"bottom_{sub_i}"] = entity_pos_bottom,
+        entity_points[f"top_{sub_i}"] = entity_pos_top             
+        entity_points[f"right_{sub_i}"] = entity_pos_right
+        entity_points[f"left_{sub_i}"] =  entity_pos_left
+        entity_points[f"bottom_{sub_i}"] = entity_pos_bottom
         
     
     return entity_points
