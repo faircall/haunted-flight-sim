@@ -228,7 +228,7 @@ def a_star_path(start_tile, target_tile, tile_map):
 
         if current.get("neighbours") is None:
             print("well damn")
-        for next_tile in current.get("neighbours"):
+        for next_tile in current.get("neighbours").values():
             # need to deref via the tile map actually
             next_tile_from_map = tile_map.get("tiles")[tile_map.get("map_width")*next_tile.get("tile_y") + next_tile.get("tile_x") ]
             # if next_tile_from_map.get("neighbours") is None:
@@ -249,6 +249,8 @@ def a_star_path(start_tile, target_tile, tile_map):
 def filter_invalid_neighbours(current_neighbours):
     # TODO zzz here, provide a version that 'disallows' diagonal movement 
     # appropriately (no diagonals if they have tiles on both 'sides'
+
+
     pass
 
 def reconstruct_path(came_from, target, origin):
@@ -1350,22 +1352,23 @@ def get_neighbouring_tiles(tile, tile_map):
     #tileF tileE tileD       
     
 
-    adjacent_tiles = [
-    {"tile_x" : tile_x,  "tile_y" : tile_y - 1}, #A
-    {"tile_x" : tile_x+1,  "tile_y" : tile_y - 1}, #B
-    {"tile_x" : tile_x+1,  "tile_y" : tile_y}, #C
-    {"tile_x" : tile_x+1,  "tile_y" : tile_y+1}, #D
-    {"tile_x" : tile_x,  "tile_y" : tile_y+1}, #E
-    {"tile_x" : tile_x-1,  "tile_y" : tile_y+1}, #F
-    {"tile_x" : tile_x-1,  "tile_y" : tile_y}, #G
-    {"tile_x" : tile_x-1,  "tile_y" : tile_y-1}] #H
+    adjacent_tiles = {
+    "A" : {"tile_x" : tile_x,  "tile_y" : tile_y - 1}, #A
+    "B" : {"tile_x" : tile_x+1,  "tile_y" : tile_y - 1}, #B
+    "C" : {"tile_x" : tile_x+1,  "tile_y" : tile_y}, #C
+    "D" : {"tile_x" : tile_x+1,  "tile_y" : tile_y+1}, #D
+    "E" : {"tile_x" : tile_x,  "tile_y" : tile_y+1}, #E
+    "F" : {"tile_x" : tile_x-1,  "tile_y" : tile_y+1}, #F
+    "G" : {"tile_x" : tile_x-1,  "tile_y" : tile_y}, #G
+    "H" : {"tile_x" : tile_x-1,  "tile_y" : tile_y-1} #H
+    }
     
-    filtered = []
+    filtered = {}
 
-    for new_tile in adjacent_tiles:
+    for key, new_tile in adjacent_tiles.items():
         if new_tile.get("tile_x") < 0 or new_tile.get("tile_x") >= tile_map.get("map_width") or new_tile.get("tile_y") < 0 or new_tile.get("tile_y") >= tile_map.get("map_height"):
             continue
-        filtered.append(new_tile)
+        filtered[key] = new_tile
 
     return filtered
 
@@ -1690,9 +1693,7 @@ def collides_within_tile(new_entity_pos, entity_id, tile_map, debug_queue = None
                 return True
     return False
 
-def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue = None):    
-    # zzz TODO make this cross tile boundaries using neighboughrs
-    # and use absolute coords
+def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue = None):            
     new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
     new_tile = tile_map["tiles"][new_tile_index]
     if "current_entities" not in new_tile:
@@ -1718,7 +1719,7 @@ def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_
             if point_in_rect(new_entity_pos_abs, minkowski_rect):
                 return True,  entity_val
             
-    for neighbour in new_tile["neighbours"]:
+    for neighbour in new_tile["neighbours"].values():
         neighbour_tile_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
         neighbour_tile = tile_map["tiles"][neighbour_tile_index]
         for entity_key, entity_val in neighbour_tile.get("current_entities",{}).items():
@@ -1768,7 +1769,7 @@ def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map
             if point_in_circle(new_pos_abs, minkowski_circle):
                 return True,  entity_pos_abs
     
-    for neighbour in new_tile["neighbours"]:
+    for neighbour in new_tile["neighbours"].values():
         neighbour_tile_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
         neighbour_tile = tile_map["tiles"][neighbour_tile_index]
         for entity_key, entity_val in neighbour_tile.get("current_entities",{}).items():
@@ -1791,49 +1792,6 @@ def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map
 def point_in_circle(point, circle):
     return (point["x"] - circle["x"]) ** 2 + (point["y"] - circle["y"]) ** 2  <= circle["radius"]**2
 
-def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
-    # we could allow very close 
-    # if every tile had partitions maybe?
-    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
-    new_tile = tile_map["tiles"][new_tile_index]
-    result = {"space" : "totally_spare"}
-    if "current_entities" not in new_tile:
-        new_tile["current_entities"] = {}
-        return result        
-    
-    if "subtiles" not in new_tile:
-        new_tile["subtiles"] = {}
-
-
-    
-
-    # it's more like
-    # 'drag' the circle across the square 
-    # by a certain amount and then if we
-    # find a spare spot, take it
-    entity_radius_for_now = 20
-    invalid_spots = []
-    for entity_key, entity_val in new_tile["current_entities"].items():
-        if entity_key != entity_id:            
-            if vec2_distance(new_entity_pos, entity_val) <= entity_radius_for_now:
-                invalid_spots.append(entity_val)                
-    
-    if invalid_spots:        
-        # will be a bit spenny
-        found_spot = False
-        x_start = 0
-        y_start = 0
-
-        # ZZZ zzz pickup here        
-        pass
-                        
-
-        
-    
-    
-    
-
-    return result
 
 def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, debug_queue = None, remove_only = False):    
     old_tile_index = get_flat_tile_index(old_entity_pos["tile_x"], old_entity_pos["tile_y"], tile_map, debug_queue)
