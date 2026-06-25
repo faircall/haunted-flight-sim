@@ -248,7 +248,7 @@ def a_star_path(start_tile, target_tile, tile_map):
     return came_from
 
 def filter_invalid_neighbours(current_neighbours, tile_map):
-    # TODO zzz here, provide a version that 'disallows' diagonal movement 
+    # TODO here, provide a version that 'disallows' diagonal movement 
     # appropriately (no diagonals if they have tiles on both 'sides'
     result = []
 
@@ -256,6 +256,8 @@ def filter_invalid_neighbours(current_neighbours, tile_map):
     #tileH tileA tileB
     #tileG tile  tileC
     #tileF tileE tileD
+
+    # TODO zzz pickup here
 
     tile_type_a = get_tile_type_from_indices(current_neighbours.get("A",{})["tile_x"], current_neighbours.get("A",{})["tile_y"], tile_map)
     tile_type_g = get_tile_type_from_indices(current_neighbours["G"]["tile_x"], current_neighbours["G"]["tile_y"], tile_map)
@@ -462,7 +464,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     
     
     if player_entity.get("aim_direction").get("x") < 0:
-        # zzz super slight bug here where it's drawing at the start and not accounting for the flip
+        # TODO super slight bug here where it's drawing at the start and not accounting for the flip
         pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture_flipped"), updated_gun_pos, gun_angle + 180, 1, pr.WHITE)    
     else:
         pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, gun_angle, 1, pr.WHITE)    
@@ -2439,7 +2441,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     # We need a 'transition into 
     # portion of these state functions because there's some book keeping
     # that will need to be done only once
-    # zzzz do that here
+    # TODO do that here
     
     next_state = current_state
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
@@ -2700,7 +2702,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
                  
                 # TODO (optimisation) : preallocate a certain amount of decals on each tile up front
-                # zzz AND we already know the type of tile that it's landing on so we can properly like
+                # AND we already know the type of tile that it's landing on so we can properly like
                 # have different decals for different tile types!!
                 decal = {
                     "type" : "blood",
@@ -2733,7 +2735,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     for entity in entities["projectiles"].values():        
         # TODO (Cooper) : move this stuff into an update function later
         if entity.get("type","") == "bullet":        
-            # TODO zzz 
+            # TODO 
             # make 'dynamite bullets' 
             # that take a few seconds before exploding
             # kinda like the flare gun from Blood
@@ -2845,7 +2847,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                     particle_system = make_blood_spatter(5, start_color,  end_color, 0.1, 0.01, 100, bullet_hitting_us, entity.get("position"))
                                 entity["current_state"] = "dead"
 
-                                entity["animation_frame"] = "death_frame_start" # zzz TODO make this directional
+                                entity["animation_frame"] = "death_frame_start" # TODO make this directional
                                 
                                 
                             
