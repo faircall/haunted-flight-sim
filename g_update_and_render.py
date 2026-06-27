@@ -25,6 +25,8 @@ g_test_see_through_walls = False
 
 g_infinite_ammo = True
 
+g_mute = False
+
 g_mouse_is_ui_captured = False
 g_mouse_is_ui_captured_frames = 0
 
@@ -888,6 +890,8 @@ def stop_pool_sounds(pool_name, sounds):
             sound_to_play.seek(0)        
 
 def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25):
+    if g_mute:
+        return
     if pool_name in sounds and sounds[pool_name] is not None:            
         sound_to_play_idx = sounds[pool_name]["index"]
         sound_to_play = sounds[pool_name]["pool"][sound_to_play_idx]
@@ -3304,6 +3308,9 @@ def make_particle_system(particle_amount, start_color, end_color, total_duration
 
 
 def play_sound(sound):
+    if g_mute:
+        return
+
     sound.stop()
     sound.seek(0)
     sound.start()
@@ -3516,6 +3523,10 @@ def update_and_render(main_arena, game_assets, cma_engine):
     editor_mode = main_arena.get("editor_mode", "editing")
     collision_mode = main_arena.get("collision_mode", "regular")
 
+    global g_mute   
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F11):
+        g_mute = not g_mute
+
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F6):
         do_load_level = not do_load_level
 
@@ -3616,6 +3627,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
     
     auto_reload = main_arena.get("auto_reload", True)
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
+
+
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F1):
         auto_reload = not auto_reload    
         draw_variable_state("auto reload", auto_reload, 10, 10, 20, pr.WHITE)            
@@ -3635,6 +3648,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
     update_render_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
 
     pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
+    if g_mute:
+        pr.draw_text("sound muted", 1700, 60, 20, pr.WHITE)
 
     if debug_state != "clear":
         pr.draw_text(debug_state, 1700, 50, 20, pr.WHITE)
