@@ -248,8 +248,8 @@ def a_star_path(start_tile, target_tile, tile_map):
     return came_from
 
 def filter_invalid_neighbours(current_neighbours, tile_map):
-    # TODO here, provide a version that 'disallows' diagonal movement 
-    # appropriately (no diagonals if they have tiles on both 'sides'
+    # provide a version that 'disallows' diagonal movement 
+    # appropriately (no diagonals if they have tiles on 'sides'
     result = []
 
 
@@ -259,30 +259,26 @@ def filter_invalid_neighbours(current_neighbours, tile_map):
 
     # TODO zzz pickup here
 
-    tile_type_a = get_tile_type_from_indices(current_neighbours.get("A",{})["tile_x"], current_neighbours.get("A",{})["tile_y"], tile_map)
-    tile_type_g = get_tile_type_from_indices(current_neighbours["G"]["tile_x"], current_neighbours["G"]["tile_y"], tile_map)
-    tile_type_c = get_tile_type_from_indices(current_neighbours["C"]["tile_x"], current_neighbours["C"]["tile_y"], tile_map)
-    
-    # tile a, tile g
-    # tile a, tile c
+    removal_pairs = [
+        ("A", "H"),
+        ("G", "H"),        
+        ("A", "B"),
+        ("C", "B"),
+        ("G", "F"),
+        ("E", "F"),
+        ("C", "D"),
+        ("E", "D")
+    ]
 
-    tile_type_e = get_tile_type_from_indices(current_neighbours["E"]["tile_x"], current_neighbours["E"]["tile_y"], tile_map)
-    # tile e, tile g
-    # tile e, tile c
+    to_remove = set()
 
-    to_remove = []
-
-    if tile_type_is_collidable(tile_type_a.get("type","")) and tile_type_is_collidable(tile_type_g.get("type","")):        
-        to_remove.append("h")
-        # remove         
-    if tile_type_is_collidable(tile_type_a.get("type","")) and tile_type_is_collidable(tile_type_c.get("type","")):                
-        to_remove.append("b")
-
-    if tile_type_is_collidable(tile_type_g.get("type","")) and tile_type_is_collidable(tile_type_e.get("type","")):                
-        to_remove.append("f")
-
-    if tile_type_is_collidable(tile_type_c.get("type","")) and tile_type_is_collidable(tile_type_e.get("type","")):                
-        to_remove.append("d")
+    for pair in removal_pairs:
+        candidate = pair[0]
+        problem_tile = pair[1]
+        if candidate in current_neighbours:
+            tile_type = get_tile_type_from_indices(current_neighbours[candidate]["tile_x"], current_neighbours[candidate]["tile_y"], tile_map)
+            if tile_type_is_collidable(tile_type.get("type","")):
+                to_remove.add(problem_tile)    
 
     for key, tile in current_neighbours.items():        
         if key not in to_remove:
