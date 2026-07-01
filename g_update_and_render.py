@@ -1544,7 +1544,7 @@ def tiles_equal(a, b):
 
 def tiles_close(a, b, epsilon):
     if a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0):
-        if vec2_distance(a, {"x": 16, "y" : 16}) < epsilon:
+        if vec2_distance(a, {"x": 16, "y" : 16}) < epsilon and vec2_norm(a) >= 16: # the idea here is to wait till we're 'past' a waypoint rather than just before it...
             return True
     return False
 
@@ -2487,6 +2487,8 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
         entity["current_tile_target_offset"] = current_tile_target_offset
 
     target_pos = get_abs_pos_from_index_given_offset(waypoint_pos, current_tile_target_offset, tile_map, debug_queue)
+
+    # this can cause issues if it causes us to hit a corner...
     if can_see:
         player_abs = make_player_pos_abs(player_pos, tile_width, tile_height)
         target_pos = player_abs
@@ -2501,7 +2503,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
     dest_threshold = 40
-    give_up_threshold = 3
+    give_up_threshold = 10
 
     
 
