@@ -547,6 +547,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                     "text" : debug_str,
                     "color" : "WHITE",
                     "z_sort" : 0,                    
+                    "debug_modes" : ["entity_states", "player_debug"]
                 }
                 debug_queue.append(debug_item)
             
@@ -579,7 +580,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 def transition_debug_state(current):
     state_transitions = {
         "clear" : "player_debug",
-        "player_debug" : "slow_bullets",
+        "player_debug" : "entity_states",
+        "entity_states" : "slow_bullets",
         "slow_bullets" : "clear",                
     }
     return state_transitions.get(current)
@@ -1129,7 +1131,8 @@ def get_tile_type_from_pos(pos, tile_map, debug_queue = None):
             "tile_height" : tile_height,
             "color" : "PINK",
             "drawing_function" : draw_debug_tile,
-            "z_sort" : 1
+            "z_sort" : 1,
+            "debug_modes" : ["player_debug"]
 
         }    
         debug_queue.append(debug_item)
@@ -1296,10 +1299,11 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "line_width" : 1,                    
                     "color" : "PURPLE",
                     "z_sort" : -1,                    
+                    "debug_modes" : ["line_of_sight"]
                 }
         debug_queue.append(debug_item)
 
-    sight_range = 300
+    sight_range = alice.get("sight_range", 900)
 
 
 
@@ -1328,6 +1332,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "text" : f"angle to bob: {angle_to_bob}",
                     "color" : "RED",
                     "z_sort" : 0,                    
+                    "debug_modes" : ["line_of_sight"]
                 }
         debug_queue.append(debug_item)
         debug_item = {
@@ -1338,6 +1343,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "line_width" : 1,                    
                     "color" : "PURPLE",
                     "z_sort" : -1,                    
+                    "debug_modes" : ["line_of_sight"]
                 }
         debug_queue.append(debug_item)
 
@@ -1349,6 +1355,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "line_width" : 1,                    
                     "color" : "PURPLE",
                     "z_sort" : -1,                    
+                    "debug_modes" : ["line_of_sight"]
                 }
         debug_queue.append(debug_item)
 
@@ -2671,6 +2678,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         if key == "taken":
             continue
         place_decal = False
+        # TODO should have two types of decal at least, wall and floor ones
+        # wall ones should be 'tall' and narrow, floor ones should be 'short' and wide
         if particle_system["timer"] >= particle_system["duration"]:
             # mark for deletion
             deletions.append({"subdict": "particle_systems", "id" : particle_system["id"]})            
@@ -2725,7 +2734,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 
                 
 
-                print("already have our tile indices, good on me")
+                
 
 
         particle_system["timer"] += dt                    
@@ -2789,7 +2798,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
             if bullet_key in bullet_tiles:
                 # possible collision!
-                # but we're allowing one bullet in multiple times somehow
+                # TODO but we're allowing one bullet in multiple times somehow?
                 print(f"we're saying there's {len(bullet_tiles[bullet_key])} in this square")
                 for bullet_id in bullet_tiles[bullet_key].keys():
                     bullet_list = bullet_tiles[bullet_key][bullet_id]
@@ -3462,7 +3471,7 @@ def draw_debug_text(debug_item, camera):
     pr.draw_text(text_to_draw, cx, cy, font_size, color)
     
 
-def draw_debug_item(debug_item, camera):
+def draw_debug_item(debug_state, debug_item, camera):
     # two ways we could do this
     # have a map of types to functions
     # or, add the drawing function on the argument
@@ -3476,7 +3485,8 @@ def draw_debug_item(debug_item, camera):
 
     # drawing_functions.get(debug_item.get("type",""), lambda x : x)(debug_item)
     # OR
-    debug_item.get("drawing_function", lambda x, y : x)(debug_item, camera)
+    if debug_state in debug_item["debug_modes"] or "all" in debug_item["debug_modes"]:
+        debug_item.get("drawing_function", lambda x, y : x)(debug_item, camera)
     
     
 
