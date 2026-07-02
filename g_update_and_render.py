@@ -578,10 +578,15 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
 
 def transition_debug_state(current):
+    # TODO is there any benefit to this approach over just...
+    # incrementing a list counter? maybe not?
     state_transitions = {
         "clear" : "player_debug",
         "player_debug" : "entity_states",
-        "entity_states" : "slow_bullets",
+        "entity_states" : "pathfinding",
+        "pathfinding" : "collisions",
+        "collisions" : "line_of_sight",
+        "line_of_sight" : "slow_bullets",
         "slow_bullets" : "clear",                
     }
     return state_transitions.get(current)
@@ -1456,7 +1461,8 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
                     "tile_height" : tile_map.get("tile_height",5),
                     "color" : "PINK",
                     "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
+                    "z_sort" : 1,
+                    "debug_modes" : ["line_of_sight"]
 
                 }    
                 debug_queue.append(debug_item)
@@ -1471,7 +1477,8 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
                     "tile_height" : tile_map.get("tile_height",5),
                     "color" : "RED",
                     "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
+                    "z_sort" : 1,
+                    "debug_modes" : ["line_of_sight"]
 
                 }    
                 debug_queue.append(debug_item)
@@ -1511,7 +1518,8 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
                     "tile_height" : tile_map.get("tile_height",5),
                     "color" : "PINK",
                     "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
+                    "z_sort" : 1,
+                    "debug_modes" : ["line_of_sight"]
 
                 }    
                 debug_queue.append(debug_item)
@@ -1537,7 +1545,8 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
                     "tile_height" : tile_map.get("tile_height",5),
                     "color" : "RED",
                     "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
+                    "z_sort" : 1,
+                    "debug_modes" : ["line_of_sight"]
 
                 }    
                 debug_queue.append(debug_item)
@@ -1945,7 +1954,8 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
                     "color" : "BLUE",
                     "z_sort" : 0,
                     "tile_width" : tile_width,
-                    "tile_height" : tile_height
+                    "tile_height" : tile_height,
+                    "debug_modes" : ["collisions"]
                 }
                 debug_queue.append(debug_item)
 
@@ -2385,7 +2395,8 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
                 "tile_height" : tile_height,
                 "color" : "GREEN",
                 "drawing_function" : draw_debug_tile,
-                "z_sort" : 1
+                "z_sort" : 1,
+                "debug_modes" : ["pathfinding"]
 
             }    
             debug_queue.append(debug_item)
@@ -2482,7 +2493,8 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
                 "tile_height" : tile_height,
                 "color" : "GREEN",
                 "drawing_function" : draw_debug_tile,
-                "z_sort" : 1
+                "z_sort" : 1,
+                "debug_modes" : ["pathfinding"]
 
             }    
             debug_queue.append(debug_item)
@@ -2645,7 +2657,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "width" : minkowski_rect["width"],                    
                     "height" : minkowski_rect["height"],                    
                     "color" : "GREEN",
-                    "z_sort" : 0,                    
+                    "z_sort" : 0,   
+                    "debug_modes" : ["collisions"]                 
                 }
                 debug_queue.append(minkowski_debug_item)
 
@@ -2656,6 +2669,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "radius" : 8,
                     "color" : "RED",
                     "z_sort" : 0,                    
+                    "debug_modes" : ["collisions"]                 
                 }
                 debug_queue.append(debug_item)
 
@@ -2891,7 +2905,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                     "color" : "BLUE",
                                     "z_sort" : -2,                    
                                     "tile_width" : tile_width,
-                                    "tile_height" : tile_height
+                                    "tile_height" : tile_height,
+                                    "debug_modes" : ["damage"]                 
                                 }
                                 debug_queue.append(debug_item)
                             break
@@ -2907,6 +2922,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "text" : f"{entity["current_state"]}",
                     "color" : "WHITE",
                     "z_sort" : 0,                    
+                    "debug_modes" : ["entity_states"]                 
                 }
                 debug_queue.append(debug_item)
     for deletion in deletions:
@@ -2944,7 +2960,8 @@ def pathfind_test_on_player(player_info, tile_map, game_camera, debug_queue = No
                 "tile_height" : tile_height,
                 "color" : "GREEN",
                 "drawing_function" : draw_debug_tile,
-                "z_sort" : 1
+                "z_sort" : 1,
+                "debug_modes" : ["pathfinding"]                 
 
             }    
             debug_queue.append(debug_item)
@@ -3716,7 +3733,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
     if debug_queue:
         debug_queue = sorted(debug_queue, key=lambda x : x.get("z_sort", 0), reverse=True)
         for debug_item in debug_queue:
-            draw_debug_item(debug_item, camera=camera_3d)
+            draw_debug_item(debug_state, debug_item, camera=camera_3d)
 
     pr.end_drawing()
 
