@@ -1959,6 +1959,9 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
                 }
                 debug_queue.append(debug_item)
 
+    # TODO debug viz on the players velocity vector
+    # and the players 'position' base used in calculatoins
+
     wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
 
     entity_collision_pos_x = new_pos_from_old(candidate_start_pos)
