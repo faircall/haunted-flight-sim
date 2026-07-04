@@ -436,9 +436,11 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     # draw the player also
 
     # make this a draw entity function
-    player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16)    
+    player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
+    player_render_pos = pr.Vector2(player_pos_abs["x"] - 32 - game_camera.x, player_pos_abs["y"] - 32 - game_camera.y )    
 
-    player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
+    # we are actually...centered now?
+    player_render_pos_center = pr.Vector2(player_pos_abs["x"] - game_camera.x, player_pos_abs["y"] - game_camera.y)    
     
     if "aim_direction" not in player_entity:
         player_entity["aim_direction"] = {"x" : 0, "y" : 0}
@@ -1624,8 +1626,16 @@ def make_player_points(player_pos, entity_width, entity_height, tile_width, tile
     # TODO
     # not taking into account that the tiles will be different when adding width/height    
     # true if we think in terms of offset
-    player_pos_top_right = {"x" : player_pos.get("x",0) + entity_width,
-                            "y" : player_pos.get("y",0),
+    player_pos_top_left = {"x" : player_pos.get("x",0) - entity_width/2,
+                            "y" : player_pos.get("y",0) - entity_height/2,
+                            "tile_x" : player_pos.get("tile_x", 0),
+                            "tile_y" : player_pos.get("tile_y", 0)  
+                            }
+    
+    player_pos_top_left = move_position_along_tiles(player_pos_top_left, tile_width, tile_height)
+
+    player_pos_top_right = {"x" : player_pos.get("x",0) + entity_width/2,
+                            "y" : player_pos.get("y",0) - entity_height/2,
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0)  
                             }
@@ -1634,16 +1644,16 @@ def make_player_points(player_pos, entity_width, entity_height, tile_width, tile
     
 
     
-    player_pos_bottom_right = {"x" : player_pos.get("x",0) + entity_width,
-                            "y" : player_pos.get("y",0) + entity_height,
+    player_pos_bottom_right = {"x" : player_pos.get("x",0) + entity_width/2,
+                            "y" : player_pos.get("y",0) + entity_height/2,
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
     
     player_pos_bottom_right = move_position_along_tiles(player_pos_bottom_right, tile_width, tile_height)
     
-    player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + entity_height,
+    player_pos_bottom_left = {"x" : player_pos.get("x",0) - entity_width/2,
+                            "y" : player_pos.get("y",0) + entity_height/2,
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
@@ -1651,7 +1661,7 @@ def make_player_points(player_pos, entity_width, entity_height, tile_width, tile
     player_pos_bottom_left = move_position_along_tiles(player_pos_bottom_left, tile_width, tile_height)
 
     player_points = {
-        "top_left" : player_pos,
+        "top_left" : player_pos_top_left,
         "top_right" : player_pos_top_right,
         "bottom_left" : player_pos_bottom_left,
         "bottom_right" : player_pos_bottom_right,
@@ -1878,7 +1888,7 @@ def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queu
     # returns an updated position, doesn't     
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
-    vec2_between = vec2_normalize(vec2_subtract(target_position, make_player_pos_abs(entity.get("position",{}), tile_width, tile_height)))
+    vec2_between = vec2_normalize(vec2_subtract(target_position, make_pos_abs(entity.get("position",{}), tile_width, tile_height)))
 
     # we can also set our heading here
     entity["sight_angle"] = angle_from_vector(vec2_between) 
@@ -1938,8 +1948,10 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     
 
     
-    
-
+    # zzz TODO FIXME
+    # these are misaligned for the a.i entities,
+    # since the 'top left' boundary point is also the player point
+    # so we get this bad behaviour where enemies will clip corners when they're on the right
     entity_points = make_player_points(candidate_start_pos, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
 
     for potential_pos in entity_points.values():
@@ -2059,11 +2071,11 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     return new_entity_position
 
 
-def make_player_pos_abs(player_pos, tile_width, tile_height):
-    player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
-                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
+def make_pos_abs(pos, tile_width, tile_height):
+    pos_abs = { "x" : pos.get("x",0) + pos.get("tile_x",0) * tile_width,
+                          "y" : pos.get("y",0) + pos.get("tile_y",0) * tile_height}
     
-    return player_pos_abs
+    return pos_abs
 
 def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     player_pos = player_info["position"]
@@ -2511,11 +2523,26 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     target_pos = get_abs_pos_from_index_given_offset(waypoint_pos, current_tile_target_offset, tile_map, debug_queue)
 
     # this can cause issues if it causes us to hit a corner...
-    if can_see:
-        player_abs = make_player_pos_abs(player_pos, tile_width, tile_height)
-        target_pos = player_abs
+    if can_see: # TODO this 'can_see' should actually be a 'can_move_to' based on a fat raycast
+        pass
+        # player_abs = make_pos_abs(player_pos, tile_width, tile_height)
+        # target_pos = player_abs
 
-    
+    if debug_queue is not None:        
+        entity_abs = make_pos_abs(entity["position"], tile_width, tile_height)
+        debug_item = debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : entity_abs.get("x"), "y" : entity_abs.get("y")},                                        
+                    "pos_end" : {"x" : target_pos.get("x"), "y" : target_pos.get("y")},                                        
+                    "line_width" : 2,                    
+                    "color" : "RED",
+                    "z_sort" : -1,                    
+                    "debug_modes" : ["collisions"]                    
+                }
+        debug_queue.append(debug_item)
+
+
     new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
     # we could do a raycast along positions to check if we 'hit' the target on the way maybe
 
@@ -2982,48 +3009,11 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
     # i think the offset should be relative to _actual_ tile width
     # and so our world position is always a sum of the tile start pos + offset
 
-    tile_height = tile_map["tile_height"]
-    tile_width = tile_map["tile_width"]
 
     if editor_mode != "play":
         return entity.get("position",{})
     
     player_pos = entity.get("position",{}) # top left
-    # true if we think in terms of offset
-    player_pos_top_right = {"x" : player_pos.get("x",0) + entity.get("entity_width",0),
-                            "y" : player_pos.get("y",0),
-                            "tile_x" : player_pos.get("tile_x", 0),
-                            "tile_y" : player_pos.get("tile_y", 0)  
-                            }
-    
-    player_pos_bottom_right = {"x" : player_pos.get("x",0) + entity.get("entity_width",0),
-                            "y" : player_pos.get("y",0) + entity.get("entity_height",0),
-                            "tile_x" : player_pos.get("tile_x", 0),
-                            "tile_y" : player_pos.get("tile_y", 0) 
-                            }
-    
-    player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + entity.get("entity_height",0),
-                            "tile_x" : player_pos.get("tile_x", 0),
-                            "tile_y" : player_pos.get("tile_y", 0) 
-                            }
-
-    # player_points = {
-    #     "top_left" : player_pos,
-    #     "top_right" : player_pos_top_right,
-    #     "bottom_left" : player_pos_bottom_left,
-    #     "bottom_right" : player_pos_bottom_right,
-    # }
-
-    player_points = make_player_points(entity["position"], entity["entity_width"], entity["entity_height"], tile_width, tile_height)
-
-    collisions = { "x" : False, "y" : False}
-
-    old_frame_collisions = { "x" : False, "y" : False}
-
-    
-
-    #need to test 4 corners I believe
         
 
     player_velocity = get_or_set(entity, "player_velocity", {"x" : 0, "y" : 0})
@@ -3118,45 +3108,6 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
 
 
     update_tile_manager(player_pos, new_pos, "player", tile_map, debug_queue)
-
-    
-    
-
-    # need the screen space of the player to get the mouse screen space to make a direction vector
-    
-
-    # if new_pos["x"] > tile_width:
-    #     additional_x_tiles = int(new_pos.get("x",0) / tile_width)
-    #     new_pos["tile_x"] += additional_x_tiles
-    #     new_pos["x"] = new_pos["x"] % tile_width
-
-    # if new_pos["x"] < 0:
-    #     additional_x_tiles = int((tile_width + abs(new_pos.get("x",0))) / tile_width)
-    #     new_pos["tile_x"] -= additional_x_tiles
-
-    #     new_pos["x"] = tile_width + new_pos["x"]
-
-    # if new_pos["y"] < 0:
-    #     additional_y_tiles = int((tile_height + abs(new_pos.get("y",0))) / tile_height)
-    #     # I think this will do us?
-        
-    #     new_pos["tile_y"] -= additional_y_tiles    
-    #     new_pos["y"] = new_pos["y"] + tile_height
-
-    # if new_pos["y"] > tile_height:
-    #     additional_y_tiles = int(new_pos.get("y",0) / tile_height)
-    #     # I think this will do us?
-        
-    #     new_pos["tile_y"] += additional_y_tiles    
-
-    #     new_pos["y"] = new_pos["y"] % tile_height
-
-    
-
-    
-    
-    
-
     
     return new_pos
 
@@ -3684,7 +3635,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
         pr.draw_text("sound muted", 1700, 60, 20, pr.WHITE)
 
     if debug_state != "clear":
-        pr.draw_text(debug_state, 1700, 50, 20, pr.WHITE)
+        pr.draw_text(debug_state, 1700, 150, 20, pr.WHITE)
 
     if pause_state == "paused":
         pr.draw_text("PAUSED", 1700, 50, 20, pr.WHITE)
