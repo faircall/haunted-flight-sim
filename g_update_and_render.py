@@ -2478,11 +2478,25 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     
     next_state = current_state
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
-    if can_see:
+    breadcrumb_timer = get_or_set(entity, "breadcrumb_timer", 0)
+    breadcrumb_interval = 3
+    knows_of_player = False
+    if can_see or (breadcrumb_timer < breadcrumb_interval): 
+        knows_of_player = True
         # on some interval we should also update the path to the player here...I think
-        entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
+        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)                    
     else:
         can_see = False
+    
+
+    print(f"does {knows_of_player} of player")
+    if can_see:
+        breadcrumb_timer = 0
+    else:
+        breadcrumb_timer += dt
+
+    entity["breadcrumb_timer"] = breadcrumb_timer
+
     entity_collide_distance = 5
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)
@@ -2560,7 +2574,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
         next_state = "angry and attacking"
 
     
-    if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
+    if not knows_of_player and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
         # so here....you could either
         # go into a "start looking around in all directions" state
         # OR
@@ -2574,7 +2588,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
             next_state = "idle"
 
     
-    if can_see and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
+    if knows_of_player and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
         target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
         start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
         path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
