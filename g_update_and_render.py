@@ -1562,7 +1562,7 @@ def tiles_equal(a, b):
 
 def tiles_close(a, b, epsilon):
     if a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0):
-        if vec2_distance(a, {"x": 16, "y" : 16}) < epsilon and vec2_norm(a) >= 16: # the idea here is to wait till we're 'past' a waypoint rather than just before it...
+        if vec2_distance(a, {"x": 16, "y" : 16}) < epsilon: # and vec2_norm(a) >= 16: # the idea here is to wait till we're 'past' a waypoint rather than just before it...
             return True
     return False
 
@@ -2579,7 +2579,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
         start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
         path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
         entity["path_to_player"] = path_to_player
-        entity["path_to_player_current_index"] = 0        
+        entity["path_to_player_current_index"] = min(1, len(path_to_player) -1)
     return next_state
 
 
