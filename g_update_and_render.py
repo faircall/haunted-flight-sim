@@ -2664,7 +2664,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
             next_state = "idle"
 
     
-    if knows_of_player and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
+    if knows_of_player and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]) and not can_move:
         target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
         start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
         path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
