@@ -1264,6 +1264,60 @@ def alice_can_see_bob_points(alice, bob_entity, tile_map, debug_queue):
     return can_see, found_pos
 
     
+def alice_can_move_to_bob(alice, bob_position, tile_map, debug_queue):
+    bob_abs = get_abs_pos_from_index(bob_position["position"], tile_map)
+    alice_abs = get_abs_pos_from_index(alice["position"], tile_map)
+    ray_to_bob = (vec2_subtract(bob_abs, alice_abs))
+    ray_to_bob_normal = vec2_normalize(ray_to_bob)
+    bob_beam = vec2_rotate_by(ray_to_bob_normal, 90)
+    
+    beam_width = 16 # might need to derive this
+
+    scaled_beam = vec2_scale(bob_beam, beam_width / 2)
+
+    bob_upper = vec2_add(bob_abs, scaled_beam)
+    bob_upper_canonical = get_tile_index_and_offset_from_pos(bob_upper, tile_map, debug_queue)
+    bob_lower = vec2_add(bob_abs, vec2_scale(scaled_beam, -1.0))
+    bob_lower_canonical = get_tile_index_and_offset_from_pos(bob_lower, tile_map, debug_queue)
+
+    alice_upper = vec2_add(alice_abs, scaled_beam)
+
+
+    alice_upper_canonical = get_tile_index_and_offset_from_pos(alice_upper, tile_map, debug_queue)
+
+
+    alice_lower = vec2_add(alice_abs, vec2_scale(scaled_beam, -1.0))
+    alice_lower_canonical = get_tile_index_and_offset_from_pos(alice_lower, tile_map, debug_queue)
+
+    move_range = 900 # matches sight range?
+    can_move =  alice_can_raycast_to_bob(move_range, alice_upper_canonical, bob_upper_canonical, tile_map, debug_queue) and alice_can_raycast_to_bob(move_range, alice_lower_canonical, bob_lower_canonical, tile_map, debug_queue)
+
+    if debug_queue is not None:                        
+        debug_item = debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : alice_upper.get("x"), "y" : alice_upper.get("y")},                                        
+                    "pos_end" : {"x" : bob_upper.get("x"), "y" : bob_upper.get("y")},                                        
+                    "line_width" : 2,                    
+                    "color" : "PINK",
+                    "z_sort" : -1,                    
+                    "debug_modes" : ["collisions"]                    
+                }
+        debug_queue.append(debug_item)
+        debug_item = debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : alice_lower.get("x"), "y" : alice_lower.get("y")},                                        
+                    "pos_end" : {"x" : bob_lower.get("x"), "y" : bob_lower.get("y")},                                        
+                    "line_width" : 2,                    
+                    "color" : "PINK",
+                    "z_sort" : -1,                    
+                    "debug_modes" : ["collisions"]                    
+                }
+        debug_queue.append(debug_item)
+
+    return can_move
+
 
 def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # we can actually super optimze this
@@ -1382,6 +1436,21 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     
     alice_direction_of_sight_normalized = ray_to_bob_normal
     can_see = ray_along_tiles_hits_target_tile(alice_pos, bob_tiles, sight_range, int(bob_radius)/2, alice_direction_of_sight_normalized, tile_map, debug_queue)
+    
+    return can_see
+
+def alice_can_raycast_to_bob(sight_range, alice_position, bob_position, tile_map, debug_queue):
+    # should have a size of object too obviously
+    bob_abs = get_abs_pos_from_index(bob_position, tile_map)
+    alice_abs = get_abs_pos_from_index(alice_position, tile_map)
+    ray_to_bob = (vec2_subtract(bob_abs, alice_abs))
+    ray_to_bob_normal = vec2_normalize(ray_to_bob)
+    # you could model bob as a sphere
+    # then just trace down the line of sight?
+    
+    bob_radius = 16
+
+    can_see = ray_along_tiles_hits_target_tile(alice_position, bob_position, sight_range, int(bob_radius)/2, ray_to_bob_normal, tile_map, debug_queue)
     
     return can_see
 
@@ -1881,6 +1950,10 @@ def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, deb
             del new_tile["current_entities"][entity_id]
 
     
+def vec2_rotate_by(vec, amount): #in degrees
+    angle = angle_from_vector(vec)
+    result = vector_from_angle(angle + amount)
+    return result
 
 
 def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queue, dt):
@@ -2279,6 +2352,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     player_pos = player_info.get("position",{}) # top left
     next_state = current_state
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
+    can_move = alice_can_move_to_bob(entity, player_info, tile_map, debug_queue)
     if can_see:
         # on some interval we should also update the path to the player here...I think
         entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
@@ -2478,6 +2552,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     
     next_state = current_state
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
+    can_move = alice_can_move_to_bob(entity, player_info, tile_map, debug_queue)
     breadcrumb_timer = get_or_set(entity, "breadcrumb_timer", 0)
     breadcrumb_interval = 3
     knows_of_player = False
@@ -2489,7 +2564,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
         can_see = False
     
 
-    print(f"does {knows_of_player} of player")
+    # print(f"does {knows_of_player} of player")
     if can_see:
         breadcrumb_timer = 0
     else:
@@ -2536,11 +2611,12 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
 
     target_pos = get_abs_pos_from_index_given_offset(waypoint_pos, current_tile_target_offset, tile_map, debug_queue)
 
-    # this can cause issues if it causes us to hit a corner...
-    if can_see: # TODO this 'can_see' should actually be a 'can_move_to' based on a fat raycast
-        pass
-        # player_abs = make_pos_abs(player_pos, tile_width, tile_height)
-        # target_pos = player_abs
+    # this can cause issues if it causes us to hit a corner...hopefully less of that 
+    # with the can_move check
+    if can_move: 
+        # print("can move here apparently")
+        player_abs = make_pos_abs(player_pos, tile_width, tile_height)
+        target_pos = player_abs
 
     if debug_queue is not None:        
         entity_abs = make_pos_abs(entity["position"], tile_width, tile_height)
