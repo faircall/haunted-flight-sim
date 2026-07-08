@@ -2133,7 +2133,9 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     update_tile_manager(entity["old_tile"], new_entity_position, entity["id"], tile_map)
     
 
+    current_speed = vec2_norm(new_entity_velocity)
 
+    entity["current_speed"] = current_speed
     motion_angle = angle_from_vector(new_entity_velocity)
     
     #risky!    
@@ -2531,7 +2533,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     return next_state
 
 
-def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, dt):
+def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
 
     player_pos = player_info["position"]
     # this state exists for 
@@ -2551,8 +2553,13 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     # TODO do that here
     
     next_state = current_state
+    # TODO these likely don't need to be checked every single frame
+    # the better move would likely be to use a manager that can orchestrate
+    # these (so that we don't get a whole ton on one frame)
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
-    can_move = alice_can_move_to_bob(entity, player_info, tile_map, debug_queue)
+    can_move = False
+    if can_see:
+        can_move = alice_can_move_to_bob(entity, player_info, tile_map, debug_queue)
     breadcrumb_timer = get_or_set(entity, "breadcrumb_timer", 0)
     breadcrumb_interval = 3
     knows_of_player = False
@@ -2644,6 +2651,22 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     dest_threshold = 40
     give_up_threshold = 10
 
+    current_speed = entity.get("current_speed", 0)
+    footstep_timer = get_or_set(entity, "footstep_timer", 0)
+    footstep_timer += dt * 0.009 * current_speed
+    footstep_timer_base_gap = 0.3
+
+    if footstep_timer >= footstep_timer_base_gap:
+        # sounds horrible at a constant speed like this
+        # also needs to be way creepier and in a different range than the player
+        footstep_timer = 0
+        play_pool_sound("player_footstep_pool", sounds, 8, 10, 40) # make this an enemy footstep, creepier, later
+
+    entity["footstep_timer"] = footstep_timer
+
+
+    
+
     
 
     if vec2_distance(get_abs_pos_from_index(new_position, tile_map), get_abs_pos_from_index(player_pos, tile_map)) <= dest_threshold:                        
@@ -2702,7 +2725,7 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
     elif current_state == "angry chase":        
         # this is essentially a 'go to last position' state
         # with maybe a different animation and / or speed
-        next_state = angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, dt)
+        next_state = angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)
     elif current_state == "stagger":        
         next_state = stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt)
     elif current_state == "dead":        
@@ -2911,7 +2934,13 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
 
             # interp the tiles between this and next 
+
+    costly_updates = 0
+    max_costly_updates_per_frame = 2
+
     for entity in entities.get("brains",{}).values():                        
+        
+
         if entity.get("type","") == "red head":
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
@@ -2974,8 +3003,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
                             
                             # if you need to turn off damage, do so here
-                            # base_bullet_damage = 20
-                            base_bullet_damage = 0
+                            base_bullet_damage = 20
+                            # base_bullet_damage = 0
 
                             entity["health"] -= base_bullet_damage
 
@@ -3558,8 +3587,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
     # arena initialisation
     
     dt = pr.get_frame_time()
-    # if dt > 0:
-    #     print(f"fps is {1/dt}")
+    if dt > 0:
+        print(f"fps is {1/dt}")
     # issue here when debugging, people will accumulate insane time
     dt = min(dt, 0.016)
     mouse_pos = pr.get_mouse_position()
