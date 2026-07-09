@@ -898,13 +898,16 @@ def stop_pool_sounds(pool_name, sounds):
             sound_to_play.stop()
             sound_to_play.seek(0)        
 
-def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25):
+def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25, volume = -1):
     if g_mute:
         return
     if pool_name in sounds and sounds[pool_name] is not None:            
         sound_to_play_idx = sounds[pool_name]["index"]
         sound_to_play = sounds[pool_name]["pool"][sound_to_play_idx]
         sound_to_play.pitch = 1 + float(random.randint(rand_lower,rand_upper) / rand_base)
+        # TODO careful this might permanently change the volume?
+        if volume != -1:
+            sound_to_play.volume = volume
         sounds[pool_name]["index"] = (sounds[pool_name]["index"] + 1) % len(sounds[pool_name]["pool"])
         sound_to_play.stop()
         sound_to_play.seek(0)
@@ -2660,7 +2663,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
         # sounds horrible at a constant speed like this
         # also needs to be way creepier and in a different range than the player
         footstep_timer = 0
-        play_pool_sound("player_footstep_pool", sounds, 8, 10, 40) # make this an enemy footstep, creepier, later
+        play_pool_sound("player_footstep_pool", sounds, 10, 15, 40, 0.3) # make this an enemy footstep, creepier, later
 
     entity["footstep_timer"] = footstep_timer
 
@@ -3206,7 +3209,7 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
 
     if player_footstep_timer >= player_footstep_timer_base_gap:
         player_footstep_timer = 0
-        play_pool_sound("player_footstep_pool", sounds, -3, 3, 40)
+        play_pool_sound("player_footstep_pool", sounds, -3, 3, 40, 1)
         # print("playing pool sound")
 
     entity["player_footstep_timer"] = player_footstep_timer
