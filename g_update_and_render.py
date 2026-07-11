@@ -931,7 +931,7 @@ def load_sounds(engine):
 
     result["player_footstep_pool"] = load_sound_pool(engine, 10, "player_footstep.wav", 0.75, 0.7, 0)
     result["pistol_pool"] = load_pistol_pool(engine)
-    result["stagger_hit_pool"] = load_sound_pool(engine, 10, "pistol_hit_body.wav", 0.75, 0.7, 0)
+    result["stagger_hit_pool"] = load_sound_pool(engine, 10, "punch_1.wav", 0.75, 0.7, 0)
 
     result["ammo_pickup_pool"] = load_sound_pool(engine, 10, "ammo_pickup.wav", 0.75, 0.7, 0)
 
@@ -2657,12 +2657,16 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     current_speed = entity.get("current_speed", 0)
     footstep_timer = get_or_set(entity, "footstep_timer", 0)
     footstep_timer += dt * 0.009 * current_speed
-    footstep_timer_base_gap = 0.3
+    footstep_timer_base_gap = entity.get("base_gap", 0.3)
 
     if footstep_timer >= footstep_timer_base_gap:
         # sounds horrible at a constant speed like this
         # also needs to be way creepier and in a different range than the player
         footstep_timer = 0
+        # this helps to sound less mechanical, for now, 
+        # though introducing some actual speed variation in enemies might be good
+        new_base_gap = float(random.randint(30,50))/100.0
+        entity["base_gap"] = new_base_gap
         play_pool_sound("player_footstep_pool", sounds, 10, 15, 40, 0.3) # make this an enemy footstep, creepier, later
 
     entity["footstep_timer"] = footstep_timer
@@ -3590,8 +3594,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
     # arena initialisation
     
     dt = pr.get_frame_time()
-    if dt > 0:
-        print(f"fps is {1/dt}")
+    # if dt > 0:
+    #     print(f"fps is {1/dt}")
     # issue here when debugging, people will accumulate insane time
     dt = min(dt, 0.016)
     mouse_pos = pr.get_mouse_position()
