@@ -879,8 +879,7 @@ def load_pistol_pool(engine):
     variants = 10
     result = {"index" : 0, "pool" : []}
     for i in range(variants):        
-
-        pistol_shot = load_sound(engine, "sounds/pistol_shot.wav", False, 0.5, 1 , 0)
+        pistol_shot = load_sound(engine, "sounds/pistol_shot_lofi.wav", False, 0.5, 1 , 0)
         result["pool"].append(pistol_shot)
     return result
 
@@ -3344,7 +3343,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
             
             # TODO! move this stuff to an audio manager, just need the sound info
 
-            play_pool_sound("pistol_pool", sounds)        
+            play_pool_sound("pistol_pool", sounds, rand_lower=5, rand_upper=6)        
 
             entities["projectiles"][bullet_id] = bullet
 

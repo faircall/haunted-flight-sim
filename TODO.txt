@@ -20,4 +20,5 @@ a vibe of the game (which we currently only have in our heads)
         -bring in scissor enemy
         -better attack sound on enemies
         -implement player death + restart
-        -
+        -ambient sound
+        
