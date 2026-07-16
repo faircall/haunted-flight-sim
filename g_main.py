@@ -23,7 +23,7 @@ def get_file_write_time(file_name):
         write_time = os.path.getmtime(file_name)
         result = write_time
     except Exception as e:
-        print(f"error gettinf ile write time {e}")
+        print(f"error getting file write time {e}")
         result = ""
     return result
 
@@ -40,7 +40,7 @@ def reload_modules_if_needed(module_write_times):
                 render_error_message("reloaded module!")                
                 module_write_times[name] = get_file_write_time(file_name)
             except (ImportError, SyntaxError) as e:                
-                render_error_message(f"An error occurred while reloading the viz module: {e}")                
+                render_error_message(f"An error occurred while reloading the file: {e}")                
             
 
 def render_error_message(msg):

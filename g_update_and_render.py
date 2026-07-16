@@ -996,7 +996,7 @@ def load_textures():
     result["pistol_texture_flipped"] = pr.load_texture("art/pistol_flipped.png")
     result["wood_texture"] = pr.load_texture("art/WoodDark.png")
     result["wall_texture_editor"] = pr.load_texture("art/WallDark.png")
-    result["wall_texture"] = pr.load_texture("art/WallDarkTall.png")
+    result["wall_texture"] = pr.load_texture("art/WallDarkTallChunky.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
