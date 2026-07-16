@@ -416,8 +416,12 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             render_pos = pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y))
             if tile_type.get("type") == "wood":                
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), render_pos, 0.0, 2, pr.WHITE)
-            elif tile_type.get("type") == "wall":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), render_pos, 0.0, 1, pr.WHITE)
+            elif tile_type.get("type") == "wall":                                
+                if mode == "editing":
+                    pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture_editor"), render_pos, 0.0, 1, pr.WHITE)                    
+                else:
+                    render_pos.y = ((y-1)*tile_height - game_camera.y)
+                    pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), render_pos, 0.0, 1, pr.WHITE)
             elif tile_type.get("type") == "stone":                
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
             elif tile_type.get("type") == "carpet":  #change to other tile               
@@ -990,8 +994,9 @@ def load_textures():
     # a second and then did a reload when a new one was in there!
     result["pistol_texture"] = pr.load_texture("art/pistol.png")
     result["pistol_texture_flipped"] = pr.load_texture("art/pistol_flipped.png")
-    result["wood_texture"] = pr.load_texture("art/WoodTest.png")
-    result["wall_texture"] = pr.load_texture("art/Wall.png")
+    result["wood_texture"] = pr.load_texture("art/WoodDark.png")
+    result["wall_texture_editor"] = pr.load_texture("art/WallDark.png")
+    result["wall_texture"] = pr.load_texture("art/WallDarkTall.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
@@ -3746,7 +3751,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
     # this seems to be about the shade of the sky
     #color_to_draw = pr.Color(60, 160, 250, 255)    
 
-    color_to_draw = pr.Color(160, 150, 150, 255)    
+    color_to_draw = pr.Color(33, 25, 68, 255)    
     pr.begin_drawing()
     pr.clear_background(color_to_draw)    
     
