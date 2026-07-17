@@ -454,16 +454,16 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
     # make this a draw entity function
     player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
-    player_render_pos = pr.Vector2(player_pos_abs["x"] - 32 - game_camera.x, player_pos_abs["y"] - 32 - game_camera.y )    
+    player_render_pos = pr.Vector2(player_pos_abs["x"] - 16 - game_camera.x, player_pos_abs["y"] - 16 - game_camera.y )    
 
     # we are actually...centered now?
     player_render_pos_center = pr.Vector2(player_pos_abs["x"] - game_camera.x, player_pos_abs["y"] - game_camera.y)    
     
     if "aim_direction" not in player_entity:
         player_entity["aim_direction"] = {"x" : 0, "y" : 0}
-    gun_pos = vec2_add_any(player_render_pos_center, player_entity.get("aim_direction", {"x" : 0, "y" : 0}))
+    gun_pos = vec2_add_any(player_render_pos_center, vec2_scale(vec2_normalize(player_entity.get("aim_direction", {"x" : 0, "y" : 0})), 4))
     if player_entity.get("aim_direction", {"x" : 0, "y" : 0}).get("x") < 0:
-        updated_gun_pos = vec2_add(vec2_scale(vec2_normalize(player_entity.get("aim_direction")), 8), gun_pos)        
+        updated_gun_pos = vec2_add(vec2_scale(vec2_normalize(player_entity.get("aim_direction")), 4), gun_pos)        
         gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
     else:
         gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
@@ -477,14 +477,15 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     oxford_dest_rect = pr.Rectangle(int(player_render_pos.x), int(player_render_pos.y), 32, 32) # these 32s are in the thing actually
     oxford_source_rect = pr.Rectangle(oxford_frame_number*32, 0, 32, 32) # these 32s are in the thing actually
     pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get("sheet"), oxford_source_rect, oxford_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
-    pr.draw_line(int(player_render_pos_center.x), int(player_render_pos_center.y), int(gun_pos.x), int(gun_pos.y), pr.WHITE)
+    shirt_color = pr.Color(174,164,175, 255)
+    pr.draw_line(int(player_render_pos_center.x), int(player_render_pos_center.y), int(gun_pos.x), int(gun_pos.y), shirt_color)
     
     
     if player_entity.get("aim_direction").get("x") < 0:
         # TODO super slight bug here where it's drawing at the start and not accounting for the flip
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture_flipped"), updated_gun_pos, gun_angle + 180, 1, pr.WHITE)    
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture_flipped"), updated_gun_pos, gun_angle + 180, 0.5, pr.WHITE)    
     else:
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, gun_angle, 1, pr.WHITE)    
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, gun_angle, 0.5, pr.WHITE)    
 
     # HERE also draw reload status I think
     
@@ -3264,16 +3265,15 @@ def apply_force():
     # A = F / m
     pass
 
-def update_player_interaction(tile_map, entity, game_camera, entities, sounds, audio_engine, dt, debug_state):
+def update_player_interaction(tile_map, entity, game_camera, entities, sounds, audio_engine, dt, debug_state, debug_queue):
     player_pos = entity["position"]
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     # really need to have a 'player center' position
-    player_render_pos = {"x" : tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, "y" : tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16}
+    player_render_pos = {"x" : tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x, "y" : tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y}
+    
 
-    player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
-
-    player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] + 12, tile_height * player_pos["tile_y"] + player_pos["y"] + 12)    
+    player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"], tile_height * player_pos["tile_y"] + player_pos["y"])    
 
     mouse_pos = mouse_pos_world_from_lowres() #pr.get_mouse_position()
     
@@ -3285,6 +3285,55 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
     aim_heading = vec2_scale(aim_heading_normal, arm_length)
 
     spawn_pos = vec2_add_any(player_pos_center, aim_heading)
+
+    if debug_queue is not None:
+        debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle,
+                    "pos" : spawn_pos,                    
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "radius" : 2,
+                    "color" : "RED",
+                    "z_sort" : 0,
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "debug_modes" : ["all"]
+                }
+        debug_queue.append(debug_item)
+
+        debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle,
+                    "pos" : player_render_pos,                    
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "radius" : 2,
+                    "color" : "PINK",
+                    "z_sort" : 0,
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "debug_modes" : ["all"]
+                }
+        debug_queue.append(debug_item)
+
+        debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle,
+                    "pos" : mouse_pos_mine,                    
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "radius" : 2,
+                    "color" : "WHITE",
+                    "z_sort" : 0,
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "debug_modes" : ["all"]
+                }
+        debug_queue.append(debug_item)
+
+
+    #pr.draw_circle(int(spawn_pos["x"] - game_camera.x), int(spawn_pos["y"] - game_camera.y), 300, pr.WHITE)
 
     # resulting_sounds = []
 
@@ -3748,7 +3797,7 @@ def update_and_render(render_target, main_arena, game_assets, cma_engine):
     camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
-        update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, dt, debug_state)
+        update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, dt, debug_state, debug_queue)
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
