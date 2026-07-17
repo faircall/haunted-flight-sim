@@ -576,7 +576,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             
 
             # entity_dest_rect = pr.Rectangle(int(render_pos_x), int(render_pos_y), 24*2, 24*2) 
-            entity_dest_rect = pr.Rectangle(int(texture_x), int(texture_y), 24*2, 24*2) 
+            entity_dest_rect = pr.Rectangle(int(texture_x), int(texture_y), 24, 24) 
             entity_source_rect = pr.Rectangle(entity_frame_number*24, 0, 24, 24) 
             pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet"), entity_source_rect, entity_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
 
