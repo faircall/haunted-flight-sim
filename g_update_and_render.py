@@ -35,6 +35,19 @@ class PriorityQueueEntry:
     priority: float
     tile: dict = field(compare=False)
 
+def mouse_pos_world_from_lowres():
+    internal_width = 480 # TODO move these into params
+    internal_height = 270
+
+    mouse_pos = pr.get_mouse_position()
+
+    norm_pos_x = mouse_pos.x / pr.get_screen_width()
+    norm_pos_y = mouse_pos.y / pr.get_screen_height()
+
+    internal_x = internal_width * norm_pos_x
+    internal_y = internal_height * norm_pos_y
+    return {"x": internal_x, "y" : internal_y}
+
 
 
 def draw_variable_state(name, state, posx, posy, size, color):
@@ -461,7 +474,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
     oxford_frame_key =  player_entity.get("animation_frame", 0)   
     oxford_frame_number = game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get(oxford_frame_key, 0)
-    oxford_dest_rect = pr.Rectangle(int(player_render_pos.x), int(player_render_pos.y), 32*2, 32*2) # these 32s are in the thing actually
+    oxford_dest_rect = pr.Rectangle(int(player_render_pos.x), int(player_render_pos.y), 32, 32) # these 32s are in the thing actually
     oxford_source_rect = pr.Rectangle(oxford_frame_number*32, 0, 32, 32) # these 32s are in the thing actually
     pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get("sheet"), oxford_source_rect, oxford_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
     pr.draw_line(int(player_render_pos_center.x), int(player_render_pos_center.y), int(gun_pos.x), int(gun_pos.y), pr.WHITE)
@@ -503,7 +516,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
         if entity.get("type","") == "bullet":
             render_x = entity["position"]["x"] - game_camera.x
             render_y = entity["position"]["y"] - game_camera.y
-            pr.draw_rectangle(int(render_x), int(render_y), 4, 4, pr.BROWN)            
+            pr.draw_rectangle(int(render_x), int(render_y), 1, 1, pr.BROWN)            
     for entity in entities["pickups"].values():        
         if entity.get("type","") == "pistol_ammo_pickup":
             texture_scale = 3
@@ -3262,9 +3275,9 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
 
     player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] + 12, tile_height * player_pos["tile_y"] + player_pos["y"] + 12)    
 
-    mouse_pos = pr.get_mouse_position()
+    mouse_pos = mouse_pos_world_from_lowres() #pr.get_mouse_position()
     
-    mouse_pos_mine = {"x" : mouse_pos.x, "y" : mouse_pos.y}
+    mouse_pos_mine = {"x" : mouse_pos["x"], "y" : mouse_pos["y"]}
 
     arm_length = 20
 
@@ -3591,7 +3604,7 @@ def draw_debug_item(debug_state, debug_item, camera):
     
     
 
-def update_and_render(main_arena, game_assets, cma_engine):
+def update_and_render(render_target, main_arena, game_assets, cma_engine):
     global g_mouse_is_ui_captured
     global g_mouse_is_ui_captured_frames
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
@@ -3608,7 +3621,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
     player_info = main_arena.get("player_info") # really more info
     debug_state = main_arena.get("debug_state", "clear") 
-    pause_state = main_arena.get("pause_state", "unpaused") 
+    pause_state = main_arena.get("pause_state", "unpaused")     
 
     # could handle a pause event here...?
     if pr.is_key_pressed(pr.KeyboardKey.KEY_PAUSE):
@@ -3752,7 +3765,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
     #color_to_draw = pr.Color(60, 160, 250, 255)    
 
     color_to_draw = pr.Color(33, 25, 68, 255)    
-    pr.begin_drawing()
+    #pr.begin_drawing()
+    pr.begin_texture_mode(render_target)
     pr.clear_background(color_to_draw)    
     
 
@@ -3819,7 +3833,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
         for debug_item in debug_queue:
             draw_debug_item(debug_state, debug_item, camera=camera_3d)
 
-    pr.end_drawing()
+    # pr.end_drawing()
+    pr.end_texture_mode()
 
     # update persistent variables here
     changes = main_arena.evolver()

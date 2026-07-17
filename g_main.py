@@ -61,6 +61,11 @@ def g_main():
     pr.rl_disable_backface_culling()
     pr.set_target_fps(60)
 
+    internal_width = 480
+    internal_height = 270
+
+    render_target = pr.load_render_texture(internal_width, internal_height)
+
     game_assets = {}
 
     main_arena = m(screen_width = g_screen_width, screen_height = g_screen_height)    
@@ -108,7 +113,26 @@ def g_main():
         if not skip_update:
             try:
                 backup_arena = main_arena
-                main_arena = update_and_render_module.update_and_render(main_arena, game_assets, cma_engine)                        
+
+                main_arena = update_and_render_module.update_and_render(render_target, main_arena, game_assets, cma_engine)      
+                pr.begin_drawing()
+                screen_width = pr.get_screen_width()
+                screen_height = pr.get_screen_height()
+
+                scale = max(1, min(screen_width // internal_width, screen_height // internal_height))
+                dest_width = internal_width * scale
+                dest_height = internal_height * scale
+
+                offset_x = (screen_width - dest_width) // 2
+                offset_y = (screen_height - dest_height)
+                
+                source = pr.Rectangle(0, 0, internal_width, -internal_height)
+
+                destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
+
+                pr.draw_texture_pro(render_target.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
+                pr.end_drawing()
+                
                 auto_reload = main_arena.get("auto_reload", True)
             except Exception as e:
                 skip_update = True
