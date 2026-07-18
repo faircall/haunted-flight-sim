@@ -3844,21 +3844,22 @@ def update_and_render(render_target, main_arena, game_assets, cma_engine):
         pr.draw_text(entity_types[current_entity_selection], 1700, 50, 20, pr.WHITE)
 
     
+    if editor_mode != "play":
+        if do_button(pr.Vector2(10, 100), name="reload assets"):        
+            game_assets["textures"] = None
+            game_assets["sounds"] = None
 
-    if do_button(pr.Vector2(10, 100), name="reload assets"):        
-        game_assets["textures"] = None
-        game_assets["sounds"] = None
-
-    if do_button(pr.Vector2(10, 140), name="reset player"):        
-        player_info = None
+        if do_button(pr.Vector2(10, 140), name="reset player"):        
+            player_info = None
 
     reset_all = False
-    if do_button(pr.Vector2(10, 10), name="reset all"):        
-        player_info = None
-        tile_map = None
-        game_assets["textures"] = None
-        entities = None
-        reset_all = True
+    if editor_mode != "play":
+        if do_button(pr.Vector2(10, 10), name="reset all"):        
+            player_info = None
+            tile_map = None
+            game_assets["textures"] = None
+            entities = None
+            reset_all = True
         
     if tile_map and editor_mode == "editing":
         if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):

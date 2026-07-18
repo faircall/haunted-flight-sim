@@ -64,7 +64,11 @@ def g_main():
     internal_width = 480
     internal_height = 270
 
+    big_width = 1920
+    big_height = 1080
+
     render_target = pr.load_render_texture(internal_width, internal_height)
+    render_target_regular = pr.load_render_texture(big_width, big_height)
 
     game_assets = {}
 
@@ -113,24 +117,48 @@ def g_main():
         if not skip_update:
             try:
                 backup_arena = main_arena
-
-                main_arena = update_and_render_module.update_and_render(render_target, main_arena, game_assets, cma_engine)      
+                editor_mode = main_arena.get("editor_mode", "")
+                if editor_mode == "play":
+                    main_arena = update_and_render_module.update_and_render(render_target, main_arena, game_assets, cma_engine)      
+                else:
+                    main_arena = update_and_render_module.update_and_render(render_target_regular, main_arena, game_assets, cma_engine)      
                 pr.begin_drawing()
                 screen_width = pr.get_screen_width()
                 screen_height = pr.get_screen_height()
 
-                scale = max(1, min(screen_width // internal_width, screen_height // internal_height))
-                dest_width = internal_width * scale
-                dest_height = internal_height * scale
+                if editor_mode == "play":
+                    scale = max(1, min(screen_width // internal_width, screen_height // internal_height))
+                    dest_width = internal_width * scale
+                    dest_height = internal_height * scale
 
-                offset_x = (screen_width - dest_width) // 2
-                offset_y = (screen_height - dest_height)
-                
-                source = pr.Rectangle(0, 0, internal_width, -internal_height)
+                    offset_x = (screen_width - dest_width) // 2
+                    offset_y = (screen_height - dest_height)
 
-                destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
+                    editor_mode = main_arena.get("editor_mode")
 
-                pr.draw_texture_pro(render_target.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
+                    
+                    source = pr.Rectangle(0, 0, internal_width, -internal_height)
+
+                    destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
+
+                    pr.draw_texture_pro(render_target.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
+                else:
+                    scale = max(1, min(screen_width // big_width, screen_height // big_height))
+                    dest_width = big_width * scale
+                    dest_height = big_height * scale
+
+                    offset_x = (screen_width - dest_width) // 2
+                    offset_y = (screen_height - dest_height)
+
+                    
+
+                    
+                    source = pr.Rectangle(0, 0, big_width, -big_height)
+
+                    destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
+
+                    pr.draw_texture_pro(render_target_regular.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
+
                 pr.end_drawing()
                 
                 auto_reload = main_arena.get("auto_reload", True)
