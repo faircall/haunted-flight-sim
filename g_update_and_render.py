@@ -740,8 +740,8 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
         tile_width = 16
         tile_height = 16
         player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
-        desired_camera_x = max(0, player_pos_abs["x"] - 240)
-        desired_camera_y = max(0, player_pos_abs["y"] - 135)
+        desired_camera_x = max(-16, player_pos_abs["x"] - 240)
+        desired_camera_y = max(-24, player_pos_abs["y"] - 135)
 
         error_x = desired_camera_x - game_camera.position.x
         error_y = desired_camera_y - game_camera.position.y
