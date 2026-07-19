@@ -330,9 +330,16 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
     
+    internal_res_x = 1920
+    internal_res_y = 1080
 
-    visible_tiles_across = int(1920 / tile_width)
-    visible_tiles_down = int(1080 / tile_width)
+    if mode == "play":
+        internal_res_x = 480
+        internal_res_y = 270
+
+
+    visible_tiles_across = int(internal_res_x / tile_width)
+    visible_tiles_down = int(internal_res_y / tile_width)
 
     mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera.x)/tile_width), int((mouse_pos_world.y + game_camera.y)/tile_height))
 
@@ -723,9 +730,13 @@ def update_camera(game_camera, mode, player_pos, dt):
         game_camera.position.x = max(0, game_camera.position.x)
         game_camera.position.y = max(0, game_camera.position.y)
     else:
-        game_camera.position.x = player_pos["x"] - pr.get_screen_width()/2
+        tile_width = 16
+        tile_height = 16
+        player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
+
+        game_camera.position.x = player_pos_abs["x"] - 240#pr.get_screen_width()/2
         game_camera.position.x = max(0, game_camera.position.x)
-        game_camera.position.y = player_pos["y"] - pr.get_screen_height()/2
+        game_camera.position.y = player_pos_abs["y"] - 135#pr.get_screen_height()/2
         game_camera.position.y = max(0, game_camera.position.y)
         
     
@@ -745,8 +756,8 @@ def make_default_player(x,y,z):
     pos["tile_x"] = 0
     pos["tile_y"] = 0
 
-    player["entity_width"] = 24 #drawing at double scale
-    player["entity_height"] = 24
+    player["entity_width"] = 12 #drawing at double scale
+    player["entity_height"] = 12
 
     player["position"] = pos
 
@@ -1010,11 +1021,11 @@ def load_textures():
     result["pistol_texture_flipped"] = pr.load_texture("art/pistol_flipped.png")
     result["wood_texture"] = pr.load_texture("art/WoodDark.png")
     result["wall_texture_editor"] = pr.load_texture("art/WallDark.png")
-    result["wall_texture"] = pr.load_texture("art/WallDarkTallChunky.png")
+    result["wall_texture"] = pr.load_texture("art/WallDarkTallChunky16x.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
-    result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
-    result["orange_tile_texture"] = pr.load_texture("art/orange_tile_32x.png")
+    result["grey_tile_texture"] = pr.load_texture("art/grey_tile_16x.png")
+    result["orange_tile_texture"] = pr.load_texture("art/orange_tile_16x.png")
 
     result["pistol_ammo_pickup_texture"] = pr.load_texture("art/pistol_ammo_pickup.png")
     result["health_pickup_texture"] = pr.load_texture("art/health_pickup.png")
@@ -3168,7 +3179,7 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
 
     player_accel = 3000
 
-    player_speed_max = 500
+    player_speed_max = 250
 
     
     
@@ -3596,6 +3607,7 @@ def draw_debug_tile(debug_item, camera):
     pr.draw_rectangle(draw_x, draw_y, tile_width, tile_height, color)
 
 
+
 def draw_debug_rect(debug_item, camera):
     width = debug_item.get("width", 0)
     height = debug_item.get("height", 0)
@@ -3749,7 +3761,7 @@ def update_and_render(render_target, main_arena, game_assets, cma_engine):
     entities = main_arena.get("entities")
 
     if not tile_map:
-        tile_map = make_tile_map(100, 100, 32, 32)        
+        tile_map = make_tile_map(100, 100, 16, 16)        
 
     if not entities:
         entities = {}
@@ -3884,6 +3896,11 @@ def update_and_render(render_target, main_arena, game_assets, cma_engine):
             draw_debug_item(debug_state, debug_item, camera=camera_3d)
 
     # pr.end_drawing()
+
+    if editor_mode != "play":
+        #draw_cursor()
+        mp = pr.get_mouse_position()
+        pr.draw_circle(int(mp.x), int(mp.y), 4, pr.WHITE)
     pr.end_texture_mode()
 
     # update persistent variables here
@@ -3917,6 +3934,8 @@ def update_and_render(render_target, main_arena, game_assets, cma_engine):
         if g_mouse_is_ui_captured_frames > frames_to_hide_game_input:
             g_mouse_is_ui_captured = False
             g_mouse_is_ui_captured_frames = 0
+
+    
 
     return result
 
