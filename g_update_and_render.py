@@ -697,7 +697,7 @@ def give_entity_stats_from_type(entity, entity_type):
 
     
 
-def update_camera(game_camera, mode, player_pos, dt):    
+def update_camera(game_camera, camera_physics, mode, player_pos, dt):    
     camera_speed = 500
     up = 0
     across = 0
@@ -730,14 +730,36 @@ def update_camera(game_camera, mode, player_pos, dt):
         game_camera.position.x = max(0, game_camera.position.x)
         game_camera.position.y = max(0, game_camera.position.y)
     else:
+        camera_acceleration = get_or_invoke(camera_physics, "acceleration", vec2_new)
+        camera_velocity = get_or_invoke(camera_physics, "velocity", vec2_new)
+
+        # TODO focus region
+
         tile_width = 16
         tile_height = 16
         player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
+        desired_camera_x = max(0, player_pos_abs["x"] - 240)
+        desired_camera_y = max(0, player_pos_abs["y"] - 135)
 
-        game_camera.position.x = player_pos_abs["x"] - 240#pr.get_screen_width()/2
-        game_camera.position.x = max(0, game_camera.position.x)
-        game_camera.position.y = player_pos_abs["y"] - 135#pr.get_screen_height()/2
-        game_camera.position.y = max(0, game_camera.position.y)
+        error_x = desired_camera_x - game_camera.position.x
+        error_y = desired_camera_y - game_camera.position.y
+
+        stiffness_x = 30
+        damping_x = 15
+
+        stiffness_y = 30
+        damping_y = 15
+
+        accel_x = error_x * stiffness_x - damping_x * camera_velocity["x"]        
+        accel_y = error_y * stiffness_y - damping_y * camera_velocity["y"]
+
+        camera_velocity["x"] += accel_x * dt        
+        camera_velocity["y"] += accel_y * dt        
+        
+        game_camera.position.x += camera_velocity["x"] * dt
+        game_camera.position.y += camera_velocity["y"] * dt
+        
+        
         
     
     return game_camera
@@ -1249,7 +1271,9 @@ def vec2_distance_tile(a, b, tile_map):
     tile_abs_a = get_abs_pos_from_index(a, tile_map)
     tile_abs_b = get_abs_pos_from_index(b, tile_map)
     return vec2_distance(tile_abs_a, tile_abs_b)
-    
+
+def vec2_new(x=0, y=0):
+    return {"x":x, "y":y}
 
 def vec2_distance(a, b):    
     return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
@@ -3780,6 +3804,8 @@ def update_and_render(render_target, main_arena, game_assets, cma_engine):
 
     # this is 'mutable' or at least expensive since it's a raylib/opengl call I think, don't want to spam it
     camera_3d = get_or_invoke(game_assets, "camera_3d", make_default_camera)        
+
+    camera_physics = get_or_set(game_assets, "camera_physics", {})        
     
     
     
@@ -3806,7 +3832,8 @@ def update_and_render(render_target, main_arena, game_assets, cma_engine):
         # and then if there is a bullet(s) in the square,
         # we check against only those (there may be more than one I suppose)
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
-    camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
+    
+    camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
         update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, dt, debug_state, debug_queue)
