@@ -320,6 +320,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
+    game_camera_x = round(game_camera.x)
+    game_camera_y = round(game_camera.y)
     player_pos = player_entity.get("position",{})
     if ignore:
         return
@@ -341,14 +343,14 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     visible_tiles_across = int(internal_res_x / tile_width)
     visible_tiles_down = int(internal_res_y / tile_width)
 
-    mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera.x)/tile_width), int((mouse_pos_world.y + game_camera.y)/tile_height))
+    mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera_x)/tile_width), int((mouse_pos_world.y + game_camera_y)/tile_height))
 
-    mouse_tile_pos_offset_x = (mouse_pos_world.x + game_camera.x) - mouse_tile_pos.x*tile_width
-    mouse_tile_pos_offset_y = (mouse_pos_world.y + game_camera.y) - mouse_tile_pos.y*tile_height
+    mouse_tile_pos_offset_x = (mouse_pos_world.x + game_camera_x) - mouse_tile_pos.x*tile_width
+    mouse_tile_pos_offset_y = (mouse_pos_world.y + game_camera_y) - mouse_tile_pos.y*tile_height
 
 
 
-    top_left_pos = pr.Vector2(int(game_camera.x/tile_width), int(game_camera.y/tile_height))    
+    top_left_pos = pr.Vector2(int(game_camera_x/tile_width), int(game_camera_y/tile_height))    
     
     # let's try be slightly quicker about this!
     # we could think about where the camera *is*
@@ -386,7 +388,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                     if interactive_mouse_left_down():
                         tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
                             
-                pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+                pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
             if mode == "entity_placing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
@@ -431,23 +433,23 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
                     
                             
-                pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+                pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
-            render_pos = pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y))
+            render_pos = pr.Vector2((x*tile_width - game_camera_x), (y*tile_height - game_camera_y))
             if tile_type.get("type") == "wood":                
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), render_pos, 0.0, 2, pr.WHITE)
             elif tile_type.get("type") == "wall":                                
                 if mode == "editing":
                     pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture_editor"), render_pos, 0.0, 1, pr.WHITE)                    
                 else:
-                    render_pos.y = ((y-1)*tile_height - game_camera.y)
+                    render_pos.y = ((y-1)*tile_height - game_camera_y)
                     pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), render_pos, 0.0, 1, pr.WHITE)
             elif tile_type.get("type") == "stone":                
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
             elif tile_type.get("type") == "carpet":  #change to other tile               
                 pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
             if is_highlight:
-                pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
+                pr.draw_rectangle_lines(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, pr.WHITE)
 
             if "decals" in tile_to_draw:
                 for decal in tile_to_draw["decals"]:
@@ -461,10 +463,10 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
     # make this a draw entity function
     player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
-    player_render_pos = pr.Vector2(player_pos_abs["x"] - 16 - game_camera.x, player_pos_abs["y"] - 16 - game_camera.y )    
+    player_render_pos = pr.Vector2(player_pos_abs["x"] - 16 - game_camera_x, player_pos_abs["y"] - 16 - game_camera_y )    
 
     # we are actually...centered now?
-    player_render_pos_center = pr.Vector2(player_pos_abs["x"] - game_camera.x, player_pos_abs["y"] - game_camera.y)    
+    player_render_pos_center = pr.Vector2(player_pos_abs["x"] - game_camera_x, player_pos_abs["y"] - game_camera_y)    
     
     if "aim_direction" not in player_entity:
         player_entity["aim_direction"] = {"x" : 0, "y" : 0}
@@ -500,7 +502,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     # and a dot at his center for debug purposes
     # entity_width_that_i_am_using = 16
     # entity_height_that_i_am_using = 16
-    # pr.draw_circle(int(player_pos["x"] + entity_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + entity_height_that_i_am_using - game_camera.y), 5, pr.RED)
+    # pr.draw_circle(int(player_pos["x"] + entity_width_that_i_am_using  - game_camera_x), int(player_pos["y"] + entity_height_that_i_am_using - game_camera_y), 5, pr.RED)
 
     if "projectiles" not in entities:
         entities["projectiles"] = {}
@@ -515,30 +517,30 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
         if key == "taken":
             continue
         for particle in particle_system["particles"]:
-            render_pos_x = tile_width * particle.get("position",{}).get("tile_x",0) + particle.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * particle.get("position",{}).get("tile_y",0) + particle.get("position",{}).get("y",0) - game_camera.y
+            render_pos_x = tile_width * particle.get("position",{}).get("tile_x",0) + particle.get("position",{}).get("x",0) - game_camera_x
+            render_pos_y = tile_height * particle.get("position",{}).get("tile_y",0) + particle.get("position",{}).get("y",0) - game_camera_y
             pr.draw_circle(int(render_pos_x), int(render_pos_y), particle.get("size",5), pr.RED)
     
 
     for entity in entities["projectiles"].values():        
         if entity.get("type","") == "bullet":
-            render_x = entity["position"]["x"] - game_camera.x
-            render_y = entity["position"]["y"] - game_camera.y
+            render_x = entity["position"]["x"] - game_camera_x
+            render_y = entity["position"]["y"] - game_camera_y
             pr.draw_rectangle(int(render_x), int(render_y), 1, 1, pr.BROWN)            
     for entity in entities["pickups"].values():        
         if entity.get("type","") == "pistol_ammo_pickup":
             texture_scale = 3
             texture_to_use = game_assets.get("textures",{}).get("pistol_ammo_pickup_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y
             texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
             texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
         elif entity.get("type","") == "health_pickup":
             texture_scale = 3
             texture_to_use = game_assets.get("textures",{}).get("health_pickup_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y
             texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
             texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)            
@@ -546,8 +548,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
         if entity.get("type","") == "buddha":
             texture_scale = 1
             texture_to_use = game_assets.get("textures",{}).get("buddha_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y
             texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
             texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
@@ -557,8 +559,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             
             texture_to_use = game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet")
             texture_scale = 2
-            render_pos_x = int(tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x)
-            render_pos_y = int(tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y)
+            render_pos_x = int(tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x)
+            render_pos_y = int(tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y)
 
 
 
@@ -597,10 +599,10 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                 attack_windup = entity["attack_windup_duration"]
                 if entity.get("attack_substate","") == "windup" or entity.get("attack_substate","") == "committed":
                     pr.draw_text(f"{attack_timer}/{attack_windup} windup...", texture_x, texture_y - 20, 10, pr.WHITE)
-                    pr.draw_circle(int(attack_point["x"] - game_camera.x), int(attack_point["y"] - game_camera.y), 10, pr.YELLOW)
+                    pr.draw_circle(int(attack_point["x"] - game_camera_x), int(attack_point["y"] - game_camera_y), 10, pr.YELLOW)
                 elif entity.get("attack_substate","") == "attacking":
                     
-                    pr.draw_circle(int(attack_point["x"] - game_camera.x), int(attack_point["y"] - game_camera.y), 10, pr.RED)
+                    pr.draw_circle(int(attack_point["x"] - game_camera_x), int(attack_point["y"] - game_camera_y), 10, pr.RED)
                     pr.draw_text(f"BAM {attack_timer}/{attack_cooldown}", texture_x, texture_y - 20, 10, pr.RED)
 
 
@@ -744,11 +746,18 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
         error_x = desired_camera_x - game_camera.position.x
         error_y = desired_camera_y - game_camera.position.y
 
-        stiffness_x = 30
-        damping_x = 15
+        if math.sqrt(error_x**2 + error_y**2) < 5:
+            return game_camera
 
-        stiffness_y = 30
-        damping_y = 15
+        
+
+        
+
+        stiffness_x = 100
+        damping_x = 40
+
+        stiffness_y = 25
+        damping_y = 10
 
         accel_x = error_x * stiffness_x - damping_x * camera_velocity["x"]        
         accel_y = error_y * stiffness_y - damping_y * camera_velocity["y"]
@@ -758,6 +767,23 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
         
         game_camera.position.x += camera_velocity["x"] * dt
         game_camera.position.y += camera_velocity["y"] * dt
+
+        remaining_error_x = (desired_camera_x - game_camera.position.x )
+        remaining_error_y = (desired_camera_y - game_camera.position.y)
+
+        error_x_epsilon = 1
+        error_y_epsilon = 1
+
+        vel_x_epsilon = 2
+        vel_y_epsilon = 2
+
+        if abs(remaining_error_x) < error_x_epsilon and abs(camera_velocity["x"]) < vel_x_epsilon:
+            camera_velocity["x"] = 0
+            game_camera.position.x = desired_camera_x
+
+        if abs(remaining_error_y) < error_y_epsilon and abs(camera_velocity["y"]) < vel_y_epsilon:
+            camera_velocity["y"] = 0
+            game_camera.position.y = desired_camera_y
         
         
         
