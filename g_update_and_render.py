@@ -326,8 +326,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
-    game_camera_x = round(game_camera.x)
-    game_camera_y = round(game_camera.y)
+    game_camera_x = (game_camera.x)
+    game_camera_y = (game_camera.y)
     player_pos = player_entity.get("position",{})
     if ignore:
         return
@@ -755,7 +755,7 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
         error_x = desired_camera_x - game_camera.position.x
         error_y = desired_camera_y - game_camera.position.y
 
-        if math.sqrt(error_x**2 + error_y**2) < 2:
+        if math.sqrt(error_x**2 + error_y**2) < 10:
             camera_velocity["x"] = 0
             camera_velocity["y"] = 0
             return game_camera
