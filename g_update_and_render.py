@@ -1120,11 +1120,9 @@ def get_tile_index_from_pos(pos, tile_map, debug_queue = None):
     map_width = tile_map["map_width"]
     map_height = tile_map["map_height"]
     tile_width = tile_map["tile_width"]
-    tile_height = tile_map["tile_height"]    
-    tile_pos_x = int((pos.get("x",0))/tile_width)
-    tile_pos_y =  int((pos.get("y",0))/tile_height)
-    tile_x = tile_pos_x % map_width
-    tile_y = tile_pos_y  % map_height
+    tile_height = tile_map["tile_height"]        
+    tile_x = math.floor((pos.get("x",0))/tile_width)
+    tile_y = math.floor((pos.get("y",0))/tile_height)
 
     return {"tile_x" : tile_x, "tile_y" : tile_y}
 
@@ -1133,10 +1131,9 @@ def get_tile_index_and_offset_from_pos(pos, tile_map, debug_queue = None):
     map_height = tile_map["map_height"]
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]    
-    tile_pos_x = int((pos.get("x",0))/tile_width)
-    tile_pos_y =  int((pos.get("y",0))/tile_height)
-    tile_x = tile_pos_x % map_width
-    tile_y = tile_pos_y  % map_height
+    
+    tile_x = math.floor((pos.get("x",0))/tile_width)
+    tile_y = math.floor((pos.get("y",0))/tile_height)
 
     offset_x = pos["x"] - (tile_x * tile_width)
     offset_y = pos["y"] - (tile_y * tile_height)
@@ -1173,23 +1170,22 @@ def get_tiles_from_pos(pos, tile_map, debug_queue = None):
     additional_x_tiles = 0
     additional_y_tiles = 0
     if pos["x"] > tile_width:
-        additional_x_tiles = int(pos.get("x",0) / tile_width)        
+        additional_x_tiles = math.floor(pos.get("x",0) / tile_width)        
 
     if pos["x"] < 0:
-        additional_x_tiles = -int((tile_width + abs(pos.get("x",0))) / tile_width)
+        additional_x_tiles = -math.floor((tile_width + abs(pos.get("x",0))) / tile_width)
         
 
     if pos["y"] < 0:
-        additional_y_tiles = -int((tile_height + abs(pos.get("y",0))) / tile_height)
+        additional_y_tiles = -math.floor((tile_height + abs(pos.get("y",0))) / tile_height)
         # I think this will do us?                
 
     if pos["y"] > tile_height:
-        additional_y_tiles = int(pos.get("y",0) / tile_height)        
+        additional_y_tiles = math.floor(pos.get("y",0) / tile_height)        
 
-    tile_x = pos.get("tile_x") + additional_x_tiles
-    tile_x = tile_x % map_width
+    tile_x = pos.get("tile_x") + additional_x_tiles    
     tile_y = pos.get("tile_y") + additional_y_tiles
-    tile_y = tile_y  % map_height
+
 
     return {"tile_x" : tile_x, "tile_y" : tile_y}
     # if debug_queue is not None:
