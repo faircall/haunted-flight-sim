@@ -341,7 +341,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
 
     visible_tiles_across = int(internal_res_x / tile_width)
-    visible_tiles_down = int(internal_res_y / tile_width)
+    visible_tiles_down = int(internal_res_y / tile_height)
 
     mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera_x)/tile_width), int((mouse_pos_world.y + game_camera_y)/tile_height))
 
@@ -360,6 +360,9 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
     for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)):
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
+
+            if x < 0 or x >= map_width or y < 0 or y >= map_height:
+                continue
 
             index = min(y*map_width + x, len(tile_map["tiles"])-1)
             tile_to_draw = tile_map["tiles"][index]
@@ -729,8 +732,8 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
     
         
         game_camera.position = pr.vector3_add(game_camera.position, pr.vector3_scale(camera_direction, camera_speed * dt))    
-        game_camera.position.x = max(0, game_camera.position.x)
-        game_camera.position.y = max(0, game_camera.position.y)
+        game_camera.position.x = max(-100, game_camera.position.x)
+        game_camera.position.y = max(-100, game_camera.position.y)
     else:
         camera_acceleration = get_or_invoke(camera_physics, "acceleration", vec2_new)
         camera_velocity = get_or_invoke(camera_physics, "velocity", vec2_new)
@@ -746,15 +749,17 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
         error_x = desired_camera_x - game_camera.position.x
         error_y = desired_camera_y - game_camera.position.y
 
-        if math.sqrt(error_x**2 + error_y**2) < 5:
+        if math.sqrt(error_x**2 + error_y**2) < 2:
+            camera_velocity["x"] = 0
+            camera_velocity["y"] = 0
             return game_camera
 
         
 
         
 
-        stiffness_x = 100
-        damping_x = 40
+        stiffness_x = 25
+        damping_x = 10
 
         stiffness_y = 25
         damping_y = 10
@@ -771,11 +776,11 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
         remaining_error_x = (desired_camera_x - game_camera.position.x )
         remaining_error_y = (desired_camera_y - game_camera.position.y)
 
-        error_x_epsilon = 1
-        error_y_epsilon = 1
+        error_x_epsilon = 2
+        error_y_epsilon = 2
 
-        vel_x_epsilon = 2
-        vel_y_epsilon = 2
+        vel_x_epsilon = 4
+        vel_y_epsilon = 4
 
         if abs(remaining_error_x) < error_x_epsilon and abs(camera_velocity["x"]) < vel_x_epsilon:
             camera_velocity["x"] = 0
@@ -3227,9 +3232,9 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
 
     player_footstep_timer_base_gap = 0.3
 
-    player_accel = 3000
+    player_accel = 1500
 
-    player_speed_max = 250
+    player_speed_max = 150
 
     
     
