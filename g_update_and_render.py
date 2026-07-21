@@ -313,7 +313,13 @@ def reconstruct_path(came_from, target, origin):
 
 
     
-    
+
+def tile_not_in_bounds(tile_x, tile_y, tile_map):
+    return (tile_x < 0 or tile_y < 0 or tile_x >= tile_map["map_width"] or tile_y >= tile_map["map_height"])
+
+def tile_in_bounds(tile_x, tile_y, tile_map):
+    return not tile_not_in_bounds(tile_x, tile_y, tile_map)
+
 
 
 def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_entity, mode, debug_queue):
@@ -1658,7 +1664,8 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
         test_tiles = get_tile_index_from_pos(pos_test, tile_map)
 
         
-
+        if tile_not_in_bounds(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map):
+            continue
         found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
 
 
