@@ -486,6 +486,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     else:
         gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
 
+    player_entity["gun_render_pos"] = gun_pos
+
     gun_angle = angle_from_vector(player_entity.get("aim_direction")) - 180 # some bs here
 
     #pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
@@ -3233,7 +3235,7 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
 
     player_footstep_timer = get_or_set(entity, "player_footstep_timer", 0)
 
-    player_footstep_timer_base_gap = 0.3
+    player_footstep_timer_base_gap = 0.135
 
     player_accel = 1500
 
@@ -3410,7 +3412,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
     player_angle_current = angle_from_vector(aim_heading_normal)
     #player_angle_current += 180
     animation_direction = direction_from_angle(player_angle_current)
-
+    gunshot_timer = entity.get("gunshot_timer", 0)
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
 
     pr.draw_text(f"player angle is {int(player_angle_current)}", 80, 30, 10, pr.RED)
@@ -3478,7 +3480,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
             bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
             
             # TODO! move this stuff to an audio manager, just need the sound info
-
+            gunshot_timer = 0.07
             play_pool_sound("pistol_pool", sounds, rand_lower=5, rand_upper=6)        
 
             entities["projectiles"][bullet_id] = bullet
@@ -3494,8 +3496,10 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
             # spawn a bullet with our name on it
             # try playing a gunshot sound directly here
         
-        
+    
     entity["aim_direction"] = aim_heading
+    
+    entity["gunshot_timer"] = max(0, gunshot_timer - dt)
 
 
 def copy_position_dict(original):
@@ -3723,7 +3727,7 @@ def draw_debug_item(debug_state, debug_item, camera):
     
     
 
-def update_and_render(render_target, main_arena, game_assets, cma_engine):
+def update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine):
     global g_mouse_is_ui_captured
     global g_mouse_is_ui_captured_frames
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
@@ -3957,12 +3961,22 @@ def update_and_render(render_target, main_arena, game_assets, cma_engine):
             draw_debug_item(debug_state, debug_item, camera=camera_3d)
 
     # pr.end_drawing()
+    pr.end_texture_mode()
 
     if editor_mode != "play":
         #draw_cursor()
         mp = pr.get_mouse_position()
         pr.draw_circle(int(mp.x), int(mp.y), 4, pr.WHITE)
-    pr.end_texture_mode()
+    
+
+    # lighting rendering happens here I think
+    render_lighting(camera_3d.position, entities, tile_map, pr.get_mouse_position(), player_info, lighting_target, dt)
+    
+
+    # apply lighting
+
+    apply_lighting(render_target, lighting_target)
+
 
     # update persistent variables here
     changes = main_arena.evolver()
@@ -4005,4 +4019,68 @@ def interactive_mouse_left_pressed():
 
 def interactive_mouse_left_down():
     return pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured
+
+def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, blue, base_alpha, alpha_multiplier):    
+    for i in range(rings, 0,-ring_size):
+        t = i / rings
+        radius = ring_radius * t
+        strength = 1.0 - t
+        alpha = int(base_alpha+ strength*alpha_multiplier)
+        pr.draw_circle(int(x), int(y), radius, pr.Color(red,green,blue,alpha))
+
+def render_lighting(game_camera, entities, tile_map, mouse_pos_world, player_entity, lighting_target, dt):
+    pr.begin_texture_mode(lighting_target)
+    pr.clear_background((42,42,52,255))
+    pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
+
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]
+    player_pos = player_entity.get("position",{})
+    player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
+    player_render_pos = pr.Vector2(player_pos_abs["x"] - game_camera.x, player_pos_abs["y"] - game_camera.y )    
+
+    lights = get_or_set(entities, "lights", {})
+
+    if "test_light" not in lights:
+        lights["test_light"] = {"timer" : 0, "radius" : 10}
     
+    lights["test_light"]["timer"] += dt
+    
+    transformed_time = light_timer_oscilate(lights["test_light"]["timer"])
+    test_radius = 20 + transformed_time*2
+
+    draw_ringed_circular_light(200 - game_camera.x, 300 - game_camera.y, 30, 2, test_radius, 220, 200, 240, 10, 20)
+
+    # rings = 20
+    # ring_size = 2
+    # ring_radius = 20
+    # for i in range(rings, 0,-ring_size):
+    #     t = i / rings
+    #     radius = ring_radius * t
+    #     strength = 1.0 - t
+    #     alpha = int(1+ strength*30)
+    #     pr.draw_circle(int(player_render_pos.x ), int(player_render_pos.y), radius, pr.Color(220,220,240,alpha))
+
+    # pr.draw_circle(int(player_render_pos.x ), int(player_render_pos.y + 40), 30, pr.RED)
+    if player_entity.get("gunshot_timer",0) > 0:
+        draw_ringed_circular_light(player_entity["gun_render_pos"].x, player_entity["gun_render_pos"].y, 30, 2, 40, 220, 200, 240, 10, 20)
+    pr.end_blend_mode()
+    pr.end_texture_mode()
+
+def light_timer_oscilate(t):
+    slow = math.sin(t / 100) * 20
+    med = math.sin(t / 10) * 5
+    fast =  math.sin(t / 2) *10
+    result = slow + med + fast
+    return result
+
+def apply_lighting(scene, lighting):
+    source = pr.Rectangle(0, 0, lighting.texture.width, -lighting.texture.height)
+    destination = pr.Rectangle(0, 0, scene.texture.width, scene.texture.height)    
+
+    pr.begin_texture_mode(scene)
+    pr.begin_blend_mode(pr.BlendMode.BLEND_MULTIPLIED)
+
+    pr.draw_texture_pro(lighting.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
+    pr.end_blend_mode()
+    pr.end_texture_mode()

@@ -68,7 +68,10 @@ def g_main():
     big_height = 1080
 
     render_target = pr.load_render_texture(internal_width, internal_height)
+    lighting_target = pr.load_render_texture(internal_width, internal_height)
+
     render_target_regular = pr.load_render_texture(big_width, big_height)
+    lighting_target_regular = pr.load_render_texture(big_width, big_height)
 
     game_assets = {}
 
@@ -118,11 +121,14 @@ def g_main():
             try:
                 backup_arena = main_arena
                 editor_mode = main_arena.get("editor_mode", "")
+
                 if editor_mode == "play":
-                    main_arena = update_and_render_module.update_and_render(render_target, main_arena, game_assets, cma_engine)      
+                    main_arena = update_and_render_module.update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine)      
                 else:
-                    main_arena = update_and_render_module.update_and_render(render_target_regular, main_arena, game_assets, cma_engine)      
+                    main_arena = update_and_render_module.update_and_render(render_target_regular, lighting_target_regular, main_arena, game_assets, cma_engine)      
+                
                 pr.begin_drawing()
+                pr.clear_background(pr.BLACK)
                 screen_width = pr.get_screen_width()
                 screen_height = pr.get_screen_height()
 
@@ -140,8 +146,8 @@ def g_main():
                     source = pr.Rectangle(0, 0, internal_width, -internal_height)
 
                     destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
-
-                    pr.draw_texture_pro(render_target.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
+                    
+                    pr.draw_texture_pro(render_target.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)                                        
                 else:
                     scale = max(1, min(screen_width // big_width, screen_height // big_height))
                     dest_width = big_width * scale
@@ -159,6 +165,8 @@ def g_main():
 
                     pr.draw_texture_pro(render_target_regular.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
 
+                
+                
                 pr.end_drawing()
                 
                 auto_reload = main_arena.get("auto_reload", True)
