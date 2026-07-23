@@ -61,6 +61,8 @@ def g_main():
     pr.rl_disable_backface_culling()
     pr.set_target_fps(60)
 
+    pr.hide_cursor()
+
     internal_width = 480
     internal_height = 270
 
@@ -122,48 +124,64 @@ def g_main():
                 backup_arena = main_arena
                 editor_mode = main_arena.get("editor_mode", "")
 
-                if editor_mode == "play":
-                    main_arena = update_and_render_module.update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine)      
-                else:
-                    main_arena = update_and_render_module.update_and_render(render_target_regular, lighting_target_regular, main_arena, game_assets, cma_engine)      
+                # if editor_mode == "play":
+                main_arena = update_and_render_module.update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine)      
+                # else:
+                #     main_arena = update_and_render_module.update_and_render(render_target_regular, lighting_target_regular, main_arena, game_assets, cma_engine)      
                 
                 pr.begin_drawing()
                 pr.clear_background(pr.BLACK)
                 screen_width = pr.get_screen_width()
                 screen_height = pr.get_screen_height()
 
-                if editor_mode == "play":
-                    scale = max(1, min(screen_width // internal_width, screen_height // internal_height))
-                    dest_width = internal_width * scale
-                    dest_height = internal_height * scale
+                scale = max(1, min(screen_width // internal_width, screen_height // internal_height))
+                dest_width = internal_width * scale
+                dest_height = internal_height * scale
 
-                    offset_x = (screen_width - dest_width) // 2
-                    offset_y = (screen_height - dest_height)
+                offset_x = (screen_width - dest_width) // 2
+                offset_y = (screen_height - dest_height)
 
-                    editor_mode = main_arena.get("editor_mode")
+                editor_mode = main_arena.get("editor_mode")
+
+                
+                source = pr.Rectangle(0, 0, internal_width, -internal_height)
+
+                destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
+                
+                pr.draw_texture_pro(render_target.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)                                        
+
+                # if editor_mode == "play":
+                #     scale = max(1, min(screen_width // internal_width, screen_height // internal_height))
+                #     dest_width = internal_width * scale
+                #     dest_height = internal_height * scale
+
+                #     offset_x = (screen_width - dest_width) // 2
+                #     offset_y = (screen_height - dest_height)
+
+                #     editor_mode = main_arena.get("editor_mode")
 
                     
-                    source = pr.Rectangle(0, 0, internal_width, -internal_height)
+                #     source = pr.Rectangle(0, 0, internal_width, -internal_height)
 
-                    destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
+                #     destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
                     
-                    pr.draw_texture_pro(render_target.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)                                        
-                else:
-                    scale = max(1, min(screen_width // big_width, screen_height // big_height))
-                    dest_width = big_width * scale
-                    dest_height = big_height * scale
+                #     pr.draw_texture_pro(render_target.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)                                        
+                # else:
+                #     scale = max(1, min(screen_width // big_width, screen_height // big_height))
+                #     dest_width = big_width * scale
+                #     dest_height = big_height * scale
 
-                    offset_x = (screen_width - dest_width) // 2
-                    offset_y = (screen_height - dest_height)
-
-                    
+                #     offset_x = (screen_width - dest_width) // 2
+                #     offset_y = (screen_height - dest_height)
 
                     
-                    source = pr.Rectangle(0, 0, big_width, -big_height)
 
-                    destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
+                    
+                #     source = pr.Rectangle(0, 0, big_width, -big_height)
 
-                    pr.draw_texture_pro(render_target_regular.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
+                #     destination = pr.Rectangle(offset_x, offset_y, dest_width, dest_height)
+
+                #     pr.draw_texture_pro(render_target_regular.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
 
                 
                 

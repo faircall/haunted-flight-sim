@@ -83,6 +83,22 @@ def get_or_invoke_args(arena, variable_name, default_func, args):
 def normalized_sin(t):
     return 0.5 *math.sin(t) + 0.5
 
+def top_left_bottom_right_slope_inside(x, y, tile_height = 16):
+    # y = 1 - x equation    
+    return y <= tile_height - x
+
+def top_left_bottom_right_slope_outside(x, y, tile_height = 16):
+    # y = 1 - x equation    
+    return y > tile_height - x
+
+def bottom_left_top_right_slope_inside(tile_height, x, y):
+    # y = x equation    
+    return y <= x    
+
+def bottom_left_top_right_slope_outside(x, y):
+    # y = x equation    
+    return y > x
+
 def make_tile_map(width, height, tile_width, tile_height):
     # to be able to serialize this we should change the types here
     result = {}
@@ -666,7 +682,7 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     rect_col = pr.WHITE
     
     result = False
-    if pr.check_collision_point_rec(pr.get_mouse_position(), base_rect):
+    if pr.check_collision_point_rec(get_mouse_position(), base_rect):
         g_mouse_is_ui_captured = True
         rect_col = pr.YELLOW
         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
@@ -3184,7 +3200,7 @@ def make_tile_x_y(x, y):
 def pathfind_test_on_player(player_info, tile_map, game_camera, debug_queue = None):
     if "path" not in player_info:
         player_info["test_path"] = []
-    mouse_pos_world = pr.get_mouse_position()
+    mouse_pos_world = get_mouse_position()
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
@@ -3346,9 +3362,9 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
 
     player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"], tile_height * player_pos["tile_y"] + player_pos["y"])    
 
-    mouse_pos = mouse_pos_world_from_lowres() #pr.get_mouse_position()
+    mouse_pos = get_mouse_position() #mouse_pos_world_from_lowres() #pr.get_mouse_position()
     
-    mouse_pos_mine = {"x" : mouse_pos["x"], "y" : mouse_pos["y"]}
+    mouse_pos_mine = {"x" : mouse_pos.x, "y" : mouse_pos.y}
 
     arm_length = 20
 
@@ -3725,7 +3741,21 @@ def draw_debug_item(debug_state, debug_item, camera):
     if debug_state in debug_item["debug_modes"] or "all" in debug_item["debug_modes"]:
         debug_item.get("drawing_function", lambda x, y : x)(debug_item, camera)
     
-    
+
+
+g_internal_width = 480
+g_internal_height = 270
+def get_mouse_position():
+    mouse_pos = pr.get_mouse_position()
+
+    normalized_x = mouse_pos.x / max(1,pr.get_screen_width())
+    normalized_y = mouse_pos.y / max(1,pr.get_screen_height())
+
+    logical_x = normalized_x *  g_internal_width 
+    logical_y = normalized_y *  g_internal_height 
+    return pr.Vector2(logical_x, logical_y)
+
+
 
 def update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine):
     global g_mouse_is_ui_captured
@@ -3737,8 +3767,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     # if dt > 0:
     #     print(f"fps is {1/dt}")
     # issue here when debugging, people will accumulate insane time
-    dt = min(dt, 0.016)
-    mouse_pos = pr.get_mouse_position()
+    dt = min(dt, 0.05)
+    mouse_pos = get_mouse_position()
     time_elapsed = main_arena.get("time_elapsed", 0.0) 
     save_interval = 200
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
@@ -3898,7 +3928,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     
 
-    update_render_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
+    update_render_tile_map(camera_3d.position, entities, tile_map, get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
 
     pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
     if g_mute:
@@ -3914,8 +3944,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         tile_type = tile_map["tile_types"][current_tile_selection]
         tile_width = tile_map["tile_width"]
         tile_height = tile_map["tile_height"]
-        draw_tile_texture_from_type(game_assets, tile_type, 1700, 100)
-        pr.draw_text(tile_type.get("type",""), 1700, 50, 20, pr.WHITE)
+        draw_tile_texture_from_type(game_assets, tile_type, 300, 100)
+        pr.draw_text(tile_type.get("type",""), 300, 50, 20, pr.WHITE)
 
     if editor_mode == "entity_placing":
         pr.draw_text(entity_types[current_entity_selection], 1700, 50, 20, pr.WHITE)
@@ -3961,21 +3991,26 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             draw_debug_item(debug_state, debug_item, camera=camera_3d)
 
     # pr.end_drawing()
+    
+        #draw_cursor()
+    mp = get_mouse_position()
+    if editor_mode != "play":
+        pr.draw_circle(int(mp.x), int(mp.y), 4, pr.WHITE)
+    else:
+        pr.draw_circle(int(mp.x), int(mp.y), 1, pr.WHITE)
     pr.end_texture_mode()
 
-    if editor_mode != "play":
-        #draw_cursor()
-        mp = pr.get_mouse_position()
-        pr.draw_circle(int(mp.x), int(mp.y), 4, pr.WHITE)
+    
     
 
     # lighting rendering happens here I think
-    render_lighting(camera_3d.position, entities, tile_map, pr.get_mouse_position(), player_info, lighting_target, dt)
-    
+    if editor_mode == "play":
+        render_lighting(camera_3d.position, entities, tile_map, get_mouse_position(), player_info, lighting_target, dt)
+        
 
-    # apply lighting
+        # apply lighting
 
-    apply_lighting(render_target, lighting_target)
+        apply_lighting(render_target, lighting_target)
 
 
     # update persistent variables here
