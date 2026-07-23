@@ -689,7 +689,7 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
             result = True
             
     pr.draw_rectangle(int(pos.x), int(pos.y), width, height, rect_col)
-    pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
+    pr.draw_text(name, int(pos.x) + 4, int(pos.y + height/3), int(height/10), pr.BLACK)
     return result
 
 
