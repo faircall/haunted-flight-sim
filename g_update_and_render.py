@@ -378,7 +378,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     # we could think about where the camera *is*
     # and just draw the ones around that..?    
 
-    tile_select_modes = {"editing", "entity_placing"}
+    tile_select_modes = {"editing", "entity_placing", "light_placing"}
 
     for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)):
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
@@ -395,9 +395,12 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             
             tile_type = tile_map["tile_types"][tile_index]
 
+            if mode in tile_select_modes and x == mouse_tile_pos.x and y == mouse_tile_pos.y:
+                is_highlight = True
+
             if mode == "editing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
-                    is_highlight = True
+                    
                     # if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
                     #     # do a flood fill
                     #     seen = {}
@@ -417,7 +420,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
             if mode == "entity_placing":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
-                    is_highlight = True
+                    
                     if interactive_mouse_left_pressed():
                         new_entity = {}
                         entity_types = game_assets.get("entity_types", [])
@@ -593,13 +596,13 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
             texture_x = render_pos_x - 24
             texture_y = render_pos_y - 24            
-            debug_str = f"angle is {entity.get("sight_angle",0)}"
+            debug_str = f"angle is {round(entity.get("sight_angle",0))}"
             if debug_queue is not None:
                 debug_item = {
                     "type" : "text",
                     "drawing_function" : draw_debug_text,
                     "pos" : {"x" : render_pos_x, "y" : render_pos_y-10},                                        
-                    "font_size" : 16,
+                    "font_size" : 8,
                     "text" : debug_str,
                     "color" : "WHITE",
                     "z_sort" : 0,                    
@@ -617,20 +620,23 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet"), entity_source_rect, entity_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
 
             # also put some debut stuff here for the attack
-            pr.draw_text(f"{entity.get("current_state","")}", texture_x, texture_y - 40, 10, pr.WHITE)
-            pr.draw_text(f"{entity.get("attack_substate","")}", texture_x, texture_y - 60, 10, pr.WHITE)
+            if debug_queue is not None:
+                pr.draw_text(f"{entity.get("current_state","")}", texture_x, texture_y - 40, 10, pr.WHITE)
+                pr.draw_text(f"{entity.get("attack_substate","")}", texture_x, texture_y - 60, 10, pr.WHITE)
             if entity.get("current_state","") == "angry and attacking":
                 attack_point = entity.get("attack_point", {"x" : 0, "y" :0})
                 attack_timer = round(entity["attack_timer"], 2)
                 attack_cooldown = entity["attack_cooldown"]
                 attack_windup = entity["attack_windup_duration"]
                 if entity.get("attack_substate","") == "windup" or entity.get("attack_substate","") == "committed":
-                    pr.draw_text(f"{attack_timer}/{attack_windup} windup...", texture_x, texture_y - 20, 10, pr.WHITE)
+                    if debug_queue is not None:
+                        pr.draw_text(f"{attack_timer}/{attack_windup} windup...", texture_x, texture_y - 20, 10, pr.WHITE)
                     pr.draw_circle(int(attack_point["x"] - game_camera_x), int(attack_point["y"] - game_camera_y), 10, pr.YELLOW)
                 elif entity.get("attack_substate","") == "attacking":
                     
                     pr.draw_circle(int(attack_point["x"] - game_camera_x), int(attack_point["y"] - game_camera_y), 10, pr.RED)
-                    pr.draw_text(f"BAM {attack_timer}/{attack_cooldown}", texture_x, texture_y - 20, 10, pr.RED)
+                    if debug_queue is not None:
+                        pr.draw_text(f"BAM {attack_timer}/{attack_cooldown}", texture_x, texture_y - 20, 10, pr.RED)
 
 
 def transition_debug_state(current):
@@ -658,8 +664,10 @@ def transition_pause_state(current):
 def transition_editor_state(current):
     state_transitions = {
         "play" : "editing",
-        "editing" : "entity_placing",        
-        "entity_placing" : "play",
+        "editing" : "entity_placing",                
+        "entity_placing" : "light_placing",
+        "light_placing" : "play",
+
     }
     return state_transitions.get(current)
 
@@ -3431,7 +3439,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
     gunshot_timer = entity.get("gunshot_timer", 0)
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
 
-    pr.draw_text(f"player angle is {int(player_angle_current)}", 80, 30, 10, pr.RED)
+    pr.draw_text(f"player angle is {int(player_angle_current)}", 20, 30, 10, pr.RED)
 
     pr.draw_text(f"player health is {int(entity["health"])}", 80, 40, 10, pr.RED)
 
@@ -3930,7 +3938,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     update_render_tile_map(camera_3d.position, entities, tile_map, get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
 
-    pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
+    pr.draw_text(editor_mode, 10, 240, 10, pr.WHITE)
     if g_mute:
         pr.draw_text("sound muted", 1700, 60, 20, pr.WHITE)
 
