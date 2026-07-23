@@ -3948,7 +3948,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         pr.draw_text(tile_type.get("type",""), 300, 50, 20, pr.WHITE)
 
     if editor_mode == "entity_placing":
-        pr.draw_text(entity_types[current_entity_selection], 1700, 50, 20, pr.WHITE)
+        pr.draw_text(entity_types[current_entity_selection], 300, 50, 20, pr.WHITE)
 
     
     if editor_mode != "play":
