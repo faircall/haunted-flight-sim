@@ -18,6 +18,14 @@ import cyminiaudio as cma
 
 from dataclasses import dataclass, field
 
+g_sound_list_per_frame = []
+
+
+g_button_id = 0
+g_last_interacted_ui_id = -1
+g_interacted_ui_last_frame = False
+g_interacted_ui_this_frame = False
+
 g_default_entity_width = 16
 g_default_entity_height = 16
 
@@ -26,6 +34,8 @@ g_test_see_through_walls = False
 g_infinite_ammo = True
 
 g_mute = False
+
+g_editor_sounds = True
 
 g_mouse_is_ui_captured = False
 g_mouse_is_ui_captured_frames = 0
@@ -130,6 +140,7 @@ def make_tile_map(width, height, tile_width, tile_height):
     return result
 
 def draw_screen_boundary_rect(rect, off_color, on_color, button_states, button_id, mouse_pos, dt, mouse_move_speed, max_mouse_speed):
+    # this thing lets you move around the screen by having your cursor on the edge
     if not button_states.get("use_mouse_screen_navigation"):
         return
 
@@ -682,8 +693,13 @@ def make_default_camera():
     game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_ORTHOGRAPHIC)    
     return game_camera
 
-def do_button(pos, width = 50, height = 20, name = "some buttons"):
+def do_button(sounds, pos, width = 50, height = 20, name = "some buttons"):
+    global g_button_id
+    g_button_id += 1
     global g_mouse_is_ui_captured
+    global g_last_interacted_ui_id
+    global g_sound_list_per_frame
+    global g_interacted_ui_this_frame 
     font_width = 6
     width = len(name) * font_width
     base_rect = pr.Rectangle(int(pos.x), int(pos.y), width, height)
@@ -691,7 +707,13 @@ def do_button(pos, width = 50, height = 20, name = "some buttons"):
     
     result = False
     if pr.check_collision_point_rec(get_mouse_position(), base_rect):
-        g_mouse_is_ui_captured = True
+        g_interacted_ui_this_frame += 1
+        if g_last_interacted_ui_id != g_button_id:
+            g_last_interacted_ui_id = g_button_id
+            play_sound(sounds["ui_hover"])
+            # play a  sound here
+
+        g_mouse_is_ui_captured = True        
         rect_col = pr.YELLOW
         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
             result = True
@@ -904,7 +926,7 @@ def draw_load_level(arena, assets):
     start_index = max(0, start_index)
     end_index = min(len(saved_files), end_index)
 
-
+    
 
     dropdown_x = 100
     dropdown_y = 40
@@ -913,12 +935,12 @@ def draw_load_level(arena, assets):
     width = 120
     for i in range(start_index, end_index):
         saved_file = saved_files[i]
-        if do_button(pr.Vector2(dropdown_x, dropdown_y + drawn*height), width, height, f"{saved_file}"):
+        if do_button(assets.get("sounds"), pr.Vector2(dropdown_x, dropdown_y + drawn*height), width, height, f"{saved_file}"):
             selected_file = i
         drawn += 1    
 
     do_load = False
-    if do_button(pr.Vector2(dropdown_x + 200, dropdown_y), 100, 40, f"load {saved_files[selected_file]}"):
+    if do_button(assets.get("sounds"), pr.Vector2(dropdown_x + 200, dropdown_y), 100, 40, f"load {saved_files[selected_file]}"):
         do_load = True
     return selected_file, do_load
 
@@ -1037,7 +1059,9 @@ def load_sounds(engine):
 
     pistol_reload = load_sound(engine, "sounds/pistol_reload.wav", False, 0.75, 1, 0)
 
+    ui_hover = load_sound(engine, "sounds/ui_hover.wav", False, 0.75, 1, 0)
 
+    result["ui_hover"] = ui_hover
     result["pistol_reload"] = pistol_reload
 
     result["whoosh_pool"] = load_sound_pool(engine, 10, "whoosh.wav", 0.75, 0.7, 0)
@@ -3768,6 +3792,11 @@ def get_mouse_position():
 def update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine):
     global g_mouse_is_ui_captured
     global g_mouse_is_ui_captured_frames
+    global g_button_id 
+    global g_interacted_ui_this_frame 
+    global g_last_interacted_ui_id
+    g_interacted_ui_this_frame = 0
+    g_button_id = 0
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
     
@@ -3960,16 +3989,16 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     
     if editor_mode != "play":
-        if do_button(pr.Vector2(10, 100), name="reload assets"):        
+        if do_button(sounds, pr.Vector2(10, 100), name="reload assets"):        
             game_assets["textures"] = None
             game_assets["sounds"] = None
 
-        if do_button(pr.Vector2(10, 140), name="reset player"):        
+        if do_button(sounds, pr.Vector2(10, 140), name="reset player"):        
             player_info = None
 
     reset_all = False
     if editor_mode != "play":
-        if do_button(pr.Vector2(10, 10), name="reset all"):        
+        if do_button(sounds, pr.Vector2(10, 10), name="reset all"):        
             player_info = None
             tile_map = None
             game_assets["textures"] = None
@@ -3977,7 +4006,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             reset_all = True
         
     if tile_map and editor_mode == "editing":
-        if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
+        if do_button(sounds, pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
             current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
         current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
 
@@ -4053,6 +4082,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             g_mouse_is_ui_captured = False
             g_mouse_is_ui_captured_frames = 0
 
+    if g_interacted_ui_this_frame == 0:
+        g_last_interacted_ui_id = -1
     
 
     return result
