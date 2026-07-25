@@ -2128,6 +2128,20 @@ def move_position_by_velocity(start_pos, velocity, dt, tile_width, tile_height):
 
     return move_position_along_tiles(result, tile_width, tile_height)
 
+def vec2_move_towards(current, target, max_delta):
+    delta = vec2_subtract(target, current)
+    distance = vec2_norm(delta)
+
+    if distance == 0 or distance <= max_delta:
+        return {
+            "x": target["x"],
+            "y": target["y"],
+        }
+
+    movement = vec2_scale(delta, max_delta / distance)
+
+    return vec2_add(current, movement)
+
 def entity_position_is_legal(position, entity, tile_map, debug_queue=None):
     entity_points = make_player_points(
         position,
@@ -3448,111 +3462,82 @@ def point_in_rect(point_position, rectangle):
     return point_position["x"] >= rect_left and point_position["x"] <= rect_right and point_position["y"] >= rect_top and point_position["y"] <= rect_bottom 
     
 
-def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, sounds, debug_queue = None):
-    # i think the offset should be relative to _actual_ tile width
-    # and so our world position is always a sum of the tile start pos + offset
-
-
+def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, sounds, debug_queue=None):
     if editor_mode != "play":
-        return entity.get("position",{})
-    
-    player_pos = entity.get("position",{}) # top left
-        
+        return entity.get("position", {})
 
-    player_velocity = get_or_set(entity, "player_velocity", {"x" : 0, "y" : 0})
+    player_velocity = get_or_set(entity, "player_velocity", {"x": 0.0, "y": 0.0})
 
     player_footstep_timer = get_or_set(entity, "player_footstep_timer", 0)
 
-    player_footstep_timer_base_gap = 0.135
+    player_speed_max = 150.0
 
-    player_accel = 1500
+    player_accel = 1500.0
+    player_reverse_accel = 3000.0
+    player_decel = 1500.0
 
-    player_speed_max = 150
-
-    
-    
-
-    
-    # I think what we should do is resolve the vector into two components
-    # that are perpendicular
-    # and check each of those for collisions
-    # return either 0 or motion vectors,
-    # then sum thhem
-    new_pos = new_pos_from_old(player_pos)
-
-
-    # assume we CAN move
-
-    # need a direction vector to first normalize...
-
-    direction_vector = {"x" : 0.0, "y" : 0.0}
-
-
-
+    direction_vector = {
+        "x": 0.0,
+        "y": 0.0,
+    }
 
     if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        direction_vector["x"] = -1.0        
+        direction_vector["x"] -= 1.0
+
     if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        direction_vector["x"] = 1.0        
+        direction_vector["x"] += 1.0
+
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        direction_vector["y"] = -1.0        
+        direction_vector["y"] -= 1.0
+
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        direction_vector["y"] = 1.0        
+        direction_vector["y"] += 1.0
 
-    run_multiplier = 0
-    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
-        run_multiplier = 4
+    has_movement_input = (vec2_norm(direction_vector) > 0)
 
-    # if run_multiplier:
-    #     player_speed *= run_multiplier
+    if has_movement_input:
+        direction_vector = vec2_normalize(direction_vector)
 
-    direction_vector = vec2_normalize(direction_vector)    
+        target_velocity = vec2_scale(direction_vector, player_speed_max)
 
-    if (player_velocity["x"]*direction_vector["x"] < 0) or (player_velocity["y"]*direction_vector["y"] < 0):
-        player_accel *= 2
+        acceleration = player_accel
 
-    player_velocity = vec2_add(player_velocity, vec2_scale(direction_vector, dt * player_accel))
-    # correct in the case that we're diagonal but not full speed?
-    
-    
-    if vec2_norm(player_velocity) >= player_speed_max:
-        # this will need to be adjusted for sprinting -> walking transition
-        player_velocity = vec2_set_new_length(player_velocity, player_speed_max)
+        # Accelerate more strongly when changing to a genuinely
+        # opposing direction.
+        if vec2_dot(player_velocity, target_velocity) < 0:
+            acceleration = player_reverse_accel
 
+        player_velocity = vec2_move_towards(player_velocity, target_velocity, acceleration * dt)
 
-    min_speed = 10
-    current_speed = vec2_norm(player_velocity)
+    else:
+        # No input: approach a complete stop.
+        player_velocity = vec2_move_towards(player_velocity, {"x": 0.0, "y": 0.0}, player_decel * dt)
 
-    if current_speed > 0: # make this distance based rather than speed based, better accumulator
-        player_footstep_timer += dt * 0.003 * current_speed #although I guess this *is* a distance in disguise kinda
-    # else:
-    #     player_footstep_timer = 0
-
-    if player_footstep_timer >= player_footstep_timer_base_gap:
-        player_footstep_timer = 0
-        play_pool_sound("player_footstep_pool", sounds, -3, 3, 40, 1)
-        # print("playing pool sound")
-
-    entity["player_footstep_timer"] = player_footstep_timer
-
-    if vec2_norm(direction_vector) < 0.1 and vec2_norm(player_velocity) > min_speed:
-        player_decel = 10
-        # no buttons are pressed in this case, so subtract speed
-        friction_vector = vec2_scale(player_velocity, -1)        
-        player_velocity = vec2_add(player_velocity, vec2_scale(friction_vector, dt * player_decel))
-    elif vec2_norm(direction_vector) < 0.1 and current_speed > 0 and current_speed <= min_speed:
-        # print("killing velocity")
-        player_velocity = {"x" : 0, "y" : 0}
-    
-    entity["player_velocity"] = player_velocity
+    # move_entity_with_velocity mutates this dictionary to contain
+    # the collision-resolved velocity. A blocked component is
+    # therefore removed from persistent player momentum.
     new_pos = move_entity_with_velocity(entity, player_velocity, tile_map, debug_queue, dt)
 
-        
+    entity["player_velocity"] = player_velocity
 
-
-    update_tile_manager(player_pos, new_pos, "player", tile_map, debug_queue)
     
+    resolved_speed = vec2_norm(player_velocity)
+
+    player_footstep_timer_base_gap = 0.135
+
+    if resolved_speed > 0:
+        player_footstep_timer += (dt * 0.003 * resolved_speed)
+
+    if (player_footstep_timer >= player_footstep_timer_base_gap):
+        player_footstep_timer = 0
+
+        play_pool_sound("player_footstep_pool", sounds,-3, 3, 40, 1)
+
+    entity["player_footstep_timer"] = (player_footstep_timer)
+
     return new_pos
+
+
 
 def get_player_center_screen_space(tile_width, tile_height, player_pos, game_camera):
     player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
