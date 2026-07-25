@@ -18,6 +18,27 @@ import cyminiaudio as cma
 
 from dataclasses import dataclass, field
 
+INV_SQRT_2 = 1.0 / math.sqrt(2.0)
+
+g_tile_shape_normals = {
+    1: {
+        "x": INV_SQRT_2,
+        "y": INV_SQRT_2,
+    },
+    2: {
+        "x": -INV_SQRT_2,
+        "y": INV_SQRT_2,
+    },
+    3: {
+        "x": -INV_SQRT_2,
+        "y": -INV_SQRT_2,
+    },
+    4: {
+        "x": INV_SQRT_2,
+        "y": -INV_SQRT_2,
+    },
+}
+
 g_sound_list_per_frame = []
 
 
@@ -101,21 +122,73 @@ def get_or_invoke_args(arena, variable_name, default_func, args):
 def normalized_sin(t):
     return 0.5 *math.sin(t) + 0.5
 
-def top_left_bottom_right_slope_inside(x, y, tile_height = 16):
-    # y = 1 - x equation    
-    return y <= tile_height - x
+def point_inside_tile_shape(shape_index, local_x, local_y, tile_width, tile_height):
+    if shape_index == 0:
+        return True
 
-def top_left_bottom_right_slope_outside(x, y, tile_height = 16):
-    # y = 1 - x equation    
-    return y > tile_height - x
+    u = local_x / tile_width
+    v = local_y / tile_height
 
-def bottom_left_top_right_slope_inside(tile_height, x, y):
-    # y = x equation    
-    return y <= x    
+    if shape_index == 1:
+        # triangle top left
+        return u + v <= 1.0
 
-def bottom_left_top_right_slope_outside(x, y):
-    # y = x equation    
-    return y > x
+    if shape_index == 2:
+        # triangle top right
+        return v <= u
+
+    if shape_index == 3:
+        # triangle bottom right
+        return u + v >= 1.0
+
+    if shape_index == 4:
+        # triangle bottom left
+        return v >= u
+
+    # fail safe
+    return True
+
+def get_tile_shape_collision(position, tile_map):
+    tile_x = position.get("tile_x", 0)
+    tile_y = position.get("tile_y", 0)
+
+    if tile_not_in_bounds(tile_x, tile_y, tile_map):
+        return {
+            "collides": True,
+            "shape_index": 0,
+            "normal": None,
+        }
+
+    tile_index = (tile_y * tile_map["map_width"] + tile_x)
+
+    tile = tile_map["tiles"][tile_index]
+    tile_type = tile_map["tile_types"][tile.get("index", 0)]
+
+    if not tile_type_is_collidable(tile_type.get("type", "")):
+        return {
+            "collides": False,
+            "shape_index": None,
+            "normal": None,
+        }
+
+    shape_index = tile.get("shape_index", 0)
+
+    collides = point_inside_tile_shape(shape_index, position.get("x", 0), position.get("y", 0), tile_map["tile_width"], tile_map["tile_height"])
+
+    normal = g_tile_shape_normals.get(shape_index)
+
+    return {
+        "collides": collides,
+        "shape_index": shape_index,
+        "normal": normal,
+        "tile": tile,
+    }
+
+def position_collides_within_tile_shape(position, tile_map):
+    collision = get_tile_shape_collision(position, tile_map)
+
+    return collision["collides"]
+
 
 def make_tile_map(width, height, tile_width, tile_height):
     # to be able to serialize this we should change the types here
@@ -355,9 +428,21 @@ def tile_not_in_bounds(tile_x, tile_y, tile_map):
 def tile_in_bounds(tile_x, tile_y, tile_map):
     return not tile_not_in_bounds(tile_x, tile_y, tile_map)
 
+def draw_masked_tile_texture(texture, render_pos, shape_index, game_assets, scale=1.0):
+    tile_mask = game_assets["shaders"]["tile_mask"]
+    shader = tile_mask["shader"]
+    shape_index_location = tile_mask["shape_index_location"]
 
+    shape_index_ptr = pr.ffi.new("int *", shape_index)
 
-def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_entity, mode, debug_queue):
+    pr.set_shader_value(shader, shape_index_location, shape_index_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_INT)
+
+    pr.begin_shader_mode(shader)
+    pr.draw_texture_ex(texture, render_pos, 0.0, scale, pr.WHITE)
+    pr.end_shader_mode()
+    
+
+def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
@@ -409,6 +494,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             tile_to_draw = tile_map["tiles"][index]
             is_highlight = False
             tile_index = tile_to_draw.get("index",0)
+            shape_index = tile_to_draw.get("shape_index",0)
+            shape_to_draw = g_tile_collision_shapes[shape_index]
             color_to_draw = tile_map["tile_types"][tile_index].get("color")
             tile_color = color_map(color_to_draw)
             
@@ -434,6 +521,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
                     if interactive_mouse_left_down():
                         tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
+                        tile_map["tiles"][y*map_width + x]["shape_index"] = current_shape_selection                    
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
@@ -484,17 +572,17 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
             render_pos = pr.Vector2((x*tile_width - game_camera_x), (y*tile_height - game_camera_y))
             if tile_type.get("type") == "wood":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), render_pos, 0.0, 1, pr.WHITE)
+                draw_masked_tile_texture(game_assets.get("textures",{}).get("wood_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "wall":                                
                 if mode == "editing":
-                    pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture_editor"), render_pos, 0.0, 1, pr.WHITE)                    
+                    draw_masked_tile_texture(game_assets.get("textures",{}).get("wall_texture_editor"), render_pos, shape_index, game_assets)                    
                 else:
-                    render_pos.y = ((y-1)*tile_height - game_camera_y)
-                    pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), render_pos, 0.0, 1, pr.WHITE)
+                    # render_pos.y = ((y-1)*tile_height - game_camera_y)
+                    draw_masked_tile_texture(game_assets.get("textures",{}).get("wall_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "stone":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
+                draw_masked_tile_texture(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "carpet":  #change to other tile               
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
+                draw_masked_tile_texture(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, shape_index, game_assets)
             if is_highlight:
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, pr.WHITE)
 
@@ -1130,7 +1218,30 @@ def load_sprite_sheets():
     return result
     
 
+def load_shaders():
+    result = {}
+
+    tile_mask = pr.load_shader("", "shaders/tile_mask.fs")
+
+    result["tile_mask"] = {
+        "shader" : tile_mask,
+        "shape_index_location": pr.get_shader_location(tile_mask, "shapeIndex")
+    }
+
+    return result
+
+def unload_shaders(shaders):
+    if not shaders:
+        return
+
+    for shader_info in shaders.values():
+        shader = shader_info.get("shader")
+        if shader is not None:
+            pr.unload_shader(shader)
     
+
+
+
 def load_textures():
     result = {}    
     # we could make this easier to use if we monitored the files in the directory once
@@ -1139,7 +1250,7 @@ def load_textures():
     result["pistol_texture_flipped"] = pr.load_texture("art/pistol_flipped.png")
     result["wood_texture"] = pr.load_texture("art/WoodDark.png")
     result["wall_texture_editor"] = pr.load_texture("art/WallDark.png")
-    result["wall_texture"] = pr.load_texture("art/WallDarkTallChunky16x.png")
+    result["wall_texture"] = pr.load_texture("art/WallDarkChunky16x.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_16x.png")
@@ -1887,33 +1998,50 @@ def make_player_points(player_pos, entity_width, entity_height, tile_width, tile
     
     return player_points
 
+def remove_velocity_into_surface(velocity, normal):
+    velocity_into_surface = vec2_dot(velocity, normal)
+
+    
+    if velocity_into_surface >= 0:
+        return velocity
+
+    return vec2_subtract(velocity, vec2_scale(normal, velocity_into_surface))
+
 def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile_map, dt, debug_queue = None):
     # TODO use this for any entity but only for walls
-    collisions = { "x" : False, "y" : False}
+    collisions = { "x" : False, "y" : False, "slope_normals" : []}
     for potential_pos in player_points.values():    
-        new_pos_x_direction = new_pos_from_old(potential_pos)
-        new_pos_y_direction = new_pos_from_old(potential_pos)
+        candidate = new_pos_from_old(potential_pos)
 
-        new_pos_x_direction['x'] += new_pos_velocity['x'] * dt
+        candidate["x"] += new_pos_velocity["x"] * dt
+        candidate["y"] += new_pos_velocity["y"] * dt
 
-        new_pos_y_direction['y'] += new_pos_velocity['y'] * dt
+        candidate = move_position_along_tiles(
+            candidate,
+            tile_map["tile_width"],
+            tile_map["tile_height"],
+        )
 
-        # these need to be adjusted!!!!
-        tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
-        tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
-        
-        
-        if tile_type_is_collidable(tile_at_pos_x):
-            collisions["x"] = True            
-        if tile_type_is_collidable(tile_at_pos_y):
-            collisions["y"] = True            
+        collision = get_tile_shape_collision(candidate, tile_map)
+
+        if not collision["collides"]:
+            continue
+
+        shape_index = collision["shape_index"]
+
+        if shape_index == 0:
+            collisions["x"] = True
+            collisions["y"] = True
+        else:
+            if collision["normal"] not in collisions["slope_normals"]:
+                collisions["slope_normals"].append(collision["normal"])            
     return collisions
 
 def is_legal_position_on_tilemap(player_points, tile_map, debug_queue = None):        
     for potential_pos in player_points.values():            
         # these need to be adjusted!!!!
         tile_at_pos = get_tile_type_from_pos(potential_pos, tile_map, debug_queue)                        
-        if tile_type_is_collidable(tile_at_pos):
+        if position_collides_within_tile_shape(potential_pos, tile_map):
             return False        
     return True
 
@@ -2198,6 +2326,22 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
 
     wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
 
+    for slope_normal in wall_collisions["slope_normals"]:
+        resolved_velocity = remove_velocity_into_surface(new_entity_velocity, slope_normal)
+
+        new_entity_velocity["x"] = resolved_velocity["x"]
+        new_entity_velocity["y"] = resolved_velocity["y"]
+
+    new_entity_position = vec2_add(entity.get("position", {}), vec2_scale(new_entity_velocity, dt))
+
+    new_entity_position["tile_x"] = (entity.get("position", {}).get("tile_x", 0))
+
+    new_entity_position["tile_y"] = (entity.get("position", {}).get("tile_y", 0))
+
+    new_entity_position["source"] = "ai"
+    new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
+    
+
     entity_collision_pos_x = new_pos_from_old(candidate_start_pos)
     entity_collision_pos_x["x"] += new_entity_velocity["x"]*dt                                    
     entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_width, tile_height)
@@ -2274,7 +2418,7 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
 
     final_points = make_player_points(new_entity_position, entity["entity_width"], entity["entity_height"], tile_map["tile_width"], tile_map["tile_height"])
     if not is_legal_position_on_tilemap(final_points, tile_map, debug_queue):
-        print("doing super safe fallback rejection")
+        print("doing super safe fallback rejection!")
         new_entity_position = entity["position"]
 
     # THEN update the tiles
@@ -3880,10 +4024,18 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         game_assets["sounds"] = sounds
     textures = game_assets.get("textures")
     if not textures:
-        textures = load_textures()
-        sprite_sheets = load_sprite_sheets()
+        textures = load_textures()        
         game_assets["textures"] = textures
+
+    sprite_sheets = game_assets.get("sprite_sheets")
+    if not sprite_sheets:
+        sprite_sheets = load_sprite_sheets()
         game_assets["sprite_sheets"] = sprite_sheets
+
+    shaders = game_assets.get("shaders")
+    if not shaders:
+        shaders = load_shaders()
+        game_assets["shaders"] = shaders
 
     entity_types = game_assets.get("entity_types")
     if not entity_types:
@@ -3914,6 +4066,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
     current_tile_selection = main_arena.get("current_tile_selection", 0)
+    current_shape_selection = main_arena.get("current_shape_selection", 0)
 
 
     current_entity_selection = main_arena.get("current_entity_selection", 0)
@@ -3980,7 +4133,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     
 
-    update_render_tile_map(camera_3d.position, entities, tile_map, get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
+    update_render_tile_map(camera_3d.position, entities, tile_map, get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
 
     pr.draw_text(editor_mode, 10, 240, 10, pr.WHITE)
     if g_mute:
@@ -4005,7 +4158,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     
     if show_options:
         if do_button(sounds, pr.Vector2(10, 100), name="reload assets"):        
+            # also unload everything here
+            unload_shaders(game_assets["shaders"])
             game_assets["textures"] = None
+            game_assets["sprite_sheets"] = None
+            game_assets["shaders"] = None
             game_assets["sounds"] = None
 
         if do_button(sounds, pr.Vector2(10, 140), name="reset player"):        
@@ -4020,10 +4177,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             entities = None
             reset_all = True
         
-    if tile_map and show_options:
-        if do_button(sounds, pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
-            current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
-        current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
+    if tile_map and editor_mode == "editing":        
+        if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+            pr.draw_text(f"SHAPE SELECTED\n: {g_tile_collision_shapes[current_shape_selection]}", 300, 80, 10, pr.WHITE)
+            current_shape_selection = update_mousewheel_selection(current_shape_selection, len(g_tile_collision_shapes))
+        else:
+            current_tile_selection = update_mousewheel_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))
 
     if tile_map and editor_mode == "entity_placing":        
         current_entity_selection = update_mousewheel_selection(current_entity_selection, len(entity_types))
@@ -4075,6 +4234,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["do_load_level"] = do_load_level
     changes["time_elapsed"] = time_elapsed + dt
     changes["current_tile_selection"] = current_tile_selection
+    changes["current_shape_selection"] = current_shape_selection
     changes["current_entity_selection"] = current_entity_selection
     changes["auto_reload"] = auto_reload    
     changes["ui_button_states"] = ui_button_states
