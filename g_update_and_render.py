@@ -516,7 +516,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     else:
         gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
 
-    player_entity["gun_render_pos"] = gun_pos
+    player_entity["gun_render_pos"] = {"x": gun_pos.x, "y": gun_pos.y}
 
     gun_angle = angle_from_vector(player_entity.get("aim_direction")) - 180 # some bs here
 
@@ -960,8 +960,8 @@ def load_state(file_name):
         pr.draw_text(f"loaded editor state {file_path}", 400, 40, 30, pr.WHITE)        
         return new_arena
         print(f"saved editor state")
-    except Exception as e:
-        print(f"issue saving state {e}")        
+    except Exception as e:        
+        print(f"issue loading state {e}")        
 
 def save_state(arena):
     directory = g_save_directory   
@@ -973,8 +973,9 @@ def save_state(arena):
             pickle.dump(arena, f)
         pr.draw_text(f"saved editor state {file_path}", 400, 40, 30, pr.WHITE)        
         print(f"saved editor state")
-    except Exception as e:
+    except Exception as e:        
         print(f"issue saving state {e}")        
+        find_unpickleable_values(arena)
 
 def get_saved_files():    
     directory = g_save_directory   
@@ -4137,7 +4138,7 @@ def render_lighting(game_camera, entities, tile_map, mouse_pos_world, player_ent
 
     # pr.draw_circle(int(player_render_pos.x ), int(player_render_pos.y + 40), 30, pr.RED)
     if player_entity.get("gunshot_timer",0) > 0:
-        draw_ringed_circular_light(player_entity["gun_render_pos"].x, player_entity["gun_render_pos"].y, 30, 2, 40, 220, 200, 240, 10, 20)
+        draw_ringed_circular_light(player_entity["gun_render_pos"]["x"], player_entity["gun_render_pos"]["y"], 30, 2, 40, 220, 200, 240, 10, 20)
     pr.end_blend_mode()
     pr.end_texture_mode()
 
@@ -4158,3 +4159,38 @@ def apply_lighting(scene, lighting):
     pr.draw_texture_pro(lighting.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
     pr.end_blend_mode()
     pr.end_texture_mode()
+
+def find_unpickleable_values(value, path="arena", seen=None):
+    if seen is None:
+        seen = set()
+
+    value_id = id(value)
+
+    if value_id in seen:
+        return
+
+    seen.add(value_id)
+
+    try:
+        pickle.dumps(value)
+        return
+    except Exception:
+        # don't want to handle it yet
+        pass
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            find_unpickleable_values(child, f"{path}[{key!r}]", seen)
+        return
+
+    if hasattr(value, "items"):
+        for key, child in value.items():
+            find_unpickleable_values(child, f"{path}[{key!r}]")
+        return
+
+    if isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            find_unpickleable_values(child, f"{path}[{index}]", seen)
+        return
+
+    print("Can't be pickled:", path, type(value), repr(value))
