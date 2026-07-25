@@ -3843,12 +3843,17 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     save_elapsed += dt
     saved_files = main_arena.get("saved_files") 
+
+    show_options = main_arena.get("show_options", False) 
     
     do_load_level = main_arena.get("do_load_level", False) 
     editor_mode = main_arena.get("editor_mode", "editing")
     collision_mode = main_arena.get("collision_mode", "regular")
 
     global g_mute   
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_O):
+        show_options = not show_options
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F11):
         g_mute = not g_mute
 
@@ -3998,7 +4003,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         pr.draw_text(entity_types[current_entity_selection], 300, 50, 20, pr.WHITE)
 
     
-    if editor_mode != "play":
+    if show_options:
         if do_button(sounds, pr.Vector2(10, 100), name="reload assets"):        
             game_assets["textures"] = None
             game_assets["sounds"] = None
@@ -4007,7 +4012,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             player_info = None
 
     reset_all = False
-    if editor_mode != "play":
+    if show_options:
         if do_button(sounds, pr.Vector2(10, 10), name="reset all"):        
             player_info = None
             tile_map = None
@@ -4015,7 +4020,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             entities = None
             reset_all = True
         
-    if tile_map and editor_mode == "editing":
+    if tile_map and show_options:
         if do_button(sounds, pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
             current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
         current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
@@ -4062,6 +4067,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     # update persistent variables here
     changes = main_arena.evolver()
+    changes["show_options"] = show_options
     changes["pause_state"] = pause_state
     changes["debug_state"] = debug_state
     changes["collision_mode"] = collision_mode
