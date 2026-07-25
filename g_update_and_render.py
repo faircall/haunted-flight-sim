@@ -40,6 +40,14 @@ g_editor_sounds = True
 g_mouse_is_ui_captured = False
 g_mouse_is_ui_captured_frames = 0
 
+g_tile_collision_shapes = [
+    "full",
+    "triangle_top_left",
+    "triangle_top_right",
+    "triangle_bottom_right",
+    "triangle_bottom_left",
+]
+
 @dataclass(order=True)
 class PriorityQueueEntry:
     priority: float
@@ -191,7 +199,7 @@ def color_map(color_enum):
 
 def draw_tile_texture_from_type(game_assets, tile_type, x, y):
     if tile_type.get("type") == "wood":                
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2((x), (y)), 0.0, 2, pr.WHITE)
+        pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
     elif tile_type.get("type") == "wall":                
         pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
     elif tile_type.get("type") == "stone":                
@@ -476,7 +484,7 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
 
             render_pos = pr.Vector2((x*tile_width - game_camera_x), (y*tile_height - game_camera_y))
             if tile_type.get("type") == "wood":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), render_pos, 0.0, 2, pr.WHITE)
+                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), render_pos, 0.0, 1, pr.WHITE)
             elif tile_type.get("type") == "wall":                                
                 if mode == "editing":
                     pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture_editor"), render_pos, 0.0, 1, pr.WHITE)                    
@@ -3901,6 +3909,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
     current_tile_selection = main_arena.get("current_tile_selection", 0)
+
 
     current_entity_selection = main_arena.get("current_entity_selection", 0)
 
