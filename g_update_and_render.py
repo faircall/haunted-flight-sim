@@ -1208,6 +1208,8 @@ def get_or_create_test_lights(entities, tile_map):
             "radius": 100.0,
             "intensity": 1.0,
             "falloff": 2.0,
+            "casts_shadows": True,
+            "shadow_bias": 0.75,
             "enabled": True
         }
 
@@ -1237,12 +1239,13 @@ def make_player_flashlight(player_entity, tile_map):
         "radius": 180.0,
         "intensity": 1.2,
         "falloff": 1.4,
+        "casts_shadows": True,
+        "shadow_bias": 0.75,
         "near_fade_distance": 14.0,
         "inner_angle": 13.0,
         "outer_angle": 27.0,
         "enabled": player_entity.get("flashlight_enabled", True)
     }
-
 
 def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader):
     if not light.get("enabled", True):
@@ -1291,66 +1294,21 @@ def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_sh
     set_shader_float(shader, light_shader["outer_cone_cos_location"], outer_cone_cos)
     set_shader_int(shader, light_shader["light_type_location"], light_type)
 
-    draw_x = int(screen_x - radius)
-    draw_y = int(screen_y - radius)
-    draw_size = int(math.ceil(radius * 2.0))
-
     pr.begin_shader_mode(shader)
-    pr.draw_rectangle(draw_x, draw_y, draw_size, draw_size, pr.WHITE)
+
+    if light.get("casts_shadows", True):
+        segments = get_nearby_tile_occluder_segments(world_position, radius, tile_map)
+        polygon = build_light_visibility_polygon(light, world_position, radius, segments)
+        draw_light_visibility_polygon(light, world_position, polygon, game_camera)
+    else:
+        draw_x = int(screen_x - radius)
+        draw_y = int(screen_y - radius)
+        draw_size = int(math.ceil(radius * 2.0))
+        pr.draw_rectangle(draw_x, draw_y, draw_size, draw_size, pr.WHITE)
+
     pr.end_shader_mode()
 
-def olddraw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader):
-    if not light.get("enabled", True):
-        return
 
-    radius = max(1.0, float(light.get("radius", 100.0)))
-    intensity = max(0.0, float(light.get("intensity", 1.0)))
-    falloff = max(0.0001, float(light.get("falloff", 2.0)))
-
-    world_position = get_light_world_position(light, tile_map)
-    screen_x = world_position["x"] - game_camera.x
-    screen_y = world_position["y"] - game_camera.y
-
-    target_width = lighting_target.texture.width
-    target_height = lighting_target.texture.height
-
-    # Avoid running the fragment shader for lights completely outside the view.
-    if screen_x + radius < 0 or screen_y + radius < 0 or screen_x - radius >= target_width or screen_y - radius >= target_height:
-        return
-
-    direction = vec2_normalize(light.get("direction", {"x": 1.0, "y": 0.0}))
-    if vec2_norm(direction) == 0:
-        direction = {"x": 1.0, "y": 0.0}
-
-    red, green, blue = normalize_light_color(light.get("color", [1.0, 1.0, 1.0]))
-
-    inner_angle = float(light.get("inner_angle", 20.0))
-    outer_angle = max(inner_angle + 0.001, float(light.get("outer_angle", 35.0)))
-
-    inner_cone_cos = math.cos(math.radians(inner_angle))
-    outer_cone_cos = math.cos(math.radians(outer_angle))
-
-    light_type = 1 if light.get("type", "point") == "spot" else 0
-    shader = light_shader["shader"]
-
-    set_shader_vec2(shader, light_shader["resolution_location"], target_width, target_height)
-    set_shader_vec2(shader, light_shader["light_position_location"], screen_x, screen_y)
-    set_shader_vec2(shader, light_shader["light_direction_location"], direction["x"], direction["y"])
-    set_shader_vec3(shader, light_shader["light_color_location"], red, green, blue)
-    set_shader_float(shader, light_shader["radius_location"], radius)
-    set_shader_float(shader, light_shader["intensity_location"], intensity)
-    set_shader_float(shader, light_shader["falloff_location"], falloff)
-    set_shader_float(shader, light_shader["inner_cone_cos_location"], inner_cone_cos)
-    set_shader_float(shader, light_shader["outer_cone_cos_location"], outer_cone_cos)
-    set_shader_int(shader, light_shader["light_type_location"], light_type)
-
-    draw_x = int(screen_x - radius)
-    draw_y = int(screen_y - radius)
-    draw_size = int(math.ceil(radius * 2.0))
-
-    pr.begin_shader_mode(shader)
-    pr.draw_rectangle(draw_x, draw_y, draw_size, draw_size, pr.WHITE)
-    pr.end_shader_mode()
 
 def load_sounds(engine):
     result = {}
@@ -1512,11 +1470,12 @@ def get_tile_at_index(flat_index, tile_map):
     tile_at_index = tile_map["tiles"][flat_index]
     return tile_at_index
 
-def update_player_flashlight_toggle(player_entity, editor_mode, pause_state):
+def update_player_flashlight_toggle(player_entity, editor_mode, pause_state, sounds):
     if "flashlight_enabled" not in player_entity:
         player_entity["flashlight_enabled"] = True
 
     if editor_mode == "play" and pause_state == "unpaused" and pr.is_key_pressed(pr.KeyboardKey.KEY_F):
+        play_sound(sounds["ui_hover"])
         player_entity["flashlight_enabled"] = not player_entity["flashlight_enabled"]
 
     return player_entity["flashlight_enabled"]
@@ -4322,7 +4281,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if pause_state != "paused":
         player_info["position"] = update_player_position(entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, sounds=sounds, tile_map=tile_map, debug_queue=debug_queue)
-        update_player_flashlight_toggle(player_info, editor_mode, pause_state)
+        update_player_flashlight_toggle(player_info, editor_mode, pause_state, sounds)
     
     if pause_state != "paused":
         # I think we want to have the current 'hot spots' in terms of bullets cached
@@ -4529,6 +4488,243 @@ def render_lighting(game_camera, entities, tile_map, player_entity, lighting_tar
 
     pr.end_blend_mode()
     pr.end_texture_mode()
+
+def cross_2d(a, b):
+    return a["x"] * b["y"] - a["y"] * b["x"]
+
+def normalize_angle_signed(angle):
+    return (angle + math.pi) % (math.pi * 2.0) - math.pi
+
+def ray_segment_intersection_distance(origin, direction, segment_start, segment_end):
+    segment_direction = vec2_subtract(segment_end, segment_start)
+    denominator = cross_2d(direction, segment_direction)
+
+    if abs(denominator) < 0.0000001:
+        return None
+
+    origin_to_segment = vec2_subtract(segment_start, origin)
+    ray_distance = cross_2d(origin_to_segment, segment_direction) / denominator
+    segment_amount = cross_2d(origin_to_segment, direction) / denominator
+
+    if ray_distance < 0.0001:
+        return None
+
+    if segment_amount < -0.000001 or segment_amount > 1.000001:
+        return None
+
+    return ray_distance
+
+def tile_shape_local_vertices(shape_index, tile_width, tile_height):
+    if shape_index == 0:
+        return [
+            {"x": 0.0, "y": 0.0},
+            {"x": float(tile_width), "y": 0.0},
+            {"x": float(tile_width), "y": float(tile_height)},
+            {"x": 0.0, "y": float(tile_height)}
+        ]
+
+    if shape_index == 1:
+        return [
+            {"x": 0.0, "y": 0.0},
+            {"x": float(tile_width), "y": 0.0},
+            {"x": 0.0, "y": float(tile_height)}
+        ]
+
+    if shape_index == 2:
+        return [
+            {"x": 0.0, "y": 0.0},
+            {"x": float(tile_width), "y": 0.0},
+            {"x": float(tile_width), "y": float(tile_height)}
+        ]
+
+    if shape_index == 3:
+        return [
+            {"x": float(tile_width), "y": 0.0},
+            {"x": float(tile_width), "y": float(tile_height)},
+            {"x": 0.0, "y": float(tile_height)}
+        ]
+
+    if shape_index == 4:
+        return [
+            {"x": 0.0, "y": 0.0},
+            {"x": float(tile_width), "y": float(tile_height)},
+            {"x": 0.0, "y": float(tile_height)}
+        ]
+
+    return []
+
+def occluder_segment_key(segment_start, segment_end):
+    start = (round(segment_start["x"], 4), round(segment_start["y"], 4))
+    end = (round(segment_end["x"], 4), round(segment_end["y"], 4))
+
+    if start <= end:
+        return start, end
+
+    return end, start
+
+def get_nearby_tile_occluder_segments(light_position, radius, tile_map):
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]
+    map_width = tile_map["map_width"]
+    map_height = tile_map["map_height"]
+
+    min_tile_x = max(0, math.floor((light_position["x"] - radius) / tile_width) - 1)
+    max_tile_x = min(map_width - 1, math.floor((light_position["x"] + radius) / tile_width) + 1)
+    min_tile_y = max(0, math.floor((light_position["y"] - radius) / tile_height) - 1)
+    max_tile_y = min(map_height - 1, math.floor((light_position["y"] + radius) / tile_height) + 1)
+
+    segment_counts = {}
+    segments_by_key = {}
+
+    for tile_y in range(min_tile_y, max_tile_y + 1):
+        for tile_x in range(min_tile_x, max_tile_x + 1):
+            tile = tile_map["tiles"][tile_y * map_width + tile_x]
+            tile_type = tile_map["tile_types"][tile.get("index", 0)]
+
+            if not tile_type_is_collidable(tile_type.get("type", "")):
+                continue
+
+            shape_index = tile.get("shape_index", 0)
+            local_vertices = tile_shape_local_vertices(shape_index, tile_width, tile_height)
+            world_vertices = []
+
+            for vertex in local_vertices:
+                world_vertices.append({
+                    "x": tile_x * tile_width + vertex["x"],
+                    "y": tile_y * tile_height + vertex["y"]
+                })
+
+            for vertex_index in range(len(world_vertices)):
+                segment_start = world_vertices[vertex_index]
+                segment_end = world_vertices[(vertex_index + 1) % len(world_vertices)]
+                segment_key = occluder_segment_key(segment_start, segment_end)
+
+                segment_counts[segment_key] = segment_counts.get(segment_key, 0) + 1
+                segments_by_key[segment_key] = {"start": segment_start, "end": segment_end}
+
+    result = []
+
+    for segment_key, count in segment_counts.items():
+        if count == 1:
+            result.append(segments_by_key[segment_key])
+
+    return result
+
+def get_visibility_ray_angles(light, light_position, segments):
+    light_type = light.get("type", "point")
+    endpoint_epsilon = 0.0005
+
+    if light_type == "spot":
+        direction = vec2_normalize(light.get("direction", {"x": 1.0, "y": 0.0}))
+
+        if vec2_norm(direction) == 0:
+            direction = {"x": 1.0, "y": 0.0}
+
+        centre_angle = math.atan2(direction["y"], direction["x"])
+        outer_angle = math.radians(float(light.get("outer_angle", 35.0)))
+        ray_deltas = []
+        seen_deltas = set()
+        baseline_ray_count = 32
+
+        def add_delta(delta):
+            if delta < -outer_angle or delta > outer_angle:
+                return
+
+            key = round(delta, 7)
+
+            if key not in seen_deltas:
+                seen_deltas.add(key)
+                ray_deltas.append(delta)
+
+        for ray_index in range(baseline_ray_count + 1):
+            amount = ray_index / baseline_ray_count
+            add_delta(-outer_angle + amount * outer_angle * 2.0)
+
+        for segment in segments:
+            for endpoint in (segment["start"], segment["end"]):
+                endpoint_angle = math.atan2(endpoint["y"] - light_position["y"], endpoint["x"] - light_position["x"])
+                endpoint_delta = normalize_angle_signed(endpoint_angle - centre_angle)
+
+                add_delta(endpoint_delta - endpoint_epsilon)
+                add_delta(endpoint_delta)
+                add_delta(endpoint_delta + endpoint_epsilon)
+
+        ray_deltas.sort()
+        return [centre_angle + delta for delta in ray_deltas]
+
+    ray_angles = []
+    seen_angles = set()
+    baseline_ray_count = 64
+
+    def add_angle(angle):
+        normalized_angle = angle % (math.pi * 2.0)
+        key = round(normalized_angle, 7)
+
+        if key not in seen_angles:
+            seen_angles.add(key)
+            ray_angles.append(normalized_angle)
+
+    for ray_index in range(baseline_ray_count):
+        add_angle((ray_index / baseline_ray_count) * math.pi * 2.0)
+
+    for segment in segments:
+        for endpoint in (segment["start"], segment["end"]):
+            endpoint_angle = math.atan2(endpoint["y"] - light_position["y"], endpoint["x"] - light_position["x"])
+
+            add_angle(endpoint_angle - endpoint_epsilon)
+            add_angle(endpoint_angle)
+            add_angle(endpoint_angle + endpoint_epsilon)
+
+    ray_angles.sort()
+    return ray_angles
+
+def build_light_visibility_polygon(light, light_position, radius, segments):
+    ray_angles = get_visibility_ray_angles(light, light_position, segments)
+    shadow_bias = max(0.0, float(light.get("shadow_bias", 0.75)))
+    polygon = []
+
+    for ray_angle in ray_angles:
+        ray_direction = {"x": math.cos(ray_angle), "y": math.sin(ray_angle)}
+        closest_distance = radius
+        found_intersection = False
+
+        for segment in segments:
+            intersection_distance = ray_segment_intersection_distance(light_position, ray_direction, segment["start"], segment["end"])
+
+            if intersection_distance is not None and intersection_distance < closest_distance:
+                closest_distance = intersection_distance
+                found_intersection = True
+
+        if found_intersection:
+            closest_distance = min(radius, closest_distance + shadow_bias)
+
+        polygon.append({
+            "x": light_position["x"] + ray_direction["x"] * closest_distance,
+            "y": light_position["y"] + ray_direction["y"] * closest_distance
+        })
+
+    return polygon
+
+def draw_light_visibility_polygon(light, light_position, polygon, game_camera):
+    if len(polygon) < 2:
+        return
+
+    light_screen_position = pr.Vector2(light_position["x"] - game_camera.x, light_position["y"] - game_camera.y)
+    screen_points = []
+
+    for point in polygon:
+        screen_points.append(pr.Vector2(point["x"] - game_camera.x, point["y"] - game_camera.y))
+
+    for point_index in range(len(screen_points) - 1):
+        current_point = screen_points[point_index]
+        next_point = screen_points[point_index + 1]
+
+        # The points are clockwise in screen coordinates, while
+        # DrawTriangle expects counter-clockwise vertex order.
+        pr.draw_triangle(light_screen_position, next_point, current_point, pr.WHITE)
+
+    if light.get("type", "point") == "point" and len(screen_points) >= 3:
+        pr.draw_triangle(light_screen_position, screen_points[0], screen_points[-1], pr.WHITE)
 
 def get_player_flashlight_settings(player_entity):
     facing = player_entity.get("animation_direction", "down")
