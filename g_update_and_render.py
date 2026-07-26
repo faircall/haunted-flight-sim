@@ -1213,26 +1213,93 @@ def get_or_create_test_lights(entities, tile_map):
 
     return lights
 
-def make_player_flashlight(player_entity):
+def make_player_flashlight(player_entity, tile_map):
     direction = vec2_normalize(player_entity.get("aim_direction", {"x": 1.0, "y": 0.0}))
 
     if vec2_norm(direction) == 0:
         direction = {"x": 1.0, "y": 0.0}
 
+    settings = get_player_flashlight_settings(player_entity)
+    player_world_position = make_pos_abs(player_entity.get("position", {}), tile_map["tile_width"], tile_map["tile_height"])    
+
+    side_direction = {"x": -direction["y"], "y": direction["x"]}    
+    forward_offset = vec2_scale(direction, settings["forward_offset"])
+    side_offset = vec2_scale(side_direction, settings["side_offset"])
+    flashlight_position = vec2_add(player_world_position, vec2_add(forward_offset, side_offset))
+
+    
+
     return {
         "type": "spot",
-        "position": player_entity.get("position", {}),
+        "position": flashlight_position,
         "direction": direction,
         "color": [1.0, 0.82, 0.62],
         "radius": 180.0,
         "intensity": 1.2,
         "falloff": 1.4,
+        "near_fade_distance": 14.0,
         "inner_angle": 13.0,
         "outer_angle": 27.0,
-        "enabled": True
+        "enabled": player_entity.get("flashlight_enabled", True)
     }
 
+
 def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader):
+    if not light.get("enabled", True):
+        return
+
+    radius = max(1.0, float(light.get("radius", 100.0)))
+    intensity = max(0.0, float(light.get("intensity", 1.0)))
+    falloff = max(0.0001, float(light.get("falloff", 2.0)))
+    near_fade_distance = max(0.0, float(light.get("near_fade_distance", 0.0)))
+
+    world_position = get_light_world_position(light, tile_map)
+    screen_x = world_position["x"] - game_camera.x
+    screen_y = world_position["y"] - game_camera.y
+
+    target_width = lighting_target.texture.width
+    target_height = lighting_target.texture.height
+
+    if screen_x + radius < 0 or screen_y + radius < 0 or screen_x - radius >= target_width or screen_y - radius >= target_height:
+        return
+
+    direction = vec2_normalize(light.get("direction", {"x": 1.0, "y": 0.0}))
+
+    if vec2_norm(direction) == 0:
+        direction = {"x": 1.0, "y": 0.0}
+
+    red, green, blue = normalize_light_color(light.get("color", [1.0, 1.0, 1.0]))
+
+    inner_angle = float(light.get("inner_angle", 20.0))
+    outer_angle = max(inner_angle + 0.001, float(light.get("outer_angle", 35.0)))
+
+    inner_cone_cos = math.cos(math.radians(inner_angle))
+    outer_cone_cos = math.cos(math.radians(outer_angle))
+
+    light_type = 1 if light.get("type", "point") == "spot" else 0
+    shader = light_shader["shader"]
+
+    set_shader_vec2(shader, light_shader["resolution_location"], target_width, target_height)
+    set_shader_vec2(shader, light_shader["light_position_location"], screen_x, screen_y)
+    set_shader_vec2(shader, light_shader["light_direction_location"], direction["x"], direction["y"])
+    set_shader_vec3(shader, light_shader["light_color_location"], red, green, blue)
+    set_shader_float(shader, light_shader["radius_location"], radius)
+    set_shader_float(shader, light_shader["intensity_location"], intensity)
+    set_shader_float(shader, light_shader["falloff_location"], falloff)
+    set_shader_float(shader, light_shader["near_fade_distance_location"], near_fade_distance)
+    set_shader_float(shader, light_shader["inner_cone_cos_location"], inner_cone_cos)
+    set_shader_float(shader, light_shader["outer_cone_cos_location"], outer_cone_cos)
+    set_shader_int(shader, light_shader["light_type_location"], light_type)
+
+    draw_x = int(screen_x - radius)
+    draw_y = int(screen_y - radius)
+    draw_size = int(math.ceil(radius * 2.0))
+
+    pr.begin_shader_mode(shader)
+    pr.draw_rectangle(draw_x, draw_y, draw_size, draw_size, pr.WHITE)
+    pr.end_shader_mode()
+
+def olddraw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader):
     if not light.get("enabled", True):
         return
 
@@ -1357,7 +1424,6 @@ def load_sprite_sheets():
 
     return result
 
-
 def load_shaders():
     result = {}
 
@@ -1377,13 +1443,13 @@ def load_shaders():
         "radius_location": pr.get_shader_location(light_accumulation, "radius"),
         "intensity_location": pr.get_shader_location(light_accumulation, "intensity"),
         "falloff_location": pr.get_shader_location(light_accumulation, "falloff"),
+        "near_fade_distance_location": pr.get_shader_location(light_accumulation, "nearFadeDistance"),
         "inner_cone_cos_location": pr.get_shader_location(light_accumulation, "innerConeCos"),
         "outer_cone_cos_location": pr.get_shader_location(light_accumulation, "outerConeCos"),
         "light_type_location": pr.get_shader_location(light_accumulation, "lightType")
     }
 
     return result
-
 
 
 def unload_shaders(shaders):
@@ -1446,7 +1512,14 @@ def get_tile_at_index(flat_index, tile_map):
     tile_at_index = tile_map["tiles"][flat_index]
     return tile_at_index
 
+def update_player_flashlight_toggle(player_entity, editor_mode, pause_state):
+    if "flashlight_enabled" not in player_entity:
+        player_entity["flashlight_enabled"] = True
 
+    if editor_mode == "play" and pause_state == "unpaused" and pr.is_key_pressed(pr.KeyboardKey.KEY_F):
+        player_entity["flashlight_enabled"] = not player_entity["flashlight_enabled"]
+
+    return player_entity["flashlight_enabled"]
 
 def get_tile_index_from_pos(pos, tile_map, debug_queue = None):    
     map_width = tile_map["map_width"]
@@ -3798,6 +3871,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
     #player_angle_current += 180
     animation_direction = direction_from_angle(player_angle_current)
     gunshot_timer = entity.get("gunshot_timer", 0)
+    entity["animation_direction"] = animation_direction
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
 
     pr.draw_text(f"player angle is {int(player_angle_current)}", 20, 30, 10, pr.RED)
@@ -4248,6 +4322,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if pause_state != "paused":
         player_info["position"] = update_player_position(entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, sounds=sounds, tile_map=tile_map, debug_queue=debug_queue)
+        update_player_flashlight_toggle(player_info, editor_mode, pause_state)
     
     if pause_state != "paused":
         # I think we want to have the current 'hot spots' in terms of bullets cached
@@ -4441,11 +4516,7 @@ def render_lighting(game_camera, entities, tile_map, player_entity, lighting_tar
     light_shader = game_assets["shaders"]["light_accumulation"]
 
     pr.begin_texture_mode(lighting_target)
-
-    # Temporary ambient base because apply_lighting() currently multiplies
-    # this texture directly into the scene.
     pr.clear_background(pr.Color(34, 32, 44, 255))
-
     pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
 
     lights = get_or_create_test_lights(entities, tile_map)
@@ -4453,11 +4524,23 @@ def render_lighting(game_camera, entities, tile_map, player_entity, lighting_tar
     for light in lights.values():
         draw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader)
 
-    player_flashlight = make_player_flashlight(player_entity)
+    player_flashlight = make_player_flashlight(player_entity, tile_map)
     draw_light_to_target(player_flashlight, game_camera, tile_map, lighting_target, light_shader)
 
     pr.end_blend_mode()
     pr.end_texture_mode()
+
+def get_player_flashlight_settings(player_entity):
+    facing = player_entity.get("animation_direction", "down")
+
+    settings = {
+        "up": {"forward_offset": 10.0, "side_offset": -2.0, "near_fade_distance": 18.0},
+        "down": {"forward_offset": 3.0, "side_offset": 2.0, "near_fade_distance": 10.0},
+        "left": {"forward_offset": 4.0, "side_offset": -1.0, "near_fade_distance": 14.0},
+        "right": {"forward_offset": 4.0, "side_offset": 1.0, "near_fade_distance": 14.0}
+    }
+
+    return settings.get(facing, settings["down"])
 
 
 def light_timer_oscilate(t):

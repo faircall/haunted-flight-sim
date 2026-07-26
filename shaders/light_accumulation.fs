@@ -11,6 +11,7 @@ uniform vec3 lightColor;
 uniform float radius;
 uniform float intensity;
 uniform float falloff;
+uniform float nearFadeDistance;
 uniform float innerConeCos;
 uniform float outerConeCos;
 
@@ -20,11 +21,9 @@ out vec4 finalColor;
 
 void main()
 {
-    // gl_FragCoord uses bottom-left as its origin.
-    // The game uses top-left, so invert Y.
     vec2 pixelPosition = vec2(gl_FragCoord.x, resolution.y - gl_FragCoord.y);
-
     vec2 fromLight = pixelPosition - lightPosition;
+
     float distanceFromLight = length(fromLight);
 
     if (distanceFromLight >= radius)
@@ -37,19 +36,21 @@ void main()
 
     float coneStrength = 1.0;
 
-    // 0 = point light
-    // 1 = spot light
     if (lightType == 1 && distanceFromLight > 0.0)
     {
         vec2 directionToPixel = fromLight / distanceFromLight;
         float alignment = dot(directionToPixel, normalize(lightDirection));
-
         coneStrength = smoothstep(outerConeCos, innerConeCos, alignment);
     }
 
-    float strength = radialStrength * coneStrength * intensity;
+    float nearStrength = 1.0;
 
-    // Additive blending uses this RGB contribution.
-    // Alpha stays at 1 so strength is not accidentally applied twice.
+    if (nearFadeDistance > 0.0)
+    {
+        nearStrength = smoothstep(0.0, nearFadeDistance, distanceFromLight);
+    }
+
+    float strength = radialStrength * coneStrength * nearStrength * intensity;
+
     finalColor = vec4(lightColor * strength, 1.0);
 }
