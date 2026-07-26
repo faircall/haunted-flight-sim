@@ -272,15 +272,20 @@ def color_map(color_enum):
     }
     return lookup.get(color_enum, pr.WHITE)
 
-def draw_tile_texture_from_type(game_assets, tile_type, x, y):
+def draw_tile_texture_from_type(game_assets, tile_type, x, y, shape_index = 0):
+    textures = game_assets.get("textures",{})
+    texture = None    
     if tile_type.get("type") == "wood":                
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+        texture = textures["wood_texture"]        
     elif tile_type.get("type") == "wall":                
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+        texture = textures["wall_texture"]        
     elif tile_type.get("type") == "stone":                
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+        texture = textures["grey_tile_texture"]        
     elif tile_type.get("type") == "carpet":  #change to other tile               
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+        texture = textures["orange_tile_texture"]
+    if texture is not None:
+        draw_masked_tile_texture(texture, pr.Vector2(x, y), shape_index, game_assets)
+        
     
 def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen):    
     if (x,y) in seen or x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] == current_tile_selection):
@@ -4152,7 +4157,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         tile_type = tile_map["tile_types"][current_tile_selection]
         tile_width = tile_map["tile_width"]
         tile_height = tile_map["tile_height"]
-        draw_tile_texture_from_type(game_assets, tile_type, 300, 100)
+        draw_tile_texture_from_type(game_assets, tile_type, 300, 100, current_shape_selection)
         pr.draw_text(tile_type.get("type",""), 300, 50, 20, pr.WHITE)
 
     if editor_mode == "entity_placing":
