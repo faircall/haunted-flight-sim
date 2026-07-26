@@ -1148,6 +1148,143 @@ def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25
         sound_to_play.seek(0)
         sound_to_play.start()
 
+
+def set_shader_float(shader, location, value):
+    if location < 0:
+        return
+    value_ptr = pr.ffi.new("float *", float(value))
+    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_FLOAT)
+
+def set_shader_int(shader, location, value):
+    if location < 0:
+        return
+    value_ptr = pr.ffi.new("int *", int(value))
+    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_INT)
+
+def set_shader_vec2(shader, location, x, y):
+    if location < 0:
+        return
+    value_ptr = pr.ffi.new("float[2]", [float(x), float(y)])
+    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
+
+def set_shader_vec3(shader, location, x, y, z):
+    if location < 0:
+        return
+    value_ptr = pr.ffi.new("float[3]", [float(x), float(y), float(z)])
+    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_VEC3)
+
+def normalize_light_color(color):
+    red = float(color[0])
+    green = float(color[1])
+    blue = float(color[2])
+
+    if max(red, green, blue) > 1.0:
+        red /= 255.0
+        green /= 255.0
+        blue /= 255.0
+
+    return red, green, blue
+
+def get_light_world_position(light, tile_map):
+    position = light.get("position", {})
+
+    if "tile_x" in position and "tile_y" in position:
+        return make_pos_abs(position, tile_map["tile_width"], tile_map["tile_height"])
+
+    return {"x": position.get("x", 0.0), "y": position.get("y", 0.0)}
+
+def get_or_create_test_lights(entities, tile_map):
+    lights = get_or_set(entities, "lights", {})
+
+    # Remove the previous ring-light test record.
+    if "test_light" in lights and "type" not in lights["test_light"]:
+        del lights["test_light"]
+
+    if "test_point" not in lights:
+        lights["test_point"] = {
+            "type": "point",
+            "position": get_tile_index_and_offset_from_pos({"x": 200.0, "y": 300.0}, tile_map),
+            "color": [0.86, 0.74, 1.0],
+            "radius": 100.0,
+            "intensity": 1.0,
+            "falloff": 2.0,
+            "enabled": True
+        }
+
+    return lights
+
+def make_player_flashlight(player_entity):
+    direction = vec2_normalize(player_entity.get("aim_direction", {"x": 1.0, "y": 0.0}))
+
+    if vec2_norm(direction) == 0:
+        direction = {"x": 1.0, "y": 0.0}
+
+    return {
+        "type": "spot",
+        "position": player_entity.get("position", {}),
+        "direction": direction,
+        "color": [1.0, 0.82, 0.62],
+        "radius": 180.0,
+        "intensity": 1.2,
+        "falloff": 1.4,
+        "inner_angle": 13.0,
+        "outer_angle": 27.0,
+        "enabled": True
+    }
+
+def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader):
+    if not light.get("enabled", True):
+        return
+
+    radius = max(1.0, float(light.get("radius", 100.0)))
+    intensity = max(0.0, float(light.get("intensity", 1.0)))
+    falloff = max(0.0001, float(light.get("falloff", 2.0)))
+
+    world_position = get_light_world_position(light, tile_map)
+    screen_x = world_position["x"] - game_camera.x
+    screen_y = world_position["y"] - game_camera.y
+
+    target_width = lighting_target.texture.width
+    target_height = lighting_target.texture.height
+
+    # Avoid running the fragment shader for lights completely outside the view.
+    if screen_x + radius < 0 or screen_y + radius < 0 or screen_x - radius >= target_width or screen_y - radius >= target_height:
+        return
+
+    direction = vec2_normalize(light.get("direction", {"x": 1.0, "y": 0.0}))
+    if vec2_norm(direction) == 0:
+        direction = {"x": 1.0, "y": 0.0}
+
+    red, green, blue = normalize_light_color(light.get("color", [1.0, 1.0, 1.0]))
+
+    inner_angle = float(light.get("inner_angle", 20.0))
+    outer_angle = max(inner_angle + 0.001, float(light.get("outer_angle", 35.0)))
+
+    inner_cone_cos = math.cos(math.radians(inner_angle))
+    outer_cone_cos = math.cos(math.radians(outer_angle))
+
+    light_type = 1 if light.get("type", "point") == "spot" else 0
+    shader = light_shader["shader"]
+
+    set_shader_vec2(shader, light_shader["resolution_location"], target_width, target_height)
+    set_shader_vec2(shader, light_shader["light_position_location"], screen_x, screen_y)
+    set_shader_vec2(shader, light_shader["light_direction_location"], direction["x"], direction["y"])
+    set_shader_vec3(shader, light_shader["light_color_location"], red, green, blue)
+    set_shader_float(shader, light_shader["radius_location"], radius)
+    set_shader_float(shader, light_shader["intensity_location"], intensity)
+    set_shader_float(shader, light_shader["falloff_location"], falloff)
+    set_shader_float(shader, light_shader["inner_cone_cos_location"], inner_cone_cos)
+    set_shader_float(shader, light_shader["outer_cone_cos_location"], outer_cone_cos)
+    set_shader_int(shader, light_shader["light_type_location"], light_type)
+
+    draw_x = int(screen_x - radius)
+    draw_y = int(screen_y - radius)
+    draw_size = int(math.ceil(radius * 2.0))
+
+    pr.begin_shader_mode(shader)
+    pr.draw_rectangle(draw_x, draw_y, draw_size, draw_size, pr.WHITE)
+    pr.end_shader_mode()
+
 def load_sounds(engine):
     result = {}
     
@@ -1219,19 +1356,35 @@ def load_sprite_sheets():
 
 
     return result
-    
+
 
 def load_shaders():
     result = {}
 
     tile_mask = pr.load_shader("", "shaders/tile_mask.fs")
-
     result["tile_mask"] = {
-        "shader" : tile_mask,
+        "shader": tile_mask,
         "shape_index_location": pr.get_shader_location(tile_mask, "shapeIndex")
     }
 
+    light_accumulation = pr.load_shader("", "shaders/light_accumulation.fs")
+    result["light_accumulation"] = {
+        "shader": light_accumulation,
+        "resolution_location": pr.get_shader_location(light_accumulation, "resolution"),
+        "light_position_location": pr.get_shader_location(light_accumulation, "lightPosition"),
+        "light_direction_location": pr.get_shader_location(light_accumulation, "lightDirection"),
+        "light_color_location": pr.get_shader_location(light_accumulation, "lightColor"),
+        "radius_location": pr.get_shader_location(light_accumulation, "radius"),
+        "intensity_location": pr.get_shader_location(light_accumulation, "intensity"),
+        "falloff_location": pr.get_shader_location(light_accumulation, "falloff"),
+        "inner_cone_cos_location": pr.get_shader_location(light_accumulation, "innerConeCos"),
+        "outer_cone_cos_location": pr.get_shader_location(light_accumulation, "outerConeCos"),
+        "light_type_location": pr.get_shader_location(light_accumulation, "lightType")
+    }
+
     return result
+
+
 
 def unload_shaders(shaders):
     if not shaders:
@@ -4221,7 +4374,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     # lighting rendering happens here I think
     if editor_mode == "play":
-        render_lighting(camera_3d.position, entities, tile_map, get_mouse_position(), player_info, lighting_target, dt)
+        render_lighting(camera_3d.position, entities, tile_map, player_info, lighting_target, game_assets)
+        
         
 
         # apply lighting
@@ -4283,44 +4437,28 @@ def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, 
         alpha = int(base_alpha+ strength*alpha_multiplier)
         pr.draw_circle(int(x), int(y), radius, pr.Color(red,green,blue,alpha))
 
-def render_lighting(game_camera, entities, tile_map, mouse_pos_world, player_entity, lighting_target, dt):
+def render_lighting(game_camera, entities, tile_map, player_entity, lighting_target, game_assets):
+    light_shader = game_assets["shaders"]["light_accumulation"]
+
     pr.begin_texture_mode(lighting_target)
-    pr.clear_background((42,42,52,255))
+
+    # Temporary ambient base because apply_lighting() currently multiplies
+    # this texture directly into the scene.
+    pr.clear_background(pr.Color(34, 32, 44, 255))
+
     pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
 
-    tile_width = tile_map["tile_width"]
-    tile_height = tile_map["tile_height"]
-    player_pos = player_entity.get("position",{})
-    player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
-    player_render_pos = pr.Vector2(player_pos_abs["x"] - game_camera.x, player_pos_abs["y"] - game_camera.y )    
+    lights = get_or_create_test_lights(entities, tile_map)
 
-    lights = get_or_set(entities, "lights", {})
+    for light in lights.values():
+        draw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader)
 
-    if "test_light" not in lights:
-        lights["test_light"] = {"timer" : 0, "radius" : 10}
-    
-    lights["test_light"]["timer"] += dt
-    
-    transformed_time = light_timer_oscilate(lights["test_light"]["timer"])
-    test_radius = 20 + transformed_time*2
+    player_flashlight = make_player_flashlight(player_entity)
+    draw_light_to_target(player_flashlight, game_camera, tile_map, lighting_target, light_shader)
 
-    draw_ringed_circular_light(200 - game_camera.x, 300 - game_camera.y, 30, 2, test_radius, 220, 200, 240, 10, 20)
-
-    # rings = 20
-    # ring_size = 2
-    # ring_radius = 20
-    # for i in range(rings, 0,-ring_size):
-    #     t = i / rings
-    #     radius = ring_radius * t
-    #     strength = 1.0 - t
-    #     alpha = int(1+ strength*30)
-    #     pr.draw_circle(int(player_render_pos.x ), int(player_render_pos.y), radius, pr.Color(220,220,240,alpha))
-
-    # pr.draw_circle(int(player_render_pos.x ), int(player_render_pos.y + 40), 30, pr.RED)
-    if player_entity.get("gunshot_timer",0) > 0:
-        draw_ringed_circular_light(player_entity["gun_render_pos"]["x"], player_entity["gun_render_pos"]["y"], 30, 2, 40, 220, 200, 240, 10, 20)
     pr.end_blend_mode()
     pr.end_texture_mode()
+
 
 def light_timer_oscilate(t):
     slow = math.sin(t / 100) * 20
