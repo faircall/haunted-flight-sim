@@ -1149,6 +1149,58 @@ def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25
         sound_to_play.start()
 
 
+def make_lighting_profile(profile_name="inky"):
+    profiles = {
+        "soft": {
+            "name": "soft",
+            "ambient_color": [0.28, 0.24, 0.38],
+            "ambient_strength": 0.45,
+            "direct_light_strength": 1.0,
+            "shadow_color": [0.18, 0.15, 0.25],
+            "black_point": 0.025,
+            "shadow_softness": 0.22,
+            "shadow_detail": 0.75,
+            "contrast": 1.05
+        },
+        "inky": {
+            "name": "inky",
+            "ambient_color": [0.18, 0.14, 0.26],
+            "ambient_strength": 0.30,
+            "direct_light_strength": 1.0,
+            "shadow_color": [0.008, 0.005, 0.018],
+            "black_point": 0.10,
+            "shadow_softness": 0.025,
+            "shadow_detail": 0.0,
+            "contrast": 1.18
+        }
+    }
+
+    return dict(profiles.get(profile_name, profiles["soft"]))
+
+def get_or_create_render_target(game_assets, name, width, height):
+    render_targets = game_assets.get("render_targets")
+
+    if render_targets is None:
+        render_targets = {}
+        game_assets["render_targets"] = render_targets
+
+    target = render_targets.get(name)
+
+    if target is not None and (target.texture.width != width or target.texture.height != height):
+        pr.unload_render_texture(target)
+        target = None
+
+    if target is None:
+        target = pr.load_render_texture(width, height)
+        render_targets[name] = target
+
+    return target
+
+def set_shader_texture(shader, location, texture):
+    if location < 0:
+        return
+    pr.set_shader_value_texture(shader, location, texture)
+
 def set_shader_float(shader, location, value):
     if location < 0:
         return
@@ -1212,6 +1264,7 @@ def get_or_create_test_lights(entities, tile_map):
             "shadow_bias": 0.75,
             "enabled": True
         }
+    lights["test_point"]["radius"] = 150    
 
     return lights
 
@@ -1407,7 +1460,22 @@ def load_shaders():
         "light_type_location": pr.get_shader_location(light_accumulation, "lightType")
     }
 
+    lighting_composite = pr.load_shader("", "shaders/lighting_composite.fs")
+    result["lighting_composite"] = {
+        "shader": lighting_composite,
+        "light_texture_location": pr.get_shader_location(lighting_composite, "lightTexture"),
+        "ambient_color_location": pr.get_shader_location(lighting_composite, "ambientColor"),
+        "shadow_color_location": pr.get_shader_location(lighting_composite, "shadowColor"),
+        "ambient_strength_location": pr.get_shader_location(lighting_composite, "ambientStrength"),
+        "direct_light_strength_location": pr.get_shader_location(lighting_composite, "directLightStrength"),
+        "black_point_location": pr.get_shader_location(lighting_composite, "blackPoint"),
+        "shadow_softness_location": pr.get_shader_location(lighting_composite, "shadowSoftness"),
+        "shadow_detail_location": pr.get_shader_location(lighting_composite, "shadowDetail"),
+        "contrast_location": pr.get_shader_location(lighting_composite, "contrast")
+    }
+
     return result
+
 
 
 def unload_shaders(shaders):
@@ -4156,6 +4224,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     debug_state = main_arena.get("debug_state", "clear") 
     pause_state = main_arena.get("pause_state", "unpaused")     
 
+    lighting_profile = main_arena.get("lighting_profile")
+
+    if lighting_profile is None:
+        lighting_profile = make_lighting_profile("inky")
+
     # could handle a pause event here...?
     if pr.is_key_pressed(pr.KeyboardKey.KEY_PAUSE):
         pause_state = transition_pause_state(pause_state)    
@@ -4409,12 +4482,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     # lighting rendering happens here I think
     if editor_mode == "play":
         render_lighting(camera_3d.position, entities, tile_map, player_info, lighting_target, game_assets)
-        
-        
-
-        # apply lighting
-
-        apply_lighting(render_target, lighting_target)
+        apply_lighting(render_target, lighting_target, game_assets, lighting_profile)    
 
 
     # update persistent variables here
@@ -4437,6 +4505,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["entities"] = entities
     changes["player_info"] = player_info
     changes["selected_save_index"] = selected_save_index
+    changes["lighting_profile"] = lighting_profile
 
     result = changes.persistent()    
     
@@ -4475,7 +4544,7 @@ def render_lighting(game_camera, entities, tile_map, player_entity, lighting_tar
     light_shader = game_assets["shaders"]["light_accumulation"]
 
     pr.begin_texture_mode(lighting_target)
-    pr.clear_background(pr.Color(34, 32, 44, 255))
+    pr.clear_background(pr.BLACK)
     pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
 
     lights = get_or_create_test_lights(entities, tile_map)
@@ -4488,6 +4557,7 @@ def render_lighting(game_camera, entities, tile_map, player_entity, lighting_tar
 
     pr.end_blend_mode()
     pr.end_texture_mode()
+
 
 def cross_2d(a, b):
     return a["x"] * b["y"] - a["y"] * b["x"]
@@ -4746,16 +4816,87 @@ def light_timer_oscilate(t):
     result = slow + med + fast
     return result
 
-def apply_lighting(scene, lighting):
-    source = pr.Rectangle(0, 0, lighting.texture.width, -lighting.texture.height)
-    destination = pr.Rectangle(0, 0, scene.texture.width, scene.texture.height)    
+def apply_lighting(scene, lighting, game_assets, lighting_profile):
+    width = scene.texture.width
+    height = scene.texture.height
+
+    composite_target = get_or_create_render_target(game_assets, "lighting_composite", width, height)
+    composite_shader = game_assets["shaders"]["lighting_composite"]
+    shader = composite_shader["shader"]
+
+    ambient_red, ambient_green, ambient_blue = normalize_light_color(lighting_profile.get("ambient_color", [0.2, 0.2, 0.3]))
+    shadow_red, shadow_green, shadow_blue = normalize_light_color(lighting_profile.get("shadow_color", [0.0, 0.0, 0.0]))
+
+    set_shader_vec3(shader, composite_shader["ambient_color_location"], ambient_red, ambient_green, ambient_blue)
+    set_shader_vec3(shader, composite_shader["shadow_color_location"], shadow_red, shadow_green, shadow_blue)
+    set_shader_float(shader, composite_shader["ambient_strength_location"], lighting_profile.get("ambient_strength", 0.3))
+    set_shader_float(shader, composite_shader["direct_light_strength_location"], lighting_profile.get("direct_light_strength", 1.0))
+    set_shader_float(shader, composite_shader["black_point_location"], lighting_profile.get("black_point", 0.1))
+    set_shader_float(shader, composite_shader["shadow_softness_location"], lighting_profile.get("shadow_softness", 0.03))
+    set_shader_float(shader, composite_shader["shadow_detail_location"], lighting_profile.get("shadow_detail", 0.0))
+    set_shader_float(shader, composite_shader["contrast_location"], lighting_profile.get("contrast", 1.0))
+
+    source = pr.Rectangle(0, 0, width, -height)
+    destination = pr.Rectangle(0, 0, width, height)
+
+    pr.begin_texture_mode(composite_target)
+    pr.clear_background(pr.BLACK)
+
+    pr.begin_shader_mode(shader)
+
+    # Additional sampler textures must be rebound after BeginShaderMode().
+    set_shader_texture(shader, composite_shader["light_texture_location"], lighting.texture)
+
+    pr.draw_texture_pro(scene.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+
+    pr.end_shader_mode()
+    pr.end_texture_mode()
 
     pr.begin_texture_mode(scene)
-    pr.begin_blend_mode(pr.BlendMode.BLEND_MULTIPLIED)
-
-    pr.draw_texture_pro(lighting.texture, source, destination, pr.Vector2(0,0), 0, pr.WHITE)
-    pr.end_blend_mode()
+    pr.clear_background(pr.BLACK)
+    pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_texture_mode()
+
+def old_apply_lighting(scene, lighting, game_assets, lighting_profile):
+    width = scene.texture.width
+    height = scene.texture.height
+
+    composite_target = get_or_create_render_target(game_assets, "lighting_composite", width, height)
+    composite_shader = game_assets["shaders"]["lighting_composite"]
+    shader = composite_shader["shader"]
+
+    ambient_red, ambient_green, ambient_blue = normalize_light_color(lighting_profile.get("ambient_color", [0.2, 0.2, 0.3]))
+    shadow_red, shadow_green, shadow_blue = normalize_light_color(lighting_profile.get("shadow_color", [0.0, 0.0, 0.0]))
+
+    set_shader_texture(shader, composite_shader["light_texture_location"], lighting.texture)
+    set_shader_vec3(shader, composite_shader["ambient_color_location"], ambient_red, ambient_green, ambient_blue)
+    set_shader_vec3(shader, composite_shader["shadow_color_location"], shadow_red, shadow_green, shadow_blue)
+    set_shader_float(shader, composite_shader["ambient_strength_location"], lighting_profile.get("ambient_strength", 0.3))
+    set_shader_float(shader, composite_shader["direct_light_strength_location"], lighting_profile.get("direct_light_strength", 1.0))
+    set_shader_float(shader, composite_shader["black_point_location"], lighting_profile.get("black_point", 0.1))
+    set_shader_float(shader, composite_shader["shadow_softness_location"], lighting_profile.get("shadow_softness", 0.03))
+    set_shader_float(shader, composite_shader["shadow_detail_location"], lighting_profile.get("shadow_detail", 0.0))
+    set_shader_float(shader, composite_shader["contrast_location"], lighting_profile.get("contrast", 1.0))
+
+    source = pr.Rectangle(0, 0, width, -height)
+    destination = pr.Rectangle(0, 0, width, height)
+
+    pr.begin_texture_mode(composite_target)
+    pr.clear_background(pr.BLACK)
+    pr.begin_shader_mode(shader)
+    pr.draw_texture_pro(scene.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_shader_mode()
+    pr.end_texture_mode()
+
+    # Preserve the existing g_main contract: the completed image
+    # is still returned through scene/render_target.
+    pr.begin_texture_mode(scene)
+    pr.clear_background(pr.BLACK)
+    pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_texture_mode()
+
+
+
 
 def find_unpickleable_values(value, path="arena", seen=None):
     if seen is None:
