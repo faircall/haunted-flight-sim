@@ -580,12 +580,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             render_pos = pr.Vector2((x*tile_width - game_camera_x), (y*tile_height - game_camera_y))
             if tile_type.get("type") == "wood":                
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("wood_texture"), render_pos, shape_index, game_assets)
-            elif tile_type.get("type") == "wall":                                
-                if mode == "editing":
-                    draw_masked_tile_texture(game_assets.get("textures",{}).get("wall_texture_editor"), render_pos, shape_index, game_assets)                    
-                else:
-                    # render_pos.y = ((y-1)*tile_height - game_camera_y)
-                    draw_masked_tile_texture(game_assets.get("textures",{}).get("wall_texture"), render_pos, shape_index, game_assets)
+            elif tile_type.get("type") == "wall":                                                
+                draw_masked_tile_texture(game_assets.get("textures",{}).get("wall_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "stone":                
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "carpet":  #change to other tile               
