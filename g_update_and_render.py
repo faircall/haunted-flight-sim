@@ -4159,6 +4159,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         tile_height = tile_map["tile_height"]
         draw_tile_texture_from_type(game_assets, tile_type, 300, 100, current_shape_selection)
         pr.draw_text(tile_type.get("type",""), 300, 50, 20, pr.WHITE)
+        
 
     if editor_mode == "entity_placing":
         pr.draw_text(entity_types[current_entity_selection], 300, 50, 20, pr.WHITE)
@@ -4186,9 +4187,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             reset_all = True
         
     if tile_map and editor_mode == "editing":        
-        if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
-            pr.draw_text(f"SHAPE SELECTED\n: {g_tile_collision_shapes[current_shape_selection]}", 300, 80, 10, pr.WHITE)
+        if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):            
             current_shape_selection = update_mousewheel_selection(current_shape_selection, len(g_tile_collision_shapes))
+            pr.draw_text(f"{g_tile_collision_shapes[current_shape_selection]}", 300, 80, 10, pr.WHITE)
         else:
             current_tile_selection = update_mousewheel_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))
 
