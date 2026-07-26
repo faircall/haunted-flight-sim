@@ -1891,12 +1891,48 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
 def tiles_equal(a, b):
     return a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0)
 
-def tiles_close(a, b, epsilon):
-    if a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0):
-        if vec2_distance(a, {"x": 16, "y" : 16}) < epsilon: # and vec2_norm(a) >= 16: # the idea here is to wait till we're 'past' a waypoint rather than just before it...
-            return True
-    return False
+def tiles_close(entity_position, waypoint_tile, target_offset, epsilon):
+    if not tiles_equal(entity_position,  waypoint_tile):
+        return False
 
+    entity_local_position = {"x": entity_position.get("x", 0), "y": entity_position.get("y", 0)}
+
+    return vec2_distance(entity_local_position, target_offset) < epsilon
+
+def get_current_ai_waypoint_target_abs(entity, tile_map, arrival_epsilon=8.0):
+    path = entity.get("path_to_player", [])
+
+    if not path:
+        return (None, make_pos_abs(entity["position"], tile_map["tile_width"], tile_map["tile_height"]))
+
+    path_index = entity.get("path_to_player_current_index", 0)
+
+    # Keep len(path) as the existing "finished path"
+    # sentinel, but use the final element as the actual target.
+    waypoint_index = min(path_index, len(path) - 1)
+
+    waypoint = path[waypoint_index]
+
+    tile_target_offset = entity.get("current_tile_target_offset")
+
+    if tile_target_offset is None:
+        tile_target_offset = {"x": tile_map["tile_width"] / 2, "y": tile_map["tile_height"] / 2}
+        entity["current_tile_target_offset"] = (tile_target_offset)
+
+    reached_waypoint = tiles_close(entity["position"], waypoint, tile_target_offset, arrival_epsilon)
+
+    if reached_waypoint and path_index < len(path):
+        path_index += 1
+
+        entity["path_to_player_current_index"] = path_index
+
+        waypoint_index = min(path_index, len(path) - 1)
+
+        waypoint = path[waypoint_index]
+
+    target_position_abs = (get_abs_pos_from_index_given_offset(waypoint, tile_target_offset, tile_map))
+
+    return waypoint, target_position_abs
 
 
 def make_entity_boundary_points(entity_pos, entity_width, entity_height, tile_width, tile_height, sub_divisions):
@@ -2143,20 +2179,17 @@ def vec2_move_towards(current, target, max_delta):
     return vec2_add(current, movement)
 
 def entity_position_is_legal(position, entity, tile_map, debug_queue=None):
-    entity_points = make_player_points(
-        position,
-        entity["entity_width"],
-        entity["entity_height"],
-        tile_map["tile_width"],
-        tile_map["tile_height"],
-    )
+    entity_points = make_player_points(position, entity["entity_width"], entity["entity_height"], tile_map["tile_width"], tile_map["tile_height"])
 
     if not is_legal_position_on_tilemap(entity_points, tile_map, debug_queue):
         return False
 
-    collides_with_entity, _ = (collides_within_tile_at_position(position, entity["id"], tile_map, debug_queue))
+    moving_radius = max(entity["entity_width"], entity["entity_height"]) / 2
+
+    collides_with_entity, _ = (collides_within_tile_at_position(position, entity["id"], tile_map, debug_queue, moving_radius=moving_radius, other_radius=8.0))
 
     return not collides_with_entity
+
 
 def check_collision_on_tilemap(entity_id, potential_pos, new_pos_velocity, tile_map, dt, debug_queue = None):
     # TODO use this for any entity but only for walls
@@ -2214,50 +2247,43 @@ def collides_within_tile(new_entity_pos, entity_id, tile_map, debug_queue = None
                 return True
     return False
 
-def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue = None):            
-    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
-    new_tile = tile_map["tiles"][new_tile_index]
-    if "current_entities" not in new_tile:
-        new_tile["current_entities"] = {}
-        return False, None
-    
-    entity_radius_for_now = 30
+def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue=None, moving_radius=8.0, other_radius=8.0):
+    tile_x = new_entity_pos["tile_x"]
+    tile_y = new_entity_pos["tile_y"]
+
+    if tile_not_in_bounds(tile_x, tile_y, tile_map):
+        return True, None
 
     new_entity_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_pos)
-    
-    for entity_key, entity_val in new_tile["current_entities"].items():
-        if entity_key != entity_id:            
-            
-            entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
 
-            minkowski_rect = {
-                "x" : entity_pos_abs["x"] - 24,
-                "y" : entity_pos_abs["y"] - 24,
-                "width" : 48, # TODO tweak this, test idea first
-                "height" : 48
-            }
+    tile_index = get_flat_tile_index(tile_x, tile_y, tile_map, debug_queue)
 
-            if point_in_rect(new_entity_pos_abs, minkowski_rect):
-                return True,  entity_val
-            
-    for neighbour in new_tile["neighbours"].values():
-        neighbour_tile_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
-        neighbour_tile = tile_map["tiles"][neighbour_tile_index]
-        for entity_key, entity_val in neighbour_tile.get("current_entities",{}).items():
-            if entity_key != entity_id:     
-                entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
-                minkowski_rect = {
-                    "x" : entity_pos_abs["x"] - 24,
-                    "y" : entity_pos_abs["y"] - 24,
-                    "width" : 48, # TODO tweak this, test idea first
-                    "height" : 48
-                }
+    current_tile = tile_map["tiles"][tile_index]
 
-                if point_in_rect(new_entity_pos_abs, minkowski_rect):
-                    return True,  entity_val
-             
+    tiles_to_check = [current_tile]
+
+    for neighbour in current_tile["neighbours"].values():
+        neighbour_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
+
+        tiles_to_check.append(tile_map["tiles"][neighbour_index])
+
+    combined_radius = moving_radius + other_radius
+
+    for tile in tiles_to_check:
+        for (other_entity_id, other_entity_position) in tile.get("current_entities", {}).items():
+
+            if other_entity_id == entity_id:
+                continue
+
+            other_position_abs = tile_and_offset_to_absolute(tile_map, other_entity_position)
             
+
+            if vec2_distance(new_entity_pos_abs, other_position_abs) < combined_radius:
+                return (True, other_entity_position)
+
     return False, None
+
+
 
 
 def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map, debug_queue = None):    
@@ -2345,25 +2371,48 @@ def vec2_rotate_by(vec, amount): #in degrees
     result = vector_from_angle(angle + amount)
     return result
 
-
 def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queue, dt):
-    # start with a straight line
-    # returns an updated position, doesn't     
-    tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
-    vec2_between = vec2_normalize(vec2_subtract(target_position, make_pos_abs(entity.get("position",{}), tile_width, tile_height)))
+    tile_height = tile_map["tile_height"]
 
-    # we can also set our heading here
-    entity["sight_angle"] = angle_from_vector(vec2_between) 
-    # obviously we should move to 'proper' velocity but it's just a tad harder
-    default_speed = 150
+    entity_position_abs = make_pos_abs(entity["position"], tile_width, tile_height)
+
+    vector_to_target = vec2_subtract(target_position, entity_position_abs)
+
+    distance_to_target = vec2_norm(vector_to_target)
+
+    default_speed = 150.0
     entity_speed = entity.get("speed", default_speed)
-    new_entity_velocity = vec2_scale(vec2_between, entity_speed)
 
-    new_entity_position = move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue, dt)
-    
+    entity_acceleration = entity.get("acceleration", 1000.0)
+
+    entity_reverse_acceleration = entity.get("reverse_acceleration", 1800.0)
+
+    arrival_radius = entity.get("arrival_radius", 1.0)
+
+    ai_velocity = get_or_set(entity, "ai_velocity", {"x": 0.0, "y": 0.0})
+
+    if distance_to_target <= arrival_radius:
+        target_velocity = {"x": 0.0, "y": 0.0}
+    else:
+        target_direction = vec2_normalize(vector_to_target)
+        target_velocity = vec2_scale(target_direction, entity_speed)
+
+    acceleration = entity_acceleration
+
+    if vec2_dot(ai_velocity, target_velocity) < 0:
+        acceleration = entity_reverse_acceleration
+
+    ai_velocity = vec2_move_towards(ai_velocity, target_velocity, acceleration * dt)
+
+    # This mutates ai_velocity so that blocked components
+    # remain removed after collision resolution.
+    new_entity_position = move_entity_with_velocity(entity, ai_velocity, tile_map, debug_queue, dt)
+
+    entity["ai_velocity"] = ai_velocity
 
     return new_entity_position
+
 
 def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue, dt):
     tile_width = tile_map["tile_width"]
@@ -2922,38 +2971,8 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
                           "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
         
-    current_tile_target_offset = entity.get("current_tile_target_offset", {"x" : 16, "y" : 16})
-    waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
-    # if our last position here doesn't match tiles on the last_seen_player_position we should recalculate?
-    # OR if enough time has elapsed
-    # really depends how slow this thing is
-
-    if debug_queue is not None:
-        for tile in entity["path_to_player"]:
-            debug_item = {
-                "type" : "tile",
-                "tile_x" : tile.get("tile_x"),
-                "tile_y" : tile.get("tile_y"),
-                "tile_width" : tile_width,
-                "tile_height" : tile_height,
-                "color" : "GREEN",
-                "drawing_function" : draw_debug_tile,
-                "z_sort" : 1,
-                "debug_modes" : ["pathfinding"]
-
-            }    
-            debug_queue.append(debug_item)
-
-    if tiles_close(entity_pos, waypoint_pos, 8) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
-        entity["path_to_player_current_index"] += 1
-        # current_tile_target_offset["x"] = random.randint(4,12)
-        # current_tile_target_offset["y"] = random.randint(4,12)
-        entity["current_tile_target_offset"] = current_tile_target_offset
-
-    target_pos = get_abs_pos_from_index_given_offset(waypoint_pos, current_tile_target_offset, tile_map, debug_queue)
-
-    # this can cause issues if it causes us to hit a corner...hopefully less of that 
-    # with the can_move check
+    waypoint_pos, target_pos = (get_current_ai_waypoint_target_abs(entity, tile_map, arrival_epsilon=8.0))
+    
     if can_move: 
         # print("can move here apparently")
         player_abs = make_pos_abs(player_pos, tile_width, tile_height)
@@ -3493,7 +3512,7 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
         direction_vector["y"] += 1.0
 
-    has_movement_input = (vec2_norm(direction_vector) > 0)
+    has_movement_input = vec2_norm(direction_vector) > 0
 
     if has_movement_input:
         direction_vector = vec2_normalize(direction_vector)
@@ -3513,9 +3532,8 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
         # No input: approach a complete stop.
         player_velocity = vec2_move_towards(player_velocity, {"x": 0.0, "y": 0.0}, player_decel * dt)
 
-    # move_entity_with_velocity mutates this dictionary to contain
-    # the collision-resolved velocity. A blocked component is
-    # therefore removed from persistent player momentum.
+    # move_entity_with_velocity mutates this velocity to contain
+    # the collision-resolved velocity. 
     new_pos = move_entity_with_velocity(entity, player_velocity, tile_map, debug_queue, dt)
 
     entity["player_velocity"] = player_velocity
