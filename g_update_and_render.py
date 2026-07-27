@@ -1261,7 +1261,7 @@ def get_or_create_test_lights(entities, tile_map):
             "intensity": 1.0,
             "falloff": 2.0,
             "casts_shadows": True,
-            "shadow_bias": 0.75,
+            "shadow_bias": 0.25,
             "enabled": True
         }
     lights["test_point"]["radius"] = 150    
@@ -1325,13 +1325,10 @@ def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_sh
         direction = {"x": 1.0, "y": 0.0}
 
     red, green, blue = normalize_light_color(light.get("color", [1.0, 1.0, 1.0]))
-
     inner_angle = float(light.get("inner_angle", 20.0))
     outer_angle = max(inner_angle + 0.001, float(light.get("outer_angle", 35.0)))
-
     inner_cone_cos = math.cos(math.radians(inner_angle))
     outer_cone_cos = math.cos(math.radians(outer_angle))
-
     light_type = 1 if light.get("type", "point") == "spot" else 0
     shader = light_shader["shader"]
 
@@ -1350,8 +1347,8 @@ def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_sh
     pr.begin_shader_mode(shader)
 
     if light.get("casts_shadows", True):
-        segments = get_nearby_tile_occluder_segments(world_position, radius, tile_map)
-        polygon = build_light_visibility_polygon(light, world_position, radius, segments)
+        occluders = get_nearby_tile_occluders(world_position, radius, tile_map)
+        polygon = build_light_visibility_polygon(light, world_position, radius, occluders)
         draw_light_visibility_polygon(light, world_position, polygon, game_camera)
     else:
         draw_x = int(screen_x - radius)
@@ -4623,16 +4620,8 @@ def tile_shape_local_vertices(shape_index, tile_width, tile_height):
 
     return []
 
-def occluder_segment_key(segment_start, segment_end):
-    start = (round(segment_start["x"], 4), round(segment_start["y"], 4))
-    end = (round(segment_end["x"], 4), round(segment_end["y"], 4))
 
-    if start <= end:
-        return start, end
-
-    return end, start
-
-def get_nearby_tile_occluder_segments(light_position, radius, tile_map):
+def get_nearby_tile_occluders(light_position, radius, tile_map):
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
     map_width = tile_map["map_width"]
@@ -4643,8 +4632,7 @@ def get_nearby_tile_occluder_segments(light_position, radius, tile_map):
     min_tile_y = max(0, math.floor((light_position["y"] - radius) / tile_height) - 1)
     max_tile_y = min(map_height - 1, math.floor((light_position["y"] + radius) / tile_height) + 1)
 
-    segment_counts = {}
-    segments_by_key = {}
+    occluders = []
 
     for tile_y in range(min_tile_y, max_tile_y + 1):
         for tile_x in range(min_tile_x, max_tile_x + 1):
@@ -4654,8 +4642,7 @@ def get_nearby_tile_occluder_segments(light_position, radius, tile_map):
             if not tile_type_is_collidable(tile_type.get("type", "")):
                 continue
 
-            shape_index = tile.get("shape_index", 0)
-            local_vertices = tile_shape_local_vertices(shape_index, tile_width, tile_height)
+            local_vertices = tile_shape_local_vertices(tile.get("shape_index", 0), tile_width, tile_height)
             world_vertices = []
 
             for vertex in local_vertices:
@@ -4664,23 +4651,41 @@ def get_nearby_tile_occluder_segments(light_position, radius, tile_map):
                     "y": tile_y * tile_height + vertex["y"]
                 })
 
+            segments = []
+
             for vertex_index in range(len(world_vertices)):
-                segment_start = world_vertices[vertex_index]
-                segment_end = world_vertices[(vertex_index + 1) % len(world_vertices)]
-                segment_key = occluder_segment_key(segment_start, segment_end)
+                segments.append({
+                    "start": world_vertices[vertex_index],
+                    "end": world_vertices[(vertex_index + 1) % len(world_vertices)]
+                })
 
-                segment_counts[segment_key] = segment_counts.get(segment_key, 0) + 1
-                segments_by_key[segment_key] = {"start": segment_start, "end": segment_end}
+            occluders.append({
+                "tile_x": tile_x,
+                "tile_y": tile_y,
+                "vertices": world_vertices,
+                "segments": segments
+            })
 
-    result = []
+    return occluders
 
-    for segment_key, count in segment_counts.items():
-        if count == 1:
-            result.append(segments_by_key[segment_key])
+def ray_occluder_entry_exit_distances(origin, direction, occluder):
+    intersection_distances = []
 
-    return result
+    for segment in occluder["segments"]:
+        intersection_distance = ray_segment_intersection_distance(origin, direction, segment["start"], segment["end"])
 
-def get_visibility_ray_angles(light, light_position, segments):
+        if intersection_distance is not None:
+            intersection_distances.append(intersection_distance)
+
+    if not intersection_distances:
+        return None
+
+    return {
+        "entry": min(intersection_distances),
+        "exit": max(intersection_distances)
+    }
+
+def get_visibility_ray_angles(light, light_position, occluders):
     light_type = light.get("type", "point")
     endpoint_epsilon = 0.0005
 
@@ -4710,14 +4715,14 @@ def get_visibility_ray_angles(light, light_position, segments):
             amount = ray_index / baseline_ray_count
             add_delta(-outer_angle + amount * outer_angle * 2.0)
 
-        for segment in segments:
-            for endpoint in (segment["start"], segment["end"]):
-                endpoint_angle = math.atan2(endpoint["y"] - light_position["y"], endpoint["x"] - light_position["x"])
-                endpoint_delta = normalize_angle_signed(endpoint_angle - centre_angle)
+        for occluder in occluders:
+            for vertex in occluder["vertices"]:
+                vertex_angle = math.atan2(vertex["y"] - light_position["y"], vertex["x"] - light_position["x"])
+                vertex_delta = normalize_angle_signed(vertex_angle - centre_angle)
 
-                add_delta(endpoint_delta - endpoint_epsilon)
-                add_delta(endpoint_delta)
-                add_delta(endpoint_delta + endpoint_epsilon)
+                add_delta(vertex_delta - endpoint_epsilon)
+                add_delta(vertex_delta)
+                add_delta(vertex_delta + endpoint_epsilon)
 
         ray_deltas.sort()
         return [centre_angle + delta for delta in ray_deltas]
@@ -4737,40 +4742,47 @@ def get_visibility_ray_angles(light, light_position, segments):
     for ray_index in range(baseline_ray_count):
         add_angle((ray_index / baseline_ray_count) * math.pi * 2.0)
 
-    for segment in segments:
-        for endpoint in (segment["start"], segment["end"]):
-            endpoint_angle = math.atan2(endpoint["y"] - light_position["y"], endpoint["x"] - light_position["x"])
+    for occluder in occluders:
+        for vertex in occluder["vertices"]:
+            vertex_angle = math.atan2(vertex["y"] - light_position["y"], vertex["x"] - light_position["x"])
 
-            add_angle(endpoint_angle - endpoint_epsilon)
-            add_angle(endpoint_angle)
-            add_angle(endpoint_angle + endpoint_epsilon)
+            add_angle(vertex_angle - endpoint_epsilon)
+            add_angle(vertex_angle)
+            add_angle(vertex_angle + endpoint_epsilon)
 
     ray_angles.sort()
     return ray_angles
 
-def build_light_visibility_polygon(light, light_position, radius, segments):
-    ray_angles = get_visibility_ray_angles(light, light_position, segments)
-    shadow_bias = max(0.0, float(light.get("shadow_bias", 0.75)))
+def build_light_visibility_polygon(light, light_position, radius, occluders):
+    ray_angles = get_visibility_ray_angles(light, light_position, occluders)
+    shadow_bias = max(0.0, float(light.get("shadow_bias", 0.25)))
     polygon = []
 
     for ray_angle in ray_angles:
         ray_direction = {"x": math.cos(ray_angle), "y": math.sin(ray_angle)}
-        closest_distance = radius
-        found_intersection = False
+        closest_entry_distance = radius
+        closest_exit_distance = radius
+        found_occluder = False
 
-        for segment in segments:
-            intersection_distance = ray_segment_intersection_distance(light_position, ray_direction, segment["start"], segment["end"])
+        for occluder in occluders:
+            intersection = ray_occluder_entry_exit_distances(light_position, ray_direction, occluder)
 
-            if intersection_distance is not None and intersection_distance < closest_distance:
-                closest_distance = intersection_distance
-                found_intersection = True
+            if intersection is None:
+                continue
 
-        if found_intersection:
-            closest_distance = min(radius, closest_distance + shadow_bias)
+            if intersection["entry"] < closest_entry_distance and intersection["entry"] <= radius:
+                closest_entry_distance = intersection["entry"]
+                closest_exit_distance = intersection["exit"]
+                found_occluder = True
+
+        ray_distance = radius
+
+        if found_occluder:
+            ray_distance = min(radius, closest_exit_distance + shadow_bias)
 
         polygon.append({
-            "x": light_position["x"] + ray_direction["x"] * closest_distance,
-            "y": light_position["y"] + ray_direction["y"] * closest_distance
+            "x": light_position["x"] + ray_direction["x"] * ray_distance,
+            "y": light_position["y"] + ray_direction["y"] * ray_distance
         })
 
     return polygon
