@@ -1293,7 +1293,7 @@ def make_player_flashlight(player_entity, tile_map):
         "intensity": 1.2,
         "falloff": 1.4,
         "casts_shadows": True,
-        "shadow_bias": 0.75,
+        "shadow_bias": 0.25,
         "near_fade_distance": 14.0,
         "inner_angle": 13.0,
         "outer_angle": 27.0,
@@ -1348,8 +1348,13 @@ def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_sh
 
     if light.get("casts_shadows", True):
         occluders = get_nearby_tile_occluders(world_position, radius, tile_map)
-        polygon = build_light_visibility_polygon(light, world_position, radius, occluders)
-        draw_light_visibility_polygon(light, world_position, polygon, game_camera)
+
+        # Light the open world only as far as the first wall surface.
+        visibility_polygon = build_light_visibility_polygon(light, world_position, radius, occluders)
+        draw_light_visibility_polygon(light, world_position, visibility_polygon, game_camera)
+
+        # Then explicitly allow wall shapes themselves to receive light.
+        draw_tile_light_receivers(occluders, game_camera)
     else:
         draw_x = int(screen_x - radius)
         draw_y = int(screen_y - radius)
@@ -1357,6 +1362,8 @@ def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_sh
         pr.draw_rectangle(draw_x, draw_y, draw_size, draw_size, pr.WHITE)
 
     pr.end_shader_mode()
+
+
 
 
 
@@ -4685,6 +4692,86 @@ def ray_occluder_entry_exit_distances(origin, direction, occluder):
         "exit": max(intersection_distances)
     }
 
+def ray_first_occluder_entry_distance(origin, direction, radius, occluders):
+    closest_entry_distance = radius
+    found_occluder = False
+    minimum_interval_size = 0.0001
+
+    for occluder in occluders:
+        intersection = ray_occluder_entry_exit_distances(origin, direction, occluder)
+
+        if intersection is None:
+            continue
+
+        entry_distance = intersection["entry"]
+        exit_distance = intersection["exit"]
+
+        # Ignore rays that merely graze one corner.
+        if exit_distance - entry_distance <= minimum_interval_size:
+            continue
+
+        if entry_distance < closest_entry_distance and entry_distance <= radius:
+            closest_entry_distance = entry_distance
+            found_occluder = True
+
+    if not found_occluder:
+        return None
+
+    return closest_entry_distance
+
+def ray_first_solid_run_exit_distance(origin, direction, radius, occluders):
+    intervals = []
+    merge_epsilon = 0.001
+    minimum_interval_size = 0.0001
+
+    for occluder in occluders:
+        intersection = ray_occluder_entry_exit_distances(origin, direction, occluder)
+
+        if intersection is None:
+            continue
+
+        entry_distance = intersection["entry"]
+        exit_distance = intersection["exit"]
+
+        if entry_distance > radius:
+            continue
+
+        exit_distance = min(exit_distance, radius)
+
+        # A single corner touch should not behave as though the ray
+        # travelled through a solid object.
+        if exit_distance - entry_distance <= minimum_interval_size:
+            continue
+
+        intervals.append({
+            "entry": entry_distance,
+            "exit": exit_distance
+        })
+
+    if not intervals:
+        return None
+
+    intervals.sort(key=lambda interval: interval["entry"])
+
+    first_run_entry = intervals[0]["entry"]
+    first_run_exit = intervals[0]["exit"]
+
+    for interval in intervals[1:]:
+        # This solid begins before, or effectively exactly where,
+        # the current solid run ends. Treat them as one wall mass.
+        if interval["entry"] <= first_run_exit + merge_epsilon:
+            first_run_exit = max(first_run_exit, interval["exit"])
+            continue
+
+        # There is empty space before this next occluder, so it is
+        # genuinely behind the first wall and must remain shadowed.
+        break
+
+    return {
+        "entry": first_run_entry,
+        "exit": first_run_exit
+    }
+
 def get_visibility_ray_angles(light, light_position, occluders):
     light_type = light.get("type", "point")
     endpoint_epsilon = 0.0005
@@ -4760,25 +4847,11 @@ def build_light_visibility_polygon(light, light_position, radius, occluders):
 
     for ray_angle in ray_angles:
         ray_direction = {"x": math.cos(ray_angle), "y": math.sin(ray_angle)}
-        closest_entry_distance = radius
-        closest_exit_distance = radius
-        found_occluder = False
-
-        for occluder in occluders:
-            intersection = ray_occluder_entry_exit_distances(light_position, ray_direction, occluder)
-
-            if intersection is None:
-                continue
-
-            if intersection["entry"] < closest_entry_distance and intersection["entry"] <= radius:
-                closest_entry_distance = intersection["entry"]
-                closest_exit_distance = intersection["exit"]
-                found_occluder = True
-
+        first_entry_distance = ray_first_occluder_entry_distance(light_position, ray_direction, radius, occluders)
         ray_distance = radius
 
-        if found_occluder:
-            ray_distance = min(radius, closest_exit_distance + shadow_bias)
+        if first_entry_distance is not None:
+            ray_distance = max(0.0, first_entry_distance - shadow_bias)
 
         polygon.append({
             "x": light_position["x"] + ray_direction["x"] * ray_distance,
@@ -4786,6 +4859,35 @@ def build_light_visibility_polygon(light, light_position, radius, occluders):
         })
 
     return polygon
+
+def draw_occluder_light_receiver(occluder, game_camera):
+    world_vertices = occluder.get("vertices", [])
+
+    if len(world_vertices) < 3:
+        return
+
+    screen_vertices = []
+
+    for vertex in world_vertices:
+        screen_vertices.append(pr.Vector2(vertex["x"] - game_camera.x, vertex["y"] - game_camera.y))
+
+    first_vertex = screen_vertices[0]
+
+    for vertex_index in range(1, len(screen_vertices) - 1):
+        current_vertex = screen_vertices[vertex_index]
+        next_vertex = screen_vertices[vertex_index + 1]
+
+        # The stored vertices are clockwise in the game's
+        # screen-down coordinate system, so reverse the final two.
+        pr.draw_triangle(first_vertex, next_vertex, current_vertex, pr.WHITE)
+
+def draw_tile_light_receivers(occluders, game_camera):
+    for occluder in occluders:
+        if not occluder.get("receives_light", True):
+            continue
+
+        draw_occluder_light_receiver(occluder, game_camera)
+
 
 def draw_light_visibility_polygon(light, light_position, polygon, game_camera):
     if len(polygon) < 2:
