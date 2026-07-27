@@ -15,7 +15,11 @@ g_screen_height = 1080
 update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
-g_reloadable_modules = [("g_update_and_render",update_and_render_module)]
+g_reloadable_modules = [
+    ("g_update_and_render", update_and_render_module),
+    ("g_graphics", update_and_render_module.g_graphics),
+    ("g_ui", update_and_render_module.g_ui),
+]
 
 
 def get_file_write_time(file_name):
@@ -195,7 +199,10 @@ def g_main():
                 tb_frames = traceback.extract_tb(e.__traceback__)                                
                 relevant_line = None
                 for frame in reversed(tb_frames):
-                    if 'g_update_and_render' in frame.filename:
+                    if any(
+                        module_name in frame.filename
+                        for module_name in ("g_update_and_render", "g_graphics", "g_ui")
+                    ):
                         relevant_line = frame.lineno
                         break                                
                 if relevant_line is None:
