@@ -34,6 +34,31 @@ def make_lighting_profile(profile_name="inky"):
 
     return dict(profiles.get(profile_name, profiles["soft"]))
 
+def make_fog_profile(profile_name="misty"):
+    profiles = {
+        "misty": {
+            "name": "misty",
+            "enabled": True,
+            "color": [0.62, 0.70, 0.86],
+            "density": 0.65,
+            "opacity": 0.75,
+            "world_scale": 0.018,
+            "detail_scale": 2.7,
+            "drift": {"x": 5.0, "y": 1.2},
+            "cutoff": 0.42,
+            "softness": 0.20,
+            "light_strength": 1.35,
+            "ambient_strength": 0.0,
+            "veil_strength": 0.10
+        }
+    }
+
+    selected = profiles.get(profile_name, profiles["misty"])
+    result = dict(selected)
+    result["color"] = list(selected["color"])
+    result["drift"] = dict(selected["drift"])
+    return result
+
 def get_or_create_render_target(game_assets, name, width, height):
     render_targets = game_assets.get("render_targets")
 
@@ -114,14 +139,33 @@ def get_or_create_test_lights(entities, tile_map):
             "type": "point",
             "position": game.get_tile_index_and_offset_from_pos({"x": 200.0, "y": 300.0}, tile_map),
             "color": [0.86, 0.74, 1.0],
-            "radius": 100.0,
+            "radius": 150.0,
             "intensity": 1.0,
             "falloff": 2.0,
             "casts_shadows": True,
             "shadow_bias": 0.25,
             "enabled": True
         }
-    lights["test_point"]["radius"] = 150    
+
+    if "test_top_down" not in lights:
+        lights["test_top_down"] = {
+            "type": "top_down",
+            "position": {
+                "tile_x": 20,
+                "tile_y": 15,
+                "x": 8.0,
+                "y": 8.0
+            },
+            "size": {
+                "x": 320.0,
+                "y": 180.0
+            },
+            "color": [0.55, 0.62, 0.78],
+            "intensity": 0.55,
+            "edge_softness": 24.0,
+            "enabled": True,
+            "casts_shadows": False
+        }
 
     return lights
 
@@ -157,7 +201,7 @@ def make_player_flashlight(player_entity, tile_map):
         "enabled": player_entity.get("flashlight_enabled", True)
     }
 
-def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader):
+def draw_radial_light_to_target(light, game_camera, tile_map, lighting_target, light_shader, include_receivers=True):
     if not light.get("enabled", True):
         return
 
@@ -211,7 +255,8 @@ def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_sh
         draw_light_visibility_polygon(light, world_position, visibility_polygon, game_camera)
 
         # Then explicitly allow wall shapes themselves to receive light.
-        draw_tile_light_receivers(occluders, game_camera)
+        if include_receivers:
+            draw_tile_light_receivers(occluders, game_camera)
     else:
         draw_x = int(screen_x - radius)
         draw_y = int(screen_y - radius)
@@ -219,6 +264,49 @@ def draw_light_to_target(light, game_camera, tile_map, lighting_target, light_sh
         pr.draw_rectangle(draw_x, draw_y, draw_size, draw_size, pr.WHITE)
 
     pr.end_shader_mode()
+
+def draw_top_down_light_to_target(light, game_camera, tile_map, lighting_target, top_down_shader):
+    if not light.get("enabled", True):
+        return
+
+    world_position = get_light_world_position(light, tile_map)
+    size = light.get("size", {})
+    width = max(0.0, float(size.get("x", 0.0)))
+    height = max(0.0, float(size.get("y", 0.0)))
+    intensity = max(0.0, float(light.get("intensity", 1.0)))
+    edge_softness = max(0.0, float(light.get("edge_softness", 0.0)))
+    screen_x = world_position["x"] - game_camera.x
+    screen_y = world_position["y"] - game_camera.y
+    area_min_x = screen_x - width * 0.5
+    area_min_y = screen_y - height * 0.5
+    area_max_x = screen_x + width * 0.5
+    area_max_y = screen_y + height * 0.5
+    target_width = lighting_target.texture.width
+    target_height = lighting_target.texture.height
+
+    if area_max_x < 0 or area_max_y < 0 or area_min_x >= target_width or area_min_y >= target_height:
+        return
+
+    red, green, blue = normalize_light_color(light.get("color", [1.0, 1.0, 1.0]))
+    shader = top_down_shader["shader"]
+
+    set_shader_vec2(shader, top_down_shader["resolution_location"], target_width, target_height)
+    set_shader_vec2(shader, top_down_shader["area_min_location"], area_min_x, area_min_y)
+    set_shader_vec2(shader, top_down_shader["area_max_location"], area_max_x, area_max_y)
+    set_shader_vec3(shader, top_down_shader["light_color_location"], red, green, blue)
+    set_shader_float(shader, top_down_shader["intensity_location"], intensity)
+    set_shader_float(shader, top_down_shader["edge_softness_location"], edge_softness)
+
+    pr.begin_shader_mode(shader)
+    pr.draw_rectangle(0, 0, target_width, target_height, pr.WHITE)
+    pr.end_shader_mode()
+
+def draw_light_to_target(light, game_camera, tile_map, lighting_target, game_assets, include_receivers=True):
+    if light.get("type", "point") == "top_down":
+        draw_top_down_light_to_target(light, game_camera, tile_map, lighting_target, game_assets["shaders"]["top_down_light"])
+        return
+
+    draw_radial_light_to_target(light, game_camera, tile_map, lighting_target, game_assets["shaders"]["light_accumulation"], include_receivers)
 
 def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, blue, base_alpha, alpha_multiplier):    
     for i in range(rings, 0,-ring_size):
@@ -228,23 +316,25 @@ def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, 
         alpha = int(base_alpha+ strength*alpha_multiplier)
         pr.draw_circle(int(x), int(y), radius, pr.Color(red,green,blue,alpha))
 
-def render_lighting(game_camera, entities, tile_map, player_entity, lighting_target, game_assets):
-    light_shader = game_assets["shaders"]["light_accumulation"]
-
+def render_lights_to_target(lights, game_camera, tile_map, lighting_target, game_assets, include_receivers):
     pr.begin_texture_mode(lighting_target)
     pr.clear_background(pr.BLACK)
     pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
 
-    lights = get_or_create_test_lights(entities, tile_map)
-
-    for light in lights.values():
-        draw_light_to_target(light, game_camera, tile_map, lighting_target, light_shader)
-
-    player_flashlight = make_player_flashlight(player_entity, tile_map)
-    draw_light_to_target(player_flashlight, game_camera, tile_map, lighting_target, light_shader)
+    for light in lights:
+        draw_light_to_target(light, game_camera, tile_map, lighting_target, game_assets, include_receivers)
 
     pr.end_blend_mode()
     pr.end_texture_mode()
+
+def render_lighting(game_camera, entities, tile_map, player_entity, lighting_target, game_assets):
+    fog_light_target = get_or_create_render_target(game_assets, "fog_light", lighting_target.texture.width, lighting_target.texture.height)
+    lights = list(get_or_create_test_lights(entities, tile_map).values())
+    lights.append(make_player_flashlight(player_entity, tile_map))
+
+    render_lights_to_target(lights, game_camera, tile_map, fog_light_target, game_assets, False)
+    render_lights_to_target(lights, game_camera, tile_map, lighting_target, game_assets, True)
+    return fog_light_target
 
 def cross_2d(a, b):
     return a["x"] * b["y"] - a["y"] * b["x"]
@@ -651,3 +741,49 @@ def apply_lighting(scene, lighting, game_assets, lighting_profile):
     pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_texture_mode()
 
+def apply_illuminated_fog(scene, fog_lighting, game_assets, fog_profile, game_camera, time_elapsed):
+    if not fog_profile.get("enabled", True):
+        return
+
+    width = scene.texture.width
+    height = scene.texture.height
+    composite_target = get_or_create_render_target(game_assets, "fog_composite", width, height)
+    fog_shader = game_assets["shaders"]["illuminated_fog"]
+    shader = fog_shader["shader"]
+    drift = fog_profile.get("drift", {"x": 0.0, "y": 0.0})
+    fog_red, fog_green, fog_blue = normalize_light_color(fog_profile.get("color", [0.62, 0.70, 0.86]))
+
+    set_shader_vec2(shader, fog_shader["resolution_location"], width, height)
+    set_shader_vec2(shader, fog_shader["camera_position_location"], game_camera.x, game_camera.y)
+    set_shader_vec2(shader, fog_shader["fog_drift_location"], drift.get("x", 0.0), drift.get("y", 0.0))
+    set_shader_vec3(shader, fog_shader["fog_color_location"], fog_red, fog_green, fog_blue)
+    set_shader_float(shader, fog_shader["time_location"], time_elapsed)
+    set_shader_float(shader, fog_shader["density_location"], fog_profile.get("density", 0.65))
+    set_shader_float(shader, fog_shader["opacity_location"], fog_profile.get("opacity", 0.75))
+    set_shader_float(shader, fog_shader["world_scale_location"], fog_profile.get("world_scale", 0.018))
+    set_shader_float(shader, fog_shader["detail_scale_location"], fog_profile.get("detail_scale", 2.7))
+    set_shader_float(shader, fog_shader["cutoff_location"], fog_profile.get("cutoff", 0.42))
+    set_shader_float(shader, fog_shader["softness_location"], fog_profile.get("softness", 0.20))
+    set_shader_float(shader, fog_shader["light_strength_location"], fog_profile.get("light_strength", 1.35))
+    set_shader_float(shader, fog_shader["ambient_strength_location"], fog_profile.get("ambient_strength", 0.0))
+    set_shader_float(shader, fog_shader["veil_strength_location"], fog_profile.get("veil_strength", 0.10))
+
+    source = pr.Rectangle(0, 0, width, -height)
+    destination = pr.Rectangle(0, 0, width, height)
+
+    pr.begin_texture_mode(composite_target)
+    pr.clear_background(pr.BLACK)
+    pr.begin_shader_mode(shader)
+
+    # Additional sampler textures must be rebound after BeginShaderMode().
+    set_shader_texture(shader, fog_shader["light_texture_location"], fog_lighting.texture)
+
+    pr.draw_texture_pro(scene.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+
+    pr.end_shader_mode()
+    pr.end_texture_mode()
+
+    pr.begin_texture_mode(scene)
+    pr.clear_background(pr.BLACK)
+    pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_texture_mode()

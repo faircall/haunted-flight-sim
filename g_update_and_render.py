@@ -1151,6 +1151,17 @@ def load_shaders():
         "light_type_location": pr.get_shader_location(light_accumulation, "lightType")
     }
 
+    top_down_light = pr.load_shader("", "shaders/top_down_light.fs")
+    result["top_down_light"] = {
+        "shader": top_down_light,
+        "resolution_location": pr.get_shader_location(top_down_light, "resolution"),
+        "area_min_location": pr.get_shader_location(top_down_light, "areaMin"),
+        "area_max_location": pr.get_shader_location(top_down_light, "areaMax"),
+        "light_color_location": pr.get_shader_location(top_down_light, "lightColor"),
+        "intensity_location": pr.get_shader_location(top_down_light, "intensity"),
+        "edge_softness_location": pr.get_shader_location(top_down_light, "edgeSoftness")
+    }
+
     lighting_composite = pr.load_shader("", "shaders/lighting_composite.fs")
     result["lighting_composite"] = {
         "shader": lighting_composite,
@@ -1163,6 +1174,27 @@ def load_shaders():
         "shadow_softness_location": pr.get_shader_location(lighting_composite, "shadowSoftness"),
         "shadow_detail_location": pr.get_shader_location(lighting_composite, "shadowDetail"),
         "contrast_location": pr.get_shader_location(lighting_composite, "contrast")
+    }
+
+    illuminated_fog = pr.load_shader("", "shaders/illuminated_fog.fs")
+    result["illuminated_fog"] = {
+        "shader": illuminated_fog,
+        "texture_location": pr.get_shader_location(illuminated_fog, "texture0"),
+        "light_texture_location": pr.get_shader_location(illuminated_fog, "lightTexture"),
+        "resolution_location": pr.get_shader_location(illuminated_fog, "resolution"),
+        "camera_position_location": pr.get_shader_location(illuminated_fog, "cameraPosition"),
+        "fog_drift_location": pr.get_shader_location(illuminated_fog, "fogDrift"),
+        "fog_color_location": pr.get_shader_location(illuminated_fog, "fogColor"),
+        "time_location": pr.get_shader_location(illuminated_fog, "time"),
+        "density_location": pr.get_shader_location(illuminated_fog, "density"),
+        "opacity_location": pr.get_shader_location(illuminated_fog, "opacity"),
+        "world_scale_location": pr.get_shader_location(illuminated_fog, "worldScale"),
+        "detail_scale_location": pr.get_shader_location(illuminated_fog, "detailScale"),
+        "cutoff_location": pr.get_shader_location(illuminated_fog, "cutoff"),
+        "softness_location": pr.get_shader_location(illuminated_fog, "softness"),
+        "light_strength_location": pr.get_shader_location(illuminated_fog, "lightStrength"),
+        "ambient_strength_location": pr.get_shader_location(illuminated_fog, "ambientStrength"),
+        "veil_strength_location": pr.get_shader_location(illuminated_fog, "veilStrength")
     }
 
     return result
@@ -3947,6 +3979,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if lighting_profile is None:
         lighting_profile = g_graphics.make_lighting_profile("inky")
 
+    fog_profile = main_arena.get("fog_profile")
+
+    if fog_profile is None:
+        fog_profile = g_graphics.make_fog_profile("misty")
+
     # could handle a pause event here...?
     if pr.is_key_pressed(pr.KeyboardKey.KEY_PAUSE):
         pause_state = transition_pause_state(pause_state)
@@ -4199,8 +4236,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     # lighting rendering happens here I think
     if editor_mode == "play":
-        g_graphics.render_lighting(camera_3d.position, entities, tile_map, player_info, lighting_target, game_assets)
-        g_graphics.apply_lighting(render_target, lighting_target, game_assets, lighting_profile)    
+        fog_light_target = g_graphics.render_lighting(camera_3d.position, entities, tile_map, player_info, lighting_target, game_assets)
+        g_graphics.apply_lighting(render_target, lighting_target, game_assets, lighting_profile)
+        g_graphics.apply_illuminated_fog(render_target, fog_light_target, game_assets, fog_profile, camera_3d.position, time_elapsed)
 
 
     # update persistent variables here
@@ -4224,6 +4262,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["player_info"] = player_info
     changes["selected_save_index"] = selected_save_index
     changes["lighting_profile"] = lighting_profile
+    changes["fog_profile"] = fog_profile
 
     result = changes.persistent()    
     
