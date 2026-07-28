@@ -282,6 +282,22 @@ def get_or_create_test_lights(entities, tile_map):
 
     return lights
 
+def make_player_pointlight(player_entity, tile_map):
+    player_world_position = game.make_pos_abs(player_entity.get("position", {}), tile_map["tile_width"], tile_map["tile_height"])
+    result = {
+        "type": "point",
+            "position": player_world_position,
+            #"color": [0.86, 0.74, 1.0],
+            "color": [1.0, 1.0, 1.0],
+            "radius": 25.0,
+            "intensity": 0.5,
+            "falloff": 1.0,
+            "casts_shadows": True,
+            "shadow_bias": 0.25,
+            "enabled": True
+    }
+    return result
+
 def make_player_flashlight(player_entity, tile_map):
     direction = game.vec2_normalize(player_entity.get("aim_direction", {"x": 1.0, "y": 0.0}))
 
@@ -444,6 +460,7 @@ def render_lighting(game_camera, entities, tile_map, player_entity, lighting_tar
     fog_light_target = get_or_create_render_target(game_assets, "fog_light", lighting_target.texture.width, lighting_target.texture.height)
     lights = list(get_or_create_test_lights(entities, tile_map).values())
     lights.append(make_player_flashlight(player_entity, tile_map))
+    lights.append(make_player_pointlight(player_entity, tile_map))
 
     render_lights_to_target(lights, game_camera, tile_map, fog_light_target, game_assets, False)
     render_lights_to_target(lights, game_camera, tile_map, lighting_target, game_assets, True)
