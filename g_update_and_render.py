@@ -1212,7 +1212,11 @@ def load_shaders():
         "warp_scale_location": pr.get_shader_location(illuminated_fog, "warpScale"),
         "warp_strength_location": pr.get_shader_location(illuminated_fog, "warpStrength"),
         "detail_evolution_speed_location": pr.get_shader_location(illuminated_fog, "detailEvolutionSpeed"),
-        "global_amount_location": pr.get_shader_location(illuminated_fog, "globalAmount")
+        "global_amount_location": pr.get_shader_location(illuminated_fog, "globalAmount"),
+        "posterize_enabled_location": pr.get_shader_location(illuminated_fog, "posterizeEnabled"),
+        "posterize_levels_location": pr.get_shader_location(illuminated_fog, "posterizeLevels"),
+        "dither_enabled_location": pr.get_shader_location(illuminated_fog, "ditherEnabled"),
+        "dither_strength_location": pr.get_shader_location(illuminated_fog, "ditherStrength")
     }
 
     return result
@@ -4216,6 +4220,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             game_assets["textures"] = None
             entities = None
             reset_all = True
+            fog_profile = None
+            lighting_profile = None
         
     if tile_map and editor_mode == "editing":        
         if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):            

@@ -28,6 +28,10 @@ uniform float warpScale;
 uniform float warpStrength;
 uniform float detailEvolutionSpeed;
 uniform float globalAmount;
+uniform float posterizeEnabled;
+uniform float posterizeLevels;
+uniform float ditherEnabled;
+uniform float ditherStrength;
 
 out vec4 finalColor;
 
@@ -83,6 +87,51 @@ float warpFbm3D(vec3 point)
     return result / 0.875;
 }
 
+float posterizeScalar(float value, float levels)
+{
+    float levelCount = max(floor(levels + 0.5), 2.0);
+    float stepCount = levelCount - 1.0;
+    return floor(clamp(value, 0.0, 1.0) * stepCount + 0.5) / stepCount;
+}
+
+vec3 posterizeVec3(vec3 color, float levels)
+{
+    return vec3(
+        posterizeScalar(color.r, levels),
+        posterizeScalar(color.g, levels),
+        posterizeScalar(color.b, levels)
+    );
+}
+
+float bayer4x4(vec2 screenPosition)
+{
+    const float matrix[16] = float[16](
+         0.0,  8.0,  2.0, 10.0,
+        12.0,  4.0, 14.0,  6.0,
+         3.0, 11.0,  1.0,  9.0,
+        15.0,  7.0, 13.0,  5.0
+    );
+    ivec2 pixel = ivec2(mod(floor(screenPosition), 4.0));
+    return (matrix[pixel.y * 4 + pixel.x] + 0.5) / 16.0;
+}
+
+float posterizeScalarDithered(float value, float levels, vec2 screenPosition, float strength)
+{
+    float levelCount = max(floor(levels + 0.5), 2.0);
+    float stepCount = levelCount - 1.0;
+    float thresholdOffset = (bayer4x4(screenPosition) - 0.5) * max(strength, 0.0) / stepCount;
+    return posterizeScalar(value + thresholdOffset, levelCount);
+}
+
+vec3 posterizeVec3Dithered(vec3 color, float levels, vec2 screenPosition, float strength)
+{
+    return vec3(
+        posterizeScalarDithered(color.r, levels, screenPosition, strength),
+        posterizeScalarDithered(color.g, levels, screenPosition, strength),
+        posterizeScalarDithered(color.b, levels, screenPosition, strength)
+    );
+}
+
 void main()
 {
     vec4 sceneSample = texture(texture0, fragTexCoord);
@@ -109,8 +158,30 @@ void main()
 
     vec3 directFog = directLight * fogColor * fogAmount * lightStrength;
     vec3 ambientFog = fogColor * fogAmount * ambientStrength;
-    vec3 veiledScene = sceneSample.rgb * (1.0 - clamp(fogAmount * veilStrength, 0.0, 1.0));
-    vec3 result = veiledScene + directFog + ambientFog;
+    float veilAmount = clamp(fogAmount * veilStrength, 0.0, 1.0);
+    vec3 fogContribution = directFog + ambientFog;
+
+    if (posterizeEnabled > 0.5)
+    {
+        vec3 fogIllumination = directLight * fogColor * lightStrength + fogColor * ambientStrength;
+        float stylizedFogAlpha = fogAmount;
+
+        if (ditherEnabled > 0.5)
+        {
+            stylizedFogAlpha = posterizeScalarDithered(stylizedFogAlpha, posterizeLevels, gl_FragCoord.xy, ditherStrength);
+            fogContribution = posterizeVec3Dithered(fogIllumination * stylizedFogAlpha, posterizeLevels, gl_FragCoord.xy, ditherStrength);
+        }
+        else
+        {
+            stylizedFogAlpha = posterizeScalar(stylizedFogAlpha, posterizeLevels);
+            fogContribution = posterizeVec3(fogIllumination * stylizedFogAlpha, posterizeLevels);
+        }
+
+        veilAmount = clamp(stylizedFogAlpha * veilStrength, 0.0, 1.0);
+    }
+
+    vec3 veiledScene = sceneSample.rgb * (1.0 - veilAmount);
+    vec3 result = veiledScene + fogContribution;
 
     finalColor = vec4(result, sceneSample.a);
 }

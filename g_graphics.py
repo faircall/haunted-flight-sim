@@ -55,9 +55,20 @@ def make_fog_profile(profile_name="misty"):
             "warp_strength": 0.75,
             "detail_drift": {"x": -2.0, "y": 3.5},
             "detail_evolution_speed": 0.17,
-            "global_amount": 0.0
+            "global_amount": 0.0,
+            "posterize_enabled": True,
+            "posterize_levels": 20.0,
+            "dither_enabled": False,
+            "dither_strength": 0.2,
+            "dither_mode": "bayer"
         }
     }
+
+    dithered_profile = dict(profiles["misty"])
+    dithered_profile["name"] = "misty_dithered"
+    dithered_profile["dither_enabled"] = True
+    dithered_profile["dither_strength"] = 0.75
+    profiles["misty_dithered"] = dithered_profile
 
     selected = profiles.get(profile_name, profiles["misty"])
     result = dict(selected)
@@ -904,6 +915,10 @@ def apply_illuminated_fog(scene, fog_lighting, fog_volume_mask, game_assets, fog
     set_shader_float(shader, fog_shader["warp_strength_location"], fog_profile.get("warp_strength", 0.75))
     set_shader_float(shader, fog_shader["detail_evolution_speed_location"], fog_profile.get("detail_evolution_speed", 0.17))
     set_shader_float(shader, fog_shader["global_amount_location"], fog_profile.get("global_amount", 0.0))
+    set_shader_float(shader, fog_shader["posterize_enabled_location"], 1.0 if fog_profile.get("posterize_enabled", True) else 0.0)
+    set_shader_float(shader, fog_shader["posterize_levels_location"], fog_profile.get("posterize_levels", 6.0))
+    set_shader_float(shader, fog_shader["dither_enabled_location"], 1.0 if fog_profile.get("dither_enabled", False) else 0.0)
+    set_shader_float(shader, fog_shader["dither_strength_location"], fog_profile.get("dither_strength", 1.0))
 
     source = pr.Rectangle(0, 0, width, -height)
     destination = pr.Rectangle(0, 0, width, height)
