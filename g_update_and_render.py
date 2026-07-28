@@ -1162,6 +1162,17 @@ def load_shaders():
         "edge_softness_location": pr.get_shader_location(top_down_light, "edgeSoftness")
     }
 
+    fog_volume_mask = pr.load_shader("", "shaders/fog_volume_mask.fs")
+    result["fog_volume_mask"] = {
+        "shader": fog_volume_mask,
+        "resolution_location": pr.get_shader_location(fog_volume_mask, "resolution"),
+        "area_min_location": pr.get_shader_location(fog_volume_mask, "areaMin"),
+        "area_max_location": pr.get_shader_location(fog_volume_mask, "areaMax"),
+        "shape_type_location": pr.get_shader_location(fog_volume_mask, "shapeType"),
+        "edge_softness_location": pr.get_shader_location(fog_volume_mask, "edgeSoftness"),
+        "strength_location": pr.get_shader_location(fog_volume_mask, "strength")
+    }
+
     lighting_composite = pr.load_shader("", "shaders/lighting_composite.fs")
     result["lighting_composite"] = {
         "shader": lighting_composite,
@@ -1181,9 +1192,11 @@ def load_shaders():
         "shader": illuminated_fog,
         "texture_location": pr.get_shader_location(illuminated_fog, "texture0"),
         "light_texture_location": pr.get_shader_location(illuminated_fog, "lightTexture"),
+        "volume_texture_location": pr.get_shader_location(illuminated_fog, "volumeTexture"),
         "resolution_location": pr.get_shader_location(illuminated_fog, "resolution"),
         "camera_position_location": pr.get_shader_location(illuminated_fog, "cameraPosition"),
         "fog_drift_location": pr.get_shader_location(illuminated_fog, "fogDrift"),
+        "detail_drift_location": pr.get_shader_location(illuminated_fog, "detailDrift"),
         "fog_color_location": pr.get_shader_location(illuminated_fog, "fogColor"),
         "time_location": pr.get_shader_location(illuminated_fog, "time"),
         "density_location": pr.get_shader_location(illuminated_fog, "density"),
@@ -1194,7 +1207,12 @@ def load_shaders():
         "softness_location": pr.get_shader_location(illuminated_fog, "softness"),
         "light_strength_location": pr.get_shader_location(illuminated_fog, "lightStrength"),
         "ambient_strength_location": pr.get_shader_location(illuminated_fog, "ambientStrength"),
-        "veil_strength_location": pr.get_shader_location(illuminated_fog, "veilStrength")
+        "veil_strength_location": pr.get_shader_location(illuminated_fog, "veilStrength"),
+        "evolution_speed_location": pr.get_shader_location(illuminated_fog, "evolutionSpeed"),
+        "warp_scale_location": pr.get_shader_location(illuminated_fog, "warpScale"),
+        "warp_strength_location": pr.get_shader_location(illuminated_fog, "warpStrength"),
+        "detail_evolution_speed_location": pr.get_shader_location(illuminated_fog, "detailEvolutionSpeed"),
+        "global_amount_location": pr.get_shader_location(illuminated_fog, "globalAmount")
     }
 
     return result
@@ -4079,6 +4097,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if not entities:
         entities = {}
 
+    fog_volumes = g_graphics.get_or_create_test_fog_volumes(entities, tile_map)
+
     
     
 
@@ -4221,6 +4241,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         for debug_item in debug_queue:
             draw_debug_item(debug_state, debug_item, camera=camera_3d)
 
+    if editor_mode != "play" and tile_map is not None:
+        for fog_volume in fog_volumes.values():
+            g_graphics.draw_fog_volume_debug(fog_volume, camera_3d.position, tile_map)
+
     # pr.end_drawing()
     
         #draw_cursor()
@@ -4238,7 +4262,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if editor_mode == "play":
         fog_light_target = g_graphics.render_lighting(camera_3d.position, entities, tile_map, player_info, lighting_target, game_assets)
         g_graphics.apply_lighting(render_target, lighting_target, game_assets, lighting_profile)
-        g_graphics.apply_illuminated_fog(render_target, fog_light_target, game_assets, fog_profile, camera_3d.position, time_elapsed)
+        fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
+        g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
 
 
     # update persistent variables here

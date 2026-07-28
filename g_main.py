@@ -54,6 +54,30 @@ def render_error_message(msg):
     pr.draw_text(msg, 20, 20, 20, pr.WHITE)
     pr.end_drawing()
 
+def format_update_error(error):
+    tb_frames = traceback.extract_tb(error.__traceback__)
+    reloadable_module_names = {name.lower() for name, module in g_reloadable_modules}
+    relevant_frame = None
+
+    for frame in reversed(tb_frames):
+        module_name = os.path.splitext(os.path.basename(frame.filename))[0].lower()
+
+        if module_name in reloadable_module_names:
+            relevant_frame = frame
+            break
+
+    if relevant_frame is None and tb_frames:
+        relevant_frame = tb_frames[-1]
+
+    if relevant_frame is None:
+        location = "unknown location"
+    else:
+        module_file = os.path.basename(relevant_frame.filename)
+        location = f"{module_file}:{relevant_frame.lineno} in {relevant_frame.name}()"
+
+    error_type = type(error).__name__
+    return f"Issue in {location}: {error_type}: {error}"
+
 
 def g_main():
     
@@ -194,20 +218,8 @@ def g_main():
                 auto_reload = main_arena.get("auto_reload", True)
             except Exception as e:
                 skip_update = True
-                error_type = type(e).__name__
-                error_message = str(e)                
-                tb_frames = traceback.extract_tb(e.__traceback__)                                
-                relevant_line = None
-                for frame in reversed(tb_frames):
-                    if any(
-                        module_name in frame.filename
-                        for module_name in ("g_update_and_render", "g_graphics", "g_ui")
-                    ):
-                        relevant_line = frame.lineno
-                        break                                
-                if relevant_line is None:
-                    relevant_line = tb_frames[0].lineno if tb_frames else "unknown"                
-                update_error_message = f"Issue with update and render: {error_type} at line {relevant_line}: {error_message}"                
+                update_error_message = format_update_error(e)
+                traceback.print_exception(type(e), e, e.__traceback__)
                 main_arena = backup_arena
         else:
             update_timer += max(pr.get_frame_time(), 0.016)

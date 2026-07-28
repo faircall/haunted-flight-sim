@@ -49,7 +49,13 @@ def make_fog_profile(profile_name="misty"):
             "softness": 0.20,
             "light_strength": 1.35,
             "ambient_strength": 0.0,
-            "veil_strength": 0.10
+            "veil_strength": 0.10,
+            "evolution_speed": 0.10,
+            "warp_scale": 0.55,
+            "warp_strength": 0.75,
+            "detail_drift": {"x": -2.0, "y": 3.5},
+            "detail_evolution_speed": 0.17,
+            "global_amount": 0.0
         }
     }
 
@@ -57,6 +63,7 @@ def make_fog_profile(profile_name="misty"):
     result = dict(selected)
     result["color"] = list(selected["color"])
     result["drift"] = dict(selected["drift"])
+    result["detail_drift"] = dict(selected["detail_drift"])
     return result
 
 def get_or_create_render_target(game_assets, name, width, height):
@@ -126,6 +133,112 @@ def get_light_world_position(light, tile_map):
         return game.make_pos_abs(position, tile_map["tile_width"], tile_map["tile_height"])
 
     return {"x": position.get("x", 0.0), "y": position.get("y", 0.0)}
+
+def get_or_create_test_fog_volumes(entities, tile_map):
+    fog_volumes = game.get_or_set(entities, "fog_volumes", {})
+
+    if "test_fog_volume" not in fog_volumes:
+        fog_volumes["test_fog_volume"] = {
+            "type": "fog_volume",
+            "shape": "ellipse",
+            "position": {
+                "tile_x": 40,
+                "tile_y": 2,
+                "x": 8.0,
+                "y": 8.0
+            },
+            "size": {
+                "x": 180.0,
+                "y": 110.0
+            },
+            "edge_softness": 24.0,
+            "strength": 1.0,
+            "enabled": True
+        }
+
+    return fog_volumes
+
+def draw_fog_volume_to_mask(volume, game_camera, tile_map, mask_target, volume_shader):
+    if not volume.get("enabled", True):
+        return
+
+    world_position = get_light_world_position(volume, tile_map)
+    size = volume.get("size", {})
+    width = max(0.0, float(size.get("x", 0.0)))
+    height = max(0.0, float(size.get("y", 0.0)))
+    screen_x = world_position["x"] - game_camera.x
+    screen_y = world_position["y"] - game_camera.y
+    area_min_x = screen_x - width * 0.5
+    area_min_y = screen_y - height * 0.5
+    area_max_x = screen_x + width * 0.5
+    area_max_y = screen_y + height * 0.5
+    target_width = mask_target.texture.width
+    target_height = mask_target.texture.height
+
+    if area_max_x < 0 or area_max_y < 0 or area_min_x >= target_width or area_min_y >= target_height:
+        return
+
+    shape_type = 1 if volume.get("shape", "ellipse") == "ellipse" else 0
+    edge_softness = max(0.0, float(volume.get("edge_softness", 24.0)))
+    strength = max(0.0, float(volume.get("strength", 1.0)))
+    shader = volume_shader["shader"]
+
+    set_shader_vec2(shader, volume_shader["resolution_location"], target_width, target_height)
+    set_shader_vec2(shader, volume_shader["area_min_location"], area_min_x, area_min_y)
+    set_shader_vec2(shader, volume_shader["area_max_location"], area_max_x, area_max_y)
+    set_shader_int(shader, volume_shader["shape_type_location"], shape_type)
+    set_shader_float(shader, volume_shader["edge_softness_location"], edge_softness)
+    set_shader_float(shader, volume_shader["strength_location"], strength)
+
+    draw_x = max(0, math.floor(area_min_x))
+    draw_y = max(0, math.floor(area_min_y))
+    draw_max_x = min(target_width, math.ceil(area_max_x))
+    draw_max_y = min(target_height, math.ceil(area_max_y))
+
+    if draw_max_x <= draw_x or draw_max_y <= draw_y:
+        return
+
+    pr.begin_shader_mode(shader)
+    pr.draw_rectangle(draw_x, draw_y, draw_max_x - draw_x, draw_max_y - draw_y, pr.WHITE)
+    pr.end_shader_mode()
+
+def render_fog_volume_mask(game_camera, entities, tile_map, scene_target, game_assets):
+    width = scene_target.texture.width
+    height = scene_target.texture.height
+    mask_target = get_or_create_render_target(game_assets, "fog_volume_mask", width, height)
+    volume_shader = game_assets["shaders"]["fog_volume_mask"]
+    fog_volumes = get_or_create_test_fog_volumes(entities, tile_map)
+
+    pr.begin_texture_mode(mask_target)
+    pr.clear_background(pr.BLACK)
+    pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
+
+    for volume in fog_volumes.values():
+        draw_fog_volume_to_mask(volume, game_camera, tile_map, mask_target, volume_shader)
+
+    pr.end_blend_mode()
+    pr.end_texture_mode()
+    return mask_target
+
+def draw_fog_volume_debug(volume, game_camera, tile_map):
+    if not volume.get("enabled", True):
+        return
+
+    world_position = get_light_world_position(volume, tile_map)
+    size = volume.get("size", {})
+    width = max(0.0, float(size.get("x", 0.0)))
+    height = max(0.0, float(size.get("y", 0.0)))
+    screen_x = world_position["x"] - game_camera.x
+    screen_y = world_position["y"] - game_camera.y
+    color = pr.Color(150, 210, 255, 220)
+
+    if volume.get("shape", "ellipse") == "ellipse":
+        pr.draw_ellipse_lines(int(screen_x), int(screen_y), width * 0.5, height * 0.5, color)
+    else:
+        rectangle = pr.Rectangle(screen_x - width * 0.5, screen_y - height * 0.5, width, height)
+        pr.draw_rectangle_lines_ex(rectangle, 1.0, color)
+
+    pr.draw_circle(int(screen_x), int(screen_y), 2.0, pr.YELLOW)
 
 def get_or_create_test_lights(entities, tile_map):
     lights = game.get_or_set(entities, "lights", {})
@@ -741,7 +854,7 @@ def apply_lighting(scene, lighting, game_assets, lighting_profile):
     pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_texture_mode()
 
-def apply_illuminated_fog(scene, fog_lighting, game_assets, fog_profile, game_camera, time_elapsed):
+def apply_illuminated_fog(scene, fog_lighting, fog_volume_mask, game_assets, fog_profile, game_camera, time_elapsed):
     if not fog_profile.get("enabled", True):
         return
 
@@ -751,11 +864,13 @@ def apply_illuminated_fog(scene, fog_lighting, game_assets, fog_profile, game_ca
     fog_shader = game_assets["shaders"]["illuminated_fog"]
     shader = fog_shader["shader"]
     drift = fog_profile.get("drift", {"x": 0.0, "y": 0.0})
+    detail_drift = fog_profile.get("detail_drift", {"x": -2.0, "y": 3.5})
     fog_red, fog_green, fog_blue = normalize_light_color(fog_profile.get("color", [0.62, 0.70, 0.86]))
 
     set_shader_vec2(shader, fog_shader["resolution_location"], width, height)
     set_shader_vec2(shader, fog_shader["camera_position_location"], game_camera.x, game_camera.y)
     set_shader_vec2(shader, fog_shader["fog_drift_location"], drift.get("x", 0.0), drift.get("y", 0.0))
+    set_shader_vec2(shader, fog_shader["detail_drift_location"], detail_drift.get("x", -2.0), detail_drift.get("y", 3.5))
     set_shader_vec3(shader, fog_shader["fog_color_location"], fog_red, fog_green, fog_blue)
     set_shader_float(shader, fog_shader["time_location"], time_elapsed)
     set_shader_float(shader, fog_shader["density_location"], fog_profile.get("density", 0.65))
@@ -767,6 +882,11 @@ def apply_illuminated_fog(scene, fog_lighting, game_assets, fog_profile, game_ca
     set_shader_float(shader, fog_shader["light_strength_location"], fog_profile.get("light_strength", 1.35))
     set_shader_float(shader, fog_shader["ambient_strength_location"], fog_profile.get("ambient_strength", 0.0))
     set_shader_float(shader, fog_shader["veil_strength_location"], fog_profile.get("veil_strength", 0.10))
+    set_shader_float(shader, fog_shader["evolution_speed_location"], fog_profile.get("evolution_speed", 0.10))
+    set_shader_float(shader, fog_shader["warp_scale_location"], fog_profile.get("warp_scale", 0.55))
+    set_shader_float(shader, fog_shader["warp_strength_location"], fog_profile.get("warp_strength", 0.75))
+    set_shader_float(shader, fog_shader["detail_evolution_speed_location"], fog_profile.get("detail_evolution_speed", 0.17))
+    set_shader_float(shader, fog_shader["global_amount_location"], fog_profile.get("global_amount", 0.0))
 
     source = pr.Rectangle(0, 0, width, -height)
     destination = pr.Rectangle(0, 0, width, height)
@@ -777,6 +897,7 @@ def apply_illuminated_fog(scene, fog_lighting, game_assets, fog_profile, game_ca
 
     # Additional sampler textures must be rebound after BeginShaderMode().
     set_shader_texture(shader, fog_shader["light_texture_location"], fog_lighting.texture)
+    set_shader_texture(shader, fog_shader["volume_texture_location"], fog_volume_mask.texture)
 
     pr.draw_texture_pro(scene.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
 
