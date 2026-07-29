@@ -1234,7 +1234,12 @@ def load_shaders():
         "black_point_location": pr.get_shader_location(lighting_composite, "blackPoint"),
         "shadow_softness_location": pr.get_shader_location(lighting_composite, "shadowSoftness"),
         "shadow_detail_location": pr.get_shader_location(lighting_composite, "shadowDetail"),
-        "contrast_location": pr.get_shader_location(lighting_composite, "contrast")
+        "contrast_location": pr.get_shader_location(lighting_composite, "contrast"),
+        "light_posterize_enabled_location": pr.get_shader_location(lighting_composite, "lightPosterizeEnabled"),
+        "light_posterize_levels_location": pr.get_shader_location(lighting_composite, "lightPosterizeLevels"),
+        "light_dither_enabled_location": pr.get_shader_location(lighting_composite, "lightDitherEnabled"),
+        "light_dither_strength_location": pr.get_shader_location(lighting_composite, "lightDitherStrength"),
+        "posterize_ambient_location": pr.get_shader_location(lighting_composite, "posterizeAmbient")
     }
 
     illuminated_fog = pr.load_shader("", "shaders/illuminated_fog.fs")
@@ -4123,7 +4128,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         game_assets["sprite_sheets"] = sprite_sheets
 
     shaders = game_assets.get("shaders")
-    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders:
+    lighting_composite_shader = shaders.get("lighting_composite", {}) if shaders else {}
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader:
         if shaders:
             unload_shaders(shaders)
         shaders = load_shaders()

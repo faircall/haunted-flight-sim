@@ -21,7 +21,12 @@ def make_lighting_profile(profile_name="inky"):
             "black_point": 0.025,
             "shadow_softness": 0.22,
             "shadow_detail": 0.75,
-            "contrast": 1.05
+            "contrast": 1.05,
+            "light_posterize_enabled": True,
+            "light_posterize_levels": 12.0,
+            "light_dither_enabled": False,
+            "light_dither_strength": 1.0,
+            "posterize_ambient": False
         },
         "inky": {
             "name": "inky",
@@ -32,7 +37,12 @@ def make_lighting_profile(profile_name="inky"):
             "black_point": 0.10,
             "shadow_softness": 0.025,
             "shadow_detail": 0.0,
-            "contrast": 1.18
+            "contrast": 1.18,
+            "light_posterize_enabled": True,
+            "light_posterize_levels": 12.0,
+            "light_dither_enabled": False,
+            "light_dither_strength": 1.0,
+            "posterize_ambient": False
         }
     }
 
@@ -1537,6 +1547,11 @@ def apply_lighting(scene, lighting, game_assets, lighting_profile):
     set_shader_float(shader, composite_shader["shadow_softness_location"], lighting_profile.get("shadow_softness", 0.03))
     set_shader_float(shader, composite_shader["shadow_detail_location"], lighting_profile.get("shadow_detail", 0.0))
     set_shader_float(shader, composite_shader["contrast_location"], lighting_profile.get("contrast", 1.0))
+    set_shader_float(shader, composite_shader["light_posterize_enabled_location"], 1.0 if lighting_profile.get("light_posterize_enabled", True) else 0.0)
+    set_shader_float(shader, composite_shader["light_posterize_levels_location"], lighting_profile.get("light_posterize_levels", 12.0))
+    set_shader_float(shader, composite_shader["light_dither_enabled_location"], 1.0 if lighting_profile.get("light_dither_enabled", False) else 0.0)
+    set_shader_float(shader, composite_shader["light_dither_strength_location"], lighting_profile.get("light_dither_strength", 1.0))
+    set_shader_float(shader, composite_shader["posterize_ambient_location"], 1.0 if lighting_profile.get("posterize_ambient", False) else 0.0)
 
     source = pr.Rectangle(0, 0, width, -height)
     destination = pr.Rectangle(0, 0, width, height)
