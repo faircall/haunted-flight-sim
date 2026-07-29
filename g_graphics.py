@@ -538,9 +538,9 @@ def draw_textured_quad(texture, source_rect, far_left, far_right, near_right, ne
     u_right = (source_rect.x + source_rect.width) / texture_width
     v_top = source_rect.y / texture_height
     v_bottom = (source_rect.y + source_rect.height) / texture_height
-
-    pr.rl_set_texture(texture.id)
     pr.rl_begin(pr.RL_TRIANGLES)
+    pr.rl_set_texture(texture.id)
+    
     pr.rl_color4ub(255, 255, 255, 255)
 
     pr.rl_tex_coord2f(u_left, v_top)
