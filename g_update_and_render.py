@@ -410,7 +410,7 @@ def draw_masked_tile_texture(texture, render_pos, shape_index, game_assets, scal
     pr.end_shader_mode()
     
 
-def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
+def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, draw_tiles, draw_entities):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
@@ -451,8 +451,9 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     # and just draw the ones around that..?    
 
     tile_select_modes = {"editing", "entity_placing", "light_placing"}
+    tile_rows = range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)) if draw_tiles else ()
 
-    for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)):
+    for y in tile_rows:
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
 
             if x < 0 or x >= map_width or y < 0 or y >= map_height:
@@ -558,6 +559,9 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                         pr.draw_circle(int(render_pos_x), int(render_pos_y), decal.get("size",5), pr.RED)
 
 
+    if not draw_entities:
+        return
+
     # draw the player also
 
     # make this a draw entity function
@@ -645,7 +649,9 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
             texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
             texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)            
-    for entity in entities["brains"].values():        
+    for entity in entities["brains"].values():
+        g_graphics.ensure_default_cinematic_shadow(entity)
+
         if entity.get("type","") == "buddha":
             texture_scale = 1
             texture_to_use = game_assets.get("textures",{}).get("buddha_texture")
@@ -710,9 +716,14 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                         pr.draw_text(f"BAM {attack_timer}/{attack_cooldown}", texture_x, texture_y - 20, 10, pr.RED)
 
 
+def update_render_tile_map_base(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
+    _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, True, False)
 
+def draw_world_entities(game_camera, entities, tile_map, game_assets, ignore, player_entity, mode, debug_queue):
+    _render_world_scene_phase(game_camera, entities, tile_map, pr.Vector2(0, 0), 0, 0, 0, game_assets, ignore, player_entity, mode, debug_queue, False, True)
 
-
+def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
+    _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, True, True)
 
 
 def transition_debug_state(current):
@@ -788,6 +799,8 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["value"] = 20
     elif entity_type == "health_pickup":
         entity["value"] = 25
+
+    g_graphics.ensure_default_cinematic_shadow(entity)
 
 
     
@@ -1133,6 +1146,21 @@ def load_shaders():
     result["tile_mask"] = {
         "shader": tile_mask,
         "shape_index_location": pr.get_shader_location(tile_mask, "shapeIndex")
+    }
+
+    cinematic_shadow_projection = pr.load_shader("", "shaders/cinematic_shadow_projection.fs")
+    result["cinematic_shadow_projection"] = {
+        "shader": cinematic_shadow_projection,
+        "shadow_color_location": pr.get_shader_location(cinematic_shadow_projection, "shadowColor"),
+        "shadow_opacity_location": pr.get_shader_location(cinematic_shadow_projection, "shadowOpacity"),
+        "alpha_cutoff_location": pr.get_shader_location(cinematic_shadow_projection, "alphaCutoff")
+    }
+
+    cinematic_shadow_composite = pr.load_shader("", "shaders/cinematic_shadow_composite.fs")
+    result["cinematic_shadow_composite"] = {
+        "shader": cinematic_shadow_composite,
+        "shadow_texture_location": pr.get_shader_location(cinematic_shadow_composite, "shadowTexture"),
+        "visibility_texture_location": pr.get_shader_location(cinematic_shadow_composite, "visibilityTexture")
     }
 
     light_accumulation = pr.load_shader("", "shaders/light_accumulation.fs")
@@ -4073,7 +4101,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         game_assets["sprite_sheets"] = sprite_sheets
 
     shaders = game_assets.get("shaders")
-    if not shaders:
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders:
+        if shaders:
+            unload_shaders(shaders)
         shaders = load_shaders()
         game_assets["shaders"] = shaders
 
@@ -4176,7 +4206,14 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     
 
-    update_render_tile_map(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
+    update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
+    pr.end_texture_mode()
+
+    if editor_mode == "play" and not do_load_level:
+        g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, entities, player_info, tile_map, game_assets)
+
+    pr.begin_texture_mode(render_target)
+    draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
 
     pr.draw_text(editor_mode, 10, 240, 10, pr.WHITE)
     if g_mute:
@@ -4250,6 +4287,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if editor_mode != "play" and tile_map is not None:
         for fog_volume in fog_volumes.values():
             g_graphics.draw_fog_volume_debug(fog_volume, camera_3d.position, tile_map)
+
+        g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets)
 
     # pr.end_drawing()
     

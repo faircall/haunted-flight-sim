@@ -6,6 +6,8 @@ from pyrsistent import m, pmap, v
 
 import g_update_and_render as game
 
+CINEMATIC_SHADOW_DEBUG_ENABLED = True
+
 def make_lighting_profile(profile_name="inky"):
     profiles = {
         "soft": {
@@ -339,6 +341,287 @@ def make_player_flashlight(player_entity, tile_map):
         "inner_angle": 13.0,
         "outer_angle": 27.0,
         "enabled": player_entity.get("flashlight_enabled", True)
+    }
+
+def make_default_cinematic_shadow(entity_type):
+    presets = {
+        "red head": {
+            "enabled": True,
+            "source": "sprite_alpha",
+            "length": 52.0,
+            "near_width": 0.65,
+            "far_width": 1.15,
+            "lateral_skew": 0.0,
+            "opacity": 0.58,
+            "color": [0.008, 0.004, 0.018],
+            "anchor_offset": {"x": -12.0, "y": -3.0},
+            "near_offset": 1.0,
+            "max_light_distance": 180.0,
+            "fade_with_light_strength": True
+        },
+        "buddha": {
+            "enabled": True,
+            "source": "sprite_alpha",
+            "length": 68.0,
+            "near_width": 0.90,
+            "far_width": 1.30,
+            "lateral_skew": 0.0,
+            "opacity": 0.48,
+            "color": [0.008, 0.004, 0.018],
+            "anchor_offset": {"x": -6.0, "y": 61.0},
+            "near_offset": 1.0,
+            "max_light_distance": 180.0,
+            "fade_with_light_strength": True
+        }
+    }
+    return presets.get(entity_type)
+
+def ensure_default_cinematic_shadow(entity):
+    if entity.get("type") not in {"red head", "buddha"}:
+        return entity
+
+    if "cinematic_shadow" not in entity:
+        entity["cinematic_shadow"] = make_default_cinematic_shadow(entity.get("type"))
+
+    return entity
+
+def get_entity_cinematic_shadow_sprite_info(entity, game_assets, tile_map):
+    entity_type = entity.get("type")
+    world_anchor = game.make_pos_abs(entity.get("position", {}), tile_map["tile_width"], tile_map["tile_height"])
+
+    if entity_type == "red head":
+        sprite_sheet = game_assets.get("sprite_sheets", {}).get("red_head_texture_sheet", {})
+        texture = sprite_sheet.get("sheet")
+
+        if texture is None:
+            return None
+
+        frame_key = entity.get("animation_frame", 0)
+        frame_number = sprite_sheet.get(frame_key, 0)
+        return {
+            "texture": texture,
+            "source_rect": pr.Rectangle(float(frame_number) * 24.0, 0.0, 24.0, 24.0),
+            "world_anchor": world_anchor,
+            "sprite_width": 24.0,
+            "sprite_height": 24.0
+        }
+
+    if entity_type == "buddha":
+        texture = game_assets.get("textures", {}).get("buddha_texture")
+
+        if texture is None:
+            return None
+
+        return {
+            "texture": texture,
+            "source_rect": pr.Rectangle(0.0, 0.0, float(texture.width), float(texture.height)),
+            "world_anchor": world_anchor,
+            "sprite_width": float(texture.width),
+            "sprite_height": float(texture.height)
+        }
+
+    return None
+
+def point_is_on_segment(point, segment_start, segment_end, epsilon=0.0001):
+    segment_x = segment_end["x"] - segment_start["x"]
+    segment_y = segment_end["y"] - segment_start["y"]
+    point_x = point["x"] - segment_start["x"]
+    point_y = point["y"] - segment_start["y"]
+    cross = segment_x * point_y - segment_y * point_x
+
+    if abs(cross) > epsilon:
+        return False
+
+    dot = point_x * segment_x + point_y * segment_y
+    segment_length_squared = segment_x * segment_x + segment_y * segment_y
+    return dot >= -epsilon and dot <= segment_length_squared + epsilon
+
+def point_in_polygon(point, polygon):
+    if len(polygon) < 3:
+        return False
+
+    inside = False
+
+    for index, vertex in enumerate(polygon):
+        next_vertex = polygon[(index + 1) % len(polygon)]
+
+        if point_is_on_segment(point, vertex, next_vertex):
+            return True
+
+        crosses_y = (vertex["y"] > point["y"]) != (next_vertex["y"] > point["y"])
+
+        if not crosses_y:
+            continue
+
+        edge_x = vertex["x"] + (point["y"] - vertex["y"]) * (next_vertex["x"] - vertex["x"]) / (next_vertex["y"] - vertex["y"])
+
+        if point["x"] < edge_x:
+            inside = not inside
+
+    return inside
+
+def smoothstep_cpu(edge_start, edge_end, value):
+    if edge_end <= edge_start:
+        return 1.0 if value >= edge_end else 0.0
+
+    amount = max(0.0, min(1.0, (value - edge_start) / (edge_end - edge_start)))
+    return amount * amount * (3.0 - 2.0 * amount)
+
+def get_spot_light_strength_at_world_point(light, world_point, tile_map):
+    light_position = get_light_world_position(light, tile_map)
+    from_light = game.vec2_subtract(world_point, light_position)
+    distance_from_light = game.vec2_norm(from_light)
+    radius = max(0.0001, float(light.get("radius", 100.0)))
+
+    if distance_from_light >= radius:
+        return 0.0
+
+    radial_strength = 1.0 - distance_from_light / radius
+    radial_strength = max(0.0, min(1.0, radial_strength)) ** max(0.0001, float(light.get("falloff", 2.0)))
+    cone_strength = 1.0
+
+    if light.get("type", "point") == "spot" and distance_from_light > 0.0001:
+        direction_to_point = game.vec2_scale(from_light, 1.0 / distance_from_light)
+        light_direction = game.vec2_normalize(light.get("direction", {"x": 1.0, "y": 0.0}))
+        alignment = direction_to_point["x"] * light_direction["x"] + direction_to_point["y"] * light_direction["y"]
+        inner_angle = float(light.get("inner_angle", 20.0))
+        outer_angle = max(inner_angle + 0.001, float(light.get("outer_angle", 35.0)))
+        inner_cone_cos = math.cos(math.radians(inner_angle))
+        outer_cone_cos = math.cos(math.radians(outer_angle))
+        cone_strength = smoothstep_cpu(outer_cone_cos, inner_cone_cos, alignment)
+
+    near_strength = 1.0
+    near_fade_distance = max(0.0, float(light.get("near_fade_distance", 0.0)))
+
+    if near_fade_distance > 0.0:
+        near_strength = smoothstep_cpu(0.0, near_fade_distance, distance_from_light)
+
+    strength = radial_strength * cone_strength * near_strength * max(0.0, float(light.get("intensity", 1.0)))
+    return max(0.0, min(1.0, strength))
+
+def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_position):
+    anchor_offset = shadow_settings.get("anchor_offset", {})
+    floor_anchor = {
+        "x": sprite_info["world_anchor"]["x"] + float(anchor_offset.get("x", 0.0)),
+        "y": sprite_info["world_anchor"]["y"] + float(anchor_offset.get("y", 0.0))
+    }
+    from_light = game.vec2_subtract(floor_anchor, flashlight_position)
+    distance_from_light = game.vec2_norm(from_light)
+
+    if distance_from_light <= 0.0001:
+        return None
+
+    projection_direction = game.vec2_scale(from_light, 1.0 / distance_from_light)
+    side_direction = {"x": -projection_direction["y"], "y": projection_direction["x"]}
+    length = max(0.0, float(shadow_settings.get("length", 56.0)))
+    near_offset = float(shadow_settings.get("near_offset", 1.0))
+    lateral_skew = float(shadow_settings.get("lateral_skew", 0.0))
+    near_half_width = sprite_info["sprite_width"] * max(0.0, float(shadow_settings.get("near_width", 0.70))) * 0.5
+    far_half_width = sprite_info["sprite_width"] * max(0.0, float(shadow_settings.get("far_width", 1.20))) * 0.5
+    near_center = game.vec2_add(floor_anchor, game.vec2_scale(projection_direction, near_offset))
+    far_center = game.vec2_add(near_center, game.vec2_add(game.vec2_scale(projection_direction, length), game.vec2_scale(side_direction, lateral_skew * length)))
+
+    return {
+        "floor_anchor": floor_anchor,
+        "near_center": near_center,
+        "far_center": far_center,
+        "near_left": game.vec2_subtract(near_center, game.vec2_scale(side_direction, near_half_width)),
+        "near_right": game.vec2_add(near_center, game.vec2_scale(side_direction, near_half_width)),
+        "far_left": game.vec2_subtract(far_center, game.vec2_scale(side_direction, far_half_width)),
+        "far_right": game.vec2_add(far_center, game.vec2_scale(side_direction, far_half_width))
+    }
+
+def draw_textured_quad(texture, source_rect, far_left, far_right, near_right, near_left):
+    texture_width = max(1.0, float(texture.width))
+    texture_height = max(1.0, float(texture.height))
+    u_left = source_rect.x / texture_width
+    u_right = (source_rect.x + source_rect.width) / texture_width
+    v_top = source_rect.y / texture_height
+    v_bottom = (source_rect.y + source_rect.height) / texture_height
+
+    pr.rl_set_texture(texture.id)
+    pr.rl_begin(pr.RL_TRIANGLES)
+    pr.rl_color4ub(255, 255, 255, 255)
+
+    pr.rl_tex_coord2f(u_left, v_top)
+    pr.rl_vertex2f(far_left["x"], far_left["y"])
+    pr.rl_tex_coord2f(u_left, v_bottom)
+    pr.rl_vertex2f(near_left["x"], near_left["y"])
+    pr.rl_tex_coord2f(u_right, v_bottom)
+    pr.rl_vertex2f(near_right["x"], near_right["y"])
+
+    pr.rl_tex_coord2f(u_left, v_top)
+    pr.rl_vertex2f(far_left["x"], far_left["y"])
+    pr.rl_tex_coord2f(u_right, v_bottom)
+    pr.rl_vertex2f(near_right["x"], near_right["y"])
+    pr.rl_tex_coord2f(u_right, v_top)
+    pr.rl_vertex2f(far_right["x"], far_right["y"])
+
+    pr.rl_end()
+    pr.rl_set_texture(0)
+
+def build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets):
+    flashlight = make_player_flashlight(player_entity, tile_map)
+
+    if not flashlight.get("enabled", True):
+        return None
+
+    flashlight_position = get_light_world_position(flashlight, tile_map)
+    radius = max(1.0, float(flashlight.get("radius", 180.0)))
+    tile_occluders = get_nearby_tile_occluders(flashlight_position, radius, tile_map)
+    visibility_light = dict(flashlight)
+    visibility_light["shadow_bias"] = 0.0
+    visibility_polygon = build_light_visibility_polygon(visibility_light, flashlight_position, radius, tile_occluders)
+    visibility_area = [flashlight_position] + visibility_polygon if flashlight.get("type") == "spot" else visibility_polygon
+    shadows = []
+
+    for entity in entities.get("brains", {}).values():
+        ensure_default_cinematic_shadow(entity)
+        shadow_settings = entity.get("cinematic_shadow")
+
+        if not shadow_settings or not shadow_settings.get("enabled", True) or shadow_settings.get("source", "sprite_alpha") != "sprite_alpha":
+            continue
+
+        sprite_info = get_entity_cinematic_shadow_sprite_info(entity, game_assets, tile_map)
+
+        if sprite_info is None:
+            continue
+
+        shadow_quad = build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_position)
+
+        if shadow_quad is None:
+            continue
+
+        floor_anchor = shadow_quad["floor_anchor"]
+        distance_from_light = game.vec2_distance(floor_anchor, flashlight_position)
+
+        if distance_from_light > max(0.0, float(shadow_settings.get("max_light_distance", 180.0))):
+            continue
+
+        flashlight_strength = get_spot_light_strength_at_world_point(flashlight, floor_anchor, tile_map)
+
+        if flashlight_strength <= 0.0 or not point_in_polygon(floor_anchor, visibility_area):
+            continue
+
+        shadow_opacity = max(0.0, min(1.0, float(shadow_settings.get("opacity", 0.58))))
+
+        if shadow_settings.get("fade_with_light_strength", True):
+            shadow_opacity *= flashlight_strength
+
+        shadows.append({
+            "entity": entity,
+            "sprite_info": sprite_info,
+            "settings": shadow_settings,
+            "quad": shadow_quad,
+            "opacity": shadow_opacity
+        })
+
+    return {
+        "flashlight": flashlight,
+        "flashlight_position": flashlight_position,
+        "visibility_light": visibility_light,
+        "visibility_polygon": visibility_polygon,
+        "shadows": shadows
     }
 
 def draw_radial_light_to_target(light, game_camera, tile_map, lighting_target, light_shader, include_receivers=True):
@@ -821,6 +1104,120 @@ def draw_light_visibility_polygon(light, light_position, polygon, game_camera):
 
     if light.get("type", "point") == "point" and len(screen_points) >= 3:
         pr.draw_triangle(light_screen_position, screen_points[0], screen_points[-1], pr.WHITE)
+
+def world_point_to_screen(point, game_camera):
+    return {"x": point["x"] - game_camera.x, "y": point["y"] - game_camera.y}
+
+def render_cinematic_shadow_visibility_mask(frame_data, game_camera, visibility_target):
+    pr.begin_texture_mode(visibility_target)
+    pr.clear_background(pr.BLACK)
+    draw_light_visibility_polygon(frame_data["visibility_light"], frame_data["flashlight_position"], frame_data["visibility_polygon"], game_camera)
+    pr.end_texture_mode()
+
+def render_cinematic_shadow_raw(frame_data, game_camera, raw_target, projection_shader):
+    shader = projection_shader["shader"]
+
+    pr.begin_texture_mode(raw_target)
+    pr.clear_background(pr.BLANK)
+
+    for shadow in frame_data["shadows"]:
+        sprite_info = shadow["sprite_info"]
+        shadow_settings = shadow["settings"]
+        shadow_quad = shadow["quad"]
+        red, green, blue = normalize_light_color(shadow_settings.get("color", [0.008, 0.004, 0.018]))
+        set_shader_vec3(shader, projection_shader["shadow_color_location"], red, green, blue)
+        set_shader_float(shader, projection_shader["shadow_opacity_location"], shadow["opacity"])
+        set_shader_float(shader, projection_shader["alpha_cutoff_location"], 0.02)
+        far_left = world_point_to_screen(shadow_quad["far_left"], game_camera)
+        far_right = world_point_to_screen(shadow_quad["far_right"], game_camera)
+        near_right = world_point_to_screen(shadow_quad["near_right"], game_camera)
+        near_left = world_point_to_screen(shadow_quad["near_left"], game_camera)
+
+        pr.begin_shader_mode(shader)
+        draw_textured_quad(sprite_info["texture"], sprite_info["source_rect"], far_left, far_right, near_right, near_left)
+        pr.end_shader_mode()
+
+    pr.end_texture_mode()
+
+def apply_cinematic_shadow_composite(scene, raw_target, visibility_target, composite_target, composite_shader):
+    width = scene.texture.width
+    height = scene.texture.height
+    shader = composite_shader["shader"]
+    source = pr.Rectangle(0, 0, width, -height)
+    destination = pr.Rectangle(0, 0, width, height)
+
+    pr.begin_texture_mode(composite_target)
+    pr.clear_background(pr.BLACK)
+    pr.begin_shader_mode(shader)
+
+    # Additional sampler textures must be rebound after BeginShaderMode().
+    set_shader_texture(shader, composite_shader["shadow_texture_location"], raw_target.texture)
+    set_shader_texture(shader, composite_shader["visibility_texture_location"], visibility_target.texture)
+    pr.draw_texture_pro(scene.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+
+    pr.end_shader_mode()
+    pr.end_texture_mode()
+
+    pr.begin_texture_mode(scene)
+    pr.clear_background(pr.BLACK)
+    pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_texture_mode()
+
+def render_and_apply_cinematic_entity_shadows(scene, game_camera, entities, player_entity, tile_map, game_assets):
+    frame_data = build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets)
+
+    if frame_data is None:
+        return
+
+    width = scene.texture.width
+    height = scene.texture.height
+    raw_target = get_or_create_render_target(game_assets, "cinematic_shadow_raw", width, height)
+    visibility_target = get_or_create_render_target(game_assets, "cinematic_shadow_visibility", width, height)
+    composite_target = get_or_create_render_target(game_assets, "cinematic_shadow_composite", width, height)
+
+    render_cinematic_shadow_visibility_mask(frame_data, game_camera, visibility_target)
+    render_cinematic_shadow_raw(frame_data, game_camera, raw_target, game_assets["shaders"]["cinematic_shadow_projection"])
+    apply_cinematic_shadow_composite(scene, raw_target, visibility_target, composite_target, game_assets["shaders"]["cinematic_shadow_composite"])
+
+def draw_cinematic_shadow_debug(game_camera, entities, player_entity, tile_map, game_assets):
+    if not CINEMATIC_SHADOW_DEBUG_ENABLED:
+        return
+
+    frame_data = build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets)
+
+    if frame_data is None:
+        return
+
+    visibility_color = pr.Color(80, 180, 255, 220)
+    quad_color = pr.Color(210, 110, 255, 230)
+    near_color = pr.Color(255, 220, 70, 255)
+    far_color = pr.Color(255, 90, 90, 255)
+    flashlight_screen = world_point_to_screen(frame_data["flashlight_position"], game_camera)
+    visibility_points = [world_point_to_screen(point, game_camera) for point in frame_data["visibility_polygon"]]
+
+    if visibility_points:
+        previous = flashlight_screen
+
+        for point in visibility_points:
+            pr.draw_line_ex(pr.Vector2(previous["x"], previous["y"]), pr.Vector2(point["x"], point["y"]), 1.0, visibility_color)
+            previous = point
+
+        pr.draw_line_ex(pr.Vector2(previous["x"], previous["y"]), pr.Vector2(flashlight_screen["x"], flashlight_screen["y"]), 1.0, visibility_color)
+
+    for shadow in frame_data["shadows"]:
+        quad = shadow["quad"]
+        points = [quad["near_left"], quad["near_right"], quad["far_right"], quad["far_left"]]
+
+        for index, point in enumerate(points):
+            next_point = points[(index + 1) % len(points)]
+            screen_point = world_point_to_screen(point, game_camera)
+            next_screen_point = world_point_to_screen(next_point, game_camera)
+            pr.draw_line_ex(pr.Vector2(screen_point["x"], screen_point["y"]), pr.Vector2(next_screen_point["x"], next_screen_point["y"]), 1.0, quad_color)
+
+        near_center = world_point_to_screen(quad["near_center"], game_camera)
+        far_center = world_point_to_screen(quad["far_center"], game_camera)
+        pr.draw_circle(int(near_center["x"]), int(near_center["y"]), 2.0, near_color)
+        pr.draw_circle(int(far_center["x"]), int(far_center["y"]), 2.0, far_color)
 
 def get_player_flashlight_settings(player_entity):
     facing = player_entity.get("animation_direction", "down")
