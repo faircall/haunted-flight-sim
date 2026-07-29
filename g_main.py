@@ -16,9 +16,10 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
-    ("g_update_and_render", update_and_render_module),
+    ("g_light_visibility", update_and_render_module.g_graphics.light_visibility),
     ("g_graphics", update_and_render_module.g_graphics),
     ("g_ui", update_and_render_module.g_ui),
+    ("g_update_and_render", update_and_render_module),
 ]
 
 

@@ -1,9 +1,11 @@
 import math
 import random
+import time
 
 import pyray as pr
 from pyrsistent import m, pmap, v
 
+import g_light_visibility as light_visibility
 import g_update_and_render as game
 
 CINEMATIC_SHADOW_DEBUG_ENABLED = True
@@ -305,7 +307,14 @@ def make_player_pointlight(player_entity, tile_map):
             "radius": 25.0,
             "intensity": 0.5,
             "falloff": 1.0,
-            "casts_shadows": True,
+            "casts_shadows": False,
+            "casts_wall_shadows": False,
+            "casts_cinematic_shadows": False,
+            "affects_scene": True,
+            "affects_fog": False,
+            "affects_ai": False,
+            "gameplay_intensity": 0.0,
+            "mobility": "dynamic",
             "shadow_bias": 0.25,
             "enabled": True
     }
@@ -336,12 +345,230 @@ def make_player_flashlight(player_entity, tile_map):
         "intensity": 1.2,
         "falloff": 1.4,
         "casts_shadows": True,
+        "casts_wall_shadows": True,
+        "casts_cinematic_shadows": True,
+        "affects_scene": True,
+        "affects_fog": True,
+        "affects_ai": True,
+        "gameplay_intensity": 1.0,
+        "mobility": "dynamic",
         "shadow_bias": 0.25,
         "near_fade_distance": 14.0,
         "inner_angle": 13.0,
         "outer_angle": 27.0,
         "enabled": player_entity.get("flashlight_enabled", True)
     }
+
+def ensure_light_collision_grid(game_assets, tile_map):
+    tile_map.setdefault("geometry_revision", 0)
+    cached_grid = game_assets.get("light_collision_grid")
+    expected = (
+        id(tile_map),
+        int(tile_map["geometry_revision"]),
+        int(tile_map["map_width"]),
+        int(tile_map["map_height"]),
+        int(tile_map["tile_width"]),
+        int(tile_map["tile_height"]),
+        light_visibility.LIGHT_GEOMETRY_CACHE_VERSION,
+        light_visibility.LIGHT_GEOMETRY_RUNTIME_GENERATION
+    )
+    actual = None
+
+    if cached_grid is not None:
+        actual = (
+            cached_grid.get("source_map_identity"),
+            cached_grid.get("geometry_revision"),
+            cached_grid.get("map_width"),
+            cached_grid.get("map_height"),
+            cached_grid.get("tile_width"),
+            cached_grid.get("tile_height"),
+            cached_grid.get("cache_version"),
+            cached_grid.get("runtime_generation")
+        )
+
+    if actual != expected:
+        collidable_tile_indices = {
+            index for index, tile_type in enumerate(tile_map["tile_types"])
+            if game.tile_type_is_collidable(tile_type.get("type", ""))
+        }
+        cached_grid = light_visibility.build_light_collision_grid(tile_map, collidable_tile_indices)
+        game_assets["light_collision_grid"] = cached_grid
+        game_assets["light_visibility_cache"] = {}
+
+    return cached_grid
+
+def apply_light_capability_defaults(light):
+    result = dict(light)
+    result.setdefault("enabled", True)
+    result.setdefault("affects_scene", True)
+    result.setdefault("affects_fog", True)
+    result.setdefault("affects_ai", True)
+    result.setdefault("casts_wall_shadows", result.get("casts_shadows", True))
+    result.setdefault("casts_cinematic_shadows", False)
+    result.setdefault("gameplay_intensity", 1.0)
+    result.setdefault("mobility", "static")
+    return result
+
+def collect_light_records(entities, player_entity, tile_map, game_assets):
+    records = []
+
+    for light_id, light in get_or_create_test_lights(entities, tile_map).items():
+        records.append({"id": str(light_id), "light": apply_light_capability_defaults(light)})
+
+    runtime_lights = game_assets.get("runtime_lights", {})
+
+    if isinstance(runtime_lights, dict):
+        runtime_items = []
+
+        for light_id, item in runtime_lights.items():
+            if isinstance(item, dict) and "light" in item:
+                runtime_items.append((item.get("id", light_id), item["light"]))
+            else:
+                runtime_items.append((light_id, item))
+    else:
+        runtime_items = []
+
+        for index, item in enumerate(runtime_lights):
+            if isinstance(item, dict) and "light" in item:
+                runtime_items.append((item.get("id", f"runtime:{index}"), item["light"]))
+            else:
+                runtime_items.append((f"runtime:{index}", item))
+
+    for light_id, light in runtime_items:
+        if isinstance(light, dict):
+            records.append({"id": str(light_id), "light": apply_light_capability_defaults(light)})
+
+    records.append({"id": "runtime:player_flashlight", "light": apply_light_capability_defaults(make_player_flashlight(player_entity, tile_map))})
+    records.append({"id": "runtime:player_readability", "light": apply_light_capability_defaults(make_player_pointlight(player_entity, tile_map))})
+    return records
+
+def radial_light_intersects_viewport(world_position, radius, game_camera, scene_target):
+    screen_x = world_position["x"] - game_camera.x
+    screen_y = world_position["y"] - game_camera.y
+    width = scene_target.texture.width
+    height = scene_target.texture.height
+    return not (screen_x + radius < 0 or screen_y + radius < 0 or screen_x - radius >= width or screen_y - radius >= height)
+
+def top_down_light_intersects_viewport(light, world_position, game_camera, scene_target):
+    size = light.get("size", {})
+    half_width = max(0.0, float(size.get("x", 0.0))) * 0.5
+    half_height = max(0.0, float(size.get("y", 0.0))) * 0.5
+    screen_x = world_position["x"] - game_camera.x
+    screen_y = world_position["y"] - game_camera.y
+    return not (screen_x + half_width < 0 or screen_y + half_height < 0 or screen_x - half_width >= scene_target.texture.width or screen_y - half_height >= scene_target.texture.height)
+
+def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene_target, game_assets):
+    prepare_started = time.perf_counter()
+    collision_grid = ensure_light_collision_grid(game_assets, tile_map)
+    cache = game_assets.setdefault("light_visibility_cache", {})
+    frame_number = int(game_assets.get("lighting_frame_counter", 0)) + 1
+    game_assets["lighting_frame_counter"] = frame_number
+    records = collect_light_records(entities, player_entity, tile_map, game_assets)
+    prepared_lights = []
+    prepared_by_id = {}
+    stats = {
+        "active_light_count": 0,
+        "shadowed_radial_light_count": 0,
+        "unshadowed_radial_light_count": 0,
+        "top_down_light_count": 0,
+        "visibility_cache_hits": 0,
+        "visibility_cache_misses": 0,
+        "visibility_rebuilds": 0,
+        "total_visibility_rays": 0,
+        "total_dda_tile_steps": 0,
+        "max_dda_tile_steps_for_one_ray": 0,
+        "boundary_vertex_candidates": 0,
+        "adaptive_rays_added": 0,
+        "prepare_time_ms": 0.0,
+        "scene_draw_time_ms": 0.0,
+        "fog_draw_time_ms": 0.0
+    }
+
+    for record in records:
+        light = record["light"]
+
+        if not light.get("enabled", True):
+            continue
+
+        light_type = light.get("type", "point")
+        world_position = light_visibility.get_light_world_position(light, collision_grid)
+        radius = max(0.0, float(light.get("visibility_radius", light.get("radius", 100.0))))
+
+        if light_type == "top_down":
+            if not top_down_light_intersects_viewport(light, world_position, game_camera, scene_target):
+                continue
+        elif not radial_light_intersects_viewport(world_position, radius, game_camera, scene_target):
+            continue
+
+        prepared = {
+            "id": record["id"],
+            "light": light,
+            "world_position": world_position,
+            "screen_bounds": {
+                "min_x": world_position["x"] - game_camera.x - radius,
+                "min_y": world_position["y"] - game_camera.y - radius,
+                "max_x": world_position["x"] - game_camera.x + radius,
+                "max_y": world_position["y"] - game_camera.y + radius
+            },
+            "visibility_polygon": None,
+            "cinematic_visibility_polygon": None,
+            "hit_tile_ids": set(),
+            "receiver_tile_ids": [],
+            "receiver_polygons": [],
+            "affects_scene": light["affects_scene"],
+            "affects_fog": light["affects_fog"],
+            "affects_ai": light["affects_ai"],
+            "casts_wall_shadows": light["casts_wall_shadows"],
+            "casts_cinematic_shadows": light["casts_cinematic_shadows"],
+            "geometry_cache_hit": False
+        }
+        stats["active_light_count"] += 1
+
+        if light_type == "top_down":
+            stats["top_down_light_count"] += 1
+        elif light["casts_wall_shadows"]:
+            stats["shadowed_radial_light_count"] += 1
+            geometry_key = light_visibility.make_light_geometry_key(record, world_position, collision_grid)
+            cache_entry = cache.get(record["id"])
+
+            if cache_entry is not None and cache_entry.get("geometry_key") == geometry_key:
+                geometry = cache_entry["geometry"]
+                cache_entry["last_used_frame"] = frame_number
+                prepared["geometry_cache_hit"] = True
+                stats["visibility_cache_hits"] += 1
+            else:
+                geometry = light_visibility.build_light_visibility_polygon_dda(light, world_position, collision_grid)
+                cache[record["id"]] = {"geometry_key": geometry_key, "geometry": geometry, "last_used_frame": frame_number}
+                stats["visibility_cache_misses"] += 1
+                stats["visibility_rebuilds"] += 1
+                stats["total_visibility_rays"] += geometry["ray_count"]
+                stats["total_dda_tile_steps"] += geometry["dda_tile_steps"]
+                stats["max_dda_tile_steps_for_one_ray"] = max(stats["max_dda_tile_steps_for_one_ray"], geometry["max_dda_tile_steps_for_one_ray"])
+                stats["boundary_vertex_candidates"] += geometry["corner_candidate_count"]
+                stats["adaptive_rays_added"] += geometry["adaptive_rays_added"]
+
+            prepared["visibility_polygon"] = geometry["polygon"]
+            prepared["cinematic_visibility_polygon"] = geometry["unbiased_polygon"]
+            prepared["hit_tile_ids"] = geometry["hit_tile_ids"]
+            prepared["ray_count"] = geometry["ray_count"]
+            prepared["dda_tile_steps"] = geometry["dda_tile_steps"]
+            prepared["corner_candidate_count"] = geometry["corner_candidate_count"]
+            prepared["adaptive_rays_added"] = geometry["adaptive_rays_added"]
+            if light["affects_scene"]:
+                receiver_ids, receiver_polygons = light_visibility.query_receiver_polygons(world_position, radius, collision_grid, light)
+                prepared["receiver_tile_ids"] = receiver_ids
+                prepared["receiver_polygons"] = receiver_polygons
+        else:
+            stats["unshadowed_radial_light_count"] += 1
+
+        prepared_lights.append(prepared)
+        prepared_by_id[record["id"]] = prepared
+
+    stats["pruned_cache_entries"] = light_visibility.prune_light_visibility_cache(cache, frame_number, int(game_assets.get("light_visibility_cache_max_unused_frames", 600)))
+    stats["prepare_time_ms"] = (time.perf_counter() - prepare_started) * 1000.0
+    lighting_frame = {"collision_grid": collision_grid, "prepared_lights": prepared_lights, "prepared_by_id": prepared_by_id, "stats": stats}
+    game_assets["lighting_frame_stats"] = stats
+    return lighting_frame
 
 def make_default_cinematic_shadow(entity_type):
     presets = {
@@ -560,18 +787,14 @@ def draw_textured_quad(texture, source_rect, far_left, far_right, near_right, ne
     pr.rl_end()
     pr.rl_set_texture(0)
 
-def build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets):
-    flashlight = make_player_flashlight(player_entity, tile_map)
-
-    if not flashlight.get("enabled", True):
+def build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets, prepared_flashlight):
+    if prepared_flashlight is None or not prepared_flashlight.get("casts_cinematic_shadows", False):
         return None
 
-    flashlight_position = get_light_world_position(flashlight, tile_map)
-    radius = max(1.0, float(flashlight.get("radius", 180.0)))
-    tile_occluders = get_nearby_tile_occluders(flashlight_position, radius, tile_map)
-    visibility_light = dict(flashlight)
-    visibility_light["shadow_bias"] = 0.0
-    visibility_polygon = build_light_visibility_polygon(visibility_light, flashlight_position, radius, tile_occluders)
+    flashlight = prepared_flashlight["light"]
+    flashlight_position = prepared_flashlight["world_position"]
+    visibility_light = flashlight
+    visibility_polygon = prepared_flashlight.get("cinematic_visibility_polygon") or prepared_flashlight.get("visibility_polygon") or []
     visibility_area = [flashlight_position] + visibility_polygon if flashlight.get("type") == "spot" else visibility_polygon
     shadows = []
 
@@ -624,7 +847,9 @@ def build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_as
         "shadows": shadows
     }
 
-def draw_radial_light_to_target(light, game_camera, tile_map, lighting_target, light_shader, include_receivers=True):
+def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, light_shader, include_receivers=True, shader_mode_active=False):
+    light = prepared_light["light"]
+
     if not light.get("enabled", True):
         return
 
@@ -633,7 +858,7 @@ def draw_radial_light_to_target(light, game_camera, tile_map, lighting_target, l
     falloff = max(0.0001, float(light.get("falloff", 2.0)))
     near_fade_distance = max(0.0, float(light.get("near_fade_distance", 0.0)))
 
-    world_position = get_light_world_position(light, tile_map)
+    world_position = prepared_light["world_position"]
     screen_x = world_position["x"] - game_camera.x
     screen_y = world_position["y"] - game_camera.y
 
@@ -668,31 +893,30 @@ def draw_radial_light_to_target(light, game_camera, tile_map, lighting_target, l
     set_shader_float(shader, light_shader["outer_cone_cos_location"], outer_cone_cos)
     set_shader_int(shader, light_shader["light_type_location"], light_type)
 
-    pr.begin_shader_mode(shader)
+    if not shader_mode_active:
+        pr.begin_shader_mode(shader)
 
-    if light.get("casts_shadows", True):
-        occluders = get_nearby_tile_occluders(world_position, radius, tile_map)
+    if prepared_light["casts_wall_shadows"]:
+        draw_light_visibility_polygon(light, world_position, prepared_light["visibility_polygon"], game_camera)
 
-        # Light the open world only as far as the first wall surface.
-        visibility_polygon = build_light_visibility_polygon(light, world_position, radius, occluders)
-        draw_light_visibility_polygon(light, world_position, visibility_polygon, game_camera)
-
-        # Then explicitly allow wall shapes themselves to receive light.
         if include_receivers:
-            draw_tile_light_receivers(occluders, game_camera)
+            draw_receiver_polygons(prepared_light["receiver_polygons"], game_camera)
     else:
         draw_x = int(screen_x - radius)
         draw_y = int(screen_y - radius)
         draw_size = int(math.ceil(radius * 2.0))
         pr.draw_rectangle(draw_x, draw_y, draw_size, draw_size, pr.WHITE)
 
-    pr.end_shader_mode()
+    if not shader_mode_active:
+        pr.end_shader_mode()
 
-def draw_top_down_light_to_target(light, game_camera, tile_map, lighting_target, top_down_shader):
+def draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting_target, top_down_shader, shader_mode_active=False):
+    light = prepared_light["light"]
+
     if not light.get("enabled", True):
         return
 
-    world_position = get_light_world_position(light, tile_map)
+    world_position = prepared_light["world_position"]
     size = light.get("size", {})
     width = max(0.0, float(size.get("x", 0.0)))
     height = max(0.0, float(size.get("y", 0.0)))
@@ -720,16 +944,18 @@ def draw_top_down_light_to_target(light, game_camera, tile_map, lighting_target,
     set_shader_float(shader, top_down_shader["intensity_location"], intensity)
     set_shader_float(shader, top_down_shader["edge_softness_location"], edge_softness)
 
-    pr.begin_shader_mode(shader)
+    if not shader_mode_active:
+        pr.begin_shader_mode(shader)
     pr.draw_rectangle(0, 0, target_width, target_height, pr.WHITE)
-    pr.end_shader_mode()
+    if not shader_mode_active:
+        pr.end_shader_mode()
 
-def draw_light_to_target(light, game_camera, tile_map, lighting_target, game_assets, include_receivers=True):
-    if light.get("type", "point") == "top_down":
-        draw_top_down_light_to_target(light, game_camera, tile_map, lighting_target, game_assets["shaders"]["top_down_light"])
+def draw_prepared_light_to_target(prepared_light, game_camera, lighting_target, game_assets, include_receivers=True):
+    if prepared_light["light"].get("type", "point") == "top_down":
+        draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting_target, game_assets["shaders"]["top_down_light"])
         return
 
-    draw_radial_light_to_target(light, game_camera, tile_map, lighting_target, game_assets["shaders"]["light_accumulation"], include_receivers)
+    draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, game_assets["shaders"]["light_accumulation"], include_receivers)
 
 def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, blue, base_alpha, alpha_multiplier):    
     for i in range(rings, 0,-ring_size):
@@ -739,43 +965,82 @@ def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, 
         alpha = int(base_alpha+ strength*alpha_multiplier)
         pr.draw_circle(int(x), int(y), radius, pr.Color(red,green,blue,alpha))
 
-def render_lights_to_target(lights, game_camera, tile_map, lighting_target, game_assets, include_receivers):
+def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_target, game_assets, target_kind):
+    if target_kind not in {"scene", "fog"}:
+        raise ValueError(f"unknown prepared light target kind: {target_kind}")
+
+    draw_started = time.perf_counter()
     pr.begin_texture_mode(lighting_target)
     pr.clear_background(pr.BLACK)
     pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
 
-    for light in lights:
-        draw_light_to_target(light, game_camera, tile_map, lighting_target, game_assets, include_receivers)
+    capability = "affects_scene" if target_kind == "scene" else "affects_fog"
+
+    target_lights = [prepared_light for prepared_light in prepared_lights if prepared_light[capability]]
+    radial_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("type", "point") != "top_down"]
+    top_down_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("type", "point") == "top_down"]
+
+    if radial_lights:
+        light_shader = game_assets["shaders"]["light_accumulation"]
+        pr.begin_shader_mode(light_shader["shader"])
+
+        for prepared_light in radial_lights:
+            pr.rl_draw_render_batch_active()
+            draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, light_shader, target_kind == "scene", True)
+
+        pr.end_shader_mode()
+
+    if top_down_lights:
+        top_down_shader = game_assets["shaders"]["top_down_light"]
+        pr.begin_shader_mode(top_down_shader["shader"])
+
+        for prepared_light in top_down_lights:
+            pr.rl_draw_render_batch_active()
+            draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting_target, top_down_shader, True)
+
+        pr.end_shader_mode()
 
     pr.end_blend_mode()
     pr.end_texture_mode()
+    return (time.perf_counter() - draw_started) * 1000.0
 
-def render_lighting(game_camera, entities, tile_map, player_entity, lighting_target, game_assets):
+def render_prepared_lighting(lighting_frame, game_camera, lighting_target, game_assets):
     fog_light_target = get_or_create_render_target(game_assets, "fog_light", lighting_target.texture.width, lighting_target.texture.height)
-    lights = list(get_or_create_test_lights(entities, tile_map).values())
-    lights.append(make_player_flashlight(player_entity, tile_map))
-    lights.append(make_player_pointlight(player_entity, tile_map))
-
-    render_lights_to_target(lights, game_camera, tile_map, fog_light_target, game_assets, False)
-    render_lights_to_target(lights, game_camera, tile_map, lighting_target, game_assets, True)
+    lighting_frame["stats"]["fog_draw_time_ms"] = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, fog_light_target, game_assets, "fog")
+    lighting_frame["stats"]["scene_draw_time_ms"] = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, lighting_target, game_assets, "scene")
     return fog_light_target
 
-def cross_2d(a, b):
+def draw_lighting_stats_debug(stats, x=4, y=4):
+    cache_lookups = stats.get("visibility_cache_hits", 0) + stats.get("visibility_cache_misses", 0)
+    cache_rate = stats.get("visibility_cache_hits", 0) / max(1, cache_lookups) * 100.0
+    lines = [
+        f"lights {stats.get('active_light_count', 0)} shadowed {stats.get('shadowed_radial_light_count', 0)}",
+        f"cache {cache_rate:.0f}% rebuilds {stats.get('visibility_rebuilds', 0)}",
+        f"rays {stats.get('total_visibility_rays', 0)} dda {stats.get('total_dda_tile_steps', 0)}",
+        f"prep {stats.get('prepare_time_ms', 0.0):.2f}ms draw {stats.get('scene_draw_time_ms', 0.0) + stats.get('fog_draw_time_ms', 0.0):.2f}ms"
+    ]
+
+    for line_index, line in enumerate(lines):
+        pr.draw_text(line, x, y + line_index * 10, 8, pr.LIME)
+
+# Retired all-segments reference implementation. Production lighting uses
+# g_light_visibility DDA through prepare_lighting_frame().
+def legacy_all_segments_cross_2d(a, b):
     return a["x"] * b["y"] - a["y"] * b["x"]
 
-def normalize_angle_signed(angle):
+def legacy_all_segments_normalize_angle_signed(angle):
     return (angle + math.pi) % (math.pi * 2.0) - math.pi
 
-def ray_segment_intersection_distance(origin, direction, segment_start, segment_end):
+def legacy_all_segments_ray_segment_intersection_distance(origin, direction, segment_start, segment_end):
     segment_direction = game.vec2_subtract(segment_end, segment_start)
-    denominator = cross_2d(direction, segment_direction)
+    denominator = legacy_all_segments_cross_2d(direction, segment_direction)
 
     if abs(denominator) < 0.0000001:
         return None
 
     origin_to_segment = game.vec2_subtract(segment_start, origin)
-    ray_distance = cross_2d(origin_to_segment, segment_direction) / denominator
-    segment_amount = cross_2d(origin_to_segment, direction) / denominator
+    ray_distance = legacy_all_segments_cross_2d(origin_to_segment, segment_direction) / denominator
+    segment_amount = legacy_all_segments_cross_2d(origin_to_segment, direction) / denominator
 
     if ray_distance < 0.0001:
         return None
@@ -785,7 +1050,7 @@ def ray_segment_intersection_distance(origin, direction, segment_start, segment_
 
     return ray_distance
 
-def tile_shape_local_vertices(shape_index, tile_width, tile_height):
+def legacy_all_segments_tile_shape_local_vertices(shape_index, tile_width, tile_height):
     if shape_index == 0:
         return [
             {"x": 0.0, "y": 0.0},
@@ -824,7 +1089,7 @@ def tile_shape_local_vertices(shape_index, tile_width, tile_height):
 
     return []
 
-def get_nearby_tile_occluders(light_position, radius, tile_map):
+def legacy_all_segments_get_nearby_tile_occluders(light_position, radius, tile_map):
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
     map_width = tile_map["map_width"]
@@ -845,7 +1110,7 @@ def get_nearby_tile_occluders(light_position, radius, tile_map):
             if not game.tile_type_is_collidable(tile_type.get("type", "")):
                 continue
 
-            local_vertices = tile_shape_local_vertices(tile.get("shape_index", 0), tile_width, tile_height)
+            local_vertices = legacy_all_segments_tile_shape_local_vertices(tile.get("shape_index", 0), tile_width, tile_height)
             world_vertices = []
 
             for vertex in local_vertices:
@@ -871,11 +1136,11 @@ def get_nearby_tile_occluders(light_position, radius, tile_map):
 
     return occluders
 
-def ray_occluder_entry_exit_distances(origin, direction, occluder):
+def legacy_all_segments_ray_occluder_entry_exit_distances(origin, direction, occluder):
     intersection_distances = []
 
     for segment in occluder["segments"]:
-        intersection_distance = ray_segment_intersection_distance(origin, direction, segment["start"], segment["end"])
+        intersection_distance = legacy_all_segments_ray_segment_intersection_distance(origin, direction, segment["start"], segment["end"])
 
         if intersection_distance is not None:
             intersection_distances.append(intersection_distance)
@@ -888,13 +1153,13 @@ def ray_occluder_entry_exit_distances(origin, direction, occluder):
         "exit": max(intersection_distances)
     }
 
-def ray_first_occluder_entry_distance(origin, direction, radius, occluders):
+def legacy_all_segments_ray_first_occluder_entry_distance(origin, direction, radius, occluders):
     closest_entry_distance = radius
     found_occluder = False
     minimum_interval_size = 0.0001
 
     for occluder in occluders:
-        intersection = ray_occluder_entry_exit_distances(origin, direction, occluder)
+        intersection = legacy_all_segments_ray_occluder_entry_exit_distances(origin, direction, occluder)
 
         if intersection is None:
             continue
@@ -915,13 +1180,13 @@ def ray_first_occluder_entry_distance(origin, direction, radius, occluders):
 
     return closest_entry_distance
 
-def ray_first_solid_run_exit_distance(origin, direction, radius, occluders):
+def legacy_all_segments_ray_first_solid_run_exit_distance(origin, direction, radius, occluders):
     intervals = []
     merge_epsilon = 0.001
     minimum_interval_size = 0.0001
 
     for occluder in occluders:
-        intersection = ray_occluder_entry_exit_distances(origin, direction, occluder)
+        intersection = legacy_all_segments_ray_occluder_entry_exit_distances(origin, direction, occluder)
 
         if intersection is None:
             continue
@@ -968,7 +1233,7 @@ def ray_first_solid_run_exit_distance(origin, direction, radius, occluders):
         "exit": first_run_exit
     }
 
-def get_visibility_ray_angles(light, light_position, occluders):
+def legacy_all_segments_get_visibility_ray_angles(light, light_position, occluders):
     light_type = light.get("type", "point")
     endpoint_epsilon = 0.0005
 
@@ -1001,7 +1266,7 @@ def get_visibility_ray_angles(light, light_position, occluders):
         for occluder in occluders:
             for vertex in occluder["vertices"]:
                 vertex_angle = math.atan2(vertex["y"] - light_position["y"], vertex["x"] - light_position["x"])
-                vertex_delta = normalize_angle_signed(vertex_angle - centre_angle)
+                vertex_delta = legacy_all_segments_normalize_angle_signed(vertex_angle - centre_angle)
 
                 add_delta(vertex_delta - endpoint_epsilon)
                 add_delta(vertex_delta)
@@ -1036,14 +1301,14 @@ def get_visibility_ray_angles(light, light_position, occluders):
     ray_angles.sort()
     return ray_angles
 
-def build_light_visibility_polygon(light, light_position, radius, occluders):
-    ray_angles = get_visibility_ray_angles(light, light_position, occluders)
+def legacy_all_segments_build_light_visibility_polygon(light, light_position, radius, occluders):
+    ray_angles = legacy_all_segments_get_visibility_ray_angles(light, light_position, occluders)
     shadow_bias = max(0.0, float(light.get("shadow_bias", 0.25)))
     polygon = []
 
     for ray_angle in ray_angles:
         ray_direction = {"x": math.cos(ray_angle), "y": math.sin(ray_angle)}
-        first_entry_distance = ray_first_occluder_entry_distance(light_position, ray_direction, radius, occluders)
+        first_entry_distance = legacy_all_segments_ray_first_occluder_entry_distance(light_position, ray_direction, radius, occluders)
         ray_distance = radius
 
         if first_entry_distance is not None:
@@ -1084,26 +1349,41 @@ def draw_tile_light_receivers(occluders, game_camera):
 
         draw_occluder_light_receiver(occluder, game_camera)
 
+def draw_receiver_polygons(receiver_polygons, game_camera):
+    triangle_strip = []
+
+    for polygon in receiver_polygons:
+        if len(polygon) < 3:
+            continue
+
+        first = (polygon[0]["x"] - game_camera.x, polygon[0]["y"] - game_camera.y)
+
+        for vertex_index in range(1, len(polygon) - 1):
+            current = (polygon[vertex_index]["x"] - game_camera.x, polygon[vertex_index]["y"] - game_camera.y)
+            next_vertex = (polygon[vertex_index + 1]["x"] - game_camera.x, polygon[vertex_index + 1]["y"] - game_camera.y)
+            triangle = (first, next_vertex, current)
+
+            if triangle_strip:
+                triangle_strip.extend((triangle_strip[-1], triangle[0], triangle[0], triangle[1], triangle[2]))
+            else:
+                triangle_strip.extend(triangle)
+
+    if triangle_strip:
+        point_array = pr.ffi.new("Vector2[]", triangle_strip)
+        pr.draw_triangle_strip(pr.ffi.cast("Vector2 *", point_array), len(triangle_strip), pr.WHITE)
+
 def draw_light_visibility_polygon(light, light_position, polygon, game_camera):
     if len(polygon) < 2:
         return
 
-    light_screen_position = pr.Vector2(light_position["x"] - game_camera.x, light_position["y"] - game_camera.y)
-    screen_points = []
+    screen_points = [(light_position["x"] - game_camera.x, light_position["y"] - game_camera.y)]
+    screen_points.extend((point["x"] - game_camera.x, point["y"] - game_camera.y) for point in reversed(polygon))
 
-    for point in polygon:
-        screen_points.append(pr.Vector2(point["x"] - game_camera.x, point["y"] - game_camera.y))
+    if light.get("type", "point") == "point" and len(polygon) >= 3:
+        screen_points.append(screen_points[1])
 
-    for point_index in range(len(screen_points) - 1):
-        current_point = screen_points[point_index]
-        next_point = screen_points[point_index + 1]
-
-        # The points are clockwise in screen coordinates, while
-        # DrawTriangle expects counter-clockwise vertex order.
-        pr.draw_triangle(light_screen_position, next_point, current_point, pr.WHITE)
-
-    if light.get("type", "point") == "point" and len(screen_points) >= 3:
-        pr.draw_triangle(light_screen_position, screen_points[0], screen_points[-1], pr.WHITE)
+    point_array = pr.ffi.new("Vector2[]", screen_points)
+    pr.draw_triangle_fan(pr.ffi.cast("Vector2 *", point_array), len(screen_points), pr.WHITE)
 
 def world_point_to_screen(point, game_camera):
     return {"x": point["x"] - game_camera.x, "y": point["y"] - game_camera.y}
@@ -1163,8 +1443,8 @@ def apply_cinematic_shadow_composite(scene, raw_target, visibility_target, compo
     pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_texture_mode()
 
-def render_and_apply_cinematic_entity_shadows(scene, game_camera, entities, player_entity, tile_map, game_assets):
-    frame_data = build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets)
+def render_and_apply_cinematic_entity_shadows(scene, game_camera, entities, player_entity, tile_map, game_assets, prepared_flashlight):
+    frame_data = build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets, prepared_flashlight)
 
     if frame_data is None:
         return
@@ -1179,11 +1459,11 @@ def render_and_apply_cinematic_entity_shadows(scene, game_camera, entities, play
     render_cinematic_shadow_raw(frame_data, game_camera, raw_target, game_assets["shaders"]["cinematic_shadow_projection"])
     apply_cinematic_shadow_composite(scene, raw_target, visibility_target, composite_target, game_assets["shaders"]["cinematic_shadow_composite"])
 
-def draw_cinematic_shadow_debug(game_camera, entities, player_entity, tile_map, game_assets):
+def draw_cinematic_shadow_debug(game_camera, entities, player_entity, tile_map, game_assets, prepared_flashlight):
     if not CINEMATIC_SHADOW_DEBUG_ENABLED:
         return
 
-    frame_data = build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets)
+    frame_data = build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets, prepared_flashlight)
 
     if frame_data is None:
         return

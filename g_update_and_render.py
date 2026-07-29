@@ -195,6 +195,7 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["map_height"] = height
     result["tile_width"] = tile_width
     result["tile_height"] = tile_height    
+    result["geometry_revision"] = 0
     result["tile_types"] = [{"type" : "blank_tile", "color" : "BLACK"}, 
                             {"type" : "carpet", "color" : "BLUE"}, 
                             {"type" : "door", "color" : "RED"}, 
@@ -217,6 +218,10 @@ def make_tile_map(width, height, tile_width, tile_height):
             tiles.append(blank_tile)
     result["tiles"] = tiles
     return result
+
+def mark_tile_map_geometry_dirty(tile_map):
+    tile_map["geometry_revision"] = int(tile_map.get("geometry_revision", 0)) + 1
+    return tile_map["geometry_revision"]
 
 
 
@@ -248,26 +253,39 @@ def draw_tile_texture_from_type(game_assets, tile_type, x, y, shape_index = 0):
         draw_masked_tile_texture(texture, pr.Vector2(x, y), shape_index, game_assets)
         
     
-def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen):    
+def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True):
+    initial_seen_count = len(seen)
+
     if (x,y) in seen or x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] == current_tile_selection):
         return
     
     seen[(x,y)] = True
     tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection
-    do_flood_fill(current_tile_selection, x, y+1, tile_map, map_width, seen)    
-    do_flood_fill(current_tile_selection, x, y-1, tile_map, map_width, seen)    
-    do_flood_fill(current_tile_selection, x+1, y, tile_map, map_width, seen)        
-    do_flood_fill(current_tile_selection, x-1, y, tile_map, map_width, seen)    
+    do_flood_fill(current_tile_selection, x, y+1, tile_map, map_width, seen, False)
+    do_flood_fill(current_tile_selection, x, y-1, tile_map, map_width, seen, False)
+    do_flood_fill(current_tile_selection, x+1, y, tile_map, map_width, seen, False)
+    do_flood_fill(current_tile_selection, x-1, y, tile_map, map_width, seen, False)
 
-def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen):    
+    if mark_revision and len(seen) > initial_seen_count:
+        mark_tile_map_geometry_dirty(tile_map)
+
+def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True):
+    initial_seen_count = len(seen)
+
+    if mark_revision and initial == current_tile_selection:
+        return
+
     if x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] != initial) or (x,y) in seen:
         return
     seen[(x,y)] = True
     tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection
-    do_flood_fill_replace(initial, current_tile_selection, x, y+1, tile_map, map_width, seen)    
-    do_flood_fill_replace(initial, current_tile_selection, x, y-1, tile_map, map_width, seen)    
-    do_flood_fill_replace(initial, current_tile_selection, x+1, y, tile_map, map_width, seen)        
-    do_flood_fill_replace(initial, current_tile_selection, x-1, y, tile_map, map_width, seen)    
+    do_flood_fill_replace(initial, current_tile_selection, x, y+1, tile_map, map_width, seen, False)
+    do_flood_fill_replace(initial, current_tile_selection, x, y-1, tile_map, map_width, seen, False)
+    do_flood_fill_replace(initial, current_tile_selection, x+1, y, tile_map, map_width, seen, False)
+    do_flood_fill_replace(initial, current_tile_selection, x-1, y, tile_map, map_width, seen, False)
+
+    if mark_revision and len(seen) > initial_seen_count:
+        mark_tile_map_geometry_dirty(tile_map)
 
         
         
@@ -486,11 +504,15 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                         # get the initial tile
                         initial = tile_map["tiles"][y*map_width + x]["index"]
                         seen = {}
-                        do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen)
+                        if initial != current_tile_selection:
+                            do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen)
 
                     if g_ui.interactive_mouse_left_down():
-                        tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
-                        tile_map["tiles"][y*map_width + x]["shape_index"] = current_shape_selection                    
+                        edited_tile = tile_map["tiles"][y*map_width + x]
+                        if edited_tile.get("index", 0) != current_tile_selection or edited_tile.get("shape_index", 0) != current_shape_selection:
+                            edited_tile["index"] = current_tile_selection
+                            edited_tile["shape_index"] = current_shape_selection
+                            mark_tile_map_geometry_dirty(tile_map)
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
@@ -4209,8 +4231,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
     pr.end_texture_mode()
 
+    lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
+    prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
+
     if editor_mode == "play" and not do_load_level:
-        g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, entities, player_info, tile_map, game_assets)
+        g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
 
     pr.begin_texture_mode(render_target)
     draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
@@ -4288,7 +4313,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         for fog_volume in fog_volumes.values():
             g_graphics.draw_fog_volume_debug(fog_volume, camera_3d.position, tile_map)
 
-        g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets)
+        g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
 
     # pr.end_drawing()
     
@@ -4305,10 +4330,14 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     # lighting rendering happens here I think
     if editor_mode == "play":
-        fog_light_target = g_graphics.render_lighting(camera_3d.position, entities, tile_map, player_info, lighting_target, game_assets)
+        fog_light_target = g_graphics.render_prepared_lighting(lighting_frame, camera_3d.position, lighting_target, game_assets)
         g_graphics.apply_lighting(render_target, lighting_target, game_assets, lighting_profile)
         fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
         g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
+        if game_assets.get("show_lighting_stats", False):
+            pr.begin_texture_mode(render_target)
+            g_graphics.draw_lighting_stats_debug(lighting_frame["stats"])
+            pr.end_texture_mode()
 
 
     # update persistent variables here
