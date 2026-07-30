@@ -3603,12 +3603,13 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
     player_footstep_timer_base_gap = 0.135
 
     if resolved_speed > 0:
-        player_footstep_timer += (dt * 0.003 * resolved_speed)
+        #player_footstep_timer += (dt * 0.003 * resolved_speed)
+        player_footstep_timer += (dt * 0.006 * resolved_speed)
 
     if (player_footstep_timer >= player_footstep_timer_base_gap):
         player_footstep_timer = 0
 
-        play_pool_sound("player_footstep_pool", sounds,-3, 3, 40, 1)
+        play_pool_sound("player_footstep_pool", sounds,-3, 3, 40, 0.2)
 
     entity["player_footstep_timer"] = (player_footstep_timer)
 
