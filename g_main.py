@@ -19,6 +19,7 @@ g_reloadable_modules = [
     ("g_light_visibility", update_and_render_module.g_graphics.light_visibility),
     ("g_graphics", update_and_render_module.g_graphics),
     ("g_ui", update_and_render_module.g_ui),
+    ("g_editor", update_and_render_module.g_editor),
     ("g_update_and_render", update_and_render_module),
 ]
 
@@ -44,6 +45,14 @@ g_module_persistent_reload_specs = {
             "light_visibility_cache",
             "lighting_frame_stats"
         )
+    },
+    "g_ui": {
+        "arena_factories": (),
+        "game_asset_keys_to_clear": ("ui_state",)
+    },
+    "g_editor": {
+        "arena_factories": (),
+        "game_asset_keys_to_clear": ("ui_state",)
     }
 }
 
@@ -98,7 +107,8 @@ def refresh_persistent_data_after_module_reloads(main_arena, game_assets, reload
         for game_asset_key in reload_spec["game_asset_keys_to_clear"]:
             game_assets.pop(game_asset_key, None)
 
-        print(f"refreshed {module_name} persistent data: {', '.join(refreshed_names)}")
+        if refreshed_names:
+            print(f"refreshed {module_name} persistent data: {', '.join(refreshed_names)}")
 
     return main_arena
 

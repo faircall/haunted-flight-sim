@@ -5,6 +5,7 @@ in vec4 fragColor;
 
 uniform sampler2D texture0;
 uniform sampler2D lightTexture;
+uniform sampler2D readabilityLightTexture;
 
 uniform vec3 ambientColor;
 uniform vec3 shadowColor;
@@ -91,7 +92,8 @@ vec3 posterizeLighting(vec3 color)
 void main()
 {
     vec4 sceneSample = texture(texture0, fragTexCoord);
-    vec3 directLight = texture(lightTexture, fragTexCoord).rgb * directLightStrength;
+    vec3 worldDirectLight = texture(lightTexture, fragTexCoord).rgb * directLightStrength;
+    vec3 readabilityLight = texture(readabilityLightTexture, fragTexCoord).rgb * directLightStrength;
     // vec3 directLight = texture(lightTexture, vec2(fragTexCoord.x, 1.0 - fragTexCoord.y)).rgb * directLightStrength;
 
     vec3 ambientLight = ambientColor * ambientStrength;
@@ -101,17 +103,17 @@ void main()
     {
         if (posterizeAmbient > 0.5)
         {
-            totalLight = posterizeLighting(ambientLight + directLight);
+            totalLight = posterizeLighting(ambientLight + worldDirectLight) + readabilityLight;
         }
         else
         {
-            directLight = posterizeLighting(directLight);
-            totalLight = ambientLight + directLight;
+            worldDirectLight = posterizeLighting(worldDirectLight);
+            totalLight = ambientLight + worldDirectLight + readabilityLight;
         }
     }
     else
     {
-        totalLight = ambientLight + directLight;
+        totalLight = ambientLight + worldDirectLight + readabilityLight;
     }
 
     vec3 litScene = sceneSample.rgb * totalLight;

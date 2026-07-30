@@ -155,7 +155,7 @@ class CacheTests(unittest.TestCase):
         base = {"type": "point", "radius": 40.0, "casts_wall_shadows": True, "color": [1, 1, 1], "intensity": 1.0}
         position = {"x": 15.0, "y": 15.0}
         first = visibility.make_light_geometry_key({"id": "light", "light": base}, position, grid)
-        appearance_change = dict(base, color=[1, 0, 0], intensity=8.0, gameplay_intensity=0.2)
+        appearance_change = dict(base, color=[1, 0, 0], intensity=8.0, gameplay_intensity=0.2, render_style="readability")
         self.assertEqual(first, visibility.make_light_geometry_key({"id": "light", "light": appearance_change}, position, grid))
         self.assertNotEqual(first, visibility.make_light_geometry_key({"id": "light", "light": dict(base, radius=41.0)}, position, grid))
         self.assertNotEqual(first, visibility.make_light_geometry_key({"id": "light", "light": base}, {"x": 15.1, "y": 15.0}, grid))

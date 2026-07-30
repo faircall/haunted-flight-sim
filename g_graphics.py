@@ -159,30 +159,6 @@ def get_light_world_position(light, tile_map):
 
     return {"x": position.get("x", 0.0), "y": position.get("y", 0.0)}
 
-def get_or_create_test_fog_volumes(entities, tile_map):
-    fog_volumes = game.get_or_set(entities, "fog_volumes", {})
-
-    if "test_fog_volume" not in fog_volumes:
-        fog_volumes["test_fog_volume"] = {
-            "type": "fog_volume",
-            "shape": "ellipse",
-            "position": {
-                "tile_x": 40,
-                "tile_y": 2,
-                "x": 8.0,
-                "y": 8.0
-            },
-            "size": {
-                "x": 180.0,
-                "y": 110.0
-            },
-            "edge_softness": 24.0,
-            "strength": 1.0,
-            "enabled": True
-        }
-
-    return fog_volumes
-
 def draw_fog_volume_to_mask(volume, game_camera, tile_map, mask_target, volume_shader):
     if not volume.get("enabled", True):
         return
@@ -232,7 +208,7 @@ def render_fog_volume_mask(game_camera, entities, tile_map, scene_target, game_a
     height = scene_target.texture.height
     mask_target = get_or_create_render_target(game_assets, "fog_volume_mask", width, height)
     volume_shader = game_assets["shaders"]["fog_volume_mask"]
-    fog_volumes = get_or_create_test_fog_volumes(entities, tile_map)
+    fog_volumes = entities.setdefault("fog_volumes", {})
 
     pr.begin_texture_mode(mask_target)
     pr.clear_background(pr.BLACK)
@@ -244,68 +220,6 @@ def render_fog_volume_mask(game_camera, entities, tile_map, scene_target, game_a
     pr.end_blend_mode()
     pr.end_texture_mode()
     return mask_target
-
-def draw_fog_volume_debug(volume, game_camera, tile_map):
-    if not volume.get("enabled", True):
-        return
-
-    world_position = get_light_world_position(volume, tile_map)
-    size = volume.get("size", {})
-    width = max(0.0, float(size.get("x", 0.0)))
-    height = max(0.0, float(size.get("y", 0.0)))
-    screen_x = world_position["x"] - game_camera.x
-    screen_y = world_position["y"] - game_camera.y
-    color = pr.Color(150, 210, 255, 220)
-
-    if volume.get("shape", "ellipse") == "ellipse":
-        pr.draw_ellipse_lines(int(screen_x), int(screen_y), width * 0.5, height * 0.5, color)
-    else:
-        rectangle = pr.Rectangle(screen_x - width * 0.5, screen_y - height * 0.5, width, height)
-        pr.draw_rectangle_lines_ex(rectangle, 1.0, color)
-
-    pr.draw_circle(int(screen_x), int(screen_y), 2.0, pr.YELLOW)
-
-def get_or_create_test_lights(entities, tile_map):
-    lights = game.get_or_set(entities, "lights", {})
-
-    # Remove the previous ring-light test record.
-    if "test_light" in lights and "type" not in lights["test_light"]:
-        del lights["test_light"]
-
-    if "test_point" not in lights:
-        lights["test_point"] = {
-            "type": "point",
-            "position": game.get_tile_index_and_offset_from_pos({"x": 200.0, "y": 300.0}, tile_map),
-            "color": [0.86, 0.74, 1.0],
-            "radius": 150.0,
-            "intensity": 1.0,
-            "falloff": 2.0,
-            "casts_shadows": True,
-            "shadow_bias": 0.25,
-            "enabled": True
-        }
-
-    if "test_top_down" not in lights:
-        lights["test_top_down"] = {
-            "type": "top_down",
-            "position": {
-                "tile_x": 20,
-                "tile_y": 15,
-                "x": 8.0,
-                "y": 8.0
-            },
-            "size": {
-                "x": 320.0,
-                "y": 180.0
-            },
-            "color": [0.55, 0.62, 0.78],
-            "intensity": 0.55,
-            "edge_softness": 24.0,
-            "enabled": True,
-            "casts_shadows": False
-        }
-
-    return lights
 
 def make_player_pointlight(player_entity, tile_map):
     player_world_position = game.make_pos_abs(player_entity.get("position", {}), tile_map["tile_width"], tile_map["tile_height"])
@@ -325,6 +239,7 @@ def make_player_pointlight(player_entity, tile_map):
             "affects_ai": False,
             "gameplay_intensity": 0.0,
             "mobility": "dynamic",
+            "render_style": "readability",
             "shadow_bias": 0.25,
             "enabled": True
     }
@@ -362,6 +277,7 @@ def make_player_flashlight(player_entity, tile_map):
         "affects_ai": True,
         "gameplay_intensity": 1.0,
         "mobility": "dynamic",
+        "render_style": "world",
         "shadow_bias": 0.25,
         "near_fade_distance": 14.0,
         "inner_angle": 13.0,
@@ -417,12 +333,13 @@ def apply_light_capability_defaults(light):
     result.setdefault("casts_cinematic_shadows", False)
     result.setdefault("gameplay_intensity", 1.0)
     result.setdefault("mobility", "static")
+    result.setdefault("render_style", "world")
     return result
 
 def collect_light_records(entities, player_entity, tile_map, game_assets):
     records = []
 
-    for light_id, light in get_or_create_test_lights(entities, tile_map).items():
+    for light_id, light in entities.setdefault("lights", {}).items():
         records.append({"id": str(light_id), "light": apply_light_capability_defaults(light)})
 
     runtime_lights = game_assets.get("runtime_lights", {})
@@ -975,7 +892,7 @@ def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, 
         alpha = int(base_alpha+ strength*alpha_multiplier)
         pr.draw_circle(int(x), int(y), radius, pr.Color(red,green,blue,alpha))
 
-def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_target, game_assets, target_kind):
+def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_target, game_assets, target_kind, render_style=None):
     if target_kind not in {"scene", "fog"}:
         raise ValueError(f"unknown prepared light target kind: {target_kind}")
 
@@ -987,6 +904,9 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
     capability = "affects_scene" if target_kind == "scene" else "affects_fog"
 
     target_lights = [prepared_light for prepared_light in prepared_lights if prepared_light[capability]]
+
+    if render_style is not None:
+        target_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("render_style", "world") == render_style]
     radial_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("type", "point") != "top_down"]
     top_down_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("type", "point") == "top_down"]
 
@@ -1016,9 +936,12 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
 
 def render_prepared_lighting(lighting_frame, game_camera, lighting_target, game_assets):
     fog_light_target = get_or_create_render_target(game_assets, "fog_light", lighting_target.texture.width, lighting_target.texture.height)
+    readability_light_target = get_or_create_render_target(game_assets, "readability_light", lighting_target.texture.width, lighting_target.texture.height)
     lighting_frame["stats"]["fog_draw_time_ms"] = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, fog_light_target, game_assets, "fog")
-    lighting_frame["stats"]["scene_draw_time_ms"] = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, lighting_target, game_assets, "scene")
-    return fog_light_target
+    world_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, lighting_target, game_assets, "scene", "world")
+    readability_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, readability_light_target, game_assets, "scene", "readability")
+    lighting_frame["stats"]["scene_draw_time_ms"] = world_draw_time + readability_draw_time
+    return fog_light_target, readability_light_target
 
 def draw_lighting_stats_debug(stats, x=4, y=4):
     cache_lookups = stats.get("visibility_cache_hits", 0) + stats.get("visibility_cache_misses", 0)
@@ -1528,7 +1451,7 @@ def light_timer_oscilate(t):
     result = slow + med + fast
     return result
 
-def apply_lighting(scene, lighting, game_assets, lighting_profile):
+def apply_lighting(scene, lighting, readability_lighting, game_assets, lighting_profile):
     width = scene.texture.width
     height = scene.texture.height
 
@@ -1563,6 +1486,7 @@ def apply_lighting(scene, lighting, game_assets, lighting_profile):
 
     # Additional sampler textures must be rebound after BeginShaderMode().
     set_shader_texture(shader, composite_shader["light_texture_location"], lighting.texture)
+    set_shader_texture(shader, composite_shader["readability_light_texture_location"], readability_lighting.texture)
 
     pr.draw_texture_pro(scene.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
 

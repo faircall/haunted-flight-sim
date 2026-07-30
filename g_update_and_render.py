@@ -13,6 +13,7 @@ from pyrsistent import m, pmap, v
 import cyminiaudio as cma
 
 import g_graphics
+import g_editor
 import g_ui
 
 
@@ -45,7 +46,6 @@ g_tile_shape_normals = {
 g_sound_list_per_frame = []
 
 
-g_button_id = 0
 g_last_interacted_ui_id = -1
 g_interacted_ui_last_frame = False
 g_interacted_ui_this_frame = False
@@ -62,7 +62,6 @@ g_mute = False
 g_editor_sounds = True
 
 g_mouse_is_ui_captured = False
-g_mouse_is_ui_captured_frames = 0
 
 g_tile_collision_shapes = [
     "full",
@@ -468,7 +467,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
     # we could think about where the camera *is*
     # and just draw the ones around that..?    
 
-    tile_select_modes = {"editing", "entity_placing", "light_placing"}
+    tile_select_modes = {"tile", "entity", "environment"}
     tile_rows = range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)) if draw_tiles else ()
 
     for y in tile_rows:
@@ -491,7 +490,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
             if mode in tile_select_modes and x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                 is_highlight = True
 
-            if mode == "editing":
+            if mode == "tile":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     
                     # if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
@@ -499,7 +498,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                     #     seen = {}
                     #     do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen)
 
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                         # do a flood fill
                         # get the initial tile
                         initial = tile_map["tiles"][y*map_width + x]["index"]
@@ -516,7 +515,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
-            if mode == "entity_placing":
+            if mode == "entity":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                     
                     if g_ui.interactive_mouse_left_pressed():
@@ -552,7 +551,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                             new_entity["id"] = id                            
                             entities["pickups"][id] = new_entity
 
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                         latest_id = max(len(entities) - 1,0)
                         if latest_id in entities:
                             del entities[latest_id]
@@ -771,13 +770,12 @@ def transition_pause_state(current):
 
 def transition_editor_state(current):
     state_transitions = {
-        "play" : "editing",
-        "editing" : "entity_placing",
-        "entity_placing" : "light_placing",
-        "light_placing" : "play",
-
+        "play": "tile",
+        "tile": "entity",
+        "entity": "environment",
+        "environment": "play"
     }
-    return state_transitions.get(current)
+    return state_transitions.get(g_editor.migrate_editor_mode(current), "tile")
 
 def transition_collision_state(current):
     state_transitions = {
@@ -834,7 +832,7 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
 
     # let's go for a bounded box camera
 
-    free_nav_modes = {"editing", "entity_placing"}
+    free_nav_modes = {"tile", "entity", "environment"}
     
     if mode in free_nav_modes:
         if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
@@ -1227,6 +1225,7 @@ def load_shaders():
     result["lighting_composite"] = {
         "shader": lighting_composite,
         "light_texture_location": pr.get_shader_location(lighting_composite, "lightTexture"),
+        "readability_light_texture_location": pr.get_shader_location(lighting_composite, "readabilityLightTexture"),
         "ambient_color_location": pr.get_shader_location(lighting_composite, "ambientColor"),
         "shadow_color_location": pr.get_shader_location(lighting_composite, "shadowColor"),
         "ambient_strength_location": pr.get_shader_location(lighting_composite, "ambientStrength"),
@@ -4035,12 +4034,9 @@ g_internal_height = 270
 
 def update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine):
     global g_mouse_is_ui_captured
-    global g_mouse_is_ui_captured_frames
-    global g_button_id 
     global g_interacted_ui_this_frame 
     global g_last_interacted_ui_id
     g_interacted_ui_this_frame = 0
-    g_button_id = 0
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
     
@@ -4092,7 +4088,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     show_options = main_arena.get("show_options", False) 
     
     do_load_level = main_arena.get("do_load_level", False) 
-    editor_mode = main_arena.get("editor_mode", "editing")
+    editor_mode = g_editor.migrate_editor_mode(main_arena.get("editor_mode", "tile"))
     collision_mode = main_arena.get("collision_mode", "regular")
 
     global g_mute   
@@ -4135,7 +4131,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     shaders = game_assets.get("shaders")
     lighting_composite_shader = shaders.get("lighting_composite", {}) if shaders else {}
-    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader:
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader:
         if shaders:
             unload_shaders(shaders)
         shaders = load_shaders()
@@ -4165,7 +4161,24 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if not entities:
         entities = {}
 
-    fog_volumes = g_graphics.get_or_create_test_fog_volumes(entities, tile_map)
+    g_editor.migrate_environment_data(entities)
+    ui_state = game_assets.get("ui_state")
+
+    if ui_state is None:
+        ui_state = g_ui.make_ui_state()
+        game_assets["ui_state"] = ui_state
+
+    editor_state = g_editor.get_or_create_editor_state(game_assets)
+    g_ui.ui_begin_frame(ui_state, sounds)
+    g_editor.capture_editor_ui_regions(ui_state, editor_state, editor_mode)
+
+    if show_options and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(0, 0, 170, 180)):
+        g_ui.ui_capture_mouse(ui_state)
+
+    if do_load_level and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(90, 30, 340, 230)):
+        g_ui.ui_capture_mouse(ui_state)
+
+    g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
 
     
     
@@ -4213,7 +4226,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         # we check against only those (there may be more than one I suppose)
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
     
-    camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
+    if ui_state.get("focused_id") is None and editor_state.get("drag_kind") is None:
+        camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
         update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, dt, debug_state, debug_queue)
@@ -4226,20 +4240,19 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F1):
         auto_reload = not auto_reload    
         g_ui.draw_variable_state("auto reload", auto_reload, 10, 10, 20, pr.WHITE)            
-                
+    
+    if tile_map and editor_mode == "tile" and not ui_state.get("mouse_captured"):
+        if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+            current_shape_selection = g_ui.update_mousewheel_selection(current_shape_selection, len(g_tile_collision_shapes))
+        else:
+            current_tile_selection = g_ui.update_mousewheel_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))
 
-    # rendering code
-    # this seems to be about the shade of the sky
-    #color_to_draw = pr.Color(60, 160, 250, 255)    
+    if tile_map and editor_mode == "entity" and not ui_state.get("mouse_captured"):
+        current_entity_selection = g_ui.update_mousewheel_selection(current_entity_selection, len(entity_types))
 
-    color_to_draw = pr.Color(33, 25, 68, 255)    
-    #pr.begin_drawing()
+    color_to_draw = pr.Color(33, 25, 68, 255)
     pr.begin_texture_mode(render_target)
-    pr.clear_background(color_to_draw)    
-    
-
-    
-
+    pr.clear_background(color_to_draw)
     update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
     pr.end_texture_mode()
 
@@ -4252,104 +4265,89 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     pr.begin_texture_mode(render_target)
     draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
 
-    pr.draw_text(editor_mode, 10, 240, 10, pr.WHITE)
-    if g_mute:
-        pr.draw_text("sound muted", 1700, 60, 20, pr.WHITE)
+    if debug_queue:
+        debug_queue = sorted(debug_queue, key=lambda x: x.get("z_sort", 0), reverse=True)
 
-    if debug_state != "clear":
-        pr.draw_text(debug_state, 1700, 150, 20, pr.WHITE)
+        for debug_item in debug_queue:
+            draw_debug_item(debug_state, debug_item, camera=camera_3d)
 
-    if pause_state == "paused":
-        pr.draw_text("PAUSED", 1700, 50, 20, pr.WHITE)
+    pr.end_texture_mode()
 
-    if editor_mode == "editing":
+    preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
+
+    if editor_mode == "play" or preview_environment:
+        fog_light_target, readability_light_target = g_graphics.render_prepared_lighting(lighting_frame, camera_3d.position, lighting_target, game_assets)
+        g_graphics.apply_lighting(render_target, lighting_target, readability_light_target, game_assets, lighting_profile)
+        fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
+        g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
+
+    pr.begin_texture_mode(render_target)
+
+    if game_assets.get("show_lighting_stats", False) and (editor_mode == "play" or preview_environment):
+        g_graphics.draw_lighting_stats_debug(lighting_frame["stats"])
+
+    if editor_mode != "play":
+        g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
+
+    editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map)
+
+    if editor_mode == "tile":
         tile_type = tile_map["tile_types"][current_tile_selection]
-        tile_width = tile_map["tile_width"]
-        tile_height = tile_map["tile_height"]
-        draw_tile_texture_from_type(game_assets, tile_type, 300, 100, current_shape_selection)
-        pr.draw_text(tile_type.get("type",""), 300, 50, 20, pr.WHITE)
-        
+        draw_tile_texture_from_type(game_assets, tile_type, 275, 42, current_shape_selection)
+        pr.draw_text(tile_type.get("type", ""), 275, 32, 8, pr.WHITE)
+        pr.draw_text(g_tile_collision_shapes[current_shape_selection], 275, 60, 8, pr.WHITE)
+    elif editor_mode == "entity":
+        pr.draw_text(entity_types[current_entity_selection], 275, 42, 8, pr.WHITE)
 
-    if editor_mode == "entity_placing":
-        pr.draw_text(entity_types[current_entity_selection], 300, 50, 20, pr.WHITE)
-
-    
     if show_options:
-        if g_ui.do_button(sounds, pr.Vector2(10, 100), name="reload assets"):        
-            # also unload everything here
+        if g_ui.do_button(sounds, pr.Vector2(10, 100), name="reload assets"):
             unload_shaders(game_assets["shaders"])
             game_assets["textures"] = None
             game_assets["sprite_sheets"] = None
             game_assets["shaders"] = None
             game_assets["sounds"] = None
 
-        if g_ui.do_button(sounds, pr.Vector2(10, 140), name="reset player"):        
+        if g_ui.do_button(sounds, pr.Vector2(10, 140), name="reset player"):
             player_info = None
 
     reset_all = False
-    if show_options:
-        if g_ui.do_button(sounds, pr.Vector2(10, 10), name="reset all"):        
-            player_info = None
-            tile_map = None
-            game_assets["textures"] = None
-            entities = None
-            reset_all = True
-            fog_profile = None
-            lighting_profile = None
-        
-    if tile_map and editor_mode == "editing":        
-        if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):            
-            current_shape_selection = g_ui.update_mousewheel_selection(current_shape_selection, len(g_tile_collision_shapes))
-            pr.draw_text(f"{g_tile_collision_shapes[current_shape_selection]}", 300, 80, 10, pr.WHITE)
-        else:
-            current_tile_selection = g_ui.update_mousewheel_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))
 
-    if tile_map and editor_mode == "entity_placing":        
-        current_entity_selection = g_ui.update_mousewheel_selection(current_entity_selection, len(entity_types))
+    if show_options and g_ui.do_button(sounds, pr.Vector2(10, 42), name="reset all"):
+        player_info = None
+        tile_map = None
+        game_assets["textures"] = None
+        entities = None
+        reset_all = True
+        fog_profile = None
+        lighting_profile = None
 
-    
     selected_save_index, load_saved_data = g_ui.draw_load_level(main_arena, game_assets)
+
     if load_saved_data:
         main_arena = load_state(saved_files[selected_save_index])
         tile_map = main_arena.get("tile_map")
+        loaded_entities = main_arena.get("entities")
+        lighting_profile = main_arena.get("lighting_profile") or g_graphics.make_lighting_profile("inky")
+        fog_profile = main_arena.get("fog_profile") or g_graphics.make_fog_profile("misty")
+        editor_mode = g_editor.migrate_editor_mode(main_arena.get("editor_mode", editor_mode))
 
-    
-    #if debug_queue:
-        
-    if debug_queue:
-        debug_queue = sorted(debug_queue, key=lambda x : x.get("z_sort", 0), reverse=True)
-        for debug_item in debug_queue:
-            draw_debug_item(debug_state, debug_item, camera=camera_3d)
+        if loaded_entities is not None:
+            entities = loaded_entities
+            g_editor.migrate_environment_data(entities)
+            g_editor.validate_selection(entities, editor_state)
 
-    if editor_mode != "play" and tile_map is not None:
-        for fog_volume in fog_volumes.values():
-            g_graphics.draw_fog_volume_debug(fog_volume, camera_3d.position, tile_map)
+    if g_mute:
+        pr.draw_text("sound muted", 400, 42, 8, pr.WHITE)
+    if debug_state != "clear":
+        pr.draw_text(debug_state, 400, 52, 8, pr.WHITE)
+    if pause_state == "paused":
+        pr.draw_text("PAUSED", 220, 130, 12, pr.WHITE)
 
-        g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
-
-    # pr.end_drawing()
-    
-        #draw_cursor()
     mp = g_ui.get_mouse_position()
-    if editor_mode != "play":
-        pr.draw_circle(int(mp.x), int(mp.y), 4, pr.WHITE)
-    else:
-        pr.draw_circle(int(mp.x), int(mp.y), 1, pr.WHITE)
+    pr.draw_circle(int(mp.x), int(mp.y), 4 if editor_mode != "play" else 1, pr.WHITE)
     pr.end_texture_mode()
-
-    
-    
-
-    # lighting rendering happens here I think
-    if editor_mode == "play":
-        fog_light_target = g_graphics.render_prepared_lighting(lighting_frame, camera_3d.position, lighting_target, game_assets)
-        g_graphics.apply_lighting(render_target, lighting_target, game_assets, lighting_profile)
-        fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
-        g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
-        if game_assets.get("show_lighting_stats", False):
-            pr.begin_texture_mode(render_target)
-            g_graphics.draw_lighting_stats_debug(lighting_frame["stats"])
-            pr.end_texture_mode()
+    g_ui.ui_end_frame(ui_state)
+    g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
 
 
     # update persistent variables here
@@ -4380,13 +4378,6 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     game_assets["camera_3d"] = camera_3d
     if reset_all:
         del game_assets["camera_3d"]
-
-    if g_mouse_is_ui_captured:
-        frames_to_hide_game_input = 3
-        g_mouse_is_ui_captured_frames += 1
-        if g_mouse_is_ui_captured_frames > frames_to_hide_game_input:
-            g_mouse_is_ui_captured = False
-            g_mouse_is_ui_captured_frames = 0
 
     if g_interacted_ui_this_frame == 0:
         g_last_interacted_ui_id = -1
