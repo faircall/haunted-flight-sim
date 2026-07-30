@@ -22,6 +22,31 @@ g_reloadable_modules = [
     ("g_update_and_render", update_and_render_module),
 ]
 
+g_shader_source_files = (
+    "shaders/tile_mask.fs",
+    "shaders/cinematic_shadow_projection.fs",
+    "shaders/cinematic_shadow_composite.fs",
+    "shaders/light_accumulation.fs",
+    "shaders/top_down_light.fs",
+    "shaders/fog_volume_mask.fs",
+    "shaders/lighting_composite.fs",
+    "shaders/illuminated_fog.fs"
+)
+
+g_module_persistent_reload_specs = {
+    "g_graphics": {
+        "arena_factories": (
+            ("lighting_profile", "make_lighting_profile", "inky"),
+            ("fog_profile", "make_fog_profile", "misty")
+        ),
+        "game_asset_keys_to_clear": (
+            "light_collision_grid",
+            "light_visibility_cache",
+            "lighting_frame_stats"
+        )
+    }
+}
+
 
 def get_file_write_time(file_name):
     try:
@@ -33,6 +58,8 @@ def get_file_write_time(file_name):
     return result
 
 def reload_modules_if_needed(module_write_times):
+    reloaded_module_names = set()
+
     for name_mod in g_reloadable_modules:
         name = name_mod[0]
         mod = name_mod[1]
@@ -41,12 +68,62 @@ def reload_modules_if_needed(module_write_times):
             module_write_times[name] = get_file_write_time(file_name)
         if module_write_times[name] != get_file_write_time(file_name):
             try:
-                mod = importlib.reload(mod)            
-                render_error_message("reloaded module!")                
+                mod = importlib.reload(mod)
+                render_error_message("reloaded module!")
                 module_write_times[name] = get_file_write_time(file_name)
-            except (ImportError, SyntaxError) as e:                
-                render_error_message(f"An error occurred while reloading the file: {e}")                
-            
+                reloaded_module_names.add(name)
+            except (ImportError, SyntaxError) as e:
+                render_error_message(f"An error occurred while reloading the file: {e}")
+
+    return reloaded_module_names
+
+def refresh_persistent_data_after_module_reloads(main_arena, game_assets, reloaded_module_names):
+    reloadable_modules = dict(g_reloadable_modules)
+
+    for module_name in reloaded_module_names:
+        reload_spec = g_module_persistent_reload_specs.get(module_name)
+
+        if reload_spec is None:
+            continue
+
+        module = reloadable_modules[module_name]
+        refreshed_names = []
+
+        for arena_name, factory_name, default_profile_name in reload_spec["arena_factories"]:
+            current_value = main_arena.get(arena_name)
+            profile_name = current_value.get("name", default_profile_name) if current_value else default_profile_name
+            main_arena = main_arena.set(arena_name, getattr(module, factory_name)(profile_name))
+            refreshed_names.append(arena_name)
+
+        for game_asset_key in reload_spec["game_asset_keys_to_clear"]:
+            game_assets.pop(game_asset_key, None)
+
+        print(f"refreshed {module_name} persistent data: {', '.join(refreshed_names)}")
+
+    return main_arena
+
+def reload_shaders_if_needed(shader_write_times, game_assets):
+    changed_files = []
+
+    for file_name in g_shader_source_files:
+        write_time = get_file_write_time(file_name)
+
+        if file_name not in shader_write_times:
+            shader_write_times[file_name] = write_time
+        elif shader_write_times[file_name] != write_time:
+            shader_write_times[file_name] = write_time
+            changed_files.append(file_name)
+
+    if not changed_files:
+        return
+
+    shaders = game_assets.get("shaders")
+
+    if shaders:
+        update_and_render_module.unload_shaders(shaders)
+
+    game_assets["shaders"] = update_and_render_module.load_shaders()
+    print(f"reloaded shaders after changes to: {', '.join(changed_files)}")
 
 def render_error_message(msg):
     print(msg)
@@ -111,7 +188,8 @@ def g_main():
     show_error_message = False
     skip_update = False
 
-    module_write_times = {}
+    module_write_times = {name: get_file_write_time(name + ".py") for name, module in g_reloadable_modules}
+    shader_write_times = {file_name: get_file_write_time(file_name) for file_name in g_shader_source_files}
 
     reload_timer = 0.0
     reload_refresh_interval = 1.0
@@ -138,7 +216,9 @@ def g_main():
             skip_update = False
             update_timer = 0.0
             reload_timer = 0.0
-            reload_modules_if_needed(module_write_times)
+            reloaded_module_names = reload_modules_if_needed(module_write_times)
+            main_arena = refresh_persistent_data_after_module_reloads(main_arena, game_assets, reloaded_module_names)
+            reload_shaders_if_needed(shader_write_times, game_assets)
         # if pr.is_key_released(pr.KeyboardKey.KEY_F5):                                    
         #     main_arena = pmap()
         #     main_arena = main_arena.set("screen_width", g_screen_width)

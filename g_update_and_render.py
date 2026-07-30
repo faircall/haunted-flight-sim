@@ -3543,7 +3543,12 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
 
     player_footstep_timer = get_or_set(entity, "player_footstep_timer", 0)
 
-    player_speed_max = 150.0
+    
+    player_speed_max = 35.0
+
+    
+    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+        player_speed_max = 90.0
 
     player_accel = 1500.0
     player_reverse_accel = 3000.0

@@ -23,7 +23,7 @@ def make_lighting_profile(profile_name="inky"):
             "shadow_detail": 0.75,
             "contrast": 1.05,
             "light_posterize_enabled": True,
-            "light_posterize_levels": 12.0,
+            "light_posterize_levels": 20.0,
             "light_dither_enabled": False,
             "light_dither_strength": 1.0,
             "posterize_ambient": False
@@ -39,9 +39,9 @@ def make_lighting_profile(profile_name="inky"):
             "shadow_detail": 0.0,
             "contrast": 1.18,
             "light_posterize_enabled": True,
-            "light_posterize_levels": 12.0,
-            "light_dither_enabled": False,
-            "light_dither_strength": 1.0,
+            "light_posterize_levels": 8.0,
+            "light_dither_enabled": True,
+            "light_dither_strength": 0.5,
             "posterize_ambient": False
         }
     }
