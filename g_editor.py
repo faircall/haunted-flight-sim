@@ -647,7 +647,8 @@ def draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
         if g_ui.ui_button(ui_state, "toolbar:delete", "del", pr.Rectangle(436, 2, 40, 16)):
             delete_selected_environment_object(entities, editor_state)
 
-    g_ui.ui_label(ui_state, "toolbar:hint", "Q select  P place  Ctrl+D duplicate  Del delete", pr.Rectangle(4, 22, 310, 12), g_ui.UI_MUTED, 8)
+    if pr.is_key_down(pr.KeyboardKey.KEY_H):
+        g_ui.ui_label(ui_state, "toolbar:hint", "Q select  P place  Ctrl+D duplicate  Del delete", pr.Rectangle(4, 22, 310, 12), g_ui.UI_MUTED, 8)
     return editor_mode
 
 def edit_world_position(ui_state, widget_id, value, tile_map):
@@ -803,7 +804,9 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
 
     g_ui.ui_end_panel(ui_state)
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, game_camera, tile_map):
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, game_camera, tile_map, show_editor):
+    if not show_editor:
+        return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
 
     if editor_mode == "environment":

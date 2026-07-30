@@ -4168,6 +4168,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         ui_state = g_ui.make_ui_state()
         game_assets["ui_state"] = ui_state
 
+    show_editor = ui_state.get("show_editor", False)
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F10):
+        show_editor = not show_editor
     editor_state = g_editor.get_or_create_editor_state(game_assets)
     g_ui.ui_begin_frame(ui_state, sounds)
     g_editor.capture_editor_ui_regions(ui_state, editor_state, editor_mode)
@@ -4179,6 +4183,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         g_ui.ui_capture_mouse(ui_state)
 
     g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
+
+    
 
     
     
@@ -4288,8 +4294,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if editor_mode != "play":
         g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
-
-    editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map)
+    
+    editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map, show_editor)
 
     if editor_mode == "tile":
         tile_type = tile_map["tile_types"][current_tile_selection]
@@ -4347,6 +4353,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     pr.draw_circle(int(mp.x), int(mp.y), 4 if editor_mode != "play" else 1, pr.WHITE)
     pr.end_texture_mode()
     g_ui.ui_end_frame(ui_state)
+    ui_state["show_editor"] = show_editor
     g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
 
 

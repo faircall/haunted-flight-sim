@@ -70,8 +70,7 @@ def ui_point_in_rect(point, rect):
 def ui_hover(ui_state, widget_id, rect, does_sound = True):
     hovered = ui_point_in_rect(get_mouse_position(), rect)
 
-    if hovered:
-        print(widget_id)
+    if hovered:        
         ui_state["hot_id"] = widget_id
         if does_sound:
             ui_state["hot_id_sound"] = widget_id
