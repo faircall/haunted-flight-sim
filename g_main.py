@@ -20,6 +20,7 @@ g_reloadable_modules = [
     ("g_graphics", update_and_render_module.g_graphics),
     ("g_ui", update_and_render_module.g_ui),
     ("g_editor", update_and_render_module.g_editor),
+    ("g_render_order", update_and_render_module.g_render_order),
     ("g_update_and_render", update_and_render_module),
 ]
 
@@ -27,6 +28,7 @@ g_shader_source_files = (
     "shaders/tile_mask.fs",
     "shaders/cinematic_shadow_projection.fs",
     "shaders/cinematic_shadow_composite.fs",
+    "shaders/player_outline.fs",
     "shaders/light_accumulation.fs",
     "shaders/top_down_light.fs",
     "shaders/fog_volume_mask.fs",

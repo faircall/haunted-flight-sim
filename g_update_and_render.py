@@ -14,6 +14,7 @@ import cyminiaudio as cma
 
 import g_graphics
 import g_editor
+import g_render_order
 import g_ui
 
 
@@ -583,53 +584,6 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
     if not draw_entities:
         return
 
-    # draw the player also
-
-    # make this a draw entity function
-    player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
-    player_render_pos = pr.Vector2(player_pos_abs["x"] - 16 - game_camera_x, player_pos_abs["y"] - 16 - game_camera_y )    
-
-    # we are actually...centered now?
-    player_render_pos_center = pr.Vector2(player_pos_abs["x"] - game_camera_x, player_pos_abs["y"] - game_camera_y)    
-    
-    if "aim_direction" not in player_entity:
-        player_entity["aim_direction"] = {"x" : 0, "y" : 0}
-    gun_pos = vec2_add_any(player_render_pos_center, vec2_scale(vec2_normalize(player_entity.get("aim_direction", {"x" : 0, "y" : 0})), 4))
-    if player_entity.get("aim_direction", {"x" : 0, "y" : 0}).get("x") < 0:
-        updated_gun_pos = vec2_add(vec2_scale(vec2_normalize(player_entity.get("aim_direction")), 4), gun_pos)        
-        gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
-    else:
-        gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
-
-    player_entity["gun_render_pos"] = {"x": gun_pos.x, "y": gun_pos.y}
-
-    gun_angle = angle_from_vector(player_entity.get("aim_direction")) - 180 # some bs here
-
-    #pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
-
-    oxford_frame_key =  player_entity.get("animation_frame", 0)   
-    oxford_frame_number = game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get(oxford_frame_key, 0)
-    oxford_dest_rect = pr.Rectangle(int(player_render_pos.x), int(player_render_pos.y), 32, 32) # these 32s are in the thing actually
-    oxford_source_rect = pr.Rectangle(oxford_frame_number*32, 0, 32, 32) # these 32s are in the thing actually
-    pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get("sheet"), oxford_source_rect, oxford_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
-    shirt_color = pr.Color(174,164,175, 255)
-    pr.draw_line(int(player_render_pos_center.x), int(player_render_pos_center.y), int(gun_pos.x), int(gun_pos.y), shirt_color)
-    
-    
-    if player_entity.get("aim_direction").get("x") < 0:
-        # TODO super slight bug here where it's drawing at the start and not accounting for the flip
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture_flipped"), updated_gun_pos, gun_angle + 180, 0.5, pr.WHITE)    
-    else:
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, gun_angle, 0.5, pr.WHITE)    
-
-    # HERE also draw reload status I think
-    
-
-    # and a dot at his center for debug purposes
-    # entity_width_that_i_am_using = 16
-    # entity_height_that_i_am_using = 16
-    # pr.draw_circle(int(player_pos["x"] + entity_width_that_i_am_using  - game_camera_x), int(player_pos["y"] + entity_height_that_i_am_using - game_camera_y), 5, pr.RED)
-
     if "projectiles" not in entities:
         entities["projectiles"] = {}
     if "brains" not in entities:
@@ -674,23 +628,10 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
         g_graphics.ensure_default_cinematic_shadow(entity)
 
         if entity.get("type","") == "buddha":
-            texture_scale = 1
-            texture_to_use = game_assets.get("textures",{}).get("buddha_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y
-            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
-            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
-            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
+            continue
         elif entity.get("type","") == "red head":
-            entity_frame_key =  entity.get("animation_frame", 0)   
-            entity_frame_number = game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get(entity_frame_key, 0) 
-            
-            texture_to_use = game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet")
-            texture_scale = 2
             render_pos_x = int(tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x)
             render_pos_y = int(tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y)
-
-
 
             texture_x = render_pos_x - 24
             texture_y = render_pos_y - 24            
@@ -707,15 +648,6 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                     "debug_modes" : ["entity_states", "player_debug"]
                 }
                 debug_queue.append(debug_item)
-            
-            # texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
-            # texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
-            
-
-            # entity_dest_rect = pr.Rectangle(int(render_pos_x), int(render_pos_y), 24*2, 24*2) 
-            entity_dest_rect = pr.Rectangle(int(texture_x), int(texture_y), 24, 24) 
-            entity_source_rect = pr.Rectangle(entity_frame_number*24, 0, 24, 24) 
-            pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet"), entity_source_rect, entity_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
 
             # also put some debut stuff here for the attack
             if debug_queue is not None:
@@ -742,6 +674,53 @@ def update_render_tile_map_base(game_camera, entities, tile_map, mouse_pos_world
 
 def draw_world_entities(game_camera, entities, tile_map, game_assets, ignore, player_entity, mode, debug_queue):
     _render_world_scene_phase(game_camera, entities, tile_map, pr.Vector2(0, 0), 0, 0, 0, game_assets, ignore, player_entity, mode, debug_queue, False, True)
+
+def resolve_render_item_texture(texture_reference, game_assets):
+    collection = game_assets.get(texture_reference.get("collection", ""), {})
+    asset = collection.get(texture_reference.get("name"))
+    if texture_reference.get("field") is not None and isinstance(asset, dict):
+        return asset.get(texture_reference["field"])
+    return asset
+
+def draw_sorted_world_render_items(render_items, game_camera, game_assets, player_entity=None):
+    camera_x = float(game_camera.x)
+    camera_y = float(game_camera.y)
+    for item in render_items:
+        texture = resolve_render_item_texture(item["texture"], game_assets)
+        if texture is None:
+            continue
+        source = item["source_rect"]
+        destination = item["dest_rect"]
+        source_rect = pr.Rectangle(source["x"], source["y"], source["width"], source["height"])
+        destination_rect = pr.Rectangle(destination["x"] - camera_x, destination["y"] - camera_y, destination["width"], destination["height"])
+        pr.draw_texture_pro(texture, source_rect, destination_rect, pr.Vector2(0, 0), 0, pr.WHITE)
+        if item.get("source") != "player":
+            continue
+        draw_data = item.get("draw_data", {})
+        center = draw_data.get("center_world", {})
+        gun = draw_data.get("gun_world", {})
+        pistol = draw_data.get("pistol_world", {})
+        center_screen = pr.Vector2(center.get("x", 0.0) - camera_x, center.get("y", 0.0) - camera_y)
+        gun_screen = pr.Vector2(gun.get("x", 0.0) - camera_x, gun.get("y", 0.0) - camera_y)
+        pistol_screen = pr.Vector2(pistol.get("x", 0.0) - camera_x, pistol.get("y", 0.0) - camera_y)
+        if player_entity is not None:
+            player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
+        pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))
+        pistol_texture = game_assets.get("textures", {}).get(draw_data.get("pistol_texture", "pistol_texture"))
+        if pistol_texture is not None:
+            pr.draw_texture_ex(pistol_texture, pistol_screen, float(draw_data.get("pistol_angle", 0.0)), 0.5, pr.WHITE)
+
+def draw_sorted_world_debug(render_items, occluding_items, game_camera):
+    occluding_ids = {item.get("id") for item in occluding_items}
+    for item in render_items:
+        bounds = g_render_order.world_bounds_to_screen(item["bounds_world"], game_camera)
+        base = item["base_world"]
+        base_x = int(base["x"] - game_camera.x)
+        base_y = int(base["y"] - game_camera.y)
+        color = pr.YELLOW if item.get("id") in occluding_ids else pr.MAGENTA if item.get("occludes_player") else pr.GREEN
+        pr.draw_rectangle_lines(int(bounds["x"]), int(bounds["y"]), int(bounds["width"]), int(bounds["height"]), color)
+        pr.draw_circle(base_x, base_y, 2, color)
+        pr.draw_text(f"{item.get('source')} y={item.get('sort_y', 0.0):.1f}", base_x + 3, base_y - 5, 6, color)
 
 def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
     _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, True, True)
@@ -821,6 +800,7 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["value"] = 25
 
     g_graphics.ensure_default_cinematic_shadow(entity)
+    g_render_order.ensure_entity_render_metadata(entity, entity_type)
 
 
     
@@ -939,6 +919,7 @@ def make_default_player(x,y,z):
     player["ammo"]["pistol"] = 20    
     player["ammo"]["spare_pistol"] = 20
 
+    g_render_order.ensure_entity_render_metadata(player, "player")
     return player
 
 def get_reload_time(gun_type):
@@ -1174,6 +1155,14 @@ def load_shaders():
         "shader": cinematic_shadow_composite,
         "shadow_texture_location": pr.get_shader_location(cinematic_shadow_composite, "shadowTexture"),
         "visibility_texture_location": pr.get_shader_location(cinematic_shadow_composite, "visibilityTexture")
+    }
+
+    player_outline = pr.load_shader("", "shaders/player_outline.fs")
+    result["player_outline"] = {
+        "shader": player_outline,
+        "resolution_location": pr.get_shader_location(player_outline, "resolution"),
+        "outline_color_location": pr.get_shader_location(player_outline, "outlineColor"),
+        "outline_width_location": pr.get_shader_location(player_outline, "outlineWidth")
     }
 
     light_accumulation = pr.load_shader("", "shaders/light_accumulation.fs")
@@ -4124,7 +4113,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     shaders = game_assets.get("shaders")
     lighting_composite_shader = shaders.get("lighting_composite", {}) if shaders else {}
-    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader:
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "player_outline" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader:
         if shaders:
             unload_shaders(shaders)
         shaders = load_shaders()
@@ -4261,8 +4250,13 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if editor_mode == "play" and not do_load_level:
         g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
 
+    sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
+    player_occluders = g_render_order.find_player_occluders(sorted_world_items, camera_3d.position)
+    player_outline_occluders = g_render_order.find_player_occluders(sorted_world_items, camera_3d.position, require_outline=True)
+
     pr.begin_texture_mode(render_target)
     draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
+    draw_sorted_world_render_items(sorted_world_items, camera_3d.position, game_assets, player_info)
 
     if debug_queue:
         debug_queue = sorted(debug_queue, key=lambda x: x.get("z_sort", 0), reverse=True)
@@ -4271,6 +4265,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             draw_debug_item(debug_state, debug_item, camera=camera_3d)
 
     pr.end_texture_mode()
+
+    if player_outline_occluders:
+        g_graphics.draw_player_occlusion_outline(render_target, g_render_order.get_player_render_item(sorted_world_items), camera_3d.position, game_assets)
 
     preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
 
@@ -4287,6 +4284,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if editor_mode != "play":
         g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
+
+    if editor_mode != "play" and game_assets.get("show_render_order_debug", False):
+        draw_sorted_world_debug(sorted_world_items, player_occluders, camera_3d.position)
     
     editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map, show_editor)
 

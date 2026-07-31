@@ -139,6 +139,12 @@ def set_shader_vec3(shader, location, x, y, z):
     value_ptr = pr.ffi.new("float[3]", [float(x), float(y), float(z)])
     pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_VEC3)
 
+def set_shader_vec4(shader, location, x, y, z, w):
+    if location < 0:
+        return
+    value_ptr = pr.ffi.new("float[4]", [float(x), float(y), float(z), float(w)])
+    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_VEC4)
+
 def normalize_light_color(color):
     red = float(color[0])
     green = float(color[1])
@@ -1496,6 +1502,40 @@ def apply_lighting(scene, lighting, readability_lighting, game_assets, lighting_
     pr.begin_texture_mode(scene)
     pr.clear_background(pr.BLACK)
     pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_texture_mode()
+
+def draw_player_occlusion_outline(scene, player_item, game_camera, game_assets):
+    if player_item is None:
+        return
+    outline_shader = game_assets.get("shaders", {}).get("player_outline")
+    if outline_shader is None:
+        return
+    texture_reference = player_item.get("texture", {})
+    asset = game_assets.get(texture_reference.get("collection", ""), {}).get(texture_reference.get("name"))
+    texture = asset.get(texture_reference.get("field")) if isinstance(asset, dict) and texture_reference.get("field") is not None else asset
+    if texture is None:
+        return
+    width = scene.texture.width
+    height = scene.texture.height
+    mask_target = get_or_create_render_target(game_assets, "player_outline_mask", width, height)
+    source_data = player_item["source_rect"]
+    dest_data = player_item["dest_rect"]
+    sprite_source = pr.Rectangle(source_data["x"], source_data["y"], source_data["width"], source_data["height"])
+    sprite_destination = pr.Rectangle(dest_data["x"] - game_camera.x, dest_data["y"] - game_camera.y, dest_data["width"], dest_data["height"])
+    full_source = pr.Rectangle(0, 0, width, -height)
+    full_destination = pr.Rectangle(0, 0, width, height)
+    pr.begin_texture_mode(mask_target)
+    pr.clear_background(pr.BLANK)
+    pr.draw_texture_pro(texture, sprite_source, sprite_destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_texture_mode()
+    shader = outline_shader["shader"]
+    set_shader_vec2(shader, outline_shader["resolution_location"], width, height)
+    set_shader_vec4(shader, outline_shader["outline_color_location"], 0.50, 0.66, 0.74, 0.52)
+    set_shader_float(shader, outline_shader["outline_width_location"], 1.25)
+    pr.begin_texture_mode(scene)
+    pr.begin_shader_mode(shader)
+    pr.draw_texture_pro(mask_target.texture, full_source, full_destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_shader_mode()
     pr.end_texture_mode()
 
 def apply_illuminated_fog(scene, fog_lighting, fog_volume_mask, game_assets, fog_profile, game_camera, time_elapsed):
