@@ -905,14 +905,7 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
         vel_x_epsilon = 4
         vel_y_epsilon = 4
 
-        if abs(remaining_error_x) < error_x_epsilon and abs(camera_velocity["x"]) < vel_x_epsilon:
-            camera_velocity["x"] = 0
-            game_camera.position.x = desired_camera_x
-
-        if abs(remaining_error_y) < error_y_epsilon and abs(camera_velocity["y"]) < vel_y_epsilon:
-            camera_velocity["y"] = 0
-            game_camera.position.y = desired_camera_y
-        
+     
         
         
     
