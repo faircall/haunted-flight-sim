@@ -1,4 +1,5 @@
 import copy
+import math
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -90,8 +91,9 @@ class DirectionBasisGeometryTests(unittest.TestCase):
                 "direction_basis": {
                     "mode": "sprite_rect",
                     "rect": {"x": 6.0, "y": 86.0, "width": 110.0, "height": 36.0},
+                    "ray_grid": {"columns": 7, "rows": 3},
                     "corner_blend_fraction": 0.20,
-                    "maximum_adjacent_weight": 0.25
+                    "maximum_adjacent_weight": 0.50
                 }
             }
         }
@@ -102,6 +104,52 @@ class DirectionBasisGeometryTests(unittest.TestCase):
     def test_scaled_destination_maps_proportionally(self):
         rectangle = g_graphics.get_render_item_direction_basis_world_rect(self.make_basis_item({"x": 10.0, "y": 20.0, "width": 256.0, "height": 256.0}))
         self.assertEqual(rectangle, {"x": 22.0, "y": 192.0, "width": 220.0, "height": 72.0})
+
+    def test_buddha_ray_grid_has_seven_by_three_equal_area_samples(self):
+        samples = g_graphics.get_render_item_direction_basis_ray_samples(self.make_basis_item())
+        self.assertEqual(len(samples), 21)
+        self.assertEqual({sample["column"] for sample in samples}, set(range(7)))
+        self.assertEqual({sample["row"] for sample in samples}, set(range(3)))
+        self.assertTrue(all(6.0 < sample["world"]["x"] < 116.0 and 86.0 < sample["world"]["y"] < 122.0 for sample in samples))
+
+    def test_bundle_uses_all_active_rays_for_a_point_light(self):
+        item = self.make_basis_item()
+        light = make_prepared_light("above", 61.0, 0.0)
+        light["light"]["radius"] = 200.0
+        bundle = g_graphics.calculate_render_item_light_direction_bundle(item, light, COLLISION_GRID)
+        self.assertEqual(bundle["total_ray_count"], 21)
+        self.assertEqual(bundle["active_ray_count"], 21)
+        self.assertGreater(bundle["weights"]["up"], 0.95)
+        self.assertAlmostEqual(sum(bundle["weights"].values()), 1.0)
+
+    def test_bundle_uses_only_intervals_reached_by_narrow_spotlight(self):
+        item = self.make_basis_item()
+        light = make_prepared_light("spot", -40.0, 104.0, light_type="spot")
+        light["light"].update({
+            "radius": 300.0,
+            "direction": {"x": 1.0, "y": 0.0},
+            "inner_angle": 1.0,
+            "outer_angle": 4.0
+        })
+        bundle = g_graphics.calculate_render_item_light_direction_bundle(item, light, COLLISION_GRID)
+        active = [ray for ray in bundle["rays"] if ray["active"]]
+        self.assertEqual(len(active), 7)
+        self.assertEqual({ray["row"] for ray in active}, {1})
+        self.assertEqual(bundle["weights"], {"down": 0.0, "up": 0.0, "left": 1.0, "right": 0.0})
+
+    def test_bundle_full_sweep_has_no_large_corner_handoff(self):
+        item = self.make_basis_item()
+        previous = None
+        maximum_channel_step = 0.0
+        for degrees in range(361):
+            angle = math.radians(degrees)
+            light = make_prepared_light("sweep", 61.0 + math.cos(angle) * 150.0, 104.0 + math.sin(angle) * 150.0)
+            light["light"]["radius"] = 300.0
+            weights = g_graphics.calculate_render_item_light_direction_bundle(item, light, COLLISION_GRID)["weights"]
+            if previous is not None:
+                maximum_channel_step = max(maximum_channel_step, max(abs(weights[side] - previous[side]) for side in weights))
+            previous = weights
+        self.assertLess(maximum_channel_step, 0.05)
 
     def assert_entry(self, position, side, side_position):
         entry = g_graphics.calculate_render_item_light_direction_entry(self.make_basis_item(), position)
@@ -157,6 +205,24 @@ class DirectionBasisGeometryTests(unittest.TestCase):
         self.assertEqual(draw_line.call_args_list[0].args[-1], g_graphics.pr.SKYBLUE)
         self.assertEqual(draw_line.call_args_list[1].args[-1], g_graphics.pr.GOLD)
 
+    def test_focused_debug_draws_all_bundle_rays_without_text(self):
+        item = self.make_basis_item()
+        light = make_prepared_light("bundle-point", 61.0, 0.0)
+        light["light"]["radius"] = 200.0
+        bundle = g_graphics.calculate_render_item_light_direction_bundle(item, light, COLLISION_GRID)
+        item["self_shadow_summary"] = {"per_light": [{
+            "light_id": light["id"],
+            "light_position": light["world_position"],
+            "direction_entry": bundle,
+            "weights": bundle["weights"],
+            "blocked": False
+        }]}
+        with mock.patch.object(g_graphics.pr, "draw_rectangle_lines"), mock.patch.object(g_graphics.pr, "draw_circle"), mock.patch.object(g_graphics.pr, "draw_line") as draw_line, mock.patch.object(g_graphics.pr, "draw_text") as draw_text:
+            g_graphics.draw_entity_direction_basis_debug([item], SimpleNamespace(x=0.0, y=0.0), [light])
+        self.assertEqual(draw_line.call_count, 21)
+        self.assertTrue(all(call.args[-1] == g_graphics.pr.SKYBLUE for call in draw_line.call_args_list))
+        draw_text.assert_not_called()
+
 
 class CornerBlendTests(unittest.TestCase):
     def weights(self, side, position):
@@ -188,6 +254,12 @@ class CornerBlendTests(unittest.TestCase):
         after = self.weights("up", 0.20 + 0.000001)
         self.assertLess(abs(before["up"] - after["up"]), 0.00001)
         self.assertLess(abs(before["left"] - after["left"]), 0.00001)
+
+    def test_half_weight_endpoint_is_continuous_across_geometric_corner(self):
+        from_up = g_graphics.calculate_corner_blend_directional_weights("up", 0.0, 0.20, 0.50)
+        from_left = g_graphics.calculate_corner_blend_directional_weights("left", 0.0, 0.20, 0.50)
+        self.assertEqual(from_up, from_left)
+        self.assertEqual(from_up, {"down": 0.0, "up": 0.5, "left": 0.5, "right": 0.0})
 
 
 class DirectionalProfileTests(unittest.TestCase):

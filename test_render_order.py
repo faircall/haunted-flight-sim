@@ -98,8 +98,10 @@ class RenderOrderTests(unittest.TestCase):
         second_buddha = g_render_order.make_default_entity_render_metadata("buddha")
         first_buddha["self_shadow"]["response_texture"]["name"] = "changed"
         first_buddha["self_shadow"]["direction_basis"]["rect"]["x"] = 99.0
+        first_buddha["self_shadow"]["direction_basis"]["ray_grid"]["columns"] = 1
         self.assertEqual(second_buddha["self_shadow"]["response_texture"]["name"], "buddha_light_response")
         self.assertEqual(second_buddha["self_shadow"]["direction_basis"]["rect"]["x"], 6.0)
+        self.assertEqual(second_buddha["self_shadow"]["direction_basis"]["ray_grid"]["columns"], 7)
 
     def test_authored_directional_profile_metadata_is_preserved(self):
         entity = {
@@ -110,6 +112,7 @@ class RenderOrderTests(unittest.TestCase):
                 "direction_basis": {
                     "mode": "sprite_rect",
                     "rect": {"x": 7.0, "y": 80.0, "width": 100.0, "height": 30.0},
+                    "ray_grid": {"columns": 5, "rows": 2},
                     "corner_blend_fraction": 0.15,
                     "maximum_adjacent_weight": 0.20
                 },
@@ -124,6 +127,7 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(entity["self_shadow"]["direction_basis"], {
             "mode": "sprite_rect",
             "rect": {"x": 7.0, "y": 80.0, "width": 100.0, "height": 30.0},
+            "ray_grid": {"columns": 5, "rows": 2},
             "corner_blend_fraction": 0.15,
             "maximum_adjacent_weight": 0.20
         })
@@ -139,8 +143,9 @@ class RenderOrderTests(unittest.TestCase):
             "direction_basis": {
                 "mode": "sprite_rect",
                 "rect": {"x": 6.0, "y": 86.0, "width": 110.0, "height": 36.0},
+                "ray_grid": {"columns": 7, "rows": 3},
                 "corner_blend_fraction": 0.20,
-                "maximum_adjacent_weight": 0.25
+                "maximum_adjacent_weight": 0.50
             },
             "strength": 1.0,
             "minimum_direct": 0.04,

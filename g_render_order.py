@@ -46,8 +46,11 @@ def make_default_entity_render_metadata(entity_type):
                 "direction_basis": {
                     "mode": "sprite_rect",
                     "rect": {"x": 6.0, "y": 86.0, "width": 110.0, "height": 36.0},
+                    # Equal-area base-plate intervals; 0.50 makes an exact corner
+                    # a continuous half-and-half handoff between adjacent sides.
+                    "ray_grid": {"columns": 7, "rows": 3},
                     "corner_blend_fraction": 0.20,
-                    "maximum_adjacent_weight": 0.25
+                    "maximum_adjacent_weight": 0.50
                 },
                 "strength": 1.0,
                 "minimum_direct": 0.04,

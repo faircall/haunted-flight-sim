@@ -706,12 +706,14 @@ def get_render_item_light_sample_points(render_item):
     width = float(bounds.get("width", 0.0))
     height = float(bounds.get("height", 0.0))
     center_x = left + width * 0.5
-    return [
+    points = [
         {"x": float(base.get("x", center_x)), "y": float(base.get("y", top + height))},
         {"x": center_x, "y": top + height * 0.50},
         {"x": left + width * 0.20, "y": top + height * 0.50},
         {"x": left + width * 0.80, "y": top + height * 0.50}
     ]
+    points.extend(sample["world"] for sample in get_render_item_direction_basis_ray_samples(render_item))
+    return points
 
 def get_prepared_light_strength_for_render_item(prepared_light, render_item, collision_grid):
     light = prepared_light.get("light", {})
@@ -823,7 +825,7 @@ def intersect_segment_with_rectangle_entry(start, end, rectangle):
         side_position = (entry["y"] - top) / rectangle["height"]
     return {"inside": False, "side": side, "side_position": max(0.0, min(1.0, side_position)), "entry_world": entry, "t": t}
 
-def calculate_corner_blend_directional_weights(side, side_position, corner_blend_fraction=0.20, maximum_adjacent_weight=0.25):
+def calculate_corner_blend_directional_weights(side, side_position, corner_blend_fraction=0.20, maximum_adjacent_weight=0.50):
     weights = {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0}
     if side not in weights:
         return weights
@@ -863,9 +865,127 @@ def calculate_render_item_light_direction_entry(render_item, light_position):
         result["weights"] = {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0}
         result["omni"] = True
     else:
-        result["weights"] = calculate_corner_blend_directional_weights(intersection["side"], intersection["side_position"], basis.get("corner_blend_fraction", 0.20), basis.get("maximum_adjacent_weight", 0.25))
+        result["weights"] = calculate_corner_blend_directional_weights(intersection["side"], intersection["side_position"], basis.get("corner_blend_fraction", 0.20), basis.get("maximum_adjacent_weight", 0.50))
         result["omni"] = False
     return result
+
+def get_render_item_direction_basis_ray_samples(render_item):
+    """Return equal-area cell centres for the optional sprite-rectangle ray grid.
+
+    Each cell represents an interval of the authored base plate.  Sampling several
+    intervals keeps a narrow spotlight tied to the part of the plate it actually
+    reaches instead of classifying the whole entity with one centre ray.
+    """
+    rectangle = get_render_item_direction_basis_world_rect(render_item)
+    if rectangle is None:
+        return []
+    basis = render_item.get("self_shadow", {}).get("direction_basis", {})
+    grid = basis.get("ray_grid", {})
+    columns = max(1, min(15, int(grid.get("columns", 7))))
+    rows = max(1, min(15, int(grid.get("rows", 3))))
+    result = []
+    for row in range(rows):
+        v = (row + 0.5) / rows
+        for column in range(columns):
+            u = (column + 0.5) / columns
+            result.append({
+                "column": column,
+                "row": row,
+                "u": u,
+                "v": v,
+                "world": {
+                    "x": rectangle["x"] + rectangle["width"] * u,
+                    "y": rectangle["y"] + rectangle["height"] * v
+                }
+            })
+    return result
+
+def calculate_render_item_light_direction_bundle(render_item, prepared_light, collision_grid):
+    """Blend a prepared light's rectangle-entry directions over equal-area ray intervals."""
+    rectangle = get_render_item_direction_basis_world_rect(render_item)
+    if rectangle is None:
+        return None
+    light_position = prepared_light.get("world_position", {})
+    if "x" not in light_position or "y" not in light_position:
+        return None
+    centre = {"x": rectangle["x"] + rectangle["width"] * 0.5, "y": rectangle["y"] + rectangle["height"] * 0.5}
+    if point_is_inside_rectangle(light_position, rectangle):
+        return {
+            "inside": True,
+            "omni": True,
+            "side": None,
+            "side_position": None,
+            "entry_world": dict(light_position),
+            "centre_world": centre,
+            "rect_world": rectangle,
+            "weights": {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0},
+            "rays": []
+        }
+
+    basis = render_item.get("self_shadow", {}).get("direction_basis", {})
+    light = prepared_light.get("light", {})
+    rays = []
+    totals = {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0}
+    total_strength = 0.0
+    entry_x_total = 0.0
+    entry_y_total = 0.0
+
+    for sample in get_render_item_direction_basis_ray_samples(render_item):
+        sample_world = sample["world"]
+        entry = intersect_segment_with_rectangle_entry(light_position, sample_world, rectangle)
+        if entry is None or entry.get("inside", False):
+            continue
+        weights = calculate_corner_blend_directional_weights(
+            entry["side"], entry["side_position"],
+            basis.get("corner_blend_fraction", 0.20), basis.get("maximum_adjacent_weight", 0.50)
+        )
+        sample_strength = light_visibility.get_unoccluded_light_strength_at_world_point(light, sample_world, collision_grid)
+        if sample_strength > 0.000001 and not prepared_light_reaches_point(prepared_light, sample_world):
+            sample_strength = 0.0
+        ray = dict(sample)
+        ray.update({
+            "entry_world": entry["entry_world"],
+            "side": entry["side"],
+            "side_position": entry["side_position"],
+            "weights": weights,
+            "sample_strength": sample_strength,
+            "active": sample_strength > 0.000001
+        })
+        rays.append(ray)
+        if sample_strength <= 0.000001:
+            continue
+        total_strength += sample_strength
+        entry_x_total += entry["entry_world"]["x"] * sample_strength
+        entry_y_total += entry["entry_world"]["y"] * sample_strength
+        for side in totals:
+            totals[side] += weights[side] * sample_strength
+
+    if total_strength <= 0.000001:
+        fallback = calculate_render_item_light_direction_entry(render_item, light_position)
+        if fallback is None:
+            return None
+        fallback["rays"] = rays
+        fallback["bundle_fallback"] = True
+        return fallback
+
+    weights = {side: value / total_strength for side, value in totals.items()}
+    primary_side = max(weights, key=weights.get)
+    primary_rays = [ray for ray in rays if ray["active"] and ray["side"] == primary_side]
+    primary_strength = sum(ray["sample_strength"] for ray in primary_rays)
+    side_position = sum(ray["side_position"] * ray["sample_strength"] for ray in primary_rays) / primary_strength if primary_strength > 0.000001 else 0.5
+    return {
+        "inside": False,
+        "omni": False,
+        "side": primary_side,
+        "side_position": side_position,
+        "entry_world": {"x": entry_x_total / total_strength, "y": entry_y_total / total_strength},
+        "centre_world": centre,
+        "rect_world": rectangle,
+        "weights": weights,
+        "rays": rays,
+        "active_ray_count": sum(1 for ray in rays if ray["active"]),
+        "total_ray_count": len(rays)
+    }
 
 def calculate_center_directional_weights(render_item, light_position):
     to_light = light_visibility.normalize_vector({"x": light_position["x"] - render_item["base_world"]["x"], "y": light_position["y"] - render_item["base_world"]["y"]})
@@ -949,7 +1069,7 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
 
             if not is_omni:
                 if mode == "directional_profiles" and policy.get("direction_basis", {}).get("mode") == "sprite_rect":
-                    direction_entry = calculate_render_item_light_direction_entry(item, prepared_light["world_position"])
+                    direction_entry = calculate_render_item_light_direction_bundle(item, prepared_light, collision_grid)
                     if direction_entry is None or direction_entry.get("omni", False):
                         is_omni = True
                     else:
@@ -1536,7 +1656,7 @@ def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_sha
         pr.draw_text("accumulated entity direct", 4, int(45 + preview_height), 6, pr.LIME)
 
 def draw_entity_direction_basis_debug(render_items, game_camera, prepared_lights=None, color=None):
-    """Draw direction bases and every radial light's representative entry ray."""
+    """Draw direction bases and every radial light's basis-ray bundle, without text."""
     color = color or pr.ORANGE
     prepared_by_id = {prepared_light.get("id"): prepared_light for prepared_light in prepared_lights or []}
     rectangles_drawn = 0
@@ -1564,9 +1684,29 @@ def draw_entity_direction_basis_debug(render_items, game_camera, prepared_lights
             if entry is None:
                 continue
             light_position = record.get("light_position", prepared_light.get("world_position", {}) if prepared_light is not None else {})
+            if "x" not in light_position or "y" not in light_position:
+                continue
+            bundle_rays = entry.get("rays", [])
+            if bundle_rays:
+                base_ray_color = pr.RED if record.get("blocked", False) else pr.GOLD if light_type == "spot" or light.get("owner_id") == "player" or "flashlight" in str(record.get("light_id", "")).lower() else pr.SKYBLUE
+                for ray in bundle_rays:
+                    sample_world = ray.get("world", {})
+                    entry_world = ray.get("entry_world", {})
+                    if "x" not in sample_world or "y" not in sample_world or "x" not in entry_world or "y" not in entry_world:
+                        continue
+                    ray_color = base_ray_color if ray.get("active", False) or record.get("blocked", False) else pr.DARKGRAY
+                    pr.draw_line(
+                        int(round(light_position["x"] - game_camera.x)),
+                        int(round(light_position["y"] - game_camera.y)),
+                        int(round(sample_world["x"] - game_camera.x)),
+                        int(round(sample_world["y"] - game_camera.y)),
+                        ray_color
+                    )
+                    pr.draw_circle(int(round(entry_world["x"] - game_camera.x)), int(round(entry_world["y"] - game_camera.y)), 1.0, ray_color)
+                continue
             centre_world = entry.get("centre_world", centre)
             entry_world = entry.get("entry_world")
-            if "x" not in light_position or "y" not in light_position or not isinstance(entry_world, dict):
+            if not isinstance(entry_world, dict):
                 continue
             light_id = str(record.get("light_id", "?"))
             is_flashlight = light_type == "spot" or light.get("owner_id") == "player" or "flashlight" in light_id.lower()
