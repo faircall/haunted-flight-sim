@@ -1319,7 +1319,10 @@ def _render_single_prepared_entity_light(prepared_light, game_camera, scratch_ta
     pr.begin_texture_mode(scratch_target)
     pr.clear_background(pr.BLACK)
     pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
-    draw_prepared_light_to_target(prepared_light, game_camera, scratch_target, game_assets, include_receivers=False)
+    # Entity eligibility/occlusion is resolved at its ground/basis samples.  Reusing
+    # the floor-plane wall polygon here would project that 2D edge vertically through
+    # an upright sprite, producing wall-shaped black slices through tall entities.
+    draw_prepared_light_to_target(prepared_light, game_camera, scratch_target, game_assets, include_receivers=False, clip_to_wall_visibility=False)
     pr.end_blend_mode()
     pr.end_texture_mode()
 
@@ -1337,10 +1340,15 @@ def _make_per_light_render_item(render_item, light_record, mode_override=None):
 def _draw_render_item_main_shape(render_item, texture, game_camera):
     source = render_item["source_rect"]
     destination = render_item["dest_rect"]
+    # Snap after applying the camera so large pixel-art entities remain aligned
+    # with the screen pixel grid while the camera moves.  Every entity-lighting
+    # pass uses this helper, keeping the albedo and lighting masks registered.
+    screen_x = round(destination["x"] - game_camera.x)
+    screen_y = round(destination["y"] - game_camera.y)
     pr.draw_texture_pro(
         texture,
         pr.Rectangle(source["x"], source["y"], source["width"], source["height"]),
-        pr.Rectangle(destination["x"] - game_camera.x, destination["y"] - game_camera.y, destination["width"], destination["height"]),
+        pr.Rectangle(screen_x, screen_y, destination["width"], destination["height"]),
         pr.Vector2(0, 0), 0, pr.WHITE
     )
 
@@ -1839,7 +1847,7 @@ def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashl
         "light_height": light_height
     }
 
-def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, light_shader, include_receivers=True, shader_mode_active=False):
+def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, light_shader, include_receivers=True, shader_mode_active=False, clip_to_wall_visibility=True):
     light = prepared_light["light"]
 
     if not light.get("enabled", True):
@@ -1888,7 +1896,7 @@ def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_t
     if not shader_mode_active:
         pr.begin_shader_mode(shader)
 
-    if prepared_light["casts_wall_shadows"]:
+    if prepared_light["casts_wall_shadows"] and clip_to_wall_visibility:
         draw_light_visibility_polygon(light, world_position, prepared_light["visibility_polygon"], game_camera)
 
         if include_receivers:
@@ -1942,12 +1950,12 @@ def draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting
     if not shader_mode_active:
         pr.end_shader_mode()
 
-def draw_prepared_light_to_target(prepared_light, game_camera, lighting_target, game_assets, include_receivers=True):
+def draw_prepared_light_to_target(prepared_light, game_camera, lighting_target, game_assets, include_receivers=True, clip_to_wall_visibility=True):
     if prepared_light["light"].get("type", "point") == "top_down":
         draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting_target, game_assets["shaders"]["top_down_light"])
         return
 
-    draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, game_assets["shaders"]["light_accumulation"], include_receivers)
+    draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, game_assets["shaders"]["light_accumulation"], include_receivers, clip_to_wall_visibility=clip_to_wall_visibility)
 
 def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, blue, base_alpha, alpha_multiplier):    
     for i in range(rings, 0,-ring_size):

@@ -602,7 +602,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
-            render_pos = pr.Vector2((x*tile_width - game_camera_x), (y*tile_height - game_camera_y))
+            render_pos = pr.Vector2((int(x*tile_width - game_camera_x)), (int(y*tile_height - game_camera_y)))
             if tile_type.get("type") == "wood":                
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("wood_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "wall":                                                

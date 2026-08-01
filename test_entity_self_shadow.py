@@ -41,6 +41,18 @@ class EntitySelfShadowTests(unittest.TestCase):
         g_graphics.prepare_entity_self_shadows([target], [light], [], COLLISION_GRID)
         return target["self_shadow_summary"], target["self_shadow"]
 
+    def test_entity_draw_snaps_camera_relative_position_to_pixel_grid(self):
+        item = {
+            "source_rect": {"x": 0.0, "y": 0.0, "width": 128.0, "height": 128.0},
+            "dest_rect": {"x": 20.25, "y": 40.75, "width": 128.0, "height": 128.0},
+        }
+        with mock.patch.object(g_graphics.pr, "draw_texture_pro") as draw_texture:
+            g_graphics._draw_render_item_main_shape(item, object(), SimpleNamespace(x=2.6, y=3.2))
+
+        destination = draw_texture.call_args.args[2]
+        self.assertEqual(destination.x, 18.0)
+        self.assertEqual(destination.y, 38.0)
+
     def test_camera_front_light_preserves_original_composite_across_sprite(self):
         summary, policy = self.prepare(make_prepared_light("front", 0, 20))
         self.assertAlmostEqual(summary["face_exposure"][0], 1.0)
@@ -78,6 +90,34 @@ class EntitySelfShadowTests(unittest.TestCase):
         summary = target["self_shadow_summary"]
         self.assertEqual(summary["sampled_world_strength"], 0.0)
         self.assertEqual(summary["world_occlusion_scale"], 1.0)
+
+    def test_entity_light_scratch_does_not_project_floor_wall_polygon_through_sprite(self):
+        prepared = make_prepared_light("wall-overlap", 20.0, 20.0)
+        scratch = SimpleNamespace(texture=SimpleNamespace(width=64, height=64))
+        assets = {"shaders": {"light_accumulation": {}}}
+        with mock.patch.object(g_graphics, "draw_prepared_light_to_target") as draw_light, \
+             mock.patch.object(g_graphics.pr, "begin_texture_mode"), \
+             mock.patch.object(g_graphics.pr, "clear_background"), \
+             mock.patch.object(g_graphics.pr, "begin_blend_mode"), \
+             mock.patch.object(g_graphics.pr, "end_blend_mode"), \
+             mock.patch.object(g_graphics.pr, "end_texture_mode"):
+            g_graphics._render_single_prepared_entity_light(prepared, SimpleNamespace(x=0.0, y=0.0), scratch, assets)
+        draw_light.assert_called_once_with(
+            prepared,
+            mock.ANY,
+            scratch,
+            assets,
+            include_receivers=False,
+            clip_to_wall_visibility=False,
+        )
+
+    def test_ordinary_world_light_rendering_still_uses_wall_visibility(self):
+        prepared = make_prepared_light("world-wall", 20.0, 20.0)
+        target = SimpleNamespace(texture=SimpleNamespace(width=64, height=64))
+        assets = {"shaders": {"light_accumulation": {}}}
+        with mock.patch.object(g_graphics, "draw_prepared_radial_light_to_target") as draw_radial:
+            g_graphics.draw_prepared_light_to_target(prepared, SimpleNamespace(x=0.0, y=0.0), target, assets)
+        self.assertTrue(draw_radial.call_args.kwargs["clip_to_wall_visibility"])
 
 
 class DirectionBasisGeometryTests(unittest.TestCase):
