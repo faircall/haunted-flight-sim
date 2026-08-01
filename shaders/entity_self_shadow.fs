@@ -19,6 +19,7 @@ uniform float selfShadowSoftness;
 uniform float selfShadowBackFill;
 uniform float selfShadowMinimumDirect;
 uniform int selfShadowDebugOutput;
+uniform int selfShadowPass;
 uniform vec3 ambientColor;
 uniform vec3 shadowColor;
 uniform float ambientStrength;
@@ -87,7 +88,7 @@ float calculateSelfShadow(vec2 localUv, out vec4 response)
     {
         // RGBA is direct-light survival (not emission or sprite colour): down (+Y), up (-Y), left (-X), right (+X).
         response = texture(directionalResponseTexture, fragTexCoord);
-        // One profile attenuates the accumulated direct-light texture, an approximation for differently coloured lights.
+        // This profile attenuates only the currently isolated direct-light contribution.
         float authoredExposure = dot(response, faceExposure);
         float shapedExposure = clamp(omniExposure + authoredExposure, selfShadowMinimumDirect, 1.0);
         return mix(1.0, shapedExposure, clamp(selfShadowStrength, 0.0, 1.0));
@@ -105,16 +106,29 @@ void main()
         discard;
     }
 
+    if (selfShadowPass == 2)
+    {
+        finalColor = vec4(0.0, 0.0, 0.0, sprite.a);
+        return;
+    }
+
     vec2 sourceSize = max(sourceUvMax - sourceUvMin, vec2(0.000001));
     vec2 localUv = clamp((fragTexCoord - sourceUvMin) / sourceSize, 0.0, 1.0);
     vec2 screenUv = gl_FragCoord.xy / max(resolution, vec2(1.0));
     vec3 ambientLight = ambientColor * ambientStrength;
-    vec3 worldDirectLight = texture(entityLightTexture, screenUv).rgb * directLightStrength;
+    vec3 sampledDirectLight = texture(entityLightTexture, screenUv).rgb;
+    vec3 worldDirectLight = sampledDirectLight * directLightStrength;
     vec3 readabilityLight = texture(entityReadabilityLightTexture, screenUv).rgb * directLightStrength;
     vec4 directionalResponse;
     float selfShadowAttenuation = calculateSelfShadow(localUv, directionalResponse);
     float finalDirectAttenuation = clamp(worldOcclusionScale, 0.0, 1.0) * selfShadowAttenuation;
     worldDirectLight *= finalDirectAttenuation;
+
+    if (selfShadowPass == 1)
+    {
+        finalColor = vec4(sampledDirectLight * finalDirectAttenuation, sprite.a);
+        return;
+    }
 
     if (selfShadowDebugOutput == 1 && selfShadowMode == 2)
     {

@@ -724,7 +724,7 @@ def get_prepared_light_strength_for_render_item(prepared_light, render_item, col
     return max(strengths, default=0.0)
 
 def make_empty_entity_self_shadow_summary():
-    return {"face_exposure": [1.0, 0.0, 0.0, 0.0], "omni_exposure": 0.0, "world_occlusion_scale": 1.0, "blocked_direct_count": 0, "sampled_world_strength": 0.0, "visible_world_strength": 0.0}
+    return {"face_exposure": [1.0, 0.0, 0.0, 0.0], "omni_exposure": 0.0, "world_occlusion_scale": 1.0, "blocked_direct_count": 0, "sampled_world_strength": 0.0, "visible_world_strength": 0.0, "per_light": []}
 
 def calculate_entity_self_shadow_at_u(summary, policy, local_u):
     if policy.get("mode", "none") != "upright_box":
@@ -744,9 +744,8 @@ def calculate_entity_self_shadow_at_u(summary, policy, local_u):
 def calculate_directional_profile_attenuation(summary, policy, response_rgba):
     """Blend an authored RGBA survival sample in down/up/left/right order.
 
-    The result is an attenuation for accumulated ordinary direct light. Applying
-    one blended directional response to differently coloured accumulated lights
-    is deliberately an approximation; ambient and readability light are separate.
+    The result attenuates one ordinary direct-light contribution. Callers add
+    surviving per-light contributions; ambient and readability remain separate.
     """
     exposure = list(summary.get("face_exposure", [0.0, 0.0, 0.0, 0.0]))
     response = list(response_rgba)
@@ -762,6 +761,154 @@ def calculate_directional_profile_attenuation(summary, policy, response_rgba):
     strength = max(0.0, min(1.0, float(policy.get("strength", 0.0))))
     return (1.0 - strength) + strength * shaped_exposure
 
+def get_render_item_direction_basis_world_rect(render_item):
+    """Transform a current-frame sprite-local direction rectangle into world space."""
+    basis = render_item.get("self_shadow", {}).get("direction_basis", {})
+    if basis.get("mode") != "sprite_rect":
+        return None
+    local = basis.get("rect", {})
+    source = render_item.get("source_rect", {})
+    destination = render_item.get("dest_rect", {})
+    source_width = abs(float(source.get("width", 0.0)))
+    source_height = abs(float(source.get("height", 0.0)))
+    if source_width <= 0.000001 or source_height <= 0.000001:
+        return None
+    scale_x = float(destination.get("width", 0.0)) / source_width
+    scale_y = float(destination.get("height", 0.0)) / source_height
+    return {
+        "x": float(destination.get("x", 0.0)) + float(local.get("x", 0.0)) * scale_x,
+        "y": float(destination.get("y", 0.0)) + float(local.get("y", 0.0)) * scale_y,
+        "width": max(0.0, float(local.get("width", 0.0)) * scale_x),
+        "height": max(0.0, float(local.get("height", 0.0)) * scale_y)
+    }
+
+def point_is_inside_rectangle(point, rectangle):
+    return rectangle["x"] <= point["x"] <= rectangle["x"] + rectangle["width"] and rectangle["y"] <= point["y"] <= rectangle["y"] + rectangle["height"]
+
+def intersect_segment_with_rectangle_entry(start, end, rectangle):
+    """Return the first boundary crossing for a segment ending inside a rectangle."""
+    if rectangle["width"] <= 0.000001 or rectangle["height"] <= 0.000001:
+        return None
+    if point_is_inside_rectangle(start, rectangle):
+        return {"inside": True, "side": None, "side_position": None, "entry_world": dict(start), "t": 0.0}
+
+    left = rectangle["x"]
+    right = left + rectangle["width"]
+    top = rectangle["y"]
+    bottom = top + rectangle["height"]
+    delta_x = float(end["x"] - start["x"])
+    delta_y = float(end["y"] - start["y"])
+    candidates = []
+
+    if abs(delta_x) > 0.000001:
+        for boundary, side in ((left, "left"), (right, "right")):
+            t = (boundary - start["x"]) / delta_x
+            y = start["y"] + delta_y * t
+            if -0.000001 <= t <= 1.000001 and top - 0.000001 <= y <= bottom + 0.000001:
+                candidates.append((max(0.0, t), side, {"x": boundary, "y": y}))
+
+    if abs(delta_y) > 0.000001:
+        for boundary, side in ((top, "up"), (bottom, "down")):
+            t = (boundary - start["y"]) / delta_y
+            x = start["x"] + delta_x * t
+            if -0.000001 <= t <= 1.000001 and left - 0.000001 <= x <= right + 0.000001:
+                candidates.append((max(0.0, t), side, {"x": x, "y": boundary}))
+
+    if not candidates:
+        return None
+    t, side, entry = min(candidates, key=lambda value: (value[0], {"up": 0, "down": 1, "left": 2, "right": 3}[value[1]]))
+    if side in {"up", "down"}:
+        side_position = (entry["x"] - left) / rectangle["width"]
+    else:
+        side_position = (entry["y"] - top) / rectangle["height"]
+    return {"inside": False, "side": side, "side_position": max(0.0, min(1.0, side_position)), "entry_world": entry, "t": t}
+
+def calculate_corner_blend_directional_weights(side, side_position, corner_blend_fraction=0.20, maximum_adjacent_weight=0.25):
+    weights = {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0}
+    if side not in weights:
+        return weights
+    position = max(0.0, min(1.0, float(side_position)))
+    fraction = max(0.000001, min(0.5, float(corner_blend_fraction)))
+    maximum = max(0.0, min(0.5, float(maximum_adjacent_weight)))
+    adjacency = {
+        "up": ("left", "right"), "down": ("left", "right"),
+        "left": ("up", "down"), "right": ("up", "down")
+    }
+    adjacent_side = None
+    adjacent_weight = 0.0
+    if position < fraction:
+        adjacent_side = adjacency[side][0]
+        adjacent_weight = maximum * (1.0 - smoothstep_cpu(0.0, fraction, position))
+    elif position > 1.0 - fraction:
+        adjacent_side = adjacency[side][1]
+        adjacent_weight = maximum * smoothstep_cpu(1.0 - fraction, 1.0, position)
+    weights[side] = 1.0 - adjacent_weight
+    if adjacent_side is not None:
+        weights[adjacent_side] = adjacent_weight
+    return weights
+
+def calculate_render_item_light_direction_entry(render_item, light_position):
+    rectangle = get_render_item_direction_basis_world_rect(render_item)
+    if rectangle is None:
+        return None
+    centre = {"x": rectangle["x"] + rectangle["width"] * 0.5, "y": rectangle["y"] + rectangle["height"] * 0.5}
+    intersection = intersect_segment_with_rectangle_entry(light_position, centre, rectangle)
+    if intersection is None:
+        return None
+    basis = render_item.get("self_shadow", {}).get("direction_basis", {})
+    result = dict(intersection)
+    result["rect_world"] = rectangle
+    result["centre_world"] = centre
+    if intersection["inside"]:
+        result["weights"] = {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0}
+        result["omni"] = True
+    else:
+        result["weights"] = calculate_corner_blend_directional_weights(intersection["side"], intersection["side_position"], basis.get("corner_blend_fraction", 0.20), basis.get("maximum_adjacent_weight", 0.25))
+        result["omni"] = False
+    return result
+
+def calculate_center_directional_weights(render_item, light_position):
+    to_light = light_visibility.normalize_vector({"x": light_position["x"] - render_item["base_world"]["x"], "y": light_position["y"] - render_item["base_world"]["y"]})
+    if to_light is None:
+        return None
+    scale = max(0.000001, abs(to_light["x"]) + abs(to_light["y"]))
+    return {
+        "down": max(0.0, to_light["y"]) / scale,
+        "up": max(0.0, -to_light["y"]) / scale,
+        "left": max(0.0, -to_light["x"]) / scale,
+        "right": max(0.0, to_light["x"]) / scale
+    }
+
+def directional_weights_as_rgba(weights):
+    return [float(weights.get("down", 0.0)), float(weights.get("up", 0.0)), float(weights.get("left", 0.0)), float(weights.get("right", 0.0))]
+
+def calculate_per_light_profile_survival(response_rgba, weights, policy, omni=False):
+    if omni:
+        return 1.0
+    return calculate_directional_profile_attenuation({"face_exposure": directional_weights_as_rgba(weights), "omni_exposure": 0.0}, policy, response_rgba)
+
+def accumulate_surviving_direct_contributions(contributions):
+    result = [0.0, 0.0, 0.0]
+    for contribution in contributions:
+        if contribution.get("blocked", False):
+            continue
+        color = list(contribution.get("rgb", [0.0, 0.0, 0.0]))
+        survival = max(0.0, float(contribution.get("survival", 1.0)))
+        while len(color) < 3:
+            color.append(0.0)
+        for index in range(3):
+            result[index] += max(0.0, float(color[index])) * survival
+    return result
+
+def combine_independent_entity_lighting(ambient_rgb, direct_rgb, readability_rgb):
+    channels = []
+    for values in (ambient_rgb, direct_rgb, readability_rgb):
+        value = list(values)
+        while len(value) < 3:
+            value.append(0.0)
+        channels.append(value)
+    return [max(0.0, float(channels[0][index])) + max(0.0, float(channels[1][index])) + max(0.0, float(channels[2][index])) for index in range(3)]
+
 def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, collision_grid, collect_diagnostics=False):
     summaries = {}
     diagnostics = []
@@ -773,6 +920,7 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
         omni_total = 0.0
         sampled_total = 0.0
         visible_total = 0.0
+        per_light = []
 
         for prepared_light in prepared_lights:
             light = prepared_light.get("light", {})
@@ -793,29 +941,53 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
                 for test in occlusion_tests:
                     diagnostics.append({"light_id": prepared_light.get("id"), "target_id": item.get("source_id"), "occluder_id": test["occluder"].get("source_id"), "light_position": dict(prepared_light["world_position"]), "target_position": dict(item["base_world"]), "intersection_fraction": test["intersection_fraction"], "ray_height": test["ray_height"], "occluder_height": test["occluder_height"], "blocked": test["blocked"]})
 
+            mode = policy.get("mode", "none")
+            explicit_directional = light.get("entity_lighting_mode") in {"directional", "directional_profiles"}
+            is_omni = mode not in {"upright_box", "directional_profiles"} or (light.get("type") == "top_down" and not explicit_directional) or light.get("entity_lighting_mode") in {"omni", "overhead"}
+            direction_entry = None
+            weights = {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0}
+
+            if not is_omni:
+                if mode == "directional_profiles" and policy.get("direction_basis", {}).get("mode") == "sprite_rect":
+                    direction_entry = calculate_render_item_light_direction_entry(item, prepared_light["world_position"])
+                    if direction_entry is None or direction_entry.get("omni", False):
+                        is_omni = True
+                    else:
+                        weights = dict(direction_entry["weights"])
+                else:
+                    center_weights = calculate_center_directional_weights(item, prepared_light["world_position"])
+                    if center_weights is None:
+                        is_omni = True
+                    else:
+                        weights = center_weights
+
+            light_record = {
+                "light_id": prepared_light.get("id"),
+                "light_position": dict(prepared_light["world_position"]),
+                "sampled_strength": strength,
+                "blocked": blocking is not None,
+                "omni": is_omni,
+                "weights": weights,
+                "face_exposure": directional_weights_as_rgba(weights),
+                "omni_exposure": 1.0 if is_omni else 0.0,
+                "direction_entry": direction_entry,
+                "self_shadow_mode": mode
+            }
+            per_light.append(light_record)
+
             if blocking is not None:
                 summary["blocked_direct_count"] += 1
                 continue
 
             visible_total += strength
-            mode = policy.get("mode", "none")
-            is_omni = mode not in {"upright_box", "directional_profiles"} or light.get("type") == "top_down" or light.get("entity_lighting_mode") in {"omni", "overhead"}
 
             if is_omni:
                 omni_total += strength
                 continue
 
-            to_light = light_visibility.normalize_vector({"x": prepared_light["world_position"]["x"] - item["base_world"]["x"], "y": prepared_light["world_position"]["y"] - item["base_world"]["y"]})
-
-            if to_light is None:
-                omni_total += strength
-                continue
-
-            face_scale = max(0.000001, abs(to_light["x"]) + abs(to_light["y"]))
-            face_totals[0] += strength * max(0.0, to_light["y"]) / face_scale
-            face_totals[1] += strength * max(0.0, -to_light["y"]) / face_scale
-            face_totals[2] += strength * max(0.0, -to_light["x"]) / face_scale
-            face_totals[3] += strength * max(0.0, to_light["x"]) / face_scale
+            rgba_weights = directional_weights_as_rgba(weights)
+            for index in range(4):
+                face_totals[index] += strength * rgba_weights[index]
 
         summary["sampled_world_strength"] = sampled_total
         summary["visible_world_strength"] = visible_total
@@ -826,6 +998,8 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
         if visible_total > 0.000001:
             summary["face_exposure"] = [value / visible_total for value in face_totals]
             summary["omni_exposure"] = omni_total / visible_total
+
+        summary["per_light"] = per_light
 
         item["self_shadow_summary"] = summary
         summaries[item.get("source_id", str(item.get("id")))] = summary
@@ -966,7 +1140,7 @@ def resolve_entity_self_shadow_resources(render_item, source_texture, game_asset
     render_item["self_shadow_runtime"] = runtime
     return dict(runtime, response_texture=response_texture, mode_value=ENTITY_SELF_SHADOW_MODES[active_mode])
 
-def set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0):
+def set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0, self_shadow_pass=0):
     shader = shader_info["shader"]
     summary = render_item.get("self_shadow_summary", {})
     policy = render_item.get("self_shadow", {})
@@ -993,6 +1167,7 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
     set_shader_float(shader, shader_info["self_shadow_back_fill_location"], policy.get("back_fill", 0.06))
     set_shader_float(shader, shader_info["self_shadow_minimum_direct_location"], max(0.0, min(1.0, float(policy.get("minimum_direct", 0.0)))))
     set_shader_int(shader, shader_info["self_shadow_debug_output_location"], debug_output_mode)
+    set_shader_int(shader, shader_info["self_shadow_pass_location"], self_shadow_pass)
     set_shader_vec3(shader, shader_info["ambient_color_location"], ambient[0], ambient[1], ambient[2])
     set_shader_vec3(shader, shader_info["shadow_color_location"], shadow[0], shadow[1], shadow[2])
     set_shader_float(shader, shader_info["ambient_strength_location"], lighting_profile.get("ambient_strength", 0.3))
@@ -1008,8 +1183,8 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
     set_shader_float(shader, shader_info["posterize_ambient_location"], 1.0 if lighting_profile.get("posterize_ambient", False) else 0.0)
     return resources
 
-def begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0):
-    resources = set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode)
+def begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0, self_shadow_pass=0):
+    resources = set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode, self_shadow_pass)
     pr.begin_shader_mode(shader_info["shader"])
     set_shader_texture(shader_info["shader"], shader_info["entity_light_texture_location"], entity_lighting.texture)
     set_shader_texture(shader_info["shader"], shader_info["entity_readability_light_texture_location"], entity_readability_lighting.texture)
@@ -1017,61 +1192,237 @@ def begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_
         set_shader_texture(shader_info["shader"], shader_info["directional_response_texture_location"], resources["response_texture"])
     return resources
 
-def draw_sorted_world_render_items(render_items, game_camera, game_assets, lighting_profile, entity_lighting=None, entity_readability_lighting=None, player_entity=None):
-    camera_x = float(game_camera.x)
-    camera_y = float(game_camera.y)
+def _render_single_prepared_entity_light(prepared_light, game_camera, scratch_target, game_assets):
+    pr.begin_texture_mode(scratch_target)
+    pr.clear_background(pr.BLACK)
+    pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
+    draw_prepared_light_to_target(prepared_light, game_camera, scratch_target, game_assets, include_receivers=False)
+    pr.end_blend_mode()
+    pr.end_texture_mode()
+
+def _make_per_light_render_item(render_item, light_record, mode_override=None):
+    result = dict(render_item)
+    if mode_override is not None:
+        result["self_shadow"] = {"mode": mode_override, "strength": 0.0}
+    result["self_shadow_summary"] = {
+        "face_exposure": list(light_record.get("face_exposure", [0.0, 0.0, 0.0, 0.0])),
+        "omni_exposure": float(light_record.get("omni_exposure", 0.0)),
+        "world_occlusion_scale": 1.0
+    }
+    return result
+
+def _draw_render_item_main_shape(render_item, texture, game_camera):
+    source = render_item["source_rect"]
+    destination = render_item["dest_rect"]
+    pr.draw_texture_pro(
+        texture,
+        pr.Rectangle(source["x"], source["y"], source["width"], source["height"]),
+        pr.Rectangle(destination["x"] - game_camera.x, destination["y"] - game_camera.y, destination["width"], destination["height"]),
+        pr.Vector2(0, 0), 0, pr.WHITE
+    )
+
+def _get_player_pistol_part(render_item, game_camera, game_assets):
+    if render_item.get("source") != "player":
+        return None
+    draw_data = render_item.get("draw_data", {})
+    texture = game_assets.get("textures", {}).get(draw_data.get("pistol_texture", "pistol_texture"))
+    if texture is None:
+        return None
+    position = draw_data.get("pistol_world", {})
+    pseudo_item = dict(render_item)
+    pseudo_item["source_rect"] = {"x": 0.0, "y": 0.0, "width": float(texture.width), "height": float(texture.height)}
+    pseudo_item["self_shadow"] = {"mode": "none", "strength": 0.0}
+    return {
+        "texture": texture,
+        "render_item": pseudo_item,
+        "screen_position": pr.Vector2(position.get("x", 0.0) - game_camera.x, position.get("y", 0.0) - game_camera.y),
+        "angle": float(draw_data.get("pistol_angle", 0.0))
+    }
+
+def _draw_player_pistol_part(part):
+    pr.draw_texture_ex(part["texture"], part["screen_position"], part["angle"], 0.5, pr.WHITE)
+
+def _reset_entity_direct_shape(shader_info, render_item, texture, draw_shape, scratch_target, readability_target, lighting_profile, game_assets):
+    begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_profile, scratch_target, readability_target, game_assets, self_shadow_pass=2)
+    draw_shape()
+    pr.end_shader_mode()
+
+def _add_entity_direct_shape(shader_info, render_item, texture, draw_shape, scratch_target, readability_target, lighting_profile, game_assets):
+    begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_profile, scratch_target, readability_target, game_assets, self_shadow_pass=1)
+    draw_shape()
+    pr.end_shader_mode()
+
+def _composite_entity_layer_to_scene(scene_target, albedo_target, direct_target, readability_target, game_assets, lighting_profile):
+    width = albedo_target.texture.width
+    height = albedo_target.texture.height
+    composite_target = get_or_create_render_target(game_assets, "entity_lighting_composite", width, height)
+    composite_shader = game_assets["shaders"]["lighting_composite"]
+    shader = composite_shader["shader"]
+    ambient = normalize_light_color(lighting_profile.get("ambient_color", [0.2, 0.2, 0.3]))
+    shadow = normalize_light_color(lighting_profile.get("shadow_color", [0.0, 0.0, 0.0]))
+    set_shader_vec3(shader, composite_shader["ambient_color_location"], ambient[0], ambient[1], ambient[2])
+    set_shader_vec3(shader, composite_shader["shadow_color_location"], shadow[0], shadow[1], shadow[2])
+    set_shader_float(shader, composite_shader["ambient_strength_location"], lighting_profile.get("ambient_strength", 0.3))
+    set_shader_float(shader, composite_shader["direct_light_strength_location"], lighting_profile.get("direct_light_strength", 1.0))
+    set_shader_float(shader, composite_shader["black_point_location"], lighting_profile.get("black_point", 0.1))
+    set_shader_float(shader, composite_shader["shadow_softness_location"], lighting_profile.get("shadow_softness", 0.03))
+    set_shader_float(shader, composite_shader["shadow_detail_location"], lighting_profile.get("shadow_detail", 0.0))
+    set_shader_float(shader, composite_shader["contrast_location"], lighting_profile.get("contrast", 1.0))
+    set_shader_float(shader, composite_shader["light_posterize_enabled_location"], 1.0 if lighting_profile.get("light_posterize_enabled", True) else 0.0)
+    set_shader_float(shader, composite_shader["light_posterize_levels_location"], lighting_profile.get("light_posterize_levels", 8.0))
+    set_shader_float(shader, composite_shader["light_dither_enabled_location"], 1.0 if lighting_profile.get("light_dither_enabled", False) else 0.0)
+    set_shader_float(shader, composite_shader["light_dither_strength_location"], lighting_profile.get("light_dither_strength", 0.5))
+    set_shader_float(shader, composite_shader["posterize_ambient_location"], 1.0 if lighting_profile.get("posterize_ambient", False) else 0.0)
+    full_source = pr.Rectangle(0, 0, width, -height)
+    full_destination = pr.Rectangle(0, 0, width, height)
+    pr.begin_texture_mode(composite_target)
+    pr.clear_background(pr.BLANK)
+    pr.begin_shader_mode(shader)
+    set_shader_texture(shader, composite_shader["light_texture_location"], direct_target.texture)
+    set_shader_texture(shader, composite_shader["readability_light_texture_location"], readability_target.texture)
+    pr.draw_texture_pro(albedo_target.texture, full_source, full_destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_shader_mode()
+    pr.end_texture_mode()
+    pr.begin_texture_mode(scene_target)
+    pr.draw_texture_pro(composite_target.texture, full_source, full_destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_texture_mode()
+    return composite_target
+
+def _add_entity_light_layer_to_direct(light_layer_target, direct_target):
+    width = direct_target.texture.width
+    height = direct_target.texture.height
+    pr.rl_set_blend_factors_separate(pr.RL_ONE, pr.RL_ONE, pr.RL_ZERO, pr.RL_ONE, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
+    pr.begin_texture_mode(direct_target)
+    pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
+    pr.draw_texture_pro(light_layer_target.texture, pr.Rectangle(0, 0, width, -height), pr.Rectangle(0, 0, width, height), pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_blend_mode()
+    pr.end_texture_mode()
+
+def draw_sorted_world_render_items(render_items, scene_target, game_camera, game_assets, lighting_profile, prepared_lights=None, entity_readability_lighting=None, player_entity=None):
+    prepared_lights = list(prepared_lights or [])
+    shader_info = game_assets.get("shaders", {}).get("entity_self_shadow")
+    if entity_readability_lighting is None or shader_info is None:
+        pr.begin_texture_mode(scene_target)
+        for item in render_items:
+            texture = resolve_render_item_texture(item, game_assets)
+            if texture is not None:
+                _draw_render_item_main_shape(item, texture, game_camera)
+                if item.get("source") == "player":
+                    draw_data = item.get("draw_data", {})
+                    center = draw_data.get("center_world", {})
+                    gun = draw_data.get("gun_world", {})
+                    center_screen = pr.Vector2(center.get("x", 0.0) - game_camera.x, center.get("y", 0.0) - game_camera.y)
+                    gun_screen = pr.Vector2(gun.get("x", 0.0) - game_camera.x, gun.get("y", 0.0) - game_camera.y)
+                    if player_entity is not None:
+                        player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
+                    pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))
+                    pistol_part = _get_player_pistol_part(item, game_camera, game_assets)
+                    if pistol_part is not None:
+                        _draw_player_pistol_part(pistol_part)
+        pr.end_texture_mode()
+        return {"entity_direct_light": None, "single_light_scratch": None, "scratch_light_draws": 0, "survival_draws": 0}
+
+    width = scene_target.texture.width
+    height = scene_target.texture.height
+    albedo_target = get_or_create_render_target(game_assets, "entity_albedo", width, height)
+    direct_target = get_or_create_render_target(game_assets, "entity_direct_light", width, height)
+    scratch_target = get_or_create_render_target(game_assets, "entity_single_light_scratch", width, height)
+    light_layer_target = get_or_create_render_target(game_assets, "entity_single_light_survival", width, height)
+    scratch_light_draws = 0
+    survival_draws = 0
+
+    pr.begin_texture_mode(albedo_target)
+    pr.clear_background(pr.BLANK)
+    pr.end_texture_mode()
+    pr.begin_texture_mode(direct_target)
+    pr.clear_background(pr.BLANK)
+    pr.end_texture_mode()
+
+    eligible_lights = []
+    for prepared_light in prepared_lights:
+        light = prepared_light.get("light", {})
+        if not light.get("enabled", True) or not prepared_light.get("affects_entities", light.get("affects_entities", False)) or light.get("render_style", "world") != "world":
+            continue
+        light_id = prepared_light.get("id")
+        if any(any(record.get("light_id") == light_id and not record.get("blocked", False) for record in item.get("self_shadow_summary", {}).get("per_light", [])) for item in render_items):
+            eligible_lights.append(prepared_light)
+
+    for prepared_light in eligible_lights:
+        light_id = prepared_light.get("id")
+        _render_single_prepared_entity_light(prepared_light, game_camera, scratch_target, game_assets)
+        scratch_light_draws += 1
+        pr.begin_texture_mode(light_layer_target)
+        pr.clear_background(pr.BLANK)
+        pr.end_texture_mode()
+
+        for item in render_items:
+            texture = resolve_render_item_texture(item, game_assets)
+            if texture is None:
+                continue
+            light_record = next((record for record in item.get("self_shadow_summary", {}).get("per_light", []) if record.get("light_id") == light_id), None)
+            main_shape = lambda current=item, current_texture=texture: _draw_render_item_main_shape(current, current_texture, game_camera)
+            pr.begin_texture_mode(light_layer_target)
+            _reset_entity_direct_shape(shader_info, item, texture, main_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
+            pr.end_texture_mode()
+
+            if light_record is not None and not light_record.get("blocked", False):
+                per_light_item = _make_per_light_render_item(item, light_record)
+                pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA, pr.RL_ONE, pr.RL_ZERO, pr.RL_ONE, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
+                pr.begin_texture_mode(light_layer_target)
+                pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
+                _add_entity_direct_shape(shader_info, per_light_item, texture, main_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
+                pr.end_blend_mode()
+                pr.end_texture_mode()
+                survival_draws += 1
+
+            pistol_part = _get_player_pistol_part(item, game_camera, game_assets)
+            if pistol_part is not None:
+                pistol_shape = lambda current=pistol_part: _draw_player_pistol_part(current)
+                pr.begin_texture_mode(light_layer_target)
+                _reset_entity_direct_shape(shader_info, pistol_part["render_item"], pistol_part["texture"], pistol_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
+                pr.end_texture_mode()
+                if light_record is not None and not light_record.get("blocked", False):
+                    pistol_item = _make_per_light_render_item(pistol_part["render_item"], light_record, mode_override="none")
+                    pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA, pr.RL_ONE, pr.RL_ZERO, pr.RL_ONE, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
+                    pr.begin_texture_mode(light_layer_target)
+                    pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
+                    _add_entity_direct_shape(shader_info, pistol_item, pistol_part["texture"], pistol_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
+                    pr.end_blend_mode()
+                    pr.end_texture_mode()
+                    survival_draws += 1
+
+        _add_entity_light_layer_to_direct(light_layer_target, direct_target)
 
     for item in render_items:
         texture = resolve_render_item_texture(item, game_assets)
-
         if texture is None:
             continue
+        pistol_part = _get_player_pistol_part(item, game_camera, game_assets)
+        pr.begin_texture_mode(albedo_target)
+        _draw_render_item_main_shape(item, texture, game_camera)
+        if item.get("source") == "player":
+            draw_data = item.get("draw_data", {})
+            center = draw_data.get("center_world", {})
+            gun = draw_data.get("gun_world", {})
+            center_screen = pr.Vector2(center.get("x", 0.0) - game_camera.x, center.get("y", 0.0) - game_camera.y)
+            gun_screen = pr.Vector2(gun.get("x", 0.0) - game_camera.x, gun.get("y", 0.0) - game_camera.y)
+            if player_entity is not None:
+                player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
+            pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))
+            if pistol_part is not None:
+                _draw_player_pistol_part(pistol_part)
+        pr.end_texture_mode()
 
-        source = item["source_rect"]
-        destination = item["dest_rect"]
-        source_rect = pr.Rectangle(source["x"], source["y"], source["width"], source["height"])
-        destination_rect = pr.Rectangle(destination["x"] - camera_x, destination["y"] - camera_y, destination["width"], destination["height"])
-        shader_info = game_assets.get("shaders", {}).get("entity_self_shadow")
-        use_shader = entity_lighting is not None and entity_readability_lighting is not None and shader_info is not None
-
-        if use_shader:
-            begin_entity_self_shadow_shader(shader_info, item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets)
-
-        pr.draw_texture_pro(texture, source_rect, destination_rect, pr.Vector2(0, 0), 0, pr.WHITE)
-
-        if use_shader:
-            pr.end_shader_mode()
-
-        if item.get("source") != "player":
-            continue
-
-        draw_data = item.get("draw_data", {})
-        center = draw_data.get("center_world", {})
-        gun = draw_data.get("gun_world", {})
-        pistol = draw_data.get("pistol_world", {})
-        center_screen = pr.Vector2(center.get("x", 0.0) - camera_x, center.get("y", 0.0) - camera_y)
-        gun_screen = pr.Vector2(gun.get("x", 0.0) - camera_x, gun.get("y", 0.0) - camera_y)
-        pistol_screen = pr.Vector2(pistol.get("x", 0.0) - camera_x, pistol.get("y", 0.0) - camera_y)
-
-        if player_entity is not None:
-            player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
-
-        pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))
-        pistol_texture = game_assets.get("textures", {}).get(draw_data.get("pistol_texture", "pistol_texture"))
-
-        if pistol_texture is None:
-            continue
-
-        if use_shader:
-            pistol_item = dict(item)
-            pistol_item["source_rect"] = {"x": 0.0, "y": 0.0, "width": float(pistol_texture.width), "height": float(pistol_texture.height)}
-            pistol_item["self_shadow"] = {"mode": "none"}
-            begin_entity_self_shadow_shader(shader_info, pistol_item, pistol_texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets)
-
-        pr.draw_texture_ex(pistol_texture, pistol_screen, float(draw_data.get("pistol_angle", 0.0)), 0.5, pr.WHITE)
-
-        if use_shader:
-            pr.end_shader_mode()
+    composite_target = _composite_entity_layer_to_scene(scene_target, albedo_target, direct_target, entity_readability_lighting, game_assets, lighting_profile)
+    return {
+        "entity_albedo": albedo_target,
+        "entity_direct_light": direct_target,
+        "single_light_scratch": scratch_target,
+        "single_light_survival": light_layer_target,
+        "entity_composite": composite_target,
+        "scratch_light_draws": scratch_light_draws,
+        "survival_draws": survival_draws
+    }
 
 def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_shadow_frame, game_camera, game_assets=None, lighting_profile=None, entity_lighting=None, entity_readability_lighting=None):
     blocker_ids = {item.get("source_id") for item in major_occluders}
@@ -1091,7 +1442,7 @@ def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_sha
             "requested_mode": item.get("self_shadow", {}).get("mode", "none"), "active_mode": "none", "response_texture_name": None,
             "requested_response_texture_name": None, "fallback_used": False, "response_texture": None
         }
-        pr.draw_line(int(base_x), int(base_y), int(base_x), int(base_y + 14.0), pr.CYAN)
+        pr.draw_line(int(base_x), int(base_y), int(base_x), int(base_y + 14.0), pr.YELLOW)
         footprint = g_render_order.get_world_ground_footprint(item)
         centre_x = footprint["center"]["x"] - game_camera.x
         centre_y = footprint["center"]["y"] - game_camera.y
@@ -1102,6 +1453,34 @@ def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_sha
             pr.draw_rectangle_lines(int(centre_x - size["x"] * 0.5), int(centre_y - size["y"] * 0.5), int(size["x"]), int(size["y"]), color)
         else:
             pr.draw_ellipse_lines(int(centre_x), int(centre_y), size["x"] * 0.5, size["y"] * 0.5, color)
+
+        basis_rectangle = get_render_item_direction_basis_world_rect(item)
+        if basis_rectangle is not None:
+            basis_local = item.get("self_shadow", {}).get("direction_basis", {}).get("rect", {})
+            basis_x = basis_rectangle["x"] - game_camera.x
+            basis_y = basis_rectangle["y"] - game_camera.y
+            pr.draw_rectangle_lines(int(basis_x), int(basis_y), int(basis_rectangle["width"]), int(basis_rectangle["height"]), pr.ORANGE)
+            basis_centre = {"x": basis_rectangle["x"] + basis_rectangle["width"] * 0.5, "y": basis_rectangle["y"] + basis_rectangle["height"] * 0.5}
+            pr.draw_circle(int(basis_centre["x"] - game_camera.x), int(basis_centre["y"] - game_camera.y), 2.0, pr.YELLOW)
+            basis_text = f"basis local={basis_local.get('x', 0.0):.0f},{basis_local.get('y', 0.0):.0f} {basis_local.get('width', 0.0):.0f}x{basis_local.get('height', 0.0):.0f} world={basis_rectangle['x']:.1f},{basis_rectangle['y']:.1f} {basis_rectangle['width']:.1f}x{basis_rectangle['height']:.1f}"
+            pr.draw_text(basis_text, int(base_x + 3), int(base_y + 29), 6, pr.ORANGE)
+
+        debug_light_id = game_assets.get("entity_lighting_debug_light_id")
+        per_light_records = summary.get("per_light", [])
+        selected_light_record = next((record for record in per_light_records if debug_light_id is not None and str(record.get("light_id")) == str(debug_light_id)), None)
+        if selected_light_record is None:
+            selected_light_record = next((record for record in per_light_records if record.get("direction_entry") is not None), None)
+        if selected_light_record is not None and selected_light_record.get("direction_entry") is not None:
+            entry = selected_light_record["direction_entry"]
+            light_position = selected_light_record["light_position"]
+            entry_world = entry["entry_world"]
+            centre_world = entry["centre_world"]
+            pr.draw_line(int(light_position["x"] - game_camera.x), int(light_position["y"] - game_camera.y), int(centre_world["x"] - game_camera.x), int(centre_world["y"] - game_camera.y), pr.GOLD)
+            pr.draw_circle(int(entry_world["x"] - game_camera.x), int(entry_world["y"] - game_camera.y), 2.0, pr.LIME)
+            weights = selected_light_record.get("weights", {})
+            side_text = "inside/omni" if entry.get("inside", False) else f"{entry.get('side')} t={entry.get('side_position', 0.0):.2f}"
+            detail_text = f"light={selected_light_record.get('light_id')} {side_text} DULR={weights.get('down', 0.0):.2f}/{weights.get('up', 0.0):.2f}/{weights.get('left', 0.0):.2f}/{weights.get('right', 0.0):.2f} mode={selected_light_record.get('self_shadow_mode')}"
+            pr.draw_text(detail_text, int(base_x + 3), int(base_y + 22), 6, pr.GOLD)
 
         requested_response_name = resources.get("requested_response_texture_name")
         response_name = resources.get("response_texture_name") or (f"{requested_response_name}(unresolved)" if requested_response_name else "-")
@@ -1120,7 +1499,7 @@ def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_sha
         preview_width = min(48.0, max(1.0, float(destination.get("width", source_rect.width))))
         preview_height = min(48.0, max(1.0, float(destination.get("height", source_rect.height))))
         preview_x = base_x + 3.0
-        preview_y = base_y + 24.0
+        preview_y = base_y + 38.0
 
         if show_response_preview and resources.get("response_texture") is not None:
             response_destination = pr.Rectangle(preview_x, preview_y, preview_width, preview_height)
@@ -1131,10 +1510,14 @@ def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_sha
         shader_info = game_assets.get("shaders", {}).get("entity_self_shadow")
         if show_attenuation_preview and source_texture is not None and shader_info is not None and entity_lighting is not None and entity_readability_lighting is not None:
             attenuation_destination = pr.Rectangle(preview_x, preview_y, preview_width, preview_height)
-            begin_entity_self_shadow_shader(shader_info, item, source_texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=2)
+            preview_item = item
+            if selected_light_record is not None:
+                preview_item = _make_per_light_render_item(item, selected_light_record)
+                preview_item["self_shadow_summary"]["world_occlusion_scale"] = 0.0 if selected_light_record.get("blocked", False) else 1.0
+            begin_entity_self_shadow_shader(shader_info, preview_item, source_texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=2)
             pr.draw_texture_pro(source_texture, source_rect, attenuation_destination, pr.Vector2(0, 0), 0, pr.WHITE)
             pr.end_shader_mode()
-            pr.draw_text("attenuation", int(preview_x), int(preview_y + preview_height + 1.0), 6, color)
+            pr.draw_text("per-light survival", int(preview_x), int(preview_y + preview_height + 1.0), 6, color)
 
     for test in entity_self_shadow_frame.get("occlusion_tests", []):
         start = test["light_position"]
@@ -1145,6 +1528,59 @@ def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_sha
         color = pr.RED if test.get("blocked", False) else pr.LIME
         pr.draw_line(int(start["x"] - game_camera.x), int(start["y"] - game_camera.y), int(end["x"] - game_camera.x), int(end["y"] - game_camera.y), color)
         pr.draw_text(f"{'blocked' if test.get('blocked', False) else 'passed'} z={test['ray_height']:.1f}/{test['occluder_height']:.1f}", int(intersection_x - game_camera.x), int(intersection_y - game_camera.y), 6, color)
+
+    if game_assets.get("show_entity_direct_light_preview", False) and entity_lighting is not None:
+        preview_width = min(160.0, float(entity_lighting.texture.width))
+        preview_height = preview_width * float(entity_lighting.texture.height) / max(1.0, float(entity_lighting.texture.width))
+        pr.draw_texture_pro(entity_lighting.texture, pr.Rectangle(0, 0, entity_lighting.texture.width, -entity_lighting.texture.height), pr.Rectangle(4, 44, preview_width, preview_height), pr.Vector2(0, 0), 0, pr.WHITE)
+        pr.draw_text("accumulated entity direct", 4, int(45 + preview_height), 6, pr.LIME)
+
+def draw_entity_direction_basis_debug(render_items, game_camera, prepared_lights=None, color=None):
+    """Draw direction bases and every radial light's representative entry ray."""
+    color = color or pr.ORANGE
+    prepared_by_id = {prepared_light.get("id"): prepared_light for prepared_light in prepared_lights or []}
+    rectangles_drawn = 0
+    for item in render_items:
+        rectangle = get_render_item_direction_basis_world_rect(item)
+        if rectangle is None:
+            continue
+        pr.draw_rectangle_lines(
+            int(round(rectangle["x"] - game_camera.x)),
+            int(round(rectangle["y"] - game_camera.y)),
+            max(1, int(round(rectangle["width"]))),
+            max(1, int(round(rectangle["height"]))),
+            color
+        )
+        centre = {"x": rectangle["x"] + rectangle["width"] * 0.5, "y": rectangle["y"] + rectangle["height"] * 0.5}
+        pr.draw_circle(int(round(centre["x"] - game_camera.x)), int(round(centre["y"] - game_camera.y)), 2.0, pr.YELLOW)
+
+        for record in item.get("self_shadow_summary", {}).get("per_light", []):
+            prepared_light = prepared_by_id.get(record.get("light_id"))
+            light = prepared_light.get("light", {}) if prepared_light is not None else {}
+            light_type = light.get("type", "point")
+            if light_type not in {"point", "spot"}:
+                continue
+            entry = record.get("direction_entry")
+            if entry is None:
+                continue
+            light_position = record.get("light_position", prepared_light.get("world_position", {}) if prepared_light is not None else {})
+            centre_world = entry.get("centre_world", centre)
+            entry_world = entry.get("entry_world")
+            if "x" not in light_position or "y" not in light_position or not isinstance(entry_world, dict):
+                continue
+            light_id = str(record.get("light_id", "?"))
+            is_flashlight = light_type == "spot" or light.get("owner_id") == "player" or "flashlight" in light_id.lower()
+            ray_color = pr.RED if record.get("blocked", False) else pr.GOLD if is_flashlight else pr.SKYBLUE
+            pr.draw_line(
+                int(round(light_position["x"] - game_camera.x)),
+                int(round(light_position["y"] - game_camera.y)),
+                int(round(centre_world["x"] - game_camera.x)),
+                int(round(centre_world["y"] - game_camera.y)),
+                ray_color
+            )
+            pr.draw_circle(int(round(entry_world["x"] - game_camera.x)), int(round(entry_world["y"] - game_camera.y)), 2.0, ray_color)
+        rectangles_drawn += 1
+    return rectangles_drawn
 
 def get_render_item_shadow_sprite_info(render_item, game_assets):
     texture = resolve_render_item_texture(render_item, game_assets)
@@ -1423,16 +1859,14 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
 def render_prepared_lighting(lighting_frame, game_camera, lighting_target, game_assets):
     fog_light_target = get_or_create_render_target(game_assets, "fog_light", lighting_target.texture.width, lighting_target.texture.height)
     readability_light_target = get_or_create_render_target(game_assets, "readability_light", lighting_target.texture.width, lighting_target.texture.height)
-    entity_light_target = get_or_create_render_target(game_assets, "entity_light", lighting_target.texture.width, lighting_target.texture.height)
     entity_readability_light_target = get_or_create_render_target(game_assets, "entity_readability_light", lighting_target.texture.width, lighting_target.texture.height)
     lighting_frame["stats"]["fog_draw_time_ms"] = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, fog_light_target, game_assets, "fog")
     world_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, lighting_target, game_assets, "world", "world")
     readability_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, readability_light_target, game_assets, "world", "readability")
-    entity_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, entity_light_target, game_assets, "entities", "world")
     entity_readability_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, entity_readability_light_target, game_assets, "entities", "readability")
     lighting_frame["stats"]["scene_draw_time_ms"] = world_draw_time + readability_draw_time
-    lighting_frame["stats"]["entity_draw_time_ms"] = entity_draw_time + entity_readability_draw_time
-    return fog_light_target, readability_light_target, entity_light_target, entity_readability_light_target
+    lighting_frame["stats"]["entity_draw_time_ms"] = entity_readability_draw_time
+    return fog_light_target, readability_light_target, None, entity_readability_light_target
 
 def draw_lighting_stats_debug(stats, x=4, y=4):
     cache_lookups = stats.get("visibility_cache_hits", 0) + stats.get("visibility_cache_misses", 0)
@@ -1441,6 +1875,7 @@ def draw_lighting_stats_debug(stats, x=4, y=4):
         f"lights {stats.get('active_light_count', 0)} shadowed {stats.get('shadowed_radial_light_count', 0)}",
         f"cache {cache_rate:.0f}% rebuilds {stats.get('visibility_rebuilds', 0)}",
         f"rays {stats.get('total_visibility_rays', 0)} dda {stats.get('total_dda_tile_steps', 0)}",
+        f"entity scratch {stats.get('entity_scratch_light_draws', 0)} survival {stats.get('entity_survival_draws', 0)}",
         f"prep {stats.get('prepare_time_ms', 0.0):.2f}ms entity {stats.get('entity_prepare_time_ms', 0.0):.2f}ms draw {stats.get('scene_draw_time_ms', 0.0) + stats.get('entity_draw_time_ms', 0.0) + stats.get('fog_draw_time_ms', 0.0):.2f}ms"
     ]
 

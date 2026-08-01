@@ -97,7 +97,9 @@ class RenderOrderTests(unittest.TestCase):
         first_buddha = g_render_order.make_default_entity_render_metadata("buddha")
         second_buddha = g_render_order.make_default_entity_render_metadata("buddha")
         first_buddha["self_shadow"]["response_texture"]["name"] = "changed"
+        first_buddha["self_shadow"]["direction_basis"]["rect"]["x"] = 99.0
         self.assertEqual(second_buddha["self_shadow"]["response_texture"]["name"], "buddha_light_response")
+        self.assertEqual(second_buddha["self_shadow"]["direction_basis"]["rect"]["x"], 6.0)
 
     def test_authored_directional_profile_metadata_is_preserved(self):
         entity = {
@@ -105,6 +107,12 @@ class RenderOrderTests(unittest.TestCase):
             "self_shadow": {
                 "mode": "directional_profiles",
                 "response_texture": {"collection": "custom", "name": "authored_response"},
+                "direction_basis": {
+                    "mode": "sprite_rect",
+                    "rect": {"x": 7.0, "y": 80.0, "width": 100.0, "height": 30.0},
+                    "corner_blend_fraction": 0.15,
+                    "maximum_adjacent_weight": 0.20
+                },
                 "strength": 0.67,
                 "minimum_direct": 0.12,
                 "fallback_mode": "none"
@@ -113,6 +121,12 @@ class RenderOrderTests(unittest.TestCase):
         g_render_order.ensure_entity_render_metadata(entity)
         self.assertEqual(entity["self_shadow"]["mode"], "directional_profiles")
         self.assertEqual(entity["self_shadow"]["response_texture"], {"collection": "custom", "name": "authored_response"})
+        self.assertEqual(entity["self_shadow"]["direction_basis"], {
+            "mode": "sprite_rect",
+            "rect": {"x": 7.0, "y": 80.0, "width": 100.0, "height": 30.0},
+            "corner_blend_fraction": 0.15,
+            "maximum_adjacent_weight": 0.20
+        })
         self.assertEqual(entity["self_shadow"]["strength"], 0.67)
         self.assertEqual(entity["self_shadow"]["minimum_direct"], 0.12)
         self.assertEqual(entity["self_shadow"]["fallback_mode"], "none")
@@ -122,6 +136,12 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(metadata["self_shadow"], {
             "mode": "directional_profiles",
             "response_texture": {"collection": "textures", "name": "buddha_light_response"},
+            "direction_basis": {
+                "mode": "sprite_rect",
+                "rect": {"x": 6.0, "y": 86.0, "width": 110.0, "height": 36.0},
+                "corner_blend_fraction": 0.20,
+                "maximum_adjacent_weight": 0.25
+            },
             "strength": 1.0,
             "minimum_direct": 0.04,
             "fallback_mode": "upright_box",

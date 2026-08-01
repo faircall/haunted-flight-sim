@@ -63,6 +63,13 @@ class EntitySelfShadowTests(unittest.TestCase):
         self.assertAlmostEqual(summary["omni_exposure"], 1.0)
         self.assertAlmostEqual(g_graphics.calculate_entity_self_shadow_at_u(summary, policy, 0.2), 1.0)
 
+    def test_top_down_light_can_explicitly_opt_into_directional_handling(self):
+        light = make_prepared_light("top-directional", 20, 0, light_type="top_down")
+        light["light"]["entity_lighting_mode"] = "directional_profiles"
+        summary, _ = self.prepare(light)
+        self.assertAlmostEqual(summary["omni_exposure"], 0.0)
+        self.assertAlmostEqual(summary["face_exposure"][3], 1.0)
+
     def test_readability_light_is_not_folded_into_world_self_shadow(self):
         target = make_item("target", 0, 0)
         light = make_prepared_light("readability", 0, -20, render_style="readability")
@@ -70,6 +77,117 @@ class EntitySelfShadowTests(unittest.TestCase):
         summary = target["self_shadow_summary"]
         self.assertEqual(summary["sampled_world_strength"], 0.0)
         self.assertEqual(summary["world_occlusion_scale"], 1.0)
+
+
+class DirectionBasisGeometryTests(unittest.TestCase):
+    def make_basis_item(self, destination=None):
+        return {
+            "source_rect": {"x": 0.0, "y": 0.0, "width": 128.0, "height": 128.0},
+            "dest_rect": destination or {"x": 0.0, "y": 0.0, "width": 128.0, "height": 128.0},
+            "base_world": {"x": 64.0, "y": 104.0},
+            "self_shadow": {
+                "mode": "directional_profiles",
+                "direction_basis": {
+                    "mode": "sprite_rect",
+                    "rect": {"x": 6.0, "y": 86.0, "width": 110.0, "height": 36.0},
+                    "corner_blend_fraction": 0.20,
+                    "maximum_adjacent_weight": 0.25
+                }
+            }
+        }
+
+    def test_unscaled_frame_local_rectangle_maps_exactly(self):
+        self.assertEqual(g_graphics.get_render_item_direction_basis_world_rect(self.make_basis_item()), {"x": 6.0, "y": 86.0, "width": 110.0, "height": 36.0})
+
+    def test_scaled_destination_maps_proportionally(self):
+        rectangle = g_graphics.get_render_item_direction_basis_world_rect(self.make_basis_item({"x": 10.0, "y": 20.0, "width": 256.0, "height": 256.0}))
+        self.assertEqual(rectangle, {"x": 22.0, "y": 192.0, "width": 220.0, "height": 72.0})
+
+    def assert_entry(self, position, side, side_position):
+        entry = g_graphics.calculate_render_item_light_direction_entry(self.make_basis_item(), position)
+        self.assertEqual(entry["side"], side)
+        self.assertAlmostEqual(entry["side_position"], side_position)
+        return entry
+
+    def test_light_above_centre_enters_up_at_half(self):
+        self.assert_entry({"x": 61.0, "y": 0.0}, "up", 0.5)
+
+    def test_light_above_left_quarter_still_enters_up(self):
+        entry = g_graphics.calculate_render_item_light_direction_entry(self.make_basis_item(), {"x": 33.5, "y": 0.0})
+        self.assertEqual(entry["side"], "up")
+        self.assertEqual(entry["weights"], {"down": 0.0, "up": 1.0, "left": 0.0, "right": 0.0})
+
+    def test_light_directly_left_enters_left_at_half(self):
+        self.assert_entry({"x": -20.0, "y": 104.0}, "left", 0.5)
+
+    def test_light_directly_right_enters_right(self):
+        self.assert_entry({"x": 150.0, "y": 104.0}, "right", 0.5)
+
+    def test_light_directly_below_enters_down(self):
+        self.assert_entry({"x": 61.0, "y": 160.0}, "down", 0.5)
+
+    def test_light_inside_rectangle_is_neutral(self):
+        entry = g_graphics.calculate_render_item_light_direction_entry(self.make_basis_item(), {"x": 61.0, "y": 104.0})
+        self.assertTrue(entry["inside"])
+        self.assertTrue(entry["omni"])
+        self.assertEqual(sum(entry["weights"].values()), 0.0)
+
+    def test_focused_debug_draws_hollow_transformed_rectangle(self):
+        with mock.patch.object(g_graphics.pr, "draw_rectangle_lines") as draw_rectangle, mock.patch.object(g_graphics.pr, "draw_circle"):
+            count = g_graphics.draw_entity_direction_basis_debug([self.make_basis_item()], SimpleNamespace(x=2.0, y=20.0))
+        self.assertEqual(count, 1)
+        draw_rectangle.assert_called_once_with(4, 66, 110, 36, g_graphics.pr.ORANGE)
+
+    def test_focused_debug_draws_every_point_and_flashlight_entry_ray(self):
+        item = self.make_basis_item()
+        point_entry = g_graphics.calculate_render_item_light_direction_entry(item, {"x": -20.0, "y": 104.0})
+        flashlight_entry = g_graphics.calculate_render_item_light_direction_entry(item, {"x": 150.0, "y": 104.0})
+        item["self_shadow_summary"] = {"per_light": [
+            {"light_id": "point", "light_position": {"x": -20.0, "y": 104.0}, "direction_entry": point_entry, "weights": point_entry["weights"], "blocked": False},
+            {"light_id": "flashlight", "light_position": {"x": 150.0, "y": 104.0}, "direction_entry": flashlight_entry, "weights": flashlight_entry["weights"], "blocked": False}
+        ]}
+        prepared = [
+            {"id": "point", "light": {"type": "point"}},
+            {"id": "flashlight", "light": {"type": "spot", "owner_id": "player"}}
+        ]
+        with mock.patch.object(g_graphics.pr, "draw_rectangle_lines"), mock.patch.object(g_graphics.pr, "draw_circle"), mock.patch.object(g_graphics.pr, "draw_line") as draw_line, mock.patch.object(g_graphics.pr, "draw_text") as draw_text:
+            g_graphics.draw_entity_direction_basis_debug([item], SimpleNamespace(x=0.0, y=0.0), prepared)
+        self.assertEqual(draw_line.call_count, 2)
+        draw_text.assert_not_called()
+        self.assertEqual(draw_line.call_args_list[0].args[-1], g_graphics.pr.SKYBLUE)
+        self.assertEqual(draw_line.call_args_list[1].args[-1], g_graphics.pr.GOLD)
+
+
+class CornerBlendTests(unittest.TestCase):
+    def weights(self, side, position):
+        return g_graphics.calculate_corner_blend_directional_weights(side, position, 0.20, 0.25)
+
+    def test_up_start_blends_left(self):
+        self.assertEqual(self.weights("up", 0.0), {"down": 0.0, "up": 0.75, "left": 0.25, "right": 0.0})
+
+    def test_up_middle_is_pure(self):
+        self.assertEqual(self.weights("up", 0.5), {"down": 0.0, "up": 1.0, "left": 0.0, "right": 0.0})
+
+    def test_up_end_blends_right(self):
+        self.assertEqual(self.weights("up", 1.0), {"down": 0.0, "up": 0.75, "left": 0.0, "right": 0.25})
+
+    def test_left_endpoints_blend_up_and_down(self):
+        self.assertEqual(self.weights("left", 0.0), {"down": 0.0, "up": 0.25, "left": 0.75, "right": 0.0})
+        self.assertEqual(self.weights("left", 1.0), {"down": 0.25, "up": 0.0, "left": 0.75, "right": 0.0})
+
+    def test_weights_are_normalised_non_negative_and_bounded(self):
+        for side in ("down", "up", "left", "right"):
+            for index in range(101):
+                weights = self.weights(side, index / 100.0)
+                self.assertTrue(all(value >= 0.0 for value in weights.values()))
+                self.assertAlmostEqual(sum(weights.values()), 1.0)
+                self.assertLessEqual(sum(value for key, value in weights.items() if key != side), 0.25)
+
+    def test_corner_band_transition_is_continuous(self):
+        before = self.weights("up", 0.20 - 0.000001)
+        after = self.weights("up", 0.20 + 0.000001)
+        self.assertLess(abs(before["up"] - after["up"]), 0.00001)
+        self.assertLess(abs(before["left"] - after["left"]), 0.00001)
 
 
 class DirectionalProfileTests(unittest.TestCase):
@@ -102,6 +220,12 @@ class DirectionalProfileTests(unittest.TestCase):
 
     def test_upper_left_diagonal_interpolates_green_and_blue(self):
         self.assertAlmostEqual(self.attenuation([0.0, 0.5, 0.5, 0.0], [0.0, 0.2, 0.8, 0.0]), 0.5)
+
+    def test_corner_profile_combines_only_primary_and_adjacent_channels(self):
+        response = [0.1, 0.2, 0.8, 0.9]
+        weights = g_graphics.calculate_corner_blend_directional_weights("up", 0.0, 0.20, 0.25)
+        policy = {"strength": 1.0, "minimum_direct": 0.0}
+        self.assertAlmostEqual(g_graphics.calculate_per_light_profile_survival(response, weights, policy), 0.2 * 0.75 + 0.8 * 0.25)
 
     def test_directional_preparation_uses_down_up_left_right_order(self):
         target = make_item("target", 0, 0, mode="directional_profiles")
@@ -144,6 +268,29 @@ class DirectionalProfileTests(unittest.TestCase):
             g_graphics.resolve_entity_self_shadow_resources(item, SimpleNamespace(width=128, height=128), {"textures": {}})
             g_graphics.resolve_entity_self_shadow_resources(item, SimpleNamespace(width=128, height=128), {"textures": {}})
         print_mock.assert_called_once()
+
+
+class PerLightAccumulationTests(unittest.TestCase):
+    def test_each_light_survives_independently_and_combined_is_sum(self):
+        light_a = {"rgb": [0.8, 0.2, 0.1], "survival": 0.25}
+        light_b = {"rgb": [0.1, 0.6, 0.4], "survival": 0.75}
+        surviving_a = g_graphics.accumulate_surviving_direct_contributions([light_a])
+        surviving_b = g_graphics.accumulate_surviving_direct_contributions([light_b])
+        combined = g_graphics.accumulate_surviving_direct_contributions([light_a, light_b])
+        self.assertEqual(combined, [surviving_a[index] + surviving_b[index] for index in range(3)])
+        self.assertTrue(all(combined[index] >= surviving_a[index] for index in range(3)))
+        self.assertTrue(all(combined[index] >= surviving_b[index] for index in range(3)))
+
+    def test_blocked_light_contributes_zero_without_suppressing_visible_light(self):
+        visible = {"rgb": [0.4, 0.3, 0.2], "survival": 0.5}
+        blocked = {"rgb": [1.0, 1.0, 1.0], "survival": 1.0, "blocked": True}
+        self.assertEqual(g_graphics.accumulate_surviving_direct_contributions([visible, blocked]), g_graphics.accumulate_surviving_direct_contributions([visible]))
+
+    def test_ambient_and_readability_remain_independent(self):
+        direct = g_graphics.accumulate_surviving_direct_contributions([{"rgb": [0.4, 0.2, 0.1], "survival": 0.5}])
+        total = g_graphics.combine_independent_entity_lighting([0.1, 0.1, 0.1], direct, [0.3, 0.0, 0.2])
+        for actual, expected in zip(total, [0.6, 0.2, 0.35]):
+            self.assertAlmostEqual(actual, expected)
 
 
 class SelectiveEntityOcclusionTests(unittest.TestCase):

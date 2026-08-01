@@ -43,6 +43,12 @@ def make_default_entity_render_metadata(entity_type):
             "self_shadow": {
                 "mode": "directional_profiles",
                 "response_texture": {"collection": "textures", "name": "buddha_light_response"},
+                "direction_basis": {
+                    "mode": "sprite_rect",
+                    "rect": {"x": 6.0, "y": 86.0, "width": 110.0, "height": 36.0},
+                    "corner_blend_fraction": 0.20,
+                    "maximum_adjacent_weight": 0.25
+                },
                 "strength": 1.0,
                 "minimum_direct": 0.04,
                 "fallback_mode": "upright_box",

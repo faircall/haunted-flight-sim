@@ -1132,6 +1132,7 @@ def load_shaders():
         "self_shadow_back_fill_location": pr.get_shader_location(entity_self_shadow, "selfShadowBackFill"),
         "self_shadow_minimum_direct_location": pr.get_shader_location(entity_self_shadow, "selfShadowMinimumDirect"),
         "self_shadow_debug_output_location": pr.get_shader_location(entity_self_shadow, "selfShadowDebugOutput"),
+        "self_shadow_pass_location": pr.get_shader_location(entity_self_shadow, "selfShadowPass"),
         "ambient_color_location": pr.get_shader_location(entity_self_shadow, "ambientColor"),
         "shadow_color_location": pr.get_shader_location(entity_self_shadow, "shadowColor"),
         "ambient_strength_location": pr.get_shader_location(entity_self_shadow, "ambientStrength"),
@@ -4075,6 +4076,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F9):
         collision_mode = transition_collision_state(collision_mode)
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F2):
+        game_assets["show_entity_direction_basis_debug"] = not game_assets.get("show_entity_direction_basis_debug", False)
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F3):
+        game_assets["show_entity_lighting_debug"] = not game_assets.get("show_entity_lighting_debug", False)
     
     
 
@@ -4098,7 +4105,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     shaders = game_assets.get("shaders")
     lighting_composite_shader = shaders.get("lighting_composite", {}) if shaders else {}
     entity_self_shadow_shader = shaders.get("entity_self_shadow", {}) if shaders else {}
-    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader or "self_shadow_mode_location" not in entity_self_shadow_shader:
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader or "self_shadow_mode_location" not in entity_self_shadow_shader or "self_shadow_pass_location" not in entity_self_shadow_shader:
         if shaders:
             unload_shaders(shaders)
         shaders = load_shaders()
@@ -4253,9 +4260,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         fog_light_target, readability_light_target, entity_light_target, entity_readability_light_target = g_graphics.render_prepared_lighting(lighting_frame, camera_3d.position, lighting_target, game_assets)
         g_graphics.apply_lighting(render_target, lighting_target, readability_light_target, game_assets, lighting_profile)
 
-    pr.begin_texture_mode(render_target)
-    g_graphics.draw_sorted_world_render_items(sorted_world_items, camera_3d.position, game_assets, lighting_profile, entity_light_target, entity_readability_light_target, player_info)
-    pr.end_texture_mode()
+    entity_render_started = time.perf_counter()
+    entity_render_frame = g_graphics.draw_sorted_world_render_items(sorted_world_items, render_target, camera_3d.position, game_assets, lighting_profile, lighting_frame["prepared_lights"] if render_environment_effects else [], entity_readability_light_target, player_info)
+    lighting_frame["stats"]["entity_draw_time_ms"] = lighting_frame["stats"].get("entity_draw_time_ms", 0.0) + (time.perf_counter() - entity_render_started) * 1000.0
+    lighting_frame["stats"]["entity_scratch_light_draws"] = entity_render_frame.get("scratch_light_draws", 0)
+    lighting_frame["stats"]["entity_survival_draws"] = entity_render_frame.get("survival_draws", 0)
+    entity_light_target = entity_render_frame.get("entity_direct_light")
 
     if render_environment_effects:
         fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
@@ -4281,6 +4291,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if editor_mode != "play" and game_assets.get("show_entity_lighting_debug", False):
         g_graphics.draw_entity_self_shadow_debug(sorted_world_items, major_entity_light_occluders, entity_self_shadow_frame, camera_3d.position, game_assets, lighting_profile, entity_light_target, entity_readability_light_target)
+
+    full_entity_lighting_debug = editor_mode != "play" and game_assets.get("show_entity_lighting_debug", False)
+    if game_assets.get("show_entity_direction_basis_debug", False) and not full_entity_lighting_debug:
+        g_graphics.draw_entity_direction_basis_debug(sorted_world_items, camera_3d.position, lighting_frame["prepared_lights"])
     
     editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map, show_editor)
 
