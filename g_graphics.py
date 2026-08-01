@@ -279,6 +279,12 @@ def make_player_flashlight(player_entity, tile_map):
     return {
         "type": "spot",
         "position": flashlight_position,
+        # The cone starts slightly in front of the player, but rotating that
+        # offset around a nearby entity must not change which authored side
+        # profile the light represents.  Entity-profile direction therefore
+        # uses this stable world-space origin while cone coverage, wall rays and
+        # attenuation continue using position above.
+        "entity_direction_origin": dict(player_world_position),
         "direction": direction,
         "color": [1.0, 0.82, 0.62],
         "radius": 180.0,
@@ -717,6 +723,65 @@ def get_render_item_light_sample_points(render_item):
     points.extend(sample["world"] for sample in get_render_item_direction_basis_ray_samples(render_item))
     return points
 
+def _segments_intersect(start_a, end_a, start_b, end_b, epsilon=0.000001):
+    direction_a = {"x": end_a["x"] - start_a["x"], "y": end_a["y"] - start_a["y"]}
+    direction_b = {"x": end_b["x"] - start_b["x"], "y": end_b["y"] - start_b["y"]}
+    denominator = direction_a["x"] * direction_b["y"] - direction_a["y"] * direction_b["x"]
+    offset = {"x": start_b["x"] - start_a["x"], "y": start_b["y"] - start_a["y"]}
+    if abs(denominator) <= epsilon:
+        return False
+    fraction_a = (offset["x"] * direction_b["y"] - offset["y"] * direction_b["x"]) / denominator
+    fraction_b = (offset["x"] * direction_a["y"] - offset["y"] * direction_a["x"]) / denominator
+    return -epsilon <= fraction_a <= 1.0 + epsilon and -epsilon <= fraction_b <= 1.0 + epsilon
+
+def polygon_intersects_rectangle(polygon, rectangle):
+    """Conservative 2D overlap used to avoid sparse entity-light eligibility gaps."""
+    if not polygon or rectangle.get("width", 0.0) <= 0.0 or rectangle.get("height", 0.0) <= 0.0:
+        return False
+    left = float(rectangle["x"])
+    top = float(rectangle["y"])
+    right = left + float(rectangle["width"])
+    bottom = top + float(rectangle["height"])
+    corners = [
+        {"x": left, "y": top}, {"x": right, "y": top},
+        {"x": right, "y": bottom}, {"x": left, "y": bottom}
+    ]
+    if any(point_is_inside_rectangle(point, rectangle) for point in polygon):
+        return True
+    if any(point_in_polygon(corner, polygon) for corner in corners):
+        return True
+    rectangle_edges = [(corners[index], corners[(index + 1) % 4]) for index in range(4)]
+    polygon_edges = [(polygon[index], polygon[(index + 1) % len(polygon)]) for index in range(len(polygon))]
+    return any(_segments_intersect(poly_start, poly_end, rect_start, rect_end) for poly_start, poly_end in polygon_edges for rect_start, rect_end in rectangle_edges)
+
+def make_spot_light_coverage_polygon(prepared_light, arc_segments=12):
+    light = prepared_light.get("light", {})
+    origin = prepared_light.get("world_position", {})
+    if "x" not in origin or "y" not in origin:
+        return []
+    direction = light_visibility.normalize_vector(light.get("direction", {"x": 1.0, "y": 0.0})) or {"x": 1.0, "y": 0.0}
+    radius = max(0.0, float(light.get("radius", 0.0)))
+    outer_angle = math.radians(max(0.0, float(light.get("outer_angle", 35.0))))
+    centre_angle = math.atan2(direction["y"], direction["x"])
+    segment_count = max(2, int(arc_segments))
+    polygon = [dict(origin)]
+    for index in range(segment_count + 1):
+        angle = centre_angle - outer_angle + outer_angle * 2.0 * index / segment_count
+        polygon.append({"x": origin["x"] + math.cos(angle) * radius, "y": origin["y"] + math.sin(angle) * radius})
+    return polygon
+
+def spot_light_conservatively_intersects_render_item(prepared_light, render_item):
+    bounds = render_item.get("bounds_world", {})
+    if not polygon_intersects_rectangle(make_spot_light_coverage_polygon(prepared_light), bounds):
+        return False
+    if prepared_light.get("casts_wall_shadows", False):
+        visibility = prepared_light.get("visibility_polygon") or []
+        if visibility:
+            wall_visible_area = [dict(prepared_light["world_position"])] + list(visibility)
+            if not polygon_intersects_rectangle(wall_visible_area, bounds):
+                return False
+    return True
+
 def get_prepared_light_strength_for_render_item(prepared_light, render_item, collision_grid):
     light = prepared_light.get("light", {})
     strengths = []
@@ -725,7 +790,13 @@ def get_prepared_light_strength_for_render_item(prepared_light, render_item, col
         strength = light_visibility.get_unoccluded_light_strength_at_world_point(light, point, collision_grid)
         strengths.append(strength if strength > 0.0 and prepared_light_reaches_point(prepared_light, point) else 0.0)
 
-    return max(strengths, default=0.0)
+    strongest_sample = max(strengths, default=0.0)
+    if strongest_sample <= 0.000001 and light.get("type", "point") == "spot" and spot_light_conservatively_intersects_render_item(prepared_light, render_item):
+        # The GPU's per-pixel light texture remains authoritative. This tiny
+        # sentinel only keeps the light's entity pass alive when a narrow cone
+        # overlaps visible sprite pixels between the finite CPU samples.
+        return 0.00001
+    return strongest_sample
 
 def make_empty_entity_self_shadow_summary():
     return {"face_exposure": [1.0, 0.0, 0.0, 0.0], "omni_exposure": 0.0, "world_occlusion_scale": 1.0, "blocked_direct_count": 0, "sampled_world_strength": 0.0, "visible_world_strength": 0.0, "per_light": []}
@@ -745,7 +816,7 @@ def calculate_entity_self_shadow_at_u(summary, policy, local_u):
     strength = max(0.0, min(1.0, float(policy.get("strength", 0.0))))
     return (1.0 - strength) + strength * max(0.0, min(1.0, shaped))
 
-def calculate_directional_profile_attenuation(summary, policy, response_rgba):
+def calculate_directional_profile_attenuation(summary, policy, response_rgba, profile_divider_visibility=1.0):
     """Blend an authored RGBA survival sample in down/up/left/right order.
 
     The result attenuates one ordinary direct-light contribution. Callers add
@@ -759,11 +830,26 @@ def calculate_directional_profile_attenuation(summary, policy, response_rgba):
     while len(response) < 4:
         response.append(0.0)
 
-    authored_exposure = sum(max(0.0, min(1.0, float(response[index]))) * float(exposure[index]) for index in range(4))
+    response = [max(0.0, min(1.0, float(value))) for value in response]
+    divider_visibility = max(0.0, min(1.0, float(profile_divider_visibility)))
+    authored_exposure = (
+        response[0] * float(exposure[0]) +
+        response[1] * float(exposure[1]) * divider_visibility +
+        response[2] * float(exposure[2]) +
+        response[3] * float(exposure[3])
+    )
     minimum_direct = max(0.0, min(1.0, float(policy.get("minimum_direct", 0.0))))
     shaped_exposure = max(minimum_direct, min(1.0, float(summary.get("omni_exposure", 0.0)) + authored_exposure))
     strength = max(0.0, min(1.0, float(policy.get("strength", 0.0))))
     return (1.0 - strength) + strength * shaped_exposure
+
+def calculate_profile_divider_visibility(local_uv, light_origin_local, divider_top, divider_bottom):
+    """CPU reference for the shader's sprite-local centre-divider occlusion."""
+    ray_start = {"x": float(light_origin_local["x"]), "y": float(light_origin_local["y"])}
+    ray_end = {"x": float(local_uv["x"]), "y": float(local_uv["y"])}
+    top = {"x": float(divider_top["x"]), "y": float(divider_top["y"])}
+    bottom = {"x": float(divider_bottom["x"]), "y": float(divider_bottom["y"])}
+    return 0.0 if _segments_intersect(ray_start, ray_end, top, bottom) else 1.0
 
 def get_render_item_direction_basis_world_rect(render_item):
     """Transform a current-frame sprite-local direction rectangle into world space."""
@@ -784,6 +870,31 @@ def get_render_item_direction_basis_world_rect(render_item):
         "y": float(destination.get("y", 0.0)) + float(local.get("y", 0.0)) * scale_y,
         "width": max(0.0, float(local.get("width", 0.0)) * scale_x),
         "height": max(0.0, float(local.get("height", 0.0)) * scale_y)
+    }
+
+def get_render_item_profile_divider_world_line(render_item):
+    divider = render_item.get("self_shadow", {}).get("profile_divider", {})
+    if not divider.get("enabled", False):
+        return None
+    source = render_item.get("source_rect", {})
+    destination = render_item.get("dest_rect", {})
+    source_width = abs(float(source.get("width", 0.0)))
+    source_height = abs(float(source.get("height", 0.0)))
+    if source_width <= 0.000001 or source_height <= 0.000001:
+        return None
+    scale_x = float(destination.get("width", 0.0)) / source_width
+    scale_y = float(destination.get("height", 0.0)) / source_height
+    top = divider.get("top", {})
+    bottom = divider.get("bottom", {})
+    return {
+        "top": {
+            "x": float(destination.get("x", 0.0)) + float(top.get("x", 0.0)) * scale_x,
+            "y": float(destination.get("y", 0.0)) + float(top.get("y", 0.0)) * scale_y
+        },
+        "bottom": {
+            "x": float(destination.get("x", 0.0)) + float(bottom.get("x", 0.0)) * scale_x,
+            "y": float(destination.get("y", 0.0)) + float(bottom.get("y", 0.0)) * scale_y
+        }
     }
 
 
@@ -911,22 +1022,27 @@ def calculate_render_item_light_direction_bundle(render_item, prepared_light, co
     light_position = prepared_light.get("world_position", {})
     if "x" not in light_position or "y" not in light_position:
         return None
+    light = prepared_light.get("light", {})
+    direction_origin = light.get("entity_direction_origin")
+    has_stable_direction_origin = isinstance(direction_origin, dict) and "x" in direction_origin and "y" in direction_origin
+    if not has_stable_direction_origin:
+        direction_origin = light_position
     centre = {"x": rectangle["x"] + rectangle["width"] * 0.5, "y": rectangle["y"] + rectangle["height"] * 0.5}
-    if point_is_inside_rectangle(light_position, rectangle):
+    if point_is_inside_rectangle(direction_origin, rectangle):
         return {
             "inside": True,
             "omni": True,
             "side": None,
             "side_position": None,
-            "entry_world": dict(light_position),
+            "entry_world": dict(direction_origin),
             "centre_world": centre,
             "rect_world": rectangle,
             "weights": {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0},
-            "rays": []
+            "rays": [],
+            "direction_origin_world": dict(direction_origin)
         }
 
     basis = render_item.get("self_shadow", {}).get("direction_basis", {})
-    light = prepared_light.get("light", {})
     rays = []
     totals = {"down": 0.0, "up": 0.0, "left": 0.0, "right": 0.0}
     total_strength = 0.0
@@ -962,6 +1078,23 @@ def calculate_render_item_light_direction_bundle(render_item, prepared_light, co
         entry_y_total += entry["entry_world"]["y"] * sample_strength
         for side in totals:
             totals[side] += weights[side] * sample_strength
+
+    # A spotlight's rotating render-origin offset and changing cone coverage
+    # must not select a different authored response profile.  When a stable
+    # direction origin is supplied, the base-plate entry alone selects the
+    # profile; the ordinary direct-light texture still determines exactly which
+    # sprite pixels the cone reaches.  Keep the physical-origin ray bundle above
+    # for diagnostics.
+    if has_stable_direction_origin:
+        stable_entry = calculate_render_item_light_direction_entry(render_item, direction_origin)
+        if stable_entry is None:
+            return None
+        stable_entry["rays"] = rays
+        stable_entry["active_ray_count"] = sum(1 for ray in rays if ray["active"])
+        stable_entry["total_ray_count"] = len(rays)
+        stable_entry["direction_origin_world"] = dict(direction_origin)
+        stable_entry["stable_direction_origin"] = True
+        return stable_entry
 
     if total_strength <= 0.000001:
         fallback = calculate_render_item_light_direction_entry(render_item, light_position)
@@ -1087,6 +1220,7 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
             light_record = {
                 "light_id": prepared_light.get("id"),
                 "light_position": dict(prepared_light["world_position"]),
+                "direction_origin_world": dict(direction_entry.get("direction_origin_world", prepared_light["world_position"])) if direction_entry is not None else dict(prepared_light["world_position"]),
                 "sampled_strength": strength,
                 "blocked": blocking is not None,
                 "omni": is_omni,
@@ -1276,6 +1410,7 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
         exposure.append(0.0)
 
     source = render_item["source_rect"]
+    destination = render_item["dest_rect"]
     texture_width = max(1.0, float(texture.width))
     texture_height = max(1.0, float(texture.height))
     set_shader_vec2(shader, shader_info["resolution_location"], entity_lighting.texture.width, entity_lighting.texture.height)
@@ -1289,6 +1424,22 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
     set_shader_float(shader, shader_info["self_shadow_softness_location"], policy.get("softness", 0.10))
     set_shader_float(shader, shader_info["self_shadow_back_fill_location"], policy.get("back_fill", 0.06))
     set_shader_float(shader, shader_info["self_shadow_minimum_direct_location"], max(0.0, min(1.0, float(policy.get("minimum_direct", 0.0)))))
+    divider = policy.get("profile_divider", {})
+    divider_enabled = resources["mode_value"] == ENTITY_SELF_SHADOW_MODES["directional_profiles"] and bool(divider.get("enabled", False))
+    source_width = max(0.000001, abs(float(source.get("width", 0.0))))
+    source_height = max(0.000001, abs(float(source.get("height", 0.0))))
+    divider_top = divider.get("top", {})
+    divider_bottom = divider.get("bottom", {})
+    direction_origin = summary.get("direction_origin_world", {})
+    destination_width = float(destination.get("width", 0.0))
+    destination_height = float(destination.get("height", 0.0))
+    if not isinstance(direction_origin, dict) or "x" not in direction_origin or "y" not in direction_origin or abs(destination_width) <= 0.000001 or abs(destination_height) <= 0.000001:
+        divider_enabled = False
+        direction_origin = {"x": float(destination.get("x", 0.0)), "y": float(destination.get("y", 0.0))}
+    set_shader_int(shader, shader_info.get("profile_divider_enabled_location", -1), 1 if divider_enabled else 0)
+    set_shader_vec2(shader, shader_info.get("profile_divider_top_location", -1), float(divider_top.get("x", 0.0)) / source_width, float(divider_top.get("y", 0.0)) / source_height)
+    set_shader_vec2(shader, shader_info.get("profile_divider_bottom_location", -1), float(divider_bottom.get("x", 0.0)) / source_width, float(divider_bottom.get("y", 0.0)) / source_height)
+    set_shader_vec2(shader, shader_info.get("profile_light_origin_location", -1), (float(direction_origin["x"]) - float(destination.get("x", 0.0))) / (destination_width if abs(destination_width) > 0.000001 else 1.0), (float(direction_origin["y"]) - float(destination.get("y", 0.0))) / (destination_height if abs(destination_height) > 0.000001 else 1.0))
     set_shader_int(shader, shader_info["self_shadow_debug_output_location"], debug_output_mode)
     set_shader_int(shader, shader_info["self_shadow_pass_location"], self_shadow_pass)
     set_shader_vec3(shader, shader_info["ambient_color_location"], ambient[0], ambient[1], ambient[2])
@@ -1333,7 +1484,8 @@ def _make_per_light_render_item(render_item, light_record, mode_override=None):
     result["self_shadow_summary"] = {
         "face_exposure": list(light_record.get("face_exposure", [0.0, 0.0, 0.0, 0.0])),
         "omni_exposure": float(light_record.get("omni_exposure", 0.0)),
-        "world_occlusion_scale": 1.0
+        "world_occlusion_scale": 1.0,
+        "direction_origin_world": dict(light_record.get("direction_origin_world", light_record.get("light_position", {})))
     }
     return result
 
@@ -1684,6 +1836,15 @@ def draw_entity_direction_basis_debug(render_items, game_camera, prepared_lights
         )
         centre = {"x": rectangle["x"] + rectangle["width"] * 0.5, "y": rectangle["y"] + rectangle["height"] * 0.5}
         pr.draw_circle(int(round(centre["x"] - game_camera.x)), int(round(centre["y"] - game_camera.y)), 2.0, pr.YELLOW)
+        divider_line = get_render_item_profile_divider_world_line(item)
+        if divider_line is not None:
+            pr.draw_line(
+                int(round(divider_line["top"]["x"] - game_camera.x)),
+                int(round(divider_line["top"]["y"] - game_camera.y)),
+                int(round(divider_line["bottom"]["x"] - game_camera.x)),
+                int(round(divider_line["bottom"]["y"] - game_camera.y)),
+                pr.MAGENTA
+            )
 
         for record in item.get("self_shadow_summary", {}).get("per_light", []):
             prepared_light = prepared_by_id.get(record.get("light_id"))

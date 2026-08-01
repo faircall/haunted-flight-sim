@@ -52,6 +52,16 @@ def make_default_entity_render_metadata(entity_type):
                     "corner_blend_fraction": 0.20,
                     "maximum_adjacent_weight": 0.50
                 },
+                # A cheap internal occluder for the statue's up/back response.
+                # Rays crossing this sprite-local centre line suppress only the
+                # green channel, so an upper-left light does not also illuminate
+                # the upper-right response (and vice versa). Other profiles keep
+                # their authored behaviour, and a centred rear light reaches both.
+                "profile_divider": {
+                    "enabled": True,
+                    "top": {"x": 61.0, "y": 20.0},
+                    "bottom": {"x": 61.0, "y": 104.0}
+                },
                 "strength": 1.0,
                 "minimum_direct": 0.04,
                 "fallback_mode": "upright_box",

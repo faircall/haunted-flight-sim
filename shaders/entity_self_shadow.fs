@@ -18,6 +18,10 @@ uniform float selfShadowStrength;
 uniform float selfShadowSoftness;
 uniform float selfShadowBackFill;
 uniform float selfShadowMinimumDirect;
+uniform int profileDividerEnabled;
+uniform vec2 profileDividerTop;
+uniform vec2 profileDividerBottom;
+uniform vec2 profileLightOrigin;
 uniform int selfShadowDebugOutput;
 uniform int selfShadowPass;
 uniform vec3 ambientColor;
@@ -75,6 +79,34 @@ float calculateUprightBoxSelfShadow(vec2 localUv)
     return mix(1.0, shapedExposure, clamp(selfShadowStrength, 0.0, 1.0));
 }
 
+float cross2d(vec2 first, vec2 second)
+{
+    return first.x * second.y - first.y * second.x;
+}
+
+float calculateProfileDividerVisibility(vec2 localUv)
+{
+    if (profileDividerEnabled == 0)
+    {
+        return 1.0;
+    }
+
+    vec2 lightRay = localUv - profileLightOrigin;
+    vec2 divider = profileDividerBottom - profileDividerTop;
+    float denominator = cross2d(lightRay, divider);
+
+    if (abs(denominator) <= 0.000001)
+    {
+        return 1.0;
+    }
+
+    vec2 offset = profileDividerTop - profileLightOrigin;
+    float rayFraction = cross2d(offset, divider) / denominator;
+    float dividerFraction = cross2d(offset, lightRay) / denominator;
+    bool crossesDivider = rayFraction > 0.0001 && rayFraction < 0.9999 && dividerFraction >= 0.0 && dividerFraction <= 1.0;
+    return crossesDivider ? 0.0 : 1.0;
+}
+
 float calculateSelfShadow(vec2 localUv, out vec4 response)
 {
     response = vec4(1.0);
@@ -89,7 +121,12 @@ float calculateSelfShadow(vec2 localUv, out vec4 response)
         // RGBA is direct-light survival (not emission or sprite colour): down (+Y), up (-Y), left (-X), right (+X).
         response = texture(directionalResponseTexture, fragTexCoord);
         // This profile attenuates only the currently isolated direct-light contribution.
-        float authoredExposure = dot(response, faceExposure);
+        float dividerVisibility = calculateProfileDividerVisibility(localUv);
+        float authoredExposure =
+            response.r * faceExposure.x +
+            response.g * faceExposure.y * dividerVisibility +
+            response.b * faceExposure.z +
+            response.a * faceExposure.w;
         float shapedExposure = clamp(omniExposure + authoredExposure, selfShadowMinimumDirect, 1.0);
         return mix(1.0, shapedExposure, clamp(selfShadowStrength, 0.0, 1.0));
     }

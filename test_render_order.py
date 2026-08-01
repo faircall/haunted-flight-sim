@@ -147,6 +147,11 @@ class RenderOrderTests(unittest.TestCase):
                 "corner_blend_fraction": 0.20,
                 "maximum_adjacent_weight": 0.50
             },
+            "profile_divider": {
+                "enabled": True,
+                "top": {"x": 61.0, "y": 20.0},
+                "bottom": {"x": 61.0, "y": 104.0}
+            },
             "strength": 1.0,
             "minimum_direct": 0.04,
             "fallback_mode": "upright_box",

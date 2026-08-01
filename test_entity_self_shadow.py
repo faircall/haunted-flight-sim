@@ -53,6 +53,16 @@ class EntitySelfShadowTests(unittest.TestCase):
         self.assertEqual(destination.x, 18.0)
         self.assertEqual(destination.y, 38.0)
 
+    def test_player_flashlight_has_stable_entity_direction_origin(self):
+        player = {
+            "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+            "aim_direction": {"x": 0.0, "y": -1.0},
+            "animation_direction": "up",
+        }
+        flashlight = g_graphics.make_player_flashlight(player, {"tile_width": 16, "tile_height": 16})
+        self.assertEqual(flashlight["entity_direction_origin"], {"x": 36.0, "y": 53.0})
+        self.assertEqual(flashlight["position"], {"x": 36.0, "y": 43.0})
+
     def test_camera_front_light_preserves_original_composite_across_sprite(self):
         summary, policy = self.prepare(make_prepared_light("front", 0, 20))
         self.assertAlmostEqual(summary["face_exposure"][0], 1.0)
@@ -145,6 +155,18 @@ class DirectionBasisGeometryTests(unittest.TestCase):
         rectangle = g_graphics.get_render_item_direction_basis_world_rect(self.make_basis_item({"x": 10.0, "y": 20.0, "width": 256.0, "height": 256.0}))
         self.assertEqual(rectangle, {"x": 22.0, "y": 192.0, "width": 220.0, "height": 72.0})
 
+    def test_profile_divider_maps_from_sprite_local_to_world(self):
+        item = self.make_basis_item({"x": 10.0, "y": 20.0, "width": 256.0, "height": 256.0})
+        item["self_shadow"]["profile_divider"] = {
+            "enabled": True,
+            "top": {"x": 61.0, "y": 20.0},
+            "bottom": {"x": 61.0, "y": 104.0},
+        }
+        self.assertEqual(g_graphics.get_render_item_profile_divider_world_line(item), {
+            "top": {"x": 132.0, "y": 60.0},
+            "bottom": {"x": 132.0, "y": 228.0},
+        })
+
     def test_buddha_ray_grid_has_seven_by_three_equal_area_samples(self):
         samples = g_graphics.get_render_item_direction_basis_ray_samples(self.make_basis_item())
         self.assertEqual(len(samples), 21)
@@ -176,6 +198,46 @@ class DirectionBasisGeometryTests(unittest.TestCase):
         self.assertEqual(len(active), 7)
         self.assertEqual({ray["row"] for ray in active}, {1})
         self.assertEqual(bundle["weights"], {"down": 0.0, "up": 0.0, "left": 1.0, "right": 0.0})
+
+    def test_flashlight_profile_direction_is_stable_when_cone_reaches_plate(self):
+        item = self.make_basis_item()
+        light = make_prepared_light("player-flashlight", -40.0, 80.0, light_type="spot")
+        light["light"].update({
+            "radius": 300.0,
+            "inner_angle": 2.0,
+            "outer_angle": 5.0,
+            "entity_direction_origin": {"x": -40.0, "y": 104.0},
+        })
+
+        light["light"]["direction"] = {"x": -1.0, "y": 0.0}
+        before = g_graphics.calculate_render_item_light_direction_bundle(item, light, COLLISION_GRID)
+        self.assertEqual(before["active_ray_count"], 0)
+
+        to_centre = {"x": 101.0, "y": 24.0}
+        length = math.hypot(to_centre["x"], to_centre["y"])
+        light["light"]["direction"] = {"x": to_centre["x"] / length, "y": to_centre["y"] / length}
+        after = g_graphics.calculate_render_item_light_direction_bundle(item, light, COLLISION_GRID)
+        self.assertGreater(after["active_ray_count"], 0)
+
+        expected = {"down": 0.0, "up": 0.0, "left": 1.0, "right": 0.0}
+        self.assertEqual(before["weights"], expected)
+        self.assertEqual(after["weights"], expected)
+        self.assertTrue(before["stable_direction_origin"])
+        self.assertTrue(after["stable_direction_origin"])
+
+    def test_spotlight_sprite_overlap_survives_gaps_between_cpu_samples(self):
+        item = self.make_basis_item()
+        item["bounds_world"] = {"x": 0.0, "y": 0.0, "width": 128.0, "height": 128.0}
+        light = make_prepared_light("grazing-spot", 180.0, 30.0, light_type="spot")
+        light["light"].update({
+            "radius": 300.0,
+            "direction": {"x": -1.0, "y": 0.0},
+            "inner_angle": 2.0,
+            "outer_angle": 8.0,
+        })
+        with mock.patch.object(g_graphics, "get_render_item_light_sample_points", return_value=[]):
+            strength = g_graphics.get_prepared_light_strength_for_render_item(light, item, COLLISION_GRID)
+        self.assertGreater(strength, 0.000001)
 
     def test_bundle_full_sweep_has_no_large_corner_handoff(self):
         item = self.make_basis_item()
@@ -358,6 +420,42 @@ class DirectionalProfileTests(unittest.TestCase):
 
     def test_minimum_direct_is_respected(self):
         self.assertEqual(self.attenuation([1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], minimum_direct=0.04), 0.04)
+
+    def test_profile_divider_blocks_ray_to_far_side(self):
+        visibility = g_graphics.calculate_profile_divider_visibility(
+            {"x": 0.75, "y": 0.50}, {"x": -0.25, "y": -0.25},
+            {"x": 0.50, "y": 0.0}, {"x": 0.50, "y": 0.8125}
+        )
+        self.assertEqual(visibility, 0.0)
+
+    def test_profile_divider_preserves_near_side_and_central_back_light(self):
+        divider_top = {"x": 0.50, "y": 0.0}
+        divider_bottom = {"x": 0.50, "y": 0.8125}
+        near_side = g_graphics.calculate_profile_divider_visibility(
+            {"x": 0.25, "y": 0.50}, {"x": -0.25, "y": -0.25}, divider_top, divider_bottom
+        )
+        central_left = g_graphics.calculate_profile_divider_visibility(
+            {"x": 0.25, "y": 0.50}, {"x": 0.50, "y": -0.25}, divider_top, divider_bottom
+        )
+        central_right = g_graphics.calculate_profile_divider_visibility(
+            {"x": 0.75, "y": 0.50}, {"x": 0.50, "y": -0.25}, divider_top, divider_bottom
+        )
+        self.assertEqual((near_side, central_left, central_right), (1.0, 1.0, 1.0))
+
+    def test_profile_divider_suppresses_only_up_back_channel(self):
+        policy = {"mode": "directional_profiles", "strength": 1.0, "minimum_direct": 0.0}
+        response = [0.11, 0.22, 0.33, 0.44]
+        expected = [0.11, 0.0, 0.33, 0.44]
+        for channel in range(4):
+            exposure = [0.0, 0.0, 0.0, 0.0]
+            exposure[channel] = 1.0
+            actual = g_graphics.calculate_directional_profile_attenuation(
+                {"face_exposure": exposure, "omni_exposure": 0.0},
+                policy,
+                response,
+                profile_divider_visibility=0.0,
+            )
+            self.assertAlmostEqual(actual, expected[channel])
 
     def test_missing_response_texture_selects_upright_box_fallback(self):
         item = {"self_shadow": {"mode": "directional_profiles", "response_texture": {"collection": "textures", "name": "missing"}, "fallback_mode": "upright_box"}}
