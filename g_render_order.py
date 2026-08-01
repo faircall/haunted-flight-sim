@@ -39,7 +39,16 @@ def make_default_entity_render_metadata(entity_type):
         "buddha": {
             "render_anchor_offset": {"x": -64.0, "y": -64.0}, "render_base_offset": {"x": -6.0, "y": 61.0}, "visual_height": 128.0, "light_sample_height": 82.0,
             "ground_footprint": {"shape": "rectangle", "offset": {"x": 6.0, "y": 0.0}, "size": {"x": 62.0, "y": 22.0}},
-            "self_shadow": {"mode": "upright_box", "strength": 0.92, "softness": 0.14, "back_fill": 0.04},
+            # Response RGBA stores direct-light survival for down (+Y), up (-Y), left (-X), right (+X).
+            "self_shadow": {
+                "mode": "directional_profiles",
+                "response_texture": {"collection": "textures", "name": "buddha_light_response"},
+                "strength": 1.0,
+                "minimum_direct": 0.04,
+                "fallback_mode": "upright_box",
+                "softness": 0.14,
+                "back_fill": 0.04
+            },
             "entity_light_occluder": {"enabled": True, "height": 128.0, "blocks_entity_lighting": True},
             "shadow": {"mode": "upright", "cast_height": 128.0, "length_scale": 1.0, "minimum_length": 8.0, "maximum_length": 160.0, "opacity": 0.48, "near_width": 0.90, "far_width": 1.30, "color": [0.008, 0.004, 0.018], "near_offset": 1.0, "lateral_skew": 0.0, "max_light_distance": 240.0, "fade_with_light_strength": True},
             "outline": {"policy": "never", "color": [0.55, 0.66, 0.72, 0.45], "width": 1.0, "priority": 0}, "occludes_render_items": True

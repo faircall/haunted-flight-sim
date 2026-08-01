@@ -11,6 +11,9 @@ import g_update_and_render as game
 
 CINEMATIC_SHADOW_DEBUG_ENABLED = False
 
+ENTITY_SELF_SHADOW_MODES = {"none": 0, "upright_box": 1, "directional_profiles": 2}
+_REPORTED_DIRECTIONAL_PROFILE_ASSET_ERRORS = set()
+
 def make_lighting_profile(profile_name="inky"):
     profiles = {
         "soft": {
@@ -738,6 +741,27 @@ def calculate_entity_self_shadow_at_u(summary, policy, local_u):
     strength = max(0.0, min(1.0, float(policy.get("strength", 0.0))))
     return (1.0 - strength) + strength * max(0.0, min(1.0, shaped))
 
+def calculate_directional_profile_attenuation(summary, policy, response_rgba):
+    """Blend an authored RGBA survival sample in down/up/left/right order.
+
+    The result is an attenuation for accumulated ordinary direct light. Applying
+    one blended directional response to differently coloured accumulated lights
+    is deliberately an approximation; ambient and readability light are separate.
+    """
+    exposure = list(summary.get("face_exposure", [0.0, 0.0, 0.0, 0.0]))
+    response = list(response_rgba)
+
+    while len(exposure) < 4:
+        exposure.append(0.0)
+    while len(response) < 4:
+        response.append(0.0)
+
+    authored_exposure = sum(max(0.0, min(1.0, float(response[index]))) * float(exposure[index]) for index in range(4))
+    minimum_direct = max(0.0, min(1.0, float(policy.get("minimum_direct", 0.0))))
+    shaped_exposure = max(minimum_direct, min(1.0, float(summary.get("omni_exposure", 0.0)) + authored_exposure))
+    strength = max(0.0, min(1.0, float(policy.get("strength", 0.0))))
+    return (1.0 - strength) + strength * shaped_exposure
+
 def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, collision_grid, collect_diagnostics=False):
     summaries = {}
     diagnostics = []
@@ -775,7 +799,7 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
 
             visible_total += strength
             mode = policy.get("mode", "none")
-            is_omni = mode != "upright_box" or light.get("type") == "top_down" or light.get("entity_lighting_mode") in {"omni", "overhead"}
+            is_omni = mode not in {"upright_box", "directional_profiles"} or light.get("type") == "top_down" or light.get("entity_lighting_mode") in {"omni", "overhead"}
 
             if is_omni:
                 omni_total += strength
@@ -874,15 +898,79 @@ def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_positio
         "light_height": light_height
     }
 
-def resolve_render_item_texture(render_item, game_assets):
-    reference = render_item.get("texture", {})
-    asset = game_assets.get(reference.get("collection", ""), {}).get(reference.get("name"))
-    return asset.get(reference.get("field")) if isinstance(asset, dict) and reference.get("field") is not None else asset
+def resolve_texture_reference(reference, game_assets):
+    """Resolve the serialisable {collection, name, optional field} asset shape."""
+    if not isinstance(reference, dict):
+        return None
+    collection = reference.get("collection")
+    name = reference.get("name")
+    field = reference.get("field")
+    if not isinstance(collection, str) or not collection or not isinstance(name, str) or not name or (field is not None and not isinstance(field, str)):
+        return None
+    assets = game_assets.get(collection, {})
+    asset = assets.get(name) if isinstance(assets, dict) else None
+    return asset.get(field) if isinstance(asset, dict) and field is not None else asset
 
-def set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting):
+def resolve_render_item_texture(render_item, game_assets):
+    return resolve_texture_reference(render_item.get("texture", {}), game_assets)
+
+def _matching_texture_dimensions(source_texture, response_texture):
+    try:
+        source_size = (int(source_texture.width), int(source_texture.height))
+        response_size = (int(response_texture.width), int(response_texture.height))
+        response_id = getattr(response_texture, "id", None)
+        return source_size[0] > 0 and source_size[1] > 0 and response_size == source_size and (response_id is None or int(response_id) > 0)
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+def _report_directional_profile_asset_error_once(reference, reason, fallback_mode):
+    key = (repr(reference.get("collection")), repr(reference.get("name")), repr(reference.get("field")), reason, fallback_mode) if isinstance(reference, dict) else (None, None, None, reason, fallback_mode)
+    if key in _REPORTED_DIRECTIONAL_PROFILE_ASSET_ERRORS:
+        return
+    _REPORTED_DIRECTIONAL_PROFILE_ASSET_ERRORS.add(key)
+    texture_name = reference.get("name", "<invalid reference>") if isinstance(reference, dict) else "<invalid reference>"
+    print(f"warning: directional self-shadow response texture '{texture_name}' {reason}; using {fallback_mode} fallback")
+
+def resolve_entity_self_shadow_resources(render_item, source_texture, game_assets, report_errors=True):
+    policy = render_item.get("self_shadow", {})
+    requested_mode = policy.get("mode", "none")
+    active_mode = requested_mode if isinstance(requested_mode, str) and requested_mode in ENTITY_SELF_SHADOW_MODES else "none"
+    response_reference = policy.get("response_texture", {})
+    response_texture = None
+    fallback_used = False
+    failure_reason = None
+
+    if active_mode == "directional_profiles":
+        response_texture = resolve_texture_reference(response_reference, game_assets)
+        if response_texture is None:
+            failure_reason = "is missing or invalid"
+        elif not _matching_texture_dimensions(source_texture, response_texture):
+            failure_reason = "does not match the source texture dimensions"
+
+        if failure_reason is not None:
+            response_texture = None
+            fallback_mode = policy.get("fallback_mode", "upright_box")
+            active_mode = fallback_mode if isinstance(fallback_mode, str) and fallback_mode in {"none", "upright_box"} else "upright_box"
+            fallback_used = True
+            if report_errors:
+                _report_directional_profile_asset_error_once(response_reference, failure_reason, active_mode)
+
+    runtime = {
+        "requested_mode": requested_mode,
+        "active_mode": active_mode,
+        "response_texture_name": response_reference.get("name") if response_texture is not None and isinstance(response_reference, dict) else None,
+        "requested_response_texture_name": response_reference.get("name") if isinstance(response_reference, dict) else None,
+        "fallback_used": fallback_used,
+        "failure_reason": failure_reason
+    }
+    render_item["self_shadow_runtime"] = runtime
+    return dict(runtime, response_texture=response_texture, mode_value=ENTITY_SELF_SHADOW_MODES[active_mode])
+
+def set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0):
     shader = shader_info["shader"]
     summary = render_item.get("self_shadow_summary", {})
     policy = render_item.get("self_shadow", {})
+    resources = resolve_entity_self_shadow_resources(render_item, texture, game_assets)
     ambient = normalize_light_color(lighting_profile.get("ambient_color", [0.18, 0.14, 0.26]))
     shadow = normalize_light_color(lighting_profile.get("shadow_color", [0.0, 0.0, 0.0]))
     exposure = list(summary.get("face_exposure", [1.0, 0.0, 0.0, 0.0]))
@@ -899,10 +987,12 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
     set_shader_vec4(shader, shader_info["face_exposure_location"], exposure[0], exposure[1], exposure[2], exposure[3])
     set_shader_float(shader, shader_info["omni_exposure_location"], summary.get("omni_exposure", 0.0))
     set_shader_float(shader, shader_info["world_occlusion_scale_location"], summary.get("world_occlusion_scale", 1.0))
-    set_shader_float(shader, shader_info["self_shadow_enabled_location"], 1.0 if policy.get("mode", "none") == "upright_box" else 0.0)
+    set_shader_int(shader, shader_info["self_shadow_mode_location"], resources["mode_value"])
     set_shader_float(shader, shader_info["self_shadow_strength_location"], policy.get("strength", 0.0))
     set_shader_float(shader, shader_info["self_shadow_softness_location"], policy.get("softness", 0.10))
     set_shader_float(shader, shader_info["self_shadow_back_fill_location"], policy.get("back_fill", 0.06))
+    set_shader_float(shader, shader_info["self_shadow_minimum_direct_location"], max(0.0, min(1.0, float(policy.get("minimum_direct", 0.0)))))
+    set_shader_int(shader, shader_info["self_shadow_debug_output_location"], debug_output_mode)
     set_shader_vec3(shader, shader_info["ambient_color_location"], ambient[0], ambient[1], ambient[2])
     set_shader_vec3(shader, shader_info["shadow_color_location"], shadow[0], shadow[1], shadow[2])
     set_shader_float(shader, shader_info["ambient_strength_location"], lighting_profile.get("ambient_strength", 0.3))
@@ -916,12 +1006,16 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
     set_shader_float(shader, shader_info["light_dither_enabled_location"], 1.0 if lighting_profile.get("light_dither_enabled", False) else 0.0)
     set_shader_float(shader, shader_info["light_dither_strength_location"], lighting_profile.get("light_dither_strength", 0.5))
     set_shader_float(shader, shader_info["posterize_ambient_location"], 1.0 if lighting_profile.get("posterize_ambient", False) else 0.0)
+    return resources
 
-def begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting):
-    set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting)
+def begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0):
+    resources = set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode)
     pr.begin_shader_mode(shader_info["shader"])
     set_shader_texture(shader_info["shader"], shader_info["entity_light_texture_location"], entity_lighting.texture)
     set_shader_texture(shader_info["shader"], shader_info["entity_readability_light_texture_location"], entity_readability_lighting.texture)
+    if resources["mode_value"] == ENTITY_SELF_SHADOW_MODES["directional_profiles"]:
+        set_shader_texture(shader_info["shader"], shader_info["directional_response_texture_location"], resources["response_texture"])
+    return resources
 
 def draw_sorted_world_render_items(render_items, game_camera, game_assets, lighting_profile, entity_lighting=None, entity_readability_lighting=None, player_entity=None):
     camera_x = float(game_camera.x)
@@ -941,7 +1035,7 @@ def draw_sorted_world_render_items(render_items, game_camera, game_assets, light
         use_shader = entity_lighting is not None and entity_readability_lighting is not None and shader_info is not None
 
         if use_shader:
-            begin_entity_self_shadow_shader(shader_info, item, texture, lighting_profile, entity_lighting, entity_readability_lighting)
+            begin_entity_self_shadow_shader(shader_info, item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets)
 
         pr.draw_texture_pro(texture, source_rect, destination_rect, pr.Vector2(0, 0), 0, pr.WHITE)
 
@@ -972,15 +1066,19 @@ def draw_sorted_world_render_items(render_items, game_camera, game_assets, light
             pistol_item = dict(item)
             pistol_item["source_rect"] = {"x": 0.0, "y": 0.0, "width": float(pistol_texture.width), "height": float(pistol_texture.height)}
             pistol_item["self_shadow"] = {"mode": "none"}
-            begin_entity_self_shadow_shader(shader_info, pistol_item, pistol_texture, lighting_profile, entity_lighting, entity_readability_lighting)
+            begin_entity_self_shadow_shader(shader_info, pistol_item, pistol_texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets)
 
         pr.draw_texture_ex(pistol_texture, pistol_screen, float(draw_data.get("pistol_angle", 0.0)), 0.5, pr.WHITE)
 
         if use_shader:
             pr.end_shader_mode()
 
-def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_shadow_frame, game_camera):
+def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_shadow_frame, game_camera, game_assets=None, lighting_profile=None, entity_lighting=None, entity_readability_lighting=None):
     blocker_ids = {item.get("source_id") for item in major_occluders}
+    game_assets = game_assets or {}
+    lighting_profile = lighting_profile or {}
+    show_response_preview = bool(game_assets.get("show_entity_response_texture_preview", False))
+    show_attenuation_preview = bool(game_assets.get("show_entity_attenuation_preview", False))
 
     for item in render_items:
         base = item["base_world"]
@@ -988,6 +1086,11 @@ def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_sha
         base_y = base["y"] - game_camera.y
         summary = item.get("self_shadow_summary", {})
         exposure = summary.get("face_exposure", [0.0, 0.0, 0.0, 0.0])
+        source_texture = resolve_render_item_texture(item, game_assets)
+        resources = resolve_entity_self_shadow_resources(item, source_texture, game_assets) if source_texture is not None else {
+            "requested_mode": item.get("self_shadow", {}).get("mode", "none"), "active_mode": "none", "response_texture_name": None,
+            "requested_response_texture_name": None, "fallback_used": False, "response_texture": None
+        }
         pr.draw_line(int(base_x), int(base_y), int(base_x), int(base_y + 14.0), pr.CYAN)
         footprint = g_render_order.get_world_ground_footprint(item)
         centre_x = footprint["center"]["x"] - game_camera.x
@@ -1000,8 +1103,38 @@ def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_sha
         else:
             pr.draw_ellipse_lines(int(centre_x), int(centre_y), size["x"] * 0.5, size["y"] * 0.5, color)
 
-        text = f"faces {exposure[0]:.2f}/{exposure[1]:.2f}/{exposure[2]:.2f}/{exposure[3]:.2f} omni={summary.get('omni_exposure', 0.0):.2f} occ={summary.get('world_occlusion_scale', 1.0):.2f}"
-        pr.draw_text(text, int(base_x + 3), int(base_y + 8), 6, color)
+        requested_response_name = resources.get("requested_response_texture_name")
+        response_name = resources.get("response_texture_name") or (f"{requested_response_name}(unresolved)" if requested_response_name else "-")
+        fallback_text = f" fallback->{resources['active_mode']}" if resources.get("fallback_used") else ""
+        mode_text = f"mode={resources['active_mode']} response={response_name}{fallback_text}"
+        exposure_text = f"faces RGBA={exposure[0]:.2f}/{exposure[1]:.2f}/{exposure[2]:.2f}/{exposure[3]:.2f} omni={summary.get('omni_exposure', 0.0):.2f} occ={summary.get('world_occlusion_scale', 1.0):.2f}"
+        pr.draw_text(mode_text, int(base_x + 3), int(base_y + 8), 6, color)
+        pr.draw_text(exposure_text, int(base_x + 3), int(base_y + 15), 6, color)
+
+        if not show_response_preview and not show_attenuation_preview:
+            continue
+
+        source = item.get("source_rect", {})
+        destination = item.get("dest_rect", {})
+        source_rect = pr.Rectangle(float(source.get("x", 0.0)), float(source.get("y", 0.0)), float(source.get("width", 1.0)), float(source.get("height", 1.0)))
+        preview_width = min(48.0, max(1.0, float(destination.get("width", source_rect.width))))
+        preview_height = min(48.0, max(1.0, float(destination.get("height", source_rect.height))))
+        preview_x = base_x + 3.0
+        preview_y = base_y + 24.0
+
+        if show_response_preview and resources.get("response_texture") is not None:
+            response_destination = pr.Rectangle(preview_x, preview_y, preview_width, preview_height)
+            pr.draw_texture_pro(resources["response_texture"], source_rect, response_destination, pr.Vector2(0, 0), 0, pr.WHITE)
+            pr.draw_text("response RGBA", int(preview_x), int(preview_y + preview_height + 1.0), 6, color)
+            preview_x += preview_width + 4.0
+
+        shader_info = game_assets.get("shaders", {}).get("entity_self_shadow")
+        if show_attenuation_preview and source_texture is not None and shader_info is not None and entity_lighting is not None and entity_readability_lighting is not None:
+            attenuation_destination = pr.Rectangle(preview_x, preview_y, preview_width, preview_height)
+            begin_entity_self_shadow_shader(shader_info, item, source_texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=2)
+            pr.draw_texture_pro(source_texture, source_rect, attenuation_destination, pr.Vector2(0, 0), 0, pr.WHITE)
+            pr.end_shader_mode()
+            pr.draw_text("attenuation", int(preview_x), int(preview_y + preview_height + 1.0), 6, color)
 
     for test in entity_self_shadow_frame.get("occlusion_tests", []):
         start = test["light_position"]

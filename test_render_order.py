@@ -94,6 +94,49 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(second["self_shadow"]["back_fill"], 0.06)
         self.assertEqual(second["ground_footprint"]["size"]["x"], 14.0)
 
+        first_buddha = g_render_order.make_default_entity_render_metadata("buddha")
+        second_buddha = g_render_order.make_default_entity_render_metadata("buddha")
+        first_buddha["self_shadow"]["response_texture"]["name"] = "changed"
+        self.assertEqual(second_buddha["self_shadow"]["response_texture"]["name"], "buddha_light_response")
+
+    def test_authored_directional_profile_metadata_is_preserved(self):
+        entity = {
+            "type": "buddha",
+            "self_shadow": {
+                "mode": "directional_profiles",
+                "response_texture": {"collection": "custom", "name": "authored_response"},
+                "strength": 0.67,
+                "minimum_direct": 0.12,
+                "fallback_mode": "none"
+            }
+        }
+        g_render_order.ensure_entity_render_metadata(entity)
+        self.assertEqual(entity["self_shadow"]["mode"], "directional_profiles")
+        self.assertEqual(entity["self_shadow"]["response_texture"], {"collection": "custom", "name": "authored_response"})
+        self.assertEqual(entity["self_shadow"]["strength"], 0.67)
+        self.assertEqual(entity["self_shadow"]["minimum_direct"], 0.12)
+        self.assertEqual(entity["self_shadow"]["fallback_mode"], "none")
+
+    def test_buddha_directional_profile_defaults_and_occlusion_are_independent(self):
+        metadata = g_render_order.make_default_entity_render_metadata("buddha")
+        self.assertEqual(metadata["self_shadow"], {
+            "mode": "directional_profiles",
+            "response_texture": {"collection": "textures", "name": "buddha_light_response"},
+            "strength": 1.0,
+            "minimum_direct": 0.04,
+            "fallback_mode": "upright_box",
+            "softness": 0.14,
+            "back_fill": 0.04
+        })
+        self.assertTrue(metadata["entity_light_occluder"]["enabled"])
+        self.assertTrue(metadata["entity_light_occluder"]["blocks_entity_lighting"])
+
+    def test_red_head_remains_upright_and_non_occluding(self):
+        metadata = g_render_order.make_default_entity_render_metadata("red head")
+        self.assertEqual(metadata["self_shadow"]["mode"], "upright_box")
+        self.assertFalse(metadata["entity_light_occluder"]["enabled"])
+        self.assertFalse(metadata["entity_light_occluder"]["blocks_entity_lighting"])
+
     def test_failed_directional_lighting_metadata_is_retired(self):
         entity = {"type": "red head", "entity_lighting": {"front_direction_mode": "facing", "back_fill": 0.9}, "ground_footprint": {"shape": "ellipse", "offset": {"x": 0.0, "y": 0.0}, "size": {"x": 14.0, "y": 8.0}}}
         g_render_order.ensure_entity_render_metadata(entity)

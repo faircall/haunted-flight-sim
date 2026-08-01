@@ -6,16 +6,19 @@ in vec4 fragColor;
 uniform sampler2D texture0;
 uniform sampler2D entityLightTexture;
 uniform sampler2D entityReadabilityLightTexture;
+uniform sampler2D directionalResponseTexture;
 uniform vec2 resolution;
 uniform vec2 sourceUvMin;
 uniform vec2 sourceUvMax;
 uniform vec4 faceExposure;
 uniform float omniExposure;
 uniform float worldOcclusionScale;
-uniform float selfShadowEnabled;
+uniform int selfShadowMode;
 uniform float selfShadowStrength;
 uniform float selfShadowSoftness;
 uniform float selfShadowBackFill;
+uniform float selfShadowMinimumDirect;
+uniform int selfShadowDebugOutput;
 uniform vec3 ambientColor;
 uniform vec3 shadowColor;
 uniform float ambientStrength;
@@ -59,13 +62,8 @@ vec3 posterizeLighting(vec3 color)
     return vec3(posterizeScalar(color.r + offset, levels), posterizeScalar(color.g + offset, levels), posterizeScalar(color.b + offset, levels));
 }
 
-float calculateSelfShadow(vec2 localUv)
+float calculateUprightBoxSelfShadow(vec2 localUv)
 {
-    if (selfShadowEnabled < 0.5)
-    {
-        return 1.0;
-    }
-
     float softness = clamp(selfShadowSoftness, 0.001, 0.49);
     float rightMask = smoothstep(0.5 - softness, 0.5 + softness, localUv.x);
     float leftMask = 1.0 - rightMask;
@@ -74,6 +72,28 @@ float calculateSelfShadow(vec2 localUv)
     float sides = faceExposure.z * leftMask + faceExposure.w * rightMask;
     float shapedExposure = clamp(omniExposure + front + back + sides, 0.0, 1.0);
     return mix(1.0, shapedExposure, clamp(selfShadowStrength, 0.0, 1.0));
+}
+
+float calculateSelfShadow(vec2 localUv, out vec4 response)
+{
+    response = vec4(1.0);
+
+    if (selfShadowMode == 1)
+    {
+        return calculateUprightBoxSelfShadow(localUv);
+    }
+
+    if (selfShadowMode == 2)
+    {
+        // RGBA is direct-light survival (not emission or sprite colour): down (+Y), up (-Y), left (-X), right (+X).
+        response = texture(directionalResponseTexture, fragTexCoord);
+        // One profile attenuates the accumulated direct-light texture, an approximation for differently coloured lights.
+        float authoredExposure = dot(response, faceExposure);
+        float shapedExposure = clamp(omniExposure + authoredExposure, selfShadowMinimumDirect, 1.0);
+        return mix(1.0, shapedExposure, clamp(selfShadowStrength, 0.0, 1.0));
+    }
+
+    return 1.0;
 }
 
 void main()
@@ -91,7 +111,22 @@ void main()
     vec3 ambientLight = ambientColor * ambientStrength;
     vec3 worldDirectLight = texture(entityLightTexture, screenUv).rgb * directLightStrength;
     vec3 readabilityLight = texture(entityReadabilityLightTexture, screenUv).rgb * directLightStrength;
-    worldDirectLight *= clamp(worldOcclusionScale, 0.0, 1.0) * calculateSelfShadow(localUv);
+    vec4 directionalResponse;
+    float selfShadowAttenuation = calculateSelfShadow(localUv, directionalResponse);
+    float finalDirectAttenuation = clamp(worldOcclusionScale, 0.0, 1.0) * selfShadowAttenuation;
+    worldDirectLight *= finalDirectAttenuation;
+
+    if (selfShadowDebugOutput == 1 && selfShadowMode == 2)
+    {
+        finalColor = vec4(directionalResponse.rgb, sprite.a);
+        return;
+    }
+
+    if (selfShadowDebugOutput == 2)
+    {
+        finalColor = vec4(vec3(finalDirectAttenuation), sprite.a);
+        return;
+    }
 
     vec3 totalLight;
 

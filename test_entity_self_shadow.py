@@ -1,5 +1,7 @@
 import copy
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 import g_graphics
 import g_render_order
@@ -68,6 +70,80 @@ class EntitySelfShadowTests(unittest.TestCase):
         summary = target["self_shadow_summary"]
         self.assertEqual(summary["sampled_world_strength"], 0.0)
         self.assertEqual(summary["world_occlusion_scale"], 1.0)
+
+
+class DirectionalProfileTests(unittest.TestCase):
+    def attenuation(self, face_exposure, response, **policy_values):
+        summary = {"face_exposure": face_exposure, "omni_exposure": policy_values.pop("omni_exposure", 0.0)}
+        policy = {"mode": "directional_profiles", "strength": 1.0, "minimum_direct": 0.0}
+        policy.update(policy_values)
+        return g_graphics.calculate_directional_profile_attenuation(summary, policy, response)
+
+    def test_none_mode_remains_neutral(self):
+        summary = {"face_exposure": [0.0, 1.0, 0.0, 0.0], "omni_exposure": 0.0}
+        self.assertEqual(g_graphics.calculate_entity_self_shadow_at_u(summary, {"mode": "none", "strength": 1.0}, 0.5), 1.0)
+
+    def test_upright_box_reference_output_is_unchanged(self):
+        summary = {"face_exposure": [0.0, 0.25, 0.30, 0.45], "omni_exposure": 0.10}
+        policy = {"mode": "upright_box", "strength": 0.86, "softness": 0.10, "back_fill": 0.06}
+        self.assertAlmostEqual(g_graphics.calculate_entity_self_shadow_at_u(summary, policy, 0.20), 0.4969)
+
+    def test_pure_down_exposure_uses_only_red(self):
+        self.assertAlmostEqual(self.attenuation([1.0, 0.0, 0.0, 0.0], [0.11, 0.22, 0.33, 0.44]), 0.11)
+
+    def test_pure_up_exposure_uses_only_green(self):
+        self.assertAlmostEqual(self.attenuation([0.0, 1.0, 0.0, 0.0], [0.11, 0.22, 0.33, 0.44]), 0.22)
+
+    def test_pure_left_exposure_uses_only_blue(self):
+        self.assertAlmostEqual(self.attenuation([0.0, 0.0, 1.0, 0.0], [0.11, 0.22, 0.33, 0.44]), 0.33)
+
+    def test_pure_right_exposure_uses_only_alpha(self):
+        self.assertAlmostEqual(self.attenuation([0.0, 0.0, 0.0, 1.0], [0.11, 0.22, 0.33, 0.44]), 0.44)
+
+    def test_upper_left_diagonal_interpolates_green_and_blue(self):
+        self.assertAlmostEqual(self.attenuation([0.0, 0.5, 0.5, 0.0], [0.0, 0.2, 0.8, 0.0]), 0.5)
+
+    def test_directional_preparation_uses_down_up_left_right_order(self):
+        target = make_item("target", 0, 0, mode="directional_profiles")
+        directions = [("down", 0, 20, 0), ("up", 0, -20, 1), ("left", -20, 0, 2), ("right", 20, 0, 3)]
+        for light_id, x, y, channel in directions:
+            with self.subTest(light_id=light_id):
+                g_graphics.prepare_entity_self_shadows([target], [make_prepared_light(light_id, x, y)], [], COLLISION_GRID)
+                exposure = target["self_shadow_summary"]["face_exposure"]
+                self.assertAlmostEqual(exposure[channel], 1.0)
+                self.assertAlmostEqual(sum(exposure), 1.0)
+
+    def test_omni_exposure_preserves_direct_light_independently(self):
+        self.assertAlmostEqual(self.attenuation([0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], omni_exposure=0.72), 0.72)
+
+    def test_strength_zero_is_neutral(self):
+        self.assertEqual(self.attenuation([1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], strength=0.0), 1.0)
+
+    def test_minimum_direct_is_respected(self):
+        self.assertEqual(self.attenuation([1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], minimum_direct=0.04), 0.04)
+
+    def test_missing_response_texture_selects_upright_box_fallback(self):
+        item = {"self_shadow": {"mode": "directional_profiles", "response_texture": {"collection": "textures", "name": "missing"}, "fallback_mode": "upright_box"}}
+        resources = g_graphics.resolve_entity_self_shadow_resources(item, SimpleNamespace(width=128, height=128), {"textures": {}}, report_errors=False)
+        self.assertEqual(resources["active_mode"], "upright_box")
+        self.assertTrue(resources["fallback_used"])
+        self.assertIsNone(resources["response_texture"])
+
+    def test_invalid_response_dimensions_select_fallback(self):
+        item = {"self_shadow": {"mode": "directional_profiles", "response_texture": {"collection": "textures", "name": "wrong_size"}, "fallback_mode": "upright_box"}}
+        assets = {"textures": {"wrong_size": SimpleNamespace(id=2, width=64, height=128)}}
+        resources = g_graphics.resolve_entity_self_shadow_resources(item, SimpleNamespace(width=128, height=128), assets, report_errors=False)
+        self.assertEqual(resources["active_mode"], "upright_box")
+        self.assertTrue(resources["fallback_used"])
+
+    def test_missing_response_warning_is_reported_once(self):
+        item = {"self_shadow": {"mode": "directional_profiles", "response_texture": {"collection": "textures", "name": "once_only_test"}, "fallback_mode": "upright_box"}}
+        key_prefix = (repr("textures"), repr("once_only_test"))
+        g_graphics._REPORTED_DIRECTIONAL_PROFILE_ASSET_ERRORS = {key for key in g_graphics._REPORTED_DIRECTIONAL_PROFILE_ASSET_ERRORS if key[:2] != key_prefix}
+        with mock.patch("builtins.print") as print_mock:
+            g_graphics.resolve_entity_self_shadow_resources(item, SimpleNamespace(width=128, height=128), {"textures": {}})
+            g_graphics.resolve_entity_self_shadow_resources(item, SimpleNamespace(width=128, height=128), {"textures": {}})
+        print_mock.assert_called_once()
 
 
 class SelectiveEntityOcclusionTests(unittest.TestCase):

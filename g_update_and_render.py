@@ -1119,16 +1119,19 @@ def load_shaders():
         "shader": entity_self_shadow,
         "entity_light_texture_location": pr.get_shader_location(entity_self_shadow, "entityLightTexture"),
         "entity_readability_light_texture_location": pr.get_shader_location(entity_self_shadow, "entityReadabilityLightTexture"),
+        "directional_response_texture_location": pr.get_shader_location(entity_self_shadow, "directionalResponseTexture"),
         "resolution_location": pr.get_shader_location(entity_self_shadow, "resolution"),
         "source_uv_min_location": pr.get_shader_location(entity_self_shadow, "sourceUvMin"),
         "source_uv_max_location": pr.get_shader_location(entity_self_shadow, "sourceUvMax"),
         "face_exposure_location": pr.get_shader_location(entity_self_shadow, "faceExposure"),
         "omni_exposure_location": pr.get_shader_location(entity_self_shadow, "omniExposure"),
         "world_occlusion_scale_location": pr.get_shader_location(entity_self_shadow, "worldOcclusionScale"),
-        "self_shadow_enabled_location": pr.get_shader_location(entity_self_shadow, "selfShadowEnabled"),
+        "self_shadow_mode_location": pr.get_shader_location(entity_self_shadow, "selfShadowMode"),
         "self_shadow_strength_location": pr.get_shader_location(entity_self_shadow, "selfShadowStrength"),
         "self_shadow_softness_location": pr.get_shader_location(entity_self_shadow, "selfShadowSoftness"),
         "self_shadow_back_fill_location": pr.get_shader_location(entity_self_shadow, "selfShadowBackFill"),
+        "self_shadow_minimum_direct_location": pr.get_shader_location(entity_self_shadow, "selfShadowMinimumDirect"),
+        "self_shadow_debug_output_location": pr.get_shader_location(entity_self_shadow, "selfShadowDebugOutput"),
         "ambient_color_location": pr.get_shader_location(entity_self_shadow, "ambientColor"),
         "shadow_color_location": pr.get_shader_location(entity_self_shadow, "shadowColor"),
         "ambient_strength_location": pr.get_shader_location(entity_self_shadow, "ambientStrength"),
@@ -1270,6 +1273,8 @@ def load_textures():
     
 
     result["buddha_texture"] = pr.load_texture("art/buddha_128.png")
+    if os.path.isfile("art/buddha_light_response.png"):
+        result["buddha_light_response"] = pr.load_texture("art/buddha_light_response.png")
     return result
 
 def new_pos_from_old(old):
@@ -4092,7 +4097,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     shaders = game_assets.get("shaders")
     lighting_composite_shader = shaders.get("lighting_composite", {}) if shaders else {}
-    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader:
+    entity_self_shadow_shader = shaders.get("entity_self_shadow", {}) if shaders else {}
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader or "self_shadow_mode_location" not in entity_self_shadow_shader:
         if shaders:
             unload_shaders(shaders)
         shaders = load_shaders()
@@ -4274,7 +4280,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         draw_sorted_world_debug(sorted_world_items, player_occluders, camera_3d.position, outlined_items)
 
     if editor_mode != "play" and game_assets.get("show_entity_lighting_debug", False):
-        g_graphics.draw_entity_self_shadow_debug(sorted_world_items, major_entity_light_occluders, entity_self_shadow_frame, camera_3d.position)
+        g_graphics.draw_entity_self_shadow_debug(sorted_world_items, major_entity_light_occluders, entity_self_shadow_frame, camera_3d.position, game_assets, lighting_profile, entity_light_target, entity_readability_light_target)
     
     editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map, show_editor)
 
