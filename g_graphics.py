@@ -333,6 +333,8 @@ def ensure_light_collision_grid(game_assets, tile_map):
         )
 
     if actual != expected:
+        # Per-placed-tile force_collidable overrides are gameplay/pathfinding
+        # volumes, not new wall geometry; keep them out of the global light DDA.
         collidable_tile_indices = {
             index for index, tile_type in enumerate(tile_map["tile_types"])
             if game.tile_type_is_collidable(tile_type.get("type", ""))
@@ -783,6 +785,7 @@ def get_render_item_direction_basis_world_rect(render_item):
         "width": max(0.0, float(local.get("width", 0.0)) * scale_x),
         "height": max(0.0, float(local.get("height", 0.0)) * scale_y)
     }
+
 
 def point_is_inside_rectangle(point, rectangle):
     return rectangle["x"] <= point["x"] <= rectangle["x"] + rectangle["width"] and rectangle["y"] <= point["y"] <= rectangle["y"] + rectangle["height"]

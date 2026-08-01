@@ -186,6 +186,7 @@ class DirectionBasisGeometryTests(unittest.TestCase):
         self.assertEqual(count, 1)
         draw_rectangle.assert_called_once_with(4, 66, 110, 36, g_graphics.pr.ORANGE)
 
+
     def test_focused_debug_draws_every_point_and_flashlight_entry_ray(self):
         item = self.make_basis_item()
         point_entry = g_graphics.calculate_render_item_light_direction_entry(item, {"x": -20.0, "y": 104.0})

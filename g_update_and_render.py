@@ -146,6 +146,21 @@ def point_inside_tile_shape(shape_index, local_x, local_y, tile_width, tile_heig
     # fail safe
     return True
 
+
+def tile_is_collidable(tile, tile_map):
+    """Resolve physical/pathfinding collision for one placed tile instance."""
+    if bool(tile.get("force_collidable", False)):
+        return True
+    tile_types = tile_map.get("tile_types", [])
+    tile_index = int(tile.get("index", 0))
+    if tile_index < 0 or tile_index >= len(tile_types):
+        return False
+    return tile_type_is_collidable(tile_types[tile_index].get("type", ""))
+
+
+def should_tint_forced_collision_tile(tile, editor_mode):
+    return editor_mode != "play" and bool(tile.get("force_collidable", False))
+
 def get_tile_shape_collision(position, tile_map):
     tile_x = position.get("tile_x", 0)
     tile_y = position.get("tile_y", 0)
@@ -160,9 +175,7 @@ def get_tile_shape_collision(position, tile_map):
     tile_index = (tile_y * tile_map["map_width"] + tile_x)
 
     tile = tile_map["tiles"][tile_index]
-    tile_type = tile_map["tile_types"][tile.get("index", 0)]
-
-    if not tile_type_is_collidable(tile_type.get("type", "")):
+    if not tile_is_collidable(tile, tile_map):
         return {
             "collides": False,
             "shape_index": None,
@@ -238,7 +251,7 @@ def color_map(color_enum):
     }
     return lookup.get(color_enum, pr.WHITE)
 
-def draw_tile_texture_from_type(game_assets, tile_type, x, y, shape_index = 0):
+def draw_tile_texture_from_type(game_assets, tile_type, x, y, shape_index=0, tint=None):
     textures = game_assets.get("textures",{})
     texture = None    
     if tile_type.get("type") == "wood":                
@@ -250,7 +263,7 @@ def draw_tile_texture_from_type(game_assets, tile_type, x, y, shape_index = 0):
     elif tile_type.get("type") == "carpet":  #change to other tile               
         texture = textures["orange_tile_texture"]
     if texture is not None:
-        draw_masked_tile_texture(texture, pr.Vector2(x, y), shape_index, game_assets)
+        draw_masked_tile_texture(texture, pr.Vector2(x, y), shape_index, game_assets, tint=tint)
         
     
 def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True):
@@ -269,20 +282,30 @@ def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen, mark_
     if mark_revision and len(seen) > initial_seen_count:
         mark_tile_map_geometry_dirty(tile_map)
 
-def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True):
+def set_tile_force_collidable(tile, enabled):
+    """Store only an enabled per-instance override; absence means use tile-type policy."""
+    if enabled:
+        tile["force_collidable"] = True
+    else:
+        tile.pop("force_collidable", None)
+
+
+def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True, force_collidable=False):
     initial_seen_count = len(seen)
 
-    if mark_revision and initial == current_tile_selection:
+    if mark_revision and initial == current_tile_selection and bool(tile_map["tiles"][y*map_width + x].get("force_collidable", False)) == bool(force_collidable):
         return
 
     if x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] != initial) or (x,y) in seen:
         return
     seen[(x,y)] = True
-    tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection
-    do_flood_fill_replace(initial, current_tile_selection, x, y+1, tile_map, map_width, seen, False)
-    do_flood_fill_replace(initial, current_tile_selection, x, y-1, tile_map, map_width, seen, False)
-    do_flood_fill_replace(initial, current_tile_selection, x+1, y, tile_map, map_width, seen, False)
-    do_flood_fill_replace(initial, current_tile_selection, x-1, y, tile_map, map_width, seen, False)
+    edited_tile = tile_map["tiles"][y*map_width + x]
+    edited_tile["index"] = current_tile_selection
+    set_tile_force_collidable(edited_tile, force_collidable)
+    do_flood_fill_replace(initial, current_tile_selection, x, y+1, tile_map, map_width, seen, False, force_collidable)
+    do_flood_fill_replace(initial, current_tile_selection, x, y-1, tile_map, map_width, seen, False, force_collidable)
+    do_flood_fill_replace(initial, current_tile_selection, x+1, y, tile_map, map_width, seen, False, force_collidable)
+    do_flood_fill_replace(initial, current_tile_selection, x-1, y, tile_map, map_width, seen, False, force_collidable)
 
     if mark_revision and len(seen) > initial_seen_count:
         mark_tile_map_geometry_dirty(tile_map)
@@ -290,19 +313,15 @@ def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_w
         
         
 
-def get_tile_cost(tile_type):
-    tile_costs = {
-        "wall" : 999999999, 
-    }
-    
-
-    return tile_costs.get(tile_type.get("type",""), 1)
+def get_tile_cost(tile, tile_map):
+    return 999999999 if tile_is_collidable(tile, tile_map) else 1
 
 def graph_cost(tile_a, tile_b, tile_map):
-    a_type = get_tile_type_from_indices(tile_a.get("tile_x"), tile_a.get("tile_y"), tile_map)
-    b_type = get_tile_type_from_indices(tile_b.get("tile_x"), tile_b.get("tile_y"), tile_map)
-    a_cost = get_tile_cost(a_type)    
-    b_cost = get_tile_cost(b_type)
+    map_width = tile_map["map_width"]
+    a_tile = tile_map["tiles"][tile_a.get("tile_y") * map_width + tile_a.get("tile_x")]
+    b_tile = tile_map["tiles"][tile_b.get("tile_y") * map_width + tile_b.get("tile_x")]
+    a_cost = get_tile_cost(a_tile, tile_map)
+    b_cost = get_tile_cost(b_tile, tile_map)
     # do we want the sum....hrmm....
     # or could there be a special cost when transitioning beteen
     # special tiles even?
@@ -385,8 +404,9 @@ def filter_invalid_neighbours(current_neighbours, tile_map):
         candidate = pair[0]
         problem_tile = pair[1]
         if candidate in current_neighbours:
-            tile_type = get_tile_type_from_indices(current_neighbours[candidate]["tile_x"], current_neighbours[candidate]["tile_y"], tile_map)
-            if tile_type_is_collidable(tile_type.get("type","")):
+            candidate_position = current_neighbours[candidate]
+            candidate_tile = tile_map["tiles"][candidate_position["tile_y"] * tile_map["map_width"] + candidate_position["tile_x"]]
+            if tile_is_collidable(candidate_tile, tile_map):
                 to_remove.add(problem_tile)    
 
     for key, tile in current_neighbours.items():        
@@ -414,7 +434,7 @@ def tile_not_in_bounds(tile_x, tile_y, tile_map):
 def tile_in_bounds(tile_x, tile_y, tile_map):
     return not tile_not_in_bounds(tile_x, tile_y, tile_map)
 
-def draw_masked_tile_texture(texture, render_pos, shape_index, game_assets, scale=1.0):
+def draw_masked_tile_texture(texture, render_pos, shape_index, game_assets, scale=1.0, tint=None):
     tile_mask = game_assets["shaders"]["tile_mask"]
     shader = tile_mask["shader"]
     shape_index_location = tile_mask["shape_index_location"]
@@ -424,11 +444,29 @@ def draw_masked_tile_texture(texture, render_pos, shape_index, game_assets, scal
     pr.set_shader_value(shader, shape_index_location, shape_index_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_INT)
 
     pr.begin_shader_mode(shader)
-    pr.draw_texture_ex(texture, render_pos, 0.0, scale, pr.WHITE)
+    pr.draw_texture_ex(texture, render_pos, 0.0, scale, tint or pr.WHITE)
     pr.end_shader_mode()
-    
 
-def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, draw_tiles, draw_entities):
+
+def draw_tile_shape_tint(render_pos, shape_index, tile_width, tile_height, color):
+    x = float(render_pos.x)
+    y = float(render_pos.y)
+    width = float(tile_width)
+    height = float(tile_height)
+    if shape_index == 0:
+        pr.draw_rectangle(int(x), int(y), int(width), int(height), color)
+        return
+    vertices = {
+        1: ((x, y), (x + width, y), (x, y + height)),
+        2: ((x, y), (x + width, y), (x + width, y + height)),
+        3: ((x + width, y), (x + width, y + height), (x, y + height)),
+        4: ((x, y), (x + width, y + height), (x, y + height)),
+    }.get(shape_index)
+    if vertices is not None:
+        pr.draw_triangle(*(pr.Vector2(*vertex) for vertex in vertices), color)
+
+
+def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, ignore, player_entity, mode, debug_queue, draw_tiles, draw_entities):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
@@ -485,6 +523,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
             shape_to_draw = g_tile_collision_shapes[shape_index]
             color_to_draw = tile_map["tile_types"][tile_index].get("color")
             tile_color = color_map(color_to_draw)
+            editor_collision_tint = should_tint_forced_collision_tile(tile_to_draw, mode)
             
             tile_type = tile_map["tile_types"][tile_index]
 
@@ -504,14 +543,16 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                         # get the initial tile
                         initial = tile_map["tiles"][y*map_width + x]["index"]
                         seen = {}
-                        if initial != current_tile_selection:
-                            do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen)
+                        initial_force_collidable = bool(tile_map["tiles"][y*map_width + x].get("force_collidable", False))
+                        if initial != current_tile_selection or initial_force_collidable != bool(current_tile_force_collidable):
+                            do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, force_collidable=current_tile_force_collidable)
 
                     if g_ui.interactive_mouse_left_down():
                         edited_tile = tile_map["tiles"][y*map_width + x]
-                        if edited_tile.get("index", 0) != current_tile_selection or edited_tile.get("shape_index", 0) != current_shape_selection:
+                        if edited_tile.get("index", 0) != current_tile_selection or edited_tile.get("shape_index", 0) != current_shape_selection or bool(edited_tile.get("force_collidable", False)) != bool(current_tile_force_collidable):
                             edited_tile["index"] = current_tile_selection
                             edited_tile["shape_index"] = current_shape_selection
+                            set_tile_force_collidable(edited_tile, current_tile_force_collidable)
                             mark_tile_map_geometry_dirty(tile_map)
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
@@ -570,6 +611,8 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "carpet":  #change to other tile               
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, shape_index, game_assets)
+            if editor_collision_tint:
+                draw_tile_shape_tint(render_pos, shape_index, tile_width, tile_height, pr.Color(255, 70, 180, 128))
             if is_highlight:
                 pr.draw_rectangle_lines(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, pr.WHITE)
 
@@ -650,11 +693,11 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                         pr.draw_text(f"BAM {attack_timer}/{attack_cooldown}", texture_x, texture_y - 20, 10, pr.RED)
 
 
-def update_render_tile_map_base(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
-    _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, True, False)
+def update_render_tile_map_base(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, ignore, player_entity, mode, debug_queue):
+    _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, ignore, player_entity, mode, debug_queue, True, False)
 
 def draw_world_entities(game_camera, entities, tile_map, game_assets, ignore, player_entity, mode, debug_queue):
-    _render_world_scene_phase(game_camera, entities, tile_map, pr.Vector2(0, 0), 0, 0, 0, game_assets, ignore, player_entity, mode, debug_queue, False, True)
+    _render_world_scene_phase(game_camera, entities, tile_map, pr.Vector2(0, 0), 0, 0, 0, False, game_assets, ignore, player_entity, mode, debug_queue, False, True)
 
 def draw_sorted_world_debug(render_items, occluding_items, game_camera, outlined_items=None):
     occluding_ids = {item.get("source_id", item.get("id")) for item in occluding_items}
@@ -672,8 +715,8 @@ def draw_sorted_world_debug(render_items, occluding_items, game_camera, outlined
         if source_id in outlined_ids:
             pr.draw_text(f"outline: {item.get('outline', {}).get('policy', 'never')}", base_x + 3, base_y + 2, 6, pr.GOLD)
 
-def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
-    _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, True, True)
+def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, ignore, player_entity, mode, debug_queue):
+    _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, ignore, player_entity, mode, debug_queue, True, True)
 
 
 def transition_debug_state(current):
@@ -1798,10 +1841,10 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
 
         
 
-        found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
+        found_tile = tile_map["tiles"][test_tiles.get("tile_y", 0) * tile_map["map_width"] + test_tiles.get("tile_x", 0)]
 
 
-        if tile_type_is_collidable(found_tile.get("type","")):
+        if tile_is_collidable(found_tile, tile_map):
             if g_test_see_through_walls:
                 continue # to test see through walls
             if debug_queue is not None:
@@ -1858,10 +1901,10 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
         
         if tile_not_in_bounds(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map):
             continue
-        found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
+        found_tile = tile_map["tiles"][test_tiles.get("tile_y", 0) * tile_map["map_width"] + test_tiles.get("tile_x", 0)]
 
 
-        if tile_type_is_collidable(found_tile.get("type","")):            
+        if tile_is_collidable(found_tile, tile_map):
             if debug_queue is not None:
                 debug_item = {
                     "type" : "tile",
@@ -2223,14 +2266,14 @@ def check_collision_on_tilemap(entity_id, potential_pos, new_pos_velocity, tile_
     new_pos_y_direction['y'] += new_pos_velocity['y'] * dt
 
     # these need to be adjusted!!!!
-    tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
-    tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
-    
-    
-    if tile_type_is_collidable(tile_at_pos_x):
-        collisions["x"] = True            
-    if tile_type_is_collidable(tile_at_pos_y):
-        collisions["y"] = True            
+    collision_x = get_tile_shape_collision(new_pos_x_direction, tile_map)
+    collision_y = get_tile_shape_collision(new_pos_y_direction, tile_map)
+
+
+    if collision_x["collides"]:
+        collisions["x"] = True
+    if collision_y["collides"]:
+        collisions["y"] = True
     return collisions
 
 def copy_entity_pos(existing):
@@ -3086,7 +3129,7 @@ def apply_force(entity, force):
     pass
     
 
-def transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):    
+def transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
     player_pos = player_info.get("position",{}) # top left
     # TODO in addition to line of sight
     # need like a line of sound / within earshot function
@@ -3230,7 +3273,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             flat_index = get_flat_tile_index(tile_x, tile_y, tile_map)
             tile_at_index = get_tile_at_index(flat_index, tile_map)
 
-            if tile_type_is_collidable(tile_map["tile_types"][tile_at_index["index"]]["type"]):
+            if tile_is_collidable(tile_at_index, tile_map):
                 particle["velocity"] = {"x" : 0, "y" : 0}
             # BUG we currently allow particles to travel through walls which is wrong obviously
             if place_decal:
@@ -3315,7 +3358,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     costly_updates = 0
     max_costly_updates_per_frame = 2
 
-    for entity in entities.get("brains",{}).values():                        
+    for entity in entities.get("brains",{}).values():
         
 
         if entity.get("type","") == "red head":
@@ -4156,6 +4199,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if do_load_level and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(90, 30, 340, 230)):
         g_ui.ui_capture_mouse(ui_state)
 
+    if editor_mode == "tile" and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(330, 40, 142, 18)):
+        g_ui.ui_capture_mouse(ui_state)
+
     g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
 
     
@@ -4166,6 +4212,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
     current_tile_selection = main_arena.get("current_tile_selection", 0)
     current_shape_selection = main_arena.get("current_shape_selection", 0)
+    current_tile_force_collidable = bool(main_arena.get("current_tile_force_collidable", False))
 
 
     current_entity_selection = main_arena.get("current_entity_selection", 0)
@@ -4246,7 +4293,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     color_to_draw = pr.Color(33, 25, 68, 255)
     pr.begin_texture_mode(render_target)
     pr.clear_background(color_to_draw)
-    update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
+    update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
     draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
     pr.end_texture_mode()
 
@@ -4300,9 +4347,16 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if editor_mode == "tile":
         tile_type = tile_map["tile_types"][current_tile_selection]
-        draw_tile_texture_from_type(game_assets, tile_type, 275, 42, current_shape_selection)
+        draw_tile_texture_from_type(game_assets, tile_type, 275, 42, current_shape_selection, pr.PINK if current_tile_force_collidable else pr.WHITE)
         pr.draw_text(tile_type.get("type", ""), 275, 32, 8, pr.WHITE)
         pr.draw_text(g_tile_collision_shapes[current_shape_selection], 275, 60, 8, pr.WHITE)
+        current_tile_force_collidable, _ = g_ui.ui_checkbox(
+            ui_state,
+            "tile:force_collidable",
+            "force solid",
+            current_tile_force_collidable,
+            pr.Rectangle(332, 42, 92, 14),
+        )
     elif editor_mode == "entity":
         pr.draw_text(entity_types[current_entity_selection], 275, 42, 8, pr.WHITE)
 
@@ -4369,6 +4423,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["time_elapsed"] = time_elapsed + dt
     changes["current_tile_selection"] = current_tile_selection
     changes["current_shape_selection"] = current_shape_selection
+    changes["current_tile_force_collidable"] = current_tile_force_collidable
     changes["current_entity_selection"] = current_entity_selection
     changes["auto_reload"] = auto_reload    
     changes["ui_button_states"] = ui_button_states
