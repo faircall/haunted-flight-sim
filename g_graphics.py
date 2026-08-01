@@ -6,9 +6,10 @@ import pyray as pr
 from pyrsistent import m, pmap, v
 
 import g_light_visibility as light_visibility
+import g_render_order
 import g_update_and_render as game
 
-CINEMATIC_SHADOW_DEBUG_ENABLED = True
+CINEMATIC_SHADOW_DEBUG_ENABLED = False
 
 def make_lighting_profile(profile_name="inky"):
     profiles = {
@@ -241,11 +242,16 @@ def make_player_pointlight(player_entity, tile_map):
             "casts_wall_shadows": False,
             "casts_cinematic_shadows": False,
             "affects_scene": True,
+            "affects_world": False,
+            "affects_entities": True,
             "affects_fog": False,
             "affects_ai": False,
             "gameplay_intensity": 0.0,
             "mobility": "dynamic",
             "render_style": "readability",
+            "owner_id": "player",
+            "height": 18.0,
+            "entity_lighting_mode": "omni",
             "shadow_bias": 0.25,
             "enabled": True
     }
@@ -273,17 +279,22 @@ def make_player_flashlight(player_entity, tile_map):
         "direction": direction,
         "color": [1.0, 0.82, 0.62],
         "radius": 180.0,
+        "visibility_radius": 340.0,
         "intensity": 1.2,
         "falloff": 1.4,
         "casts_shadows": True,
         "casts_wall_shadows": True,
         "casts_cinematic_shadows": True,
         "affects_scene": True,
+        "affects_world": True,
+        "affects_entities": True,
         "affects_fog": True,
         "affects_ai": True,
         "gameplay_intensity": 1.0,
         "mobility": "dynamic",
         "render_style": "world",
+        "owner_id": "player",
+        "height": 22.0,
         "shadow_bias": 0.25,
         "near_fade_distance": 14.0,
         "inner_angle": 13.0,
@@ -331,8 +342,11 @@ def ensure_light_collision_grid(game_assets, tile_map):
 
 def apply_light_capability_defaults(light):
     result = dict(light)
+    legacy_scene = bool(result.get("affects_scene", True))
     result.setdefault("enabled", True)
-    result.setdefault("affects_scene", True)
+    result.setdefault("affects_scene", legacy_scene)
+    result.setdefault("affects_world", legacy_scene)
+    result.setdefault("affects_entities", legacy_scene)
     result.setdefault("affects_fog", True)
     result.setdefault("affects_ai", True)
     result.setdefault("casts_wall_shadows", result.get("casts_shadows", True))
@@ -340,6 +354,7 @@ def apply_light_capability_defaults(light):
     result.setdefault("gameplay_intensity", 1.0)
     result.setdefault("mobility", "static")
     result.setdefault("render_style", "world")
+    result.setdefault("height", 180.0 if result.get("type") == "top_down" else 32.0)
     return result
 
 def collect_light_records(entities, player_entity, tile_map, game_assets):
@@ -449,6 +464,8 @@ def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene
             "receiver_tile_ids": [],
             "receiver_polygons": [],
             "affects_scene": light["affects_scene"],
+            "affects_world": light["affects_world"],
+            "affects_entities": light["affects_entities"],
             "affects_fog": light["affects_fog"],
             "affects_ai": light["affects_ai"],
             "casts_wall_shadows": light["casts_wall_shadows"],
@@ -487,7 +504,7 @@ def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene
             prepared["dda_tile_steps"] = geometry["dda_tile_steps"]
             prepared["corner_candidate_count"] = geometry["corner_candidate_count"]
             prepared["adaptive_rays_added"] = geometry["adaptive_rays_added"]
-            if light["affects_scene"]:
+            if light["affects_world"]:
                 receiver_ids, receiver_polygons = light_visibility.query_receiver_polygons(world_position, radius, collision_grid, light)
                 prepared["receiver_tile_ids"] = receiver_ids
                 prepared["receiver_polygons"] = receiver_polygons
@@ -502,85 +519,6 @@ def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene
     lighting_frame = {"collision_grid": collision_grid, "prepared_lights": prepared_lights, "prepared_by_id": prepared_by_id, "stats": stats}
     game_assets["lighting_frame_stats"] = stats
     return lighting_frame
-
-def make_default_cinematic_shadow(entity_type):
-    presets = {
-        "red head": {
-            "enabled": True,
-            "source": "sprite_alpha",
-            "length": 52.0,
-            "near_width": 0.65,
-            "far_width": 1.15,
-            "lateral_skew": 0.0,
-            "opacity": 0.58,
-            "color": [0.008, 0.004, 0.018],
-            "anchor_offset": {"x": -12.0, "y": -3.0},
-            "near_offset": 1.0,
-            "max_light_distance": 180.0,
-            "fade_with_light_strength": True
-        },
-        "buddha": {
-            "enabled": True,
-            "source": "sprite_alpha",
-            "length": 68.0,
-            "near_width": 0.90,
-            "far_width": 1.30,
-            "lateral_skew": 0.0,
-            "opacity": 0.48,
-            "color": [0.008, 0.004, 0.018],
-            "anchor_offset": {"x": -6.0, "y": 61.0},
-            "near_offset": 1.0,
-            "max_light_distance": 180.0,
-            "fade_with_light_strength": True
-        }
-    }
-    return presets.get(entity_type)
-
-def ensure_default_cinematic_shadow(entity):
-    if entity.get("type") not in {"red head", "buddha"}:
-        return entity
-
-    if "cinematic_shadow" not in entity:
-        entity["cinematic_shadow"] = make_default_cinematic_shadow(entity.get("type"))
-
-    return entity
-
-def get_entity_cinematic_shadow_sprite_info(entity, game_assets, tile_map):
-    entity_type = entity.get("type")
-    world_anchor = game.make_pos_abs(entity.get("position", {}), tile_map["tile_width"], tile_map["tile_height"])
-
-    if entity_type == "red head":
-        sprite_sheet = game_assets.get("sprite_sheets", {}).get("red_head_texture_sheet", {})
-        texture = sprite_sheet.get("sheet")
-
-        if texture is None:
-            return None
-
-        frame_key = entity.get("animation_frame", 0)
-        frame_number = sprite_sheet.get(frame_key, 0)
-        return {
-            "texture": texture,
-            "source_rect": pr.Rectangle(float(frame_number) * 24.0, 0.0, 24.0, 24.0),
-            "world_anchor": world_anchor,
-            "sprite_width": 24.0,
-            "sprite_height": 24.0
-        }
-
-    if entity_type == "buddha":
-        texture = game_assets.get("textures", {}).get("buddha_texture")
-
-        if texture is None:
-            return None
-
-        return {
-            "texture": texture,
-            "source_rect": pr.Rectangle(0.0, 0.0, float(texture.width), float(texture.height)),
-            "world_anchor": world_anchor,
-            "sprite_width": float(texture.width),
-            "sprite_height": float(texture.height)
-        }
-
-    return None
 
 def point_is_on_segment(point, segment_start, segment_end, epsilon=0.0001):
     segment_x = segment_end["x"] - segment_start["x"]
@@ -627,6 +565,249 @@ def smoothstep_cpu(edge_start, edge_end, value):
     amount = max(0.0, min(1.0, (value - edge_start) / (edge_end - edge_start)))
     return amount * amount * (3.0 - 2.0 * amount)
 
+def prepared_light_reaches_point(prepared_light, point):
+    light = prepared_light.get("light", {})
+
+    if light.get("type", "point") == "top_down" or not prepared_light.get("casts_wall_shadows", False):
+        return True
+
+    polygon = prepared_light.get("visibility_polygon") or []
+
+    if light.get("type", "point") == "spot":
+        polygon = [prepared_light["world_position"]] + polygon
+
+    return point_in_polygon(point, polygon)
+
+def get_light_height(light):
+    if "height" in light:
+        return max(0.0, float(light["height"]))
+    if light.get("type", "point") == "top_down":
+        return 180.0
+    if light.get("owner_id") == "player":
+        return 22.0 if light.get("type") == "spot" else 18.0
+    return 32.0
+
+def segment_rectangle_intersection_fraction(start, end, center, size):
+    half_width = max(0.0, float(size.get("x", 0.0))) * 0.5
+    half_height = max(0.0, float(size.get("y", 0.0))) * 0.5
+
+    if half_width <= 0.000001 or half_height <= 0.000001:
+        return None
+
+    minimum = {"x": center["x"] - half_width, "y": center["y"] - half_height}
+    maximum = {"x": center["x"] + half_width, "y": center["y"] + half_height}
+    direction = {"x": end["x"] - start["x"], "y": end["y"] - start["y"]}
+    entry = 0.0
+    exit_fraction = 1.0
+
+    for axis in ("x", "y"):
+        if abs(direction[axis]) <= 0.000001:
+            if start[axis] < minimum[axis] or start[axis] > maximum[axis]:
+                return None
+            continue
+
+        first = (minimum[axis] - start[axis]) / direction[axis]
+        second = (maximum[axis] - start[axis]) / direction[axis]
+        entry = max(entry, min(first, second))
+        exit_fraction = min(exit_fraction, max(first, second))
+
+        if entry > exit_fraction:
+            return None
+
+    return entry if 0.0 <= entry <= 1.0 else None
+
+def segment_ellipse_intersection_fraction(start, end, center, size):
+    radius_x = max(0.0, float(size.get("x", 0.0))) * 0.5
+    radius_y = max(0.0, float(size.get("y", 0.0))) * 0.5
+
+    if radius_x <= 0.000001 or radius_y <= 0.000001:
+        return None
+
+    start_x = (start["x"] - center["x"]) / radius_x
+    start_y = (start["y"] - center["y"]) / radius_y
+    direction_x = (end["x"] - start["x"]) / radius_x
+    direction_y = (end["y"] - start["y"]) / radius_y
+
+    if start_x * start_x + start_y * start_y <= 1.0:
+        return 0.0
+
+    a = direction_x * direction_x + direction_y * direction_y
+    b = 2.0 * (start_x * direction_x + start_y * direction_y)
+    c = start_x * start_x + start_y * start_y - 1.0
+
+    if a <= 0.000001:
+        return None
+
+    discriminant = b * b - 4.0 * a * c
+
+    if discriminant < 0.0:
+        return None
+
+    root = math.sqrt(discriminant)
+    intersections = [fraction for fraction in ((-b - root) / (2.0 * a), (-b + root) / (2.0 * a)) if 0.0 <= fraction <= 1.0]
+    return min(intersections) if intersections else None
+
+def segment_footprint_intersection_fraction(start, end, footprint):
+    if footprint.get("shape", "rectangle") == "ellipse":
+        return segment_ellipse_intersection_fraction(start, end, footprint["center"], footprint["size"])
+    return segment_rectangle_intersection_fraction(start, end, footprint["center"], footprint["size"])
+
+def query_entity_light_occlusion(prepared_light, target_item, major_occluders):
+    light = prepared_light.get("light", {})
+    light_position = prepared_light["world_position"]
+    target_position = target_item["base_world"]
+    light_height = get_light_height(light)
+    target_height = max(0.0, float(target_item.get("light_sample_height", 0.0)))
+    owner_id = str(light.get("owner_id", ""))
+    tests = []
+
+    for occluder in major_occluders:
+        source_id = str(occluder.get("source_id", occluder.get("id", "")))
+
+        if occluder is target_item or source_id == str(target_item.get("source_id", target_item.get("id", ""))) or source_id == owner_id:
+            continue
+
+        footprint_data = occluder.get("ground_footprint_world")
+
+        if footprint_data is None:
+            footprint = occluder.get("ground_footprint", {})
+            offset = footprint.get("offset", {})
+            base = occluder.get("base_world", {})
+            footprint_data = {"shape": footprint.get("shape", "rectangle"), "center": {"x": float(base.get("x", 0.0)) + float(offset.get("x", 0.0)), "y": float(base.get("y", 0.0)) + float(offset.get("y", 0.0))}, "size": footprint.get("size", {})}
+
+        fraction = segment_footprint_intersection_fraction(light_position, target_position, footprint_data)
+
+        if fraction is None:
+            continue
+
+        ray_height = light_height + (target_height - light_height) * fraction
+        policy = occluder.get("entity_light_occluder", {})
+        occluder_height = max(0.0, float(policy.get("height", occluder.get("visual_height", 0.0))))
+        test = {"occluder": occluder, "intersection_fraction": fraction, "ray_height": ray_height, "occluder_height": occluder_height, "blocked": occluder_height + 0.000001 >= ray_height}
+        tests.append(test)
+
+        if test["blocked"]:
+            return test, tests
+
+    return None, tests
+
+def find_blocking_entity_light_occluder(prepared_light, target_item, major_occluders):
+    blocking, ignore = query_entity_light_occlusion(prepared_light, target_item, major_occluders)
+    return blocking
+
+def get_render_item_light_sample_points(render_item):
+    base = render_item.get("base_world", {})
+    bounds = render_item.get("bounds_world", {})
+    left = float(bounds.get("x", base.get("x", 0.0)))
+    top = float(bounds.get("y", base.get("y", 0.0)))
+    width = float(bounds.get("width", 0.0))
+    height = float(bounds.get("height", 0.0))
+    center_x = left + width * 0.5
+    return [
+        {"x": float(base.get("x", center_x)), "y": float(base.get("y", top + height))},
+        {"x": center_x, "y": top + height * 0.50},
+        {"x": left + width * 0.20, "y": top + height * 0.50},
+        {"x": left + width * 0.80, "y": top + height * 0.50}
+    ]
+
+def get_prepared_light_strength_for_render_item(prepared_light, render_item, collision_grid):
+    light = prepared_light.get("light", {})
+    strengths = []
+
+    for point in get_render_item_light_sample_points(render_item):
+        strength = light_visibility.get_unoccluded_light_strength_at_world_point(light, point, collision_grid)
+        strengths.append(strength if strength > 0.0 and prepared_light_reaches_point(prepared_light, point) else 0.0)
+
+    return max(strengths, default=0.0)
+
+def make_empty_entity_self_shadow_summary():
+    return {"face_exposure": [1.0, 0.0, 0.0, 0.0], "omni_exposure": 0.0, "world_occlusion_scale": 1.0, "blocked_direct_count": 0, "sampled_world_strength": 0.0, "visible_world_strength": 0.0}
+
+def calculate_entity_self_shadow_at_u(summary, policy, local_u):
+    if policy.get("mode", "none") != "upright_box":
+        return 1.0
+
+    exposure = list(summary.get("face_exposure", [1.0, 0.0, 0.0, 0.0]))
+
+    while len(exposure) < 4:
+        exposure.append(0.0)
+
+    softness = max(0.001, min(0.49, float(policy.get("softness", 0.10))))
+    right_mask = smoothstep_cpu(0.5 - softness, 0.5 + softness, max(0.0, min(1.0, float(local_u))))
+    shaped = float(summary.get("omni_exposure", 0.0)) + exposure[0] + exposure[1] * max(0.0, min(1.0, float(policy.get("back_fill", 0.06)))) + exposure[2] * (1.0 - right_mask) + exposure[3] * right_mask
+    strength = max(0.0, min(1.0, float(policy.get("strength", 0.0))))
+    return (1.0 - strength) + strength * max(0.0, min(1.0, shaped))
+
+def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, collision_grid, collect_diagnostics=False):
+    summaries = {}
+    diagnostics = []
+
+    for item in render_items:
+        policy = item.get("self_shadow", {})
+        summary = make_empty_entity_self_shadow_summary()
+        face_totals = [0.0, 0.0, 0.0, 0.0]
+        omni_total = 0.0
+        sampled_total = 0.0
+        visible_total = 0.0
+
+        for prepared_light in prepared_lights:
+            light = prepared_light.get("light", {})
+
+            if not prepared_light.get("affects_entities", light.get("affects_entities", light.get("affects_scene", True))) or not light.get("enabled", True) or light.get("render_style", "world") != "world":
+                continue
+
+            strength = get_prepared_light_strength_for_render_item(prepared_light, item, collision_grid)
+
+            if strength <= 0.000001:
+                continue
+
+            sampled_total += strength
+            bypass_occlusion = light.get("type") == "top_down" and not light.get("entity_occlusion_enabled", False)
+            blocking, occlusion_tests = (None, []) if bypass_occlusion else query_entity_light_occlusion(prepared_light, item, major_occluders)
+
+            if collect_diagnostics:
+                for test in occlusion_tests:
+                    diagnostics.append({"light_id": prepared_light.get("id"), "target_id": item.get("source_id"), "occluder_id": test["occluder"].get("source_id"), "light_position": dict(prepared_light["world_position"]), "target_position": dict(item["base_world"]), "intersection_fraction": test["intersection_fraction"], "ray_height": test["ray_height"], "occluder_height": test["occluder_height"], "blocked": test["blocked"]})
+
+            if blocking is not None:
+                summary["blocked_direct_count"] += 1
+                continue
+
+            visible_total += strength
+            mode = policy.get("mode", "none")
+            is_omni = mode != "upright_box" or light.get("type") == "top_down" or light.get("entity_lighting_mode") in {"omni", "overhead"}
+
+            if is_omni:
+                omni_total += strength
+                continue
+
+            to_light = light_visibility.normalize_vector({"x": prepared_light["world_position"]["x"] - item["base_world"]["x"], "y": prepared_light["world_position"]["y"] - item["base_world"]["y"]})
+
+            if to_light is None:
+                omni_total += strength
+                continue
+
+            face_scale = max(0.000001, abs(to_light["x"]) + abs(to_light["y"]))
+            face_totals[0] += strength * max(0.0, to_light["y"]) / face_scale
+            face_totals[1] += strength * max(0.0, -to_light["y"]) / face_scale
+            face_totals[2] += strength * max(0.0, -to_light["x"]) / face_scale
+            face_totals[3] += strength * max(0.0, to_light["x"]) / face_scale
+
+        summary["sampled_world_strength"] = sampled_total
+        summary["visible_world_strength"] = visible_total
+
+        if sampled_total > 0.000001:
+            summary["world_occlusion_scale"] = max(0.0, min(1.0, visible_total / sampled_total))
+
+        if visible_total > 0.000001:
+            summary["face_exposure"] = [value / visible_total for value in face_totals]
+            summary["omni_exposure"] = omni_total / visible_total
+
+        item["self_shadow_summary"] = summary
+        summaries[item.get("source_id", str(item.get("id")))] = summary
+
+    return {"summaries": summaries, "occlusion_tests": diagnostics}
+
 def get_spot_light_strength_at_world_point(light, world_point, tile_map):
     light_position = get_light_world_position(light, tile_map)
     from_light = game.vec2_subtract(world_point, light_position)
@@ -659,12 +840,8 @@ def get_spot_light_strength_at_world_point(light, world_point, tile_map):
     strength = radial_strength * cone_strength * near_strength * max(0.0, float(light.get("intensity", 1.0)))
     return max(0.0, min(1.0, strength))
 
-def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_position):
-    anchor_offset = shadow_settings.get("anchor_offset", {})
-    floor_anchor = {
-        "x": sprite_info["world_anchor"]["x"] + float(anchor_offset.get("x", 0.0)),
-        "y": sprite_info["world_anchor"]["y"] + float(anchor_offset.get("y", 0.0))
-    }
+def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_position, light_height):
+    floor_anchor = dict(sprite_info["base_world"])
     from_light = game.vec2_subtract(floor_anchor, flashlight_position)
     distance_from_light = game.vec2_norm(from_light)
 
@@ -673,7 +850,10 @@ def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_positio
 
     projection_direction = game.vec2_scale(from_light, 1.0 / distance_from_light)
     side_direction = {"x": -projection_direction["y"], "y": projection_direction["x"]}
-    length = max(0.0, float(shadow_settings.get("length", 56.0)))
+    cast_height = max(0.0, float(shadow_settings.get("cast_height", sprite_info.get("visual_height", 0.0))))
+    length = g_render_order.calculate_shadow_length(shadow_settings, distance_from_light, light_height, sprite_info.get("visual_height", 0.0))
+    if length is None:
+        return None
     near_offset = float(shadow_settings.get("near_offset", 1.0))
     lateral_skew = float(shadow_settings.get("lateral_skew", 0.0))
     near_half_width = sprite_info["sprite_width"] * max(0.0, float(shadow_settings.get("near_width", 0.70))) * 0.5
@@ -688,7 +868,163 @@ def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_positio
         "near_left": game.vec2_subtract(near_center, game.vec2_scale(side_direction, near_half_width)),
         "near_right": game.vec2_add(near_center, game.vec2_scale(side_direction, near_half_width)),
         "far_left": game.vec2_subtract(far_center, game.vec2_scale(side_direction, far_half_width)),
-        "far_right": game.vec2_add(far_center, game.vec2_scale(side_direction, far_half_width))
+        "far_right": game.vec2_add(far_center, game.vec2_scale(side_direction, far_half_width)),
+        "length": length,
+        "cast_height": cast_height,
+        "light_height": light_height
+    }
+
+def resolve_render_item_texture(render_item, game_assets):
+    reference = render_item.get("texture", {})
+    asset = game_assets.get(reference.get("collection", ""), {}).get(reference.get("name"))
+    return asset.get(reference.get("field")) if isinstance(asset, dict) and reference.get("field") is not None else asset
+
+def set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting):
+    shader = shader_info["shader"]
+    summary = render_item.get("self_shadow_summary", {})
+    policy = render_item.get("self_shadow", {})
+    ambient = normalize_light_color(lighting_profile.get("ambient_color", [0.18, 0.14, 0.26]))
+    shadow = normalize_light_color(lighting_profile.get("shadow_color", [0.0, 0.0, 0.0]))
+    exposure = list(summary.get("face_exposure", [1.0, 0.0, 0.0, 0.0]))
+
+    while len(exposure) < 4:
+        exposure.append(0.0)
+
+    source = render_item["source_rect"]
+    texture_width = max(1.0, float(texture.width))
+    texture_height = max(1.0, float(texture.height))
+    set_shader_vec2(shader, shader_info["resolution_location"], entity_lighting.texture.width, entity_lighting.texture.height)
+    set_shader_vec2(shader, shader_info["source_uv_min_location"], source["x"] / texture_width, source["y"] / texture_height)
+    set_shader_vec2(shader, shader_info["source_uv_max_location"], (source["x"] + source["width"]) / texture_width, (source["y"] + source["height"]) / texture_height)
+    set_shader_vec4(shader, shader_info["face_exposure_location"], exposure[0], exposure[1], exposure[2], exposure[3])
+    set_shader_float(shader, shader_info["omni_exposure_location"], summary.get("omni_exposure", 0.0))
+    set_shader_float(shader, shader_info["world_occlusion_scale_location"], summary.get("world_occlusion_scale", 1.0))
+    set_shader_float(shader, shader_info["self_shadow_enabled_location"], 1.0 if policy.get("mode", "none") == "upright_box" else 0.0)
+    set_shader_float(shader, shader_info["self_shadow_strength_location"], policy.get("strength", 0.0))
+    set_shader_float(shader, shader_info["self_shadow_softness_location"], policy.get("softness", 0.10))
+    set_shader_float(shader, shader_info["self_shadow_back_fill_location"], policy.get("back_fill", 0.06))
+    set_shader_vec3(shader, shader_info["ambient_color_location"], ambient[0], ambient[1], ambient[2])
+    set_shader_vec3(shader, shader_info["shadow_color_location"], shadow[0], shadow[1], shadow[2])
+    set_shader_float(shader, shader_info["ambient_strength_location"], lighting_profile.get("ambient_strength", 0.3))
+    set_shader_float(shader, shader_info["direct_light_strength_location"], lighting_profile.get("direct_light_strength", 1.0))
+    set_shader_float(shader, shader_info["black_point_location"], lighting_profile.get("black_point", 0.1))
+    set_shader_float(shader, shader_info["shadow_softness_location"], lighting_profile.get("shadow_softness", 0.03))
+    set_shader_float(shader, shader_info["shadow_detail_location"], lighting_profile.get("shadow_detail", 0.0))
+    set_shader_float(shader, shader_info["contrast_location"], lighting_profile.get("contrast", 1.0))
+    set_shader_float(shader, shader_info["light_posterize_enabled_location"], 1.0 if lighting_profile.get("light_posterize_enabled", True) else 0.0)
+    set_shader_float(shader, shader_info["light_posterize_levels_location"], lighting_profile.get("light_posterize_levels", 8.0))
+    set_shader_float(shader, shader_info["light_dither_enabled_location"], 1.0 if lighting_profile.get("light_dither_enabled", False) else 0.0)
+    set_shader_float(shader, shader_info["light_dither_strength_location"], lighting_profile.get("light_dither_strength", 0.5))
+    set_shader_float(shader, shader_info["posterize_ambient_location"], 1.0 if lighting_profile.get("posterize_ambient", False) else 0.0)
+
+def begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting):
+    set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting)
+    pr.begin_shader_mode(shader_info["shader"])
+    set_shader_texture(shader_info["shader"], shader_info["entity_light_texture_location"], entity_lighting.texture)
+    set_shader_texture(shader_info["shader"], shader_info["entity_readability_light_texture_location"], entity_readability_lighting.texture)
+
+def draw_sorted_world_render_items(render_items, game_camera, game_assets, lighting_profile, entity_lighting=None, entity_readability_lighting=None, player_entity=None):
+    camera_x = float(game_camera.x)
+    camera_y = float(game_camera.y)
+
+    for item in render_items:
+        texture = resolve_render_item_texture(item, game_assets)
+
+        if texture is None:
+            continue
+
+        source = item["source_rect"]
+        destination = item["dest_rect"]
+        source_rect = pr.Rectangle(source["x"], source["y"], source["width"], source["height"])
+        destination_rect = pr.Rectangle(destination["x"] - camera_x, destination["y"] - camera_y, destination["width"], destination["height"])
+        shader_info = game_assets.get("shaders", {}).get("entity_self_shadow")
+        use_shader = entity_lighting is not None and entity_readability_lighting is not None and shader_info is not None
+
+        if use_shader:
+            begin_entity_self_shadow_shader(shader_info, item, texture, lighting_profile, entity_lighting, entity_readability_lighting)
+
+        pr.draw_texture_pro(texture, source_rect, destination_rect, pr.Vector2(0, 0), 0, pr.WHITE)
+
+        if use_shader:
+            pr.end_shader_mode()
+
+        if item.get("source") != "player":
+            continue
+
+        draw_data = item.get("draw_data", {})
+        center = draw_data.get("center_world", {})
+        gun = draw_data.get("gun_world", {})
+        pistol = draw_data.get("pistol_world", {})
+        center_screen = pr.Vector2(center.get("x", 0.0) - camera_x, center.get("y", 0.0) - camera_y)
+        gun_screen = pr.Vector2(gun.get("x", 0.0) - camera_x, gun.get("y", 0.0) - camera_y)
+        pistol_screen = pr.Vector2(pistol.get("x", 0.0) - camera_x, pistol.get("y", 0.0) - camera_y)
+
+        if player_entity is not None:
+            player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
+
+        pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))
+        pistol_texture = game_assets.get("textures", {}).get(draw_data.get("pistol_texture", "pistol_texture"))
+
+        if pistol_texture is None:
+            continue
+
+        if use_shader:
+            pistol_item = dict(item)
+            pistol_item["source_rect"] = {"x": 0.0, "y": 0.0, "width": float(pistol_texture.width), "height": float(pistol_texture.height)}
+            pistol_item["self_shadow"] = {"mode": "none"}
+            begin_entity_self_shadow_shader(shader_info, pistol_item, pistol_texture, lighting_profile, entity_lighting, entity_readability_lighting)
+
+        pr.draw_texture_ex(pistol_texture, pistol_screen, float(draw_data.get("pistol_angle", 0.0)), 0.5, pr.WHITE)
+
+        if use_shader:
+            pr.end_shader_mode()
+
+def draw_entity_self_shadow_debug(render_items, major_occluders, entity_self_shadow_frame, game_camera):
+    blocker_ids = {item.get("source_id") for item in major_occluders}
+
+    for item in render_items:
+        base = item["base_world"]
+        base_x = base["x"] - game_camera.x
+        base_y = base["y"] - game_camera.y
+        summary = item.get("self_shadow_summary", {})
+        exposure = summary.get("face_exposure", [0.0, 0.0, 0.0, 0.0])
+        pr.draw_line(int(base_x), int(base_y), int(base_x), int(base_y + 14.0), pr.CYAN)
+        footprint = g_render_order.get_world_ground_footprint(item)
+        centre_x = footprint["center"]["x"] - game_camera.x
+        centre_y = footprint["center"]["y"] - game_camera.y
+        size = footprint["size"]
+        color = pr.MAGENTA if item.get("source_id") in blocker_ids else pr.SKYBLUE
+
+        if footprint["shape"] == "rectangle":
+            pr.draw_rectangle_lines(int(centre_x - size["x"] * 0.5), int(centre_y - size["y"] * 0.5), int(size["x"]), int(size["y"]), color)
+        else:
+            pr.draw_ellipse_lines(int(centre_x), int(centre_y), size["x"] * 0.5, size["y"] * 0.5, color)
+
+        text = f"faces {exposure[0]:.2f}/{exposure[1]:.2f}/{exposure[2]:.2f}/{exposure[3]:.2f} omni={summary.get('omni_exposure', 0.0):.2f} occ={summary.get('world_occlusion_scale', 1.0):.2f}"
+        pr.draw_text(text, int(base_x + 3), int(base_y + 8), 6, color)
+
+    for test in entity_self_shadow_frame.get("occlusion_tests", []):
+        start = test["light_position"]
+        end = test["target_position"]
+        fraction = test["intersection_fraction"]
+        intersection_x = start["x"] + (end["x"] - start["x"]) * fraction
+        intersection_y = start["y"] + (end["y"] - start["y"]) * fraction
+        color = pr.RED if test.get("blocked", False) else pr.LIME
+        pr.draw_line(int(start["x"] - game_camera.x), int(start["y"] - game_camera.y), int(end["x"] - game_camera.x), int(end["y"] - game_camera.y), color)
+        pr.draw_text(f"{'blocked' if test.get('blocked', False) else 'passed'} z={test['ray_height']:.1f}/{test['occluder_height']:.1f}", int(intersection_x - game_camera.x), int(intersection_y - game_camera.y), 6, color)
+
+def get_render_item_shadow_sprite_info(render_item, game_assets):
+    texture = resolve_render_item_texture(render_item, game_assets)
+    if texture is None:
+        return None
+    source = render_item.get("source_rect", {})
+    return {
+        "texture": texture,
+        "source_rect": pr.Rectangle(float(source.get("x", 0.0)), float(source.get("y", 0.0)), float(source.get("width", texture.width)), float(source.get("height", texture.height))),
+        "base_world": dict(render_item.get("base_world", {})),
+        "sprite_width": float(render_item.get("dest_rect", {}).get("width", source.get("width", texture.width))),
+        "sprite_height": float(render_item.get("dest_rect", {}).get("height", source.get("height", texture.height))),
+        "visual_height": float(render_item.get("visual_height", source.get("height", texture.height)))
     }
 
 def draw_textured_quad(texture, source_rect, far_left, far_right, near_right, near_left):
@@ -720,52 +1056,61 @@ def draw_textured_quad(texture, source_rect, far_left, far_right, near_right, ne
     pr.rl_end()
     pr.rl_set_texture(0)
 
-def build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets, prepared_flashlight):
+def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashlight):
     if prepared_flashlight is None or not prepared_flashlight.get("casts_cinematic_shadows", False):
         return None
 
     flashlight = prepared_flashlight["light"]
     flashlight_position = prepared_flashlight["world_position"]
+    light_height = max(0.0, float(flashlight.get("height", 22.0)))
     visibility_light = flashlight
     visibility_polygon = prepared_flashlight.get("cinematic_visibility_polygon") or prepared_flashlight.get("visibility_polygon") or []
     visibility_area = [flashlight_position] + visibility_polygon if flashlight.get("type") == "spot" else visibility_polygon
     shadows = []
+    skipped = []
 
-    for entity in entities.get("brains", {}).values():
-        ensure_default_cinematic_shadow(entity)
-        shadow_settings = entity.get("cinematic_shadow")
-
-        if not shadow_settings or not shadow_settings.get("enabled", True) or shadow_settings.get("source", "sprite_alpha") != "sprite_alpha":
+    for render_item in render_items:
+        source_id = render_item.get("source_id", str(render_item.get("id")))
+        shadow_settings = render_item.get("shadow", {})
+        shadow_mode = shadow_settings.get("mode", "none")
+        if not shadow_settings.get("enabled", True):
+            skipped.append({"source_id": source_id, "reason": "disabled"})
             continue
-
-        sprite_info = get_entity_cinematic_shadow_sprite_info(entity, game_assets, tile_map)
-
+        if shadow_mode == "none":
+            skipped.append({"source_id": source_id, "reason": "shadow mode none"})
+            continue
+        cast_height = max(0.0, float(shadow_settings.get("cast_height", render_item.get("visual_height", 0.0))))
+        if cast_height <= 0.0001:
+            skipped.append({"source_id": source_id, "reason": "zero/invalid height"})
+            continue
+        sprite_info = get_render_item_shadow_sprite_info(render_item, game_assets)
         if sprite_info is None:
+            skipped.append({"source_id": source_id, "reason": "missing texture/frame"})
             continue
-
-        shadow_quad = build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_position)
-
+        shadow_quad = build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_position, light_height)
         if shadow_quad is None:
+            skipped.append({"source_id": source_id, "reason": "invalid projection"})
             continue
-
         floor_anchor = shadow_quad["floor_anchor"]
         distance_from_light = game.vec2_distance(floor_anchor, flashlight_position)
-
         if distance_from_light > max(0.0, float(shadow_settings.get("max_light_distance", 180.0))):
+            skipped.append({"source_id": source_id, "reason": "outside light radius"})
             continue
-
-        flashlight_strength = get_spot_light_strength_at_world_point(flashlight, floor_anchor, tile_map)
-
-        if flashlight_strength <= 0.0 or not point_in_polygon(floor_anchor, visibility_area):
+        if distance_from_light > max(0.0, float(flashlight.get("radius", 180.0))):
+            skipped.append({"source_id": source_id, "reason": "outside light radius"})
             continue
-
+        flashlight_strength = light_visibility.get_unoccluded_light_strength_at_world_point(flashlight, floor_anchor, {"tile_width": 1, "tile_height": 1})
+        if flashlight_strength <= 0.0:
+            skipped.append({"source_id": source_id, "reason": "outside cone"})
+            continue
+        if not point_in_polygon(floor_anchor, visibility_area):
+            skipped.append({"source_id": source_id, "reason": "behind tile wall"})
+            continue
         shadow_opacity = max(0.0, min(1.0, float(shadow_settings.get("opacity", 0.58))))
-
         if shadow_settings.get("fade_with_light_strength", True):
             shadow_opacity *= flashlight_strength
-
         shadows.append({
-            "entity": entity,
+            "render_item": render_item,
             "sprite_info": sprite_info,
             "settings": shadow_settings,
             "quad": shadow_quad,
@@ -777,7 +1122,9 @@ def build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_as
         "flashlight_position": flashlight_position,
         "visibility_light": visibility_light,
         "visibility_polygon": visibility_polygon,
-        "shadows": shadows
+        "shadows": shadows,
+        "skipped": skipped,
+        "light_height": light_height
     }
 
 def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, light_shader, include_receivers=True, shader_mode_active=False):
@@ -899,7 +1246,7 @@ def draw_ringed_circular_light(x, y, rings, ring_size, ring_radius, red, green, 
         pr.draw_circle(int(x), int(y), radius, pr.Color(red,green,blue,alpha))
 
 def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_target, game_assets, target_kind, render_style=None):
-    if target_kind not in {"scene", "fog"}:
+    if target_kind not in {"world", "entities", "fog"}:
         raise ValueError(f"unknown prepared light target kind: {target_kind}")
 
     draw_started = time.perf_counter()
@@ -907,7 +1254,7 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
     pr.clear_background(pr.BLACK)
     pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
 
-    capability = "affects_scene" if target_kind == "scene" else "affects_fog"
+    capability = {"world": "affects_world", "entities": "affects_entities", "fog": "affects_fog"}[target_kind]
 
     target_lights = [prepared_light for prepared_light in prepared_lights if prepared_light[capability]]
 
@@ -922,7 +1269,7 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
 
         for prepared_light in radial_lights:
             pr.rl_draw_render_batch_active()
-            draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, light_shader, target_kind == "scene", True)
+            draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, light_shader, target_kind == "world", True)
 
         pr.end_shader_mode()
 
@@ -943,11 +1290,16 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
 def render_prepared_lighting(lighting_frame, game_camera, lighting_target, game_assets):
     fog_light_target = get_or_create_render_target(game_assets, "fog_light", lighting_target.texture.width, lighting_target.texture.height)
     readability_light_target = get_or_create_render_target(game_assets, "readability_light", lighting_target.texture.width, lighting_target.texture.height)
+    entity_light_target = get_or_create_render_target(game_assets, "entity_light", lighting_target.texture.width, lighting_target.texture.height)
+    entity_readability_light_target = get_or_create_render_target(game_assets, "entity_readability_light", lighting_target.texture.width, lighting_target.texture.height)
     lighting_frame["stats"]["fog_draw_time_ms"] = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, fog_light_target, game_assets, "fog")
-    world_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, lighting_target, game_assets, "scene", "world")
-    readability_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, readability_light_target, game_assets, "scene", "readability")
+    world_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, lighting_target, game_assets, "world", "world")
+    readability_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, readability_light_target, game_assets, "world", "readability")
+    entity_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, entity_light_target, game_assets, "entities", "world")
+    entity_readability_draw_time = render_prepared_lights_to_target(lighting_frame["prepared_lights"], game_camera, entity_readability_light_target, game_assets, "entities", "readability")
     lighting_frame["stats"]["scene_draw_time_ms"] = world_draw_time + readability_draw_time
-    return fog_light_target, readability_light_target
+    lighting_frame["stats"]["entity_draw_time_ms"] = entity_draw_time + entity_readability_draw_time
+    return fog_light_target, readability_light_target, entity_light_target, entity_readability_light_target
 
 def draw_lighting_stats_debug(stats, x=4, y=4):
     cache_lookups = stats.get("visibility_cache_hits", 0) + stats.get("visibility_cache_misses", 0)
@@ -956,7 +1308,7 @@ def draw_lighting_stats_debug(stats, x=4, y=4):
         f"lights {stats.get('active_light_count', 0)} shadowed {stats.get('shadowed_radial_light_count', 0)}",
         f"cache {cache_rate:.0f}% rebuilds {stats.get('visibility_rebuilds', 0)}",
         f"rays {stats.get('total_visibility_rays', 0)} dda {stats.get('total_dda_tile_steps', 0)}",
-        f"prep {stats.get('prepare_time_ms', 0.0):.2f}ms draw {stats.get('scene_draw_time_ms', 0.0) + stats.get('fog_draw_time_ms', 0.0):.2f}ms"
+        f"prep {stats.get('prepare_time_ms', 0.0):.2f}ms entity {stats.get('entity_prepare_time_ms', 0.0):.2f}ms draw {stats.get('scene_draw_time_ms', 0.0) + stats.get('entity_draw_time_ms', 0.0) + stats.get('fog_draw_time_ms', 0.0):.2f}ms"
     ]
 
     for line_index, line in enumerate(lines):
@@ -1382,8 +1734,8 @@ def apply_cinematic_shadow_composite(scene, raw_target, visibility_target, compo
     pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_texture_mode()
 
-def render_and_apply_cinematic_entity_shadows(scene, game_camera, entities, player_entity, tile_map, game_assets, prepared_flashlight):
-    frame_data = build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets, prepared_flashlight)
+def render_and_apply_cinematic_entity_shadows(scene, game_camera, render_items, game_assets, prepared_flashlight):
+    frame_data = build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashlight)
 
     if frame_data is None:
         return
@@ -1398,11 +1750,8 @@ def render_and_apply_cinematic_entity_shadows(scene, game_camera, entities, play
     render_cinematic_shadow_raw(frame_data, game_camera, raw_target, game_assets["shaders"]["cinematic_shadow_projection"])
     apply_cinematic_shadow_composite(scene, raw_target, visibility_target, composite_target, game_assets["shaders"]["cinematic_shadow_composite"])
 
-def draw_cinematic_shadow_debug(game_camera, entities, player_entity, tile_map, game_assets, prepared_flashlight):
-    if not CINEMATIC_SHADOW_DEBUG_ENABLED:
-        return
-
-    frame_data = build_cinematic_shadow_frame_data(entities, player_entity, tile_map, game_assets, prepared_flashlight)
+def draw_cinematic_shadow_debug(game_camera, render_items, game_assets, prepared_flashlight):
+    frame_data = build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashlight)
 
     if frame_data is None:
         return
@@ -1437,15 +1786,27 @@ def draw_cinematic_shadow_debug(game_camera, entities, player_entity, tile_map, 
         far_center = world_point_to_screen(quad["far_center"], game_camera)
         pr.draw_circle(int(near_center["x"]), int(near_center["y"]), 2.0, near_color)
         pr.draw_circle(int(far_center["x"]), int(far_center["y"]), 2.0, far_color)
+        pr.draw_text(f"{shadow['render_item'].get('source_id')} {shadow['settings'].get('mode')} h={quad['cast_height']:.0f}/{quad['light_height']:.0f} len={quad['length']:.0f}", int(near_center["x"] + 3), int(near_center["y"] + 3), 7, quad_color)
+
+    for index, skipped in enumerate(frame_data.get("skipped", [])):
+        pr.draw_text(f"shadow skip {skipped['source_id']}: {skipped['reason']}", 4, 44 + index * 8, 6, pr.ORANGE)
 
 def get_player_flashlight_settings(player_entity):
     facing = player_entity.get("animation_direction", "down")
 
+    # this can cause an issue with our new lighting system
+    # settings = {
+    #     "up": {"forward_offset": 10.0, "side_offset": -2.0, "near_fade_distance": 18.0},
+    #     "down": {"forward_offset": 3.0, "side_offset": 2.0, "near_fade_distance": 10.0},
+    #     "left": {"forward_offset": 4.0, "side_offset": -1.0, "near_fade_distance": 14.0},
+    #     "right": {"forward_offset": 4.0, "side_offset": 1.0, "near_fade_distance": 14.0}
+    # }
+
     settings = {
-        "up": {"forward_offset": 10.0, "side_offset": -2.0, "near_fade_distance": 18.0},
-        "down": {"forward_offset": 3.0, "side_offset": 2.0, "near_fade_distance": 10.0},
-        "left": {"forward_offset": 4.0, "side_offset": -1.0, "near_fade_distance": 14.0},
-        "right": {"forward_offset": 4.0, "side_offset": 1.0, "near_fade_distance": 14.0}
+        "up": {"forward_offset": 10.0, "side_offset": 0.0, "near_fade_distance": 18.0},
+        "down": {"forward_offset": 10.0, "side_offset": 0.0, "near_fade_distance": 18.0},
+        "left": {"forward_offset": 10.0, "side_offset": 0.0, "near_fade_distance": 18.0},
+        "right": {"forward_offset": 10.0, "side_offset":    0.0, "near_fade_distance": 18.0}
     }
 
     return settings.get(facing, settings["down"])
@@ -1504,22 +1865,22 @@ def apply_lighting(scene, lighting, readability_lighting, game_assets, lighting_
     pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_texture_mode()
 
-def draw_player_occlusion_outline(scene, player_item, game_camera, game_assets):
-    if player_item is None:
+def draw_render_item_occlusion_outline(scene, render_item, game_camera, game_assets):
+    if render_item is None:
         return
-    outline_shader = game_assets.get("shaders", {}).get("player_outline")
+    outline_shader = game_assets.get("shaders", {}).get("render_item_outline")
     if outline_shader is None:
         return
-    texture_reference = player_item.get("texture", {})
+    texture_reference = render_item.get("texture", {})
     asset = game_assets.get(texture_reference.get("collection", ""), {}).get(texture_reference.get("name"))
     texture = asset.get(texture_reference.get("field")) if isinstance(asset, dict) and texture_reference.get("field") is not None else asset
     if texture is None:
         return
     width = scene.texture.width
     height = scene.texture.height
-    mask_target = get_or_create_render_target(game_assets, "player_outline_mask", width, height)
-    source_data = player_item["source_rect"]
-    dest_data = player_item["dest_rect"]
+    mask_target = get_or_create_render_target(game_assets, "render_item_outline_mask", width, height)
+    source_data = render_item["source_rect"]
+    dest_data = render_item["dest_rect"]
     sprite_source = pr.Rectangle(source_data["x"], source_data["y"], source_data["width"], source_data["height"])
     sprite_destination = pr.Rectangle(dest_data["x"] - game_camera.x, dest_data["y"] - game_camera.y, dest_data["width"], dest_data["height"])
     full_source = pr.Rectangle(0, 0, width, -height)
@@ -1529,14 +1890,24 @@ def draw_player_occlusion_outline(scene, player_item, game_camera, game_assets):
     pr.draw_texture_pro(texture, sprite_source, sprite_destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_texture_mode()
     shader = outline_shader["shader"]
+    outline = render_item.get("outline", {})
+    color = list(outline.get("color", [0.50, 0.66, 0.74, 0.52]))
+    while len(color) < 4:
+        color.append(1.0)
+    if max(color) > 1.0:
+        color = [component / 255.0 for component in color]
     set_shader_vec2(shader, outline_shader["resolution_location"], width, height)
-    set_shader_vec4(shader, outline_shader["outline_color_location"], 0.50, 0.66, 0.74, 0.52)
-    set_shader_float(shader, outline_shader["outline_width_location"], 1.25)
+    set_shader_vec4(shader, outline_shader["outline_color_location"], color[0], color[1], color[2], color[3])
+    set_shader_float(shader, outline_shader["outline_width_location"], max(0.5, float(outline.get("width", 1.0))))
     pr.begin_texture_mode(scene)
     pr.begin_shader_mode(shader)
     pr.draw_texture_pro(mask_target.texture, full_source, full_destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_shader_mode()
     pr.end_texture_mode()
+
+def draw_render_item_occlusion_outlines(scene, outlined_items, game_camera, game_assets):
+    for entry in outlined_items:
+        draw_render_item_occlusion_outline(scene, entry.get("item"), game_camera, game_assets)
 
 def apply_illuminated_fog(scene, fog_lighting, fog_volume_mask, game_assets, fog_profile, game_camera, time_elapsed):
     if not fog_profile.get("enabled", True):

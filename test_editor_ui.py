@@ -97,9 +97,11 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertIsNone(state["selected_id"])
 
     def test_old_render_style_migrates_to_world(self):
-        entities = {"lights": {"old": {"type": "point"}}, "fog_volumes": {}}
+        entities = {"lights": {"old": {"type": "point", "affects_scene": False}}, "fog_volumes": {}}
         g_editor.migrate_environment_data(entities)
         self.assertEqual(entities["lights"]["old"]["render_style"], "world")
+        self.assertFalse(entities["lights"]["old"]["affects_world"])
+        self.assertFalse(entities["lights"]["old"]["affects_entities"])
 
     def test_spot_direction_and_angles_are_constrained(self):
         direction = g_editor.normalize_spot_direction({"x": 3.0, "y": 4.0})
@@ -122,6 +124,8 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         light = g_graphics.make_player_pointlight(player, self.tile_map)
         self.assertEqual(light["render_style"], "readability")
         self.assertTrue(light["affects_scene"])
+        self.assertFalse(light["affects_world"])
+        self.assertTrue(light["affects_entities"])
         self.assertFalse(light["affects_fog"])
         self.assertFalse(light["affects_ai"])
         self.assertFalse(light["casts_wall_shadows"])

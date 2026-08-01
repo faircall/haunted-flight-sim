@@ -1,0 +1,112 @@
+#version 330
+
+in vec2 fragTexCoord;
+in vec4 fragColor;
+
+uniform sampler2D texture0;
+uniform sampler2D entityLightTexture;
+uniform sampler2D entityReadabilityLightTexture;
+uniform vec2 resolution;
+uniform vec2 sourceUvMin;
+uniform vec2 sourceUvMax;
+uniform vec4 faceExposure;
+uniform float omniExposure;
+uniform float worldOcclusionScale;
+uniform float selfShadowEnabled;
+uniform float selfShadowStrength;
+uniform float selfShadowSoftness;
+uniform float selfShadowBackFill;
+uniform vec3 ambientColor;
+uniform vec3 shadowColor;
+uniform float ambientStrength;
+uniform float directLightStrength;
+uniform float blackPoint;
+uniform float shadowSoftness;
+uniform float shadowDetail;
+uniform float contrast;
+uniform float lightPosterizeEnabled;
+uniform float lightPosterizeLevels;
+uniform float lightDitherEnabled;
+uniform float lightDitherStrength;
+uniform float posterizeAmbient;
+
+out vec4 finalColor;
+
+float maxChannel(vec3 value)
+{
+    return max(value.r, max(value.g, value.b));
+}
+
+float posterizeScalar(float value, float levels)
+{
+    float levelCount = max(floor(levels + 0.5), 2.0);
+    float stepCount = levelCount - 1.0;
+    return floor(clamp(value, 0.0, 1.0) * stepCount + 0.5) / stepCount;
+}
+
+float bayer4x4(vec2 screenPosition)
+{
+    const float matrix[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+    ivec2 pixel = ivec2(mod(floor(screenPosition), 4.0));
+    return (matrix[pixel.y * 4 + pixel.x] + 0.5) / 16.0;
+}
+
+vec3 posterizeLighting(vec3 color)
+{
+    float levels = max(floor(lightPosterizeLevels + 0.5), 2.0);
+    float stepCount = levels - 1.0;
+    float offset = lightDitherEnabled > 0.5 ? (bayer4x4(gl_FragCoord.xy) - 0.5) * max(lightDitherStrength, 0.0) / stepCount : 0.0;
+    return vec3(posterizeScalar(color.r + offset, levels), posterizeScalar(color.g + offset, levels), posterizeScalar(color.b + offset, levels));
+}
+
+float calculateSelfShadow(vec2 localUv)
+{
+    if (selfShadowEnabled < 0.5)
+    {
+        return 1.0;
+    }
+
+    float softness = clamp(selfShadowSoftness, 0.001, 0.49);
+    float rightMask = smoothstep(0.5 - softness, 0.5 + softness, localUv.x);
+    float leftMask = 1.0 - rightMask;
+    float front = faceExposure.x;
+    float back = faceExposure.y * clamp(selfShadowBackFill, 0.0, 1.0);
+    float sides = faceExposure.z * leftMask + faceExposure.w * rightMask;
+    float shapedExposure = clamp(omniExposure + front + back + sides, 0.0, 1.0);
+    return mix(1.0, shapedExposure, clamp(selfShadowStrength, 0.0, 1.0));
+}
+
+void main()
+{
+    vec4 sprite = texture(texture0, fragTexCoord) * fragColor;
+
+    if (sprite.a <= 0.001)
+    {
+        discard;
+    }
+
+    vec2 sourceSize = max(sourceUvMax - sourceUvMin, vec2(0.000001));
+    vec2 localUv = clamp((fragTexCoord - sourceUvMin) / sourceSize, 0.0, 1.0);
+    vec2 screenUv = gl_FragCoord.xy / max(resolution, vec2(1.0));
+    vec3 ambientLight = ambientColor * ambientStrength;
+    vec3 worldDirectLight = texture(entityLightTexture, screenUv).rgb * directLightStrength;
+    vec3 readabilityLight = texture(entityReadabilityLightTexture, screenUv).rgb * directLightStrength;
+    worldDirectLight *= clamp(worldOcclusionScale, 0.0, 1.0) * calculateSelfShadow(localUv);
+
+    vec3 totalLight;
+
+    if (lightPosterizeEnabled > 0.5)
+    {
+        totalLight = posterizeAmbient > 0.5 ? posterizeLighting(ambientLight + worldDirectLight) + readabilityLight : ambientLight + posterizeLighting(worldDirectLight) + readabilityLight;
+    }
+    else
+    {
+        totalLight = ambientLight + worldDirectLight + readabilityLight;
+    }
+
+    vec3 litSprite = clamp((sprite.rgb * totalLight - 0.5) * contrast + 0.5, 0.0, 1.0);
+    float visibility = smoothstep(blackPoint, blackPoint + max(shadowSoftness, 0.000001), maxChannel(totalLight));
+    vec3 darkness = mix(shadowColor, sprite.rgb * shadowColor, shadowDetail);
+    vec3 result = mix(darkness, litSprite, visibility);
+    finalColor = vec4(result, sprite.a);
+}

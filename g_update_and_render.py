@@ -607,26 +607,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
             render_x = entity["position"]["x"] - game_camera_x
             render_y = entity["position"]["y"] - game_camera_y
             pr.draw_rectangle(int(render_x), int(render_y), 1, 1, pr.BROWN)            
-    for entity in entities["pickups"].values():        
-        if entity.get("type","") == "pistol_ammo_pickup":
-            texture_scale = 3
-            texture_to_use = game_assets.get("textures",{}).get("pistol_ammo_pickup_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y
-            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
-            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
-            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
-        elif entity.get("type","") == "health_pickup":
-            texture_scale = 3
-            texture_to_use = game_assets.get("textures",{}).get("health_pickup_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y
-            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
-            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
-            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)            
     for entity in entities["brains"].values():
-        g_graphics.ensure_default_cinematic_shadow(entity)
-
         if entity.get("type","") == "buddha":
             continue
         elif entity.get("type","") == "red head":
@@ -675,52 +656,21 @@ def update_render_tile_map_base(game_camera, entities, tile_map, mouse_pos_world
 def draw_world_entities(game_camera, entities, tile_map, game_assets, ignore, player_entity, mode, debug_queue):
     _render_world_scene_phase(game_camera, entities, tile_map, pr.Vector2(0, 0), 0, 0, 0, game_assets, ignore, player_entity, mode, debug_queue, False, True)
 
-def resolve_render_item_texture(texture_reference, game_assets):
-    collection = game_assets.get(texture_reference.get("collection", ""), {})
-    asset = collection.get(texture_reference.get("name"))
-    if texture_reference.get("field") is not None and isinstance(asset, dict):
-        return asset.get(texture_reference["field"])
-    return asset
-
-def draw_sorted_world_render_items(render_items, game_camera, game_assets, player_entity=None):
-    camera_x = float(game_camera.x)
-    camera_y = float(game_camera.y)
-    for item in render_items:
-        texture = resolve_render_item_texture(item["texture"], game_assets)
-        if texture is None:
-            continue
-        source = item["source_rect"]
-        destination = item["dest_rect"]
-        source_rect = pr.Rectangle(source["x"], source["y"], source["width"], source["height"])
-        destination_rect = pr.Rectangle(destination["x"] - camera_x, destination["y"] - camera_y, destination["width"], destination["height"])
-        pr.draw_texture_pro(texture, source_rect, destination_rect, pr.Vector2(0, 0), 0, pr.WHITE)
-        if item.get("source") != "player":
-            continue
-        draw_data = item.get("draw_data", {})
-        center = draw_data.get("center_world", {})
-        gun = draw_data.get("gun_world", {})
-        pistol = draw_data.get("pistol_world", {})
-        center_screen = pr.Vector2(center.get("x", 0.0) - camera_x, center.get("y", 0.0) - camera_y)
-        gun_screen = pr.Vector2(gun.get("x", 0.0) - camera_x, gun.get("y", 0.0) - camera_y)
-        pistol_screen = pr.Vector2(pistol.get("x", 0.0) - camera_x, pistol.get("y", 0.0) - camera_y)
-        if player_entity is not None:
-            player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
-        pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))
-        pistol_texture = game_assets.get("textures", {}).get(draw_data.get("pistol_texture", "pistol_texture"))
-        if pistol_texture is not None:
-            pr.draw_texture_ex(pistol_texture, pistol_screen, float(draw_data.get("pistol_angle", 0.0)), 0.5, pr.WHITE)
-
-def draw_sorted_world_debug(render_items, occluding_items, game_camera):
-    occluding_ids = {item.get("id") for item in occluding_items}
+def draw_sorted_world_debug(render_items, occluding_items, game_camera, outlined_items=None):
+    occluding_ids = {item.get("source_id", item.get("id")) for item in occluding_items}
+    outlined_ids = {entry["item"].get("source_id", entry["item"].get("id")) for entry in outlined_items or []}
     for item in render_items:
         bounds = g_render_order.world_bounds_to_screen(item["bounds_world"], game_camera)
         base = item["base_world"]
         base_x = int(base["x"] - game_camera.x)
         base_y = int(base["y"] - game_camera.y)
-        color = pr.YELLOW if item.get("id") in occluding_ids else pr.MAGENTA if item.get("occludes_player") else pr.GREEN
+        source_id = item.get("source_id", item.get("id"))
+        color = pr.YELLOW if source_id in occluding_ids else pr.MAGENTA if item.get("occludes_render_items") else pr.GREEN
         pr.draw_rectangle_lines(int(bounds["x"]), int(bounds["y"]), int(bounds["width"]), int(bounds["height"]), color)
         pr.draw_circle(base_x, base_y, 2, color)
         pr.draw_text(f"{item.get('source')} y={item.get('sort_y', 0.0):.1f}", base_x + 3, base_y - 5, 6, color)
+        if source_id in outlined_ids:
+            pr.draw_text(f"outline: {item.get('outline', {}).get('policy', 'never')}", base_x + 3, base_y + 2, 6, pr.GOLD)
 
 def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
     _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, True, True)
@@ -799,7 +749,6 @@ def give_entity_stats_from_type(entity, entity_type):
     elif entity_type == "health_pickup":
         entity["value"] = 25
 
-    g_graphics.ensure_default_cinematic_shadow(entity)
     g_render_order.ensure_entity_render_metadata(entity, entity_type)
 
 
@@ -1157,12 +1106,42 @@ def load_shaders():
         "visibility_texture_location": pr.get_shader_location(cinematic_shadow_composite, "visibilityTexture")
     }
 
-    player_outline = pr.load_shader("", "shaders/player_outline.fs")
-    result["player_outline"] = {
-        "shader": player_outline,
-        "resolution_location": pr.get_shader_location(player_outline, "resolution"),
-        "outline_color_location": pr.get_shader_location(player_outline, "outlineColor"),
-        "outline_width_location": pr.get_shader_location(player_outline, "outlineWidth")
+    render_item_outline = pr.load_shader("", "shaders/render_item_outline.fs")
+    result["render_item_outline"] = {
+        "shader": render_item_outline,
+        "resolution_location": pr.get_shader_location(render_item_outline, "resolution"),
+        "outline_color_location": pr.get_shader_location(render_item_outline, "outlineColor"),
+        "outline_width_location": pr.get_shader_location(render_item_outline, "outlineWidth")
+    }
+
+    entity_self_shadow = pr.load_shader("", "shaders/entity_self_shadow.fs")
+    result["entity_self_shadow"] = {
+        "shader": entity_self_shadow,
+        "entity_light_texture_location": pr.get_shader_location(entity_self_shadow, "entityLightTexture"),
+        "entity_readability_light_texture_location": pr.get_shader_location(entity_self_shadow, "entityReadabilityLightTexture"),
+        "resolution_location": pr.get_shader_location(entity_self_shadow, "resolution"),
+        "source_uv_min_location": pr.get_shader_location(entity_self_shadow, "sourceUvMin"),
+        "source_uv_max_location": pr.get_shader_location(entity_self_shadow, "sourceUvMax"),
+        "face_exposure_location": pr.get_shader_location(entity_self_shadow, "faceExposure"),
+        "omni_exposure_location": pr.get_shader_location(entity_self_shadow, "omniExposure"),
+        "world_occlusion_scale_location": pr.get_shader_location(entity_self_shadow, "worldOcclusionScale"),
+        "self_shadow_enabled_location": pr.get_shader_location(entity_self_shadow, "selfShadowEnabled"),
+        "self_shadow_strength_location": pr.get_shader_location(entity_self_shadow, "selfShadowStrength"),
+        "self_shadow_softness_location": pr.get_shader_location(entity_self_shadow, "selfShadowSoftness"),
+        "self_shadow_back_fill_location": pr.get_shader_location(entity_self_shadow, "selfShadowBackFill"),
+        "ambient_color_location": pr.get_shader_location(entity_self_shadow, "ambientColor"),
+        "shadow_color_location": pr.get_shader_location(entity_self_shadow, "shadowColor"),
+        "ambient_strength_location": pr.get_shader_location(entity_self_shadow, "ambientStrength"),
+        "direct_light_strength_location": pr.get_shader_location(entity_self_shadow, "directLightStrength"),
+        "black_point_location": pr.get_shader_location(entity_self_shadow, "blackPoint"),
+        "shadow_softness_location": pr.get_shader_location(entity_self_shadow, "shadowSoftness"),
+        "shadow_detail_location": pr.get_shader_location(entity_self_shadow, "shadowDetail"),
+        "contrast_location": pr.get_shader_location(entity_self_shadow, "contrast"),
+        "light_posterize_enabled_location": pr.get_shader_location(entity_self_shadow, "lightPosterizeEnabled"),
+        "light_posterize_levels_location": pr.get_shader_location(entity_self_shadow, "lightPosterizeLevels"),
+        "light_dither_enabled_location": pr.get_shader_location(entity_self_shadow, "lightDitherEnabled"),
+        "light_dither_strength_location": pr.get_shader_location(entity_self_shadow, "lightDitherStrength"),
+        "posterize_ambient_location": pr.get_shader_location(entity_self_shadow, "posterizeAmbient")
     }
 
     light_accumulation = pr.load_shader("", "shaders/light_accumulation.fs")
@@ -4113,7 +4092,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     shaders = game_assets.get("shaders")
     lighting_composite_shader = shaders.get("lighting_composite", {}) if shaders else {}
-    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "player_outline" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader:
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader:
         if shaders:
             unload_shaders(shaders)
         shaders = load_shaders()
@@ -4238,55 +4217,64 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if tile_map and editor_mode == "entity" and not ui_state.get("mouse_captured"):
         current_entity_selection = g_ui.update_mousewheel_selection(current_entity_selection, len(entity_types))
 
+    preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
+    render_environment_effects = editor_mode == "play" or preview_environment
+    lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
+    prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
+    sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
+    major_entity_light_occluders = g_render_order.build_major_entity_light_occluders(sorted_world_items)
+    entity_lighting_started = time.perf_counter()
+    entity_self_shadow_frame = g_graphics.prepare_entity_self_shadows(sorted_world_items, lighting_frame["prepared_lights"], major_entity_light_occluders, lighting_frame["collision_grid"], game_assets.get("show_entity_lighting_debug", False))
+    lighting_frame["stats"]["entity_prepare_time_ms"] = (time.perf_counter() - entity_lighting_started) * 1000.0
+    render_occlusion_groups = g_render_order.build_render_occlusion_groups(sorted_world_items)
+    outlined_items = g_render_order.find_items_requiring_outline(sorted_world_items, render_occlusion_groups)
+    player_occluders = render_occlusion_groups.get("targets", {}).get("player", [])
+
     color_to_draw = pr.Color(33, 25, 68, 255)
     pr.begin_texture_mode(render_target)
     pr.clear_background(color_to_draw)
     update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
+    draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
     pr.end_texture_mode()
 
-    lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
-    prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
+    if render_environment_effects and not do_load_level:
+        g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, sorted_world_items, game_assets, prepared_flashlight)
 
-    if editor_mode == "play" and not do_load_level:
-        g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
+    entity_light_target = None
+    entity_readability_light_target = None
 
-    sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
-    player_occluders = g_render_order.find_player_occluders(sorted_world_items, camera_3d.position)
-    player_outline_occluders = g_render_order.find_player_occluders(sorted_world_items, camera_3d.position, require_outline=True)
+    if render_environment_effects:
+        fog_light_target, readability_light_target, entity_light_target, entity_readability_light_target = g_graphics.render_prepared_lighting(lighting_frame, camera_3d.position, lighting_target, game_assets)
+        g_graphics.apply_lighting(render_target, lighting_target, readability_light_target, game_assets, lighting_profile)
 
     pr.begin_texture_mode(render_target)
-    draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
-    draw_sorted_world_render_items(sorted_world_items, camera_3d.position, game_assets, player_info)
-
-    if debug_queue:
-        debug_queue = sorted(debug_queue, key=lambda x: x.get("z_sort", 0), reverse=True)
-
-        for debug_item in debug_queue:
-            draw_debug_item(debug_state, debug_item, camera=camera_3d)
-
+    g_graphics.draw_sorted_world_render_items(sorted_world_items, camera_3d.position, game_assets, lighting_profile, entity_light_target, entity_readability_light_target, player_info)
     pr.end_texture_mode()
 
-    if player_outline_occluders:
-        g_graphics.draw_player_occlusion_outline(render_target, g_render_order.get_player_render_item(sorted_world_items), camera_3d.position, game_assets)
-
-    preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
-
-    if editor_mode == "play" or preview_environment:
-        fog_light_target, readability_light_target = g_graphics.render_prepared_lighting(lighting_frame, camera_3d.position, lighting_target, game_assets)
-        g_graphics.apply_lighting(render_target, lighting_target, readability_light_target, game_assets, lighting_profile)
+    if render_environment_effects:
         fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
         g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
 
+    g_graphics.draw_render_item_occlusion_outlines(render_target, outlined_items, camera_3d.position, game_assets)
+
     pr.begin_texture_mode(render_target)
 
-    if game_assets.get("show_lighting_stats", False) and (editor_mode == "play" or preview_environment):
+    if debug_queue:
+        debug_queue = sorted(debug_queue, key=lambda x: x.get("z_sort", 0), reverse=True)
+        for debug_item in debug_queue:
+            draw_debug_item(debug_state, debug_item, camera=camera_3d)
+
+    if game_assets.get("show_lighting_stats", False) and render_environment_effects:
         g_graphics.draw_lighting_stats_debug(lighting_frame["stats"])
 
-    if editor_mode != "play":
-        g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
+    if editor_mode != "play" and game_assets.get("show_cinematic_shadow_debug", False):
+        g_graphics.draw_cinematic_shadow_debug(camera_3d.position, sorted_world_items, game_assets, prepared_flashlight)
 
     if editor_mode != "play" and game_assets.get("show_render_order_debug", False):
-        draw_sorted_world_debug(sorted_world_items, player_occluders, camera_3d.position)
+        draw_sorted_world_debug(sorted_world_items, player_occluders, camera_3d.position, outlined_items)
+
+    if editor_mode != "play" and game_assets.get("show_entity_lighting_debug", False):
+        g_graphics.draw_entity_self_shadow_debug(sorted_world_items, major_entity_light_occluders, entity_self_shadow_frame, camera_3d.position)
     
     editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map, show_editor)
 

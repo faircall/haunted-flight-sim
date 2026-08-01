@@ -97,6 +97,8 @@ def make_default_point_light(position):
         "falloff": 1.6,
         "enabled": True,
         "affects_scene": True,
+        "affects_world": True,
+        "affects_entities": True,
         "affects_fog": True,
         "affects_ai": True,
         "casts_wall_shadows": True,
@@ -104,6 +106,7 @@ def make_default_point_light(position):
         "gameplay_intensity": 1.0,
         "mobility": "static",
         "render_style": "world",
+        "height": 32.0,
         "shadow_bias": 0.25
     }
 
@@ -126,10 +129,13 @@ def make_default_top_down_light(position):
         "edge_softness": 24.0,
         "enabled": True,
         "affects_scene": True,
+        "affects_world": True,
+        "affects_entities": True,
         "affects_fog": True,
         "affects_ai": True,
         "mobility": "static",
-        "render_style": "world"
+        "render_style": "world",
+        "height": 180.0
     }
 
 def make_default_fog_volume(position):
@@ -163,6 +169,10 @@ def migrate_environment_data(entities):
 
     for light in lights.values():
         light.setdefault("render_style", "world")
+        legacy_scene = bool(light.get("affects_scene", True))
+        light.setdefault("affects_world", legacy_scene)
+        light.setdefault("affects_entities", legacy_scene)
+        light.setdefault("height", 180.0 if light.get("type") == "top_down" else 32.0)
 
     return entities
 
@@ -663,10 +673,13 @@ def inspect_common_light(ui_state, widget_id, light, include_shadows=True):
     light["mobility"], _ = g_ui.ui_dropdown(ui_state, f"{widget_id}:mobility", "mobility", light.get("mobility", "static"), MOBILITY_OPTIONS)
     light["color"], _ = g_ui.ui_color3_editor(ui_state, f"{widget_id}:color", "color", light.get("color", [1.0, 1.0, 1.0]))
     light["intensity"], _ = g_ui.ui_slider_float(ui_state, f"{widget_id}:intensity", "intensity", light.get("intensity", 1.0), 0.0, 5.0, 0.01)
-    light["affects_scene"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:scene", "affects scene", light.get("affects_scene", True))
+    light["affects_world"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:world", "affects world", light.get("affects_world", light.get("affects_scene", True)))
+    light["affects_entities"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:entities", "affects entities", light.get("affects_entities", light.get("affects_scene", True)))
+    light["affects_scene"] = light["affects_world"] or light["affects_entities"]
     light["affects_fog"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:fog", "affects fog", light.get("affects_fog", True))
     light["affects_ai"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:ai", "affects ai", light.get("affects_ai", True))
     light["gameplay_intensity"], _ = g_ui.ui_slider_float(ui_state, f"{widget_id}:gameplay", "gameplay", light.get("gameplay_intensity", 1.0), 0.0, 5.0, 0.05)
+    light["height"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:height", "height", light.get("height", 32.0), 0.0, 1000.0)
 
     if include_shadows:
         light["casts_wall_shadows"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:wall_shadows", "wall shadows", light.get("casts_wall_shadows", True))

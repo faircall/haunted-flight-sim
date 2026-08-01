@@ -21,11 +21,19 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(second["render_base_offset"]["y"], 61.0)
 
     def test_ensure_preserves_authored_metadata(self):
-        entity = {"type": "buddha", "visual_height": 90.0, "render_base_offset": {"x": 1.0, "y": 2.0}}
+        entity = {"type": "buddha", "visual_height": 90.0, "render_base_offset": {"x": 1.0, "y": 2.0}, "self_shadow": {"back_fill": 0.12}}
         g_render_order.ensure_entity_render_metadata(entity)
         self.assertEqual(entity["visual_height"], 90.0)
         self.assertEqual(entity["render_base_offset"], {"x": 1.0, "y": 2.0})
-        self.assertTrue(entity["occludes_player"])
+        self.assertEqual(entity["self_shadow"]["back_fill"], 0.12)
+        self.assertTrue(entity["occludes_render_items"])
+
+    def test_legacy_cinematic_shadow_migrates_once(self):
+        entity = {"type": "buddha", "cinematic_shadow": {"enabled": True, "opacity": 0.77, "near_width": 0.8}}
+        g_render_order.ensure_entity_render_metadata(entity)
+        self.assertNotIn("cinematic_shadow", entity)
+        self.assertEqual(entity["shadow"]["mode"], "upright")
+        self.assertEqual(entity["shadow"]["opacity"], 0.77)
 
     def test_sort_uses_base_y(self):
         items = [
@@ -69,6 +77,50 @@ class RenderOrderTests(unittest.TestCase):
         in_front_items = g_render_order.build_sorted_world_render_items({"brains": {"b": buddha}}, player, self.tile_map, self.assets)
         self.assertEqual([item["source"] for item in in_front_items], ["buddha", "player"])
         self.assertEqual(g_render_order.find_player_occluders(in_front_items), [])
+
+    def test_pickups_join_sorted_items_once(self):
+        player = {"id": "player", "position": {"tile_x": 1, "tile_y": 1, "x": 0.0, "y": 0.0}}
+        pickup = {"id": 4, "type": "health_pickup", "position": {"tile_x": 2, "tile_y": 2, "x": 0.0, "y": 0.0}}
+        items = g_render_order.build_sorted_world_render_items({"brains": {}, "pickups": {4: pickup}}, player, self.tile_map, self.assets)
+        pickup_items = [item for item in items if item["source_id"] == "pickups:4"]
+        self.assertEqual(len(pickup_items), 1)
+        self.assertEqual(pickup_items[0]["outline"]["policy"], "shared_player_occluder")
+
+    def test_nested_policy_defaults_are_independent(self):
+        first = g_render_order.make_default_entity_render_metadata("red head")
+        second = g_render_order.make_default_entity_render_metadata("red head")
+        first["self_shadow"]["back_fill"] = 0.5
+        first["ground_footprint"]["size"]["x"] = 99.0
+        self.assertEqual(second["self_shadow"]["back_fill"], 0.06)
+        self.assertEqual(second["ground_footprint"]["size"]["x"], 14.0)
+
+    def test_failed_directional_lighting_metadata_is_retired(self):
+        entity = {"type": "red head", "entity_lighting": {"front_direction_mode": "facing", "back_fill": 0.9}, "ground_footprint": {"shape": "ellipse", "offset": {"x": 0.0, "y": 0.0}, "size": {"x": 14.0, "y": 8.0}}}
+        g_render_order.ensure_entity_render_metadata(entity)
+        self.assertNotIn("entity_lighting", entity)
+        self.assertEqual(entity["self_shadow"]["mode"], "upright_box")
+        self.assertEqual(entity["ground_footprint"]["shape"], "rectangle")
+
+    def test_shared_occluder_outlines_player_hostile_and_pickup(self):
+        player = {"source_id": "player", "sort_y": 10.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}, "outline": {"policy": "player_when_occluded", "priority": 30}}
+        hostile = {"source_id": "brains:h", "sort_y": 11.0, "bounds_world": {"x": 1.0, "y": 1.0, "width": 20.0, "height": 20.0}, "outline": {"policy": "shared_player_occluder", "priority": 20}}
+        pickup = {"source_id": "pickups:p", "sort_y": 12.0, "bounds_world": {"x": 2.0, "y": 2.0, "width": 20.0, "height": 20.0}, "outline": {"policy": "shared_player_occluder", "priority": 10}}
+        buddha = {"source_id": "brains:b", "sort_y": 20.0, "bounds_world": {"x": -5.0, "y": -5.0, "width": 40.0, "height": 40.0}, "occludes_render_items": True, "outline": {"policy": "never"}}
+        outlined = g_render_order.find_items_requiring_outline([player, hostile, pickup, buddha])
+        self.assertEqual({entry["item"]["source_id"] for entry in outlined}, {"player", "brains:h", "pickups:p"})
+
+    def test_shared_outline_requires_same_player_occluder(self):
+        player = {"source_id": "player", "sort_y": 10.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 10.0, "height": 10.0}, "outline": {"policy": "player_when_occluded"}}
+        hostile = {"source_id": "brains:h", "sort_y": 10.0, "bounds_world": {"x": 100.0, "y": 0.0, "width": 10.0, "height": 10.0}, "outline": {"policy": "shared_player_occluder"}}
+        player_wall = {"source_id": "prop:p", "sort_y": 20.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 10.0, "height": 10.0}, "occludes_render_items": True, "outline": {"policy": "never"}}
+        hostile_wall = {"source_id": "prop:h", "sort_y": 20.0, "bounds_world": {"x": 100.0, "y": 0.0, "width": 10.0, "height": 10.0}, "occludes_render_items": True, "outline": {"policy": "never"}}
+        outlined = g_render_order.find_items_requiring_outline([player, hostile, player_wall, hostile_wall])
+        self.assertEqual([entry["item"]["source_id"] for entry in outlined], ["player"])
+
+    def test_never_policy_prop_remains_unoutlined(self):
+        prop = {"source_id": "prop", "sort_y": 10.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 10.0, "height": 10.0}, "outline": {"policy": "never"}}
+        wall = {"source_id": "wall", "sort_y": 20.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 10.0, "height": 10.0}, "occludes_render_items": True, "outline": {"policy": "never"}}
+        self.assertEqual(g_render_order.find_items_requiring_outline([prop, wall]), [])
 
 
 if __name__ == "__main__":
