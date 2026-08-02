@@ -17,6 +17,7 @@ update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
     ("g_light_visibility", update_and_render_module.g_graphics.light_visibility),
+    ("g_effects", update_and_render_module.g_effects),
     ("g_graphics", update_and_render_module.g_graphics),
     ("g_ui", update_and_render_module.g_ui),
     ("g_editor", update_and_render_module.g_editor),
@@ -34,10 +35,21 @@ g_shader_source_files = (
     "shaders/top_down_light.fs",
     "shaders/fog_volume_mask.fs",
     "shaders/lighting_composite.fs",
-    "shaders/illuminated_fog.fs"
+    "shaders/illuminated_fog.fs",
+    "shaders/effect_fire.fs",
+    "shaders/effect_smoke.fs"
 )
 
 g_module_persistent_reload_specs = {
+    "g_effects": {
+        "arena_factories": (
+            ("wind_profile", "make_wind_profile", "default"),
+        ),
+        "game_asset_keys_to_clear": (
+            "effects_runtime",
+            "effects_entities_identity",
+        )
+    },
     "g_graphics": {
         "arena_factories": (
             ("lighting_profile", "make_lighting_profile", "inky"),

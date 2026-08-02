@@ -6,6 +6,7 @@ import pyray as pr
 from pyrsistent import m, pmap, v
 
 import g_light_visibility as light_visibility
+import g_effects
 import g_render_order
 import g_update_and_render as game
 
@@ -148,6 +149,32 @@ def set_shader_vec4(shader, location, x, y, z, w):
         return
     value_ptr = pr.ffi.new("float[4]", [float(x), float(y), float(z), float(w)])
     pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_VEC4)
+
+_EFFECT_SHADER_UNIFORMS = {
+    "effect_fire": (
+        "resolution", "boundsMin", "boundsSize", "anchorInBounds", "effectSize",
+        "wind", "time", "seed", "density", "speed", "turbulence",
+        "windResponse", "opacity", "posterizeLevels", "emberDensity",
+        "emberHeight", "passMode", "colorCore", "colorHot", "colorMid",
+        "colorOuter",
+    ),
+    "effect_smoke": (
+        "resolution", "boundsMin", "boundsSize", "anchorInBounds", "effectSize",
+        "wind", "time", "seed", "density", "speed", "turbulence",
+        "detailScale", "warpStrength", "evolutionSpeed", "windResponse", "opacity",
+        "posterizeLevels", "smokeColor",
+    ),
+}
+
+def load_effect_shaders(shader_registry):
+    """Load procedural environment shaders and cache all uniform locations."""
+    for shader_name, uniforms in _EFFECT_SHADER_UNIFORMS.items():
+        shader = pr.load_shader("", f"shaders/{shader_name}.fs")
+        info = {"shader": shader}
+        for uniform in uniforms:
+            info[f"{uniform}_location"] = pr.get_shader_location(shader, uniform)
+        shader_registry[shader_name] = info
+    return shader_registry
 
 def normalize_light_color(color):
     red = float(color[0])
@@ -2698,7 +2725,7 @@ def light_timer_oscilate(t):
     result = slow + med + fast
     return result
 
-def apply_lighting(scene, lighting, readability_lighting, game_assets, lighting_profile):
+def apply_lighting(scene, lighting, readability_lighting, game_assets, lighting_profile, preserve_transparency=False):
     width = scene.texture.width
     height = scene.texture.height
 
@@ -2727,7 +2754,7 @@ def apply_lighting(scene, lighting, readability_lighting, game_assets, lighting_
     destination = pr.Rectangle(0, 0, width, height)
 
     pr.begin_texture_mode(composite_target)
-    pr.clear_background(pr.BLACK)
+    pr.clear_background(pr.BLANK if preserve_transparency else pr.BLACK)
 
     pr.begin_shader_mode(shader)
 
@@ -2741,9 +2768,282 @@ def apply_lighting(scene, lighting, readability_lighting, game_assets, lighting_
     pr.end_texture_mode()
 
     pr.begin_texture_mode(scene)
-    pr.clear_background(pr.BLACK)
+    pr.clear_background(pr.BLANK if preserve_transparency else pr.BLACK)
+    if preserve_transparency:
+        pr.begin_blend_mode(pr.BlendMode.BLEND_ALPHA_PREMULTIPLY)
     pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    if preserve_transparency:
+        pr.end_blend_mode()
     pr.end_texture_mode()
+
+def _gameplay_burst_color(particle):
+    age_amount = min(1.0, max(0.0, float(particle.get("age", 0.0)) / max(0.001, float(particle.get("lifetime", 1.0)))))
+    start = list(particle.get("start_color", [1.0, 1.0, 1.0, 1.0]))
+    end = list(particle.get("end_color", start))
+    while len(start) < 4:
+        start.append(1.0)
+    while len(end) < 4:
+        end.append(1.0)
+    values = [start[index] + (end[index] - start[index]) * age_amount for index in range(4)]
+    if max(values) <= 1.0:
+        values = [value * 255.0 for value in values]
+    return pr.Color(*(max(0, min(255, int(round(value)))) for value in values))
+
+def _draw_gameplay_burst_particle(particle, game_camera):
+    screen_x = float(particle.get("x", 0.0)) - float(game_camera.x)
+    screen_y = float(particle.get("y", 0.0)) - float(game_camera.y) - float(particle.get("z", 0.0))
+    size = max(0.5, float(particle.get("size", 1.0)))
+    color = _gameplay_burst_color(particle)
+    # Continuous environmental effects never reach this path. Blood deliberately
+    # retains its small gameplay-state CPU burst representation.
+    pr.draw_circle(int(screen_x), int(screen_y), size, color)
+
+def _draw_gameplay_burst_batch(particles, game_camera):
+    for particle in particles:
+        _draw_gameplay_burst_particle(particle, game_camera)
+
+def _composite_effect_target(scene, layer, premultiplied=False):
+    width = scene.texture.width
+    height = scene.texture.height
+    source = pr.Rectangle(0, 0, width, -height)
+    destination = pr.Rectangle(0, 0, width, height)
+    pr.begin_texture_mode(scene)
+    if premultiplied:
+        pr.begin_blend_mode(pr.BlendMode.BLEND_ALPHA_PREMULTIPLY)
+    pr.draw_texture_pro(layer.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    if premultiplied:
+        pr.end_blend_mode()
+    pr.end_texture_mode()
+
+def _normalise_effect_color(color, fallback):
+    values = list(color or fallback)
+    while len(values) < 4:
+        values.append(1.0)
+    if max(values) > 1.0:
+        values = [value / 255.0 for value in values]
+    return values[:4]
+
+def _set_effect_float(info, name, value):
+    set_shader_float(info["shader"], info.get(f"{name}_location", -1), value)
+
+def _set_effect_int(info, name, value):
+    set_shader_int(info["shader"], info.get(f"{name}_location", -1), value)
+
+def _set_effect_vec2(info, name, value_x, value_y):
+    set_shader_vec2(info["shader"], info.get(f"{name}_location", -1), value_x, value_y)
+
+def _set_effect_vec4(info, name, color, fallback):
+    values = _normalise_effect_color(color, fallback)
+    set_shader_vec4(info["shader"], info.get(f"{name}_location", -1), *values)
+
+def _effect_screen_bounds(emitter, tile_map, game_camera, viewport_width, viewport_height):
+    world = g_effects.emitter_world_bounds(emitter, tile_map)
+    left = math.floor(world["x"] - float(game_camera.x))
+    top = math.floor(world["y"] - float(game_camera.y))
+    right = math.ceil(world["x"] + world["width"] - float(game_camera.x))
+    bottom = math.ceil(world["y"] + world["height"] - float(game_camera.y))
+    clipped_left = max(0, left)
+    clipped_top = max(0, top)
+    clipped_right = min(int(viewport_width), right)
+    clipped_bottom = min(int(viewport_height), bottom)
+    if clipped_right <= clipped_left or clipped_bottom <= clipped_top:
+        return None
+    return {
+        "left": left, "top": top, "right": right, "bottom": bottom,
+        "width": max(1, right - left), "height": max(1, bottom - top),
+        "clip": pr.Rectangle(clipped_left, clipped_top, clipped_right - clipped_left, clipped_bottom - clipped_top),
+        "world": world,
+    }
+
+def _procedural_effect_submission(emitter, render_group):
+    effect_type = emitter.get("type")
+    authored_group = emitter.get("render_group", "world_front")
+    if effect_type == "fire":
+        if render_group == authored_group:
+            return {"shader": "effect_fire", "material": "lit_alpha", "pass_mode": 0}
+        if render_group == "emissive":
+            return {"shader": "effect_fire", "material": "emissive_additive", "pass_mode": 1}
+        return None
+    if effect_type == "ember":
+        return {"shader": "effect_fire", "material": "emissive_additive", "pass_mode": 2} if render_group == authored_group else None
+    if render_group != authored_group:
+        return None
+    if effect_type == "smoke":
+        return {"shader": "effect_smoke", "material": "lit_alpha", "pass_mode": 0}
+    return None
+
+def _bind_effect_uniforms(info, emitter, bounds, game_camera, tile_map, wind_profile,
+                          time_elapsed, pass_mode, viewport_width, viewport_height):
+    effect_type = emitter.get("type")
+    world = bounds["world"]
+    anchor_x = world["anchor_x"] - world["x"]
+    anchor_y = world["anchor_y"] - world["y"]
+    position = g_effects.position_to_world(emitter.get("position", {}), tile_map)
+    area = emitter.get("area_size", {})
+    area_width = max(1.0, float(area.get("x", 1.0)))
+    area_height = max(1.0, float(area.get("y", 1.0)))
+    wind = g_effects.sample_wind(wind_profile, position["x"], position["y"], time_elapsed)
+    size = emitter.get("size", area)
+
+    _set_effect_vec2(info, "resolution", viewport_width, viewport_height)
+    _set_effect_vec2(info, "boundsMin", bounds["left"], bounds["top"])
+    _set_effect_vec2(info, "boundsSize", bounds["width"], bounds["height"])
+    _set_effect_vec2(info, "anchorInBounds", anchor_x, anchor_y)
+    _set_effect_vec2(info, "effectSize", max(1.0, float(size.get("x", area_width))), max(1.0, float(size.get("y", area_height))))
+    _set_effect_vec2(info, "cameraPosition", game_camera.x, game_camera.y)
+    _set_effect_vec2(info, "areaMin", position["x"] - area_width * 0.5, position["y"] - area_height * 0.5)
+    _set_effect_vec2(info, "areaSize", area_width, area_height)
+    _set_effect_vec2(info, "wind", wind["x"], wind["y"])
+    _set_effect_float(info, "time", time_elapsed)
+    _set_effect_float(info, "seed", int(emitter.get("seed", 1)) % 65521)
+    _set_effect_float(info, "density", max(0.0, min(1.0, float(emitter.get("density", 0.5)))))
+    _set_effect_float(info, "speed", max(0.0, float(emitter.get("speed", 1.0))))
+    _set_effect_float(info, "turbulence", emitter.get("turbulence", 0.7))
+    _set_effect_float(info, "detailScale", emitter.get("detail_scale", 0.16))
+    _set_effect_float(info, "warpStrength", emitter.get("warp_strength", 0.8))
+    _set_effect_float(info, "evolutionSpeed", emitter.get("evolution_speed", 0.62))
+    _set_effect_float(info, "windResponse", emitter.get("wind_response", 0.3))
+    _set_effect_float(info, "opacity", max(0.0, min(1.0, float(emitter.get("opacity", 1.0)))))
+    _set_effect_float(info, "posterizeLevels", max(2.0, float(emitter.get("posterize_levels", 5))))
+    _set_effect_float(info, "emberDensity", emitter.get("ember_density", emitter.get("density", 0.2)))
+    _set_effect_float(info, "emberHeight", emitter.get("ember_height", size.get("y", 24.0)))
+    _set_effect_int(info, "passMode", pass_mode)
+    if effect_type == "fire":
+        palette = emitter.get("palette", {})
+        _set_effect_vec4(info, "colorCore", palette.get("core"), [1.0, 0.94, 0.55, 1.0])
+        _set_effect_vec4(info, "colorHot", palette.get("hot"), [1.0, 0.67, 0.18, 1.0])
+        _set_effect_vec4(info, "colorMid", palette.get("mid"), [0.92, 0.25, 0.045, 1.0])
+        _set_effect_vec4(info, "colorOuter", palette.get("outer"), [0.30, 0.025, 0.012, 1.0])
+    elif effect_type == "ember":
+        color = emitter.get("color", [1.0, 0.52, 0.12, 1.0])
+        _set_effect_vec4(info, "colorHot", color, [1.0, 0.52, 0.12, 1.0])
+    elif effect_type == "smoke":
+        _set_effect_vec4(info, "smokeColor", emitter.get("color"), [0.42, 0.43, 0.48, 1.0])
+
+def _draw_procedural_submission(submission, emitter_id, emitter, bounds, scene, game_camera, game_assets, tile_map, wind_profile, time_elapsed, runtime, render_group):
+    info = game_assets["shaders"][submission["shader"]]
+    _bind_effect_uniforms(
+        info, emitter, bounds, game_camera, tile_map, wind_profile, time_elapsed,
+        submission["pass_mode"], scene.texture.width, scene.texture.height,
+    )
+    pr.begin_shader_mode(info["shader"])
+    pr.draw_rectangle_rec(bounds["clip"], pr.WHITE)
+    pr.end_shader_mode()
+    runtime.setdefault("debug_submissions", []).append({
+        "id": emitter_id, "type": emitter.get("type"), "shader": submission["shader"],
+        "render_group": render_group, "material": submission["material"],
+        "seed": int(emitter.get("seed", 1)), "density": float(emitter.get("density", 0.0)),
+        "bounds": (bounds["left"], bounds["top"], bounds["width"], bounds["height"]),
+        "world": (bounds["world"]["anchor_x"], bounds["world"]["anchor_y"]),
+    })
+
+def render_effect_group(scene, game_camera, game_assets, lighting_profile, lighting_target,
+                        render_group, apply_world_lighting=True, emitters=None,
+                        tile_map=None, wind_profile=None, time_elapsed=0.0,
+                        respect_preview_enabled=False):
+    """Submit one local shader quad per visible authored effect pass."""
+    runtime = game_assets.get("effects_runtime")
+    if not isinstance(runtime, dict):
+        return {"emitters": 0, "draw_calls": 0, "submission_time_ms": 0.0}
+    started = time.perf_counter()
+    emitters = emitters or {}
+    width = scene.texture.width
+    height = scene.texture.height
+    grouped = {"lit_alpha": [], "unlit_alpha": [], "emissive_additive": []}
+    stats = runtime.setdefault("stats", {})
+    for emitter_id, emitter in emitters.items():
+        if not emitter.get("enabled", True) or (respect_preview_enabled and not emitter.get("preview_enabled", True)):
+            continue
+        submission = _procedural_effect_submission(emitter, render_group)
+        if submission is None:
+            continue
+        bounds = _effect_screen_bounds(emitter, tile_map, game_camera, width, height)
+        if bounds is None:
+            stats["culled_emitters"] = int(stats.get("culled_emitters", 0)) + 1
+            continue
+        grouped[submission["material"]].append((submission, emitter_id, emitter, bounds))
+
+    burst_particles = g_effects.collect_gameplay_burst_particles(runtime, render_group, "lit_alpha")
+    draw_calls = sum(len(values) for values in grouped.values()) + (1 if burst_particles else 0)
+    if draw_calls == 0:
+        return {"emitters": 0, "draw_calls": 0, "submission_time_ms": 0.0}
+
+    lit_submissions = grouped["lit_alpha"]
+    if lit_submissions or burst_particles:
+        if apply_world_lighting and lighting_target is not None:
+            layer = get_or_create_render_target(game_assets, f"effects_{render_group}_albedo", width, height)
+            blank_readability = get_or_create_render_target(game_assets, "effects_blank_readability", width, height)
+            pr.begin_texture_mode(blank_readability)
+            pr.clear_background(pr.BLANK)
+            pr.end_texture_mode()
+            pr.begin_texture_mode(layer)
+            pr.clear_background(pr.BLANK)
+            for values in lit_submissions:
+                _draw_procedural_submission(*values, scene, game_camera, game_assets, tile_map, wind_profile, time_elapsed, runtime, render_group)
+            _draw_gameplay_burst_batch(burst_particles, game_camera)
+            pr.end_texture_mode()
+            if game_assets.get("effect_debug_output", "final") == "raw":
+                _composite_effect_target(scene, layer, False)
+            else:
+                apply_lighting(layer, lighting_target, blank_readability, game_assets, lighting_profile, True)
+                _composite_effect_target(scene, layer, True)
+        else:
+            pr.begin_texture_mode(scene)
+            for values in lit_submissions:
+                _draw_procedural_submission(*values, scene, game_camera, game_assets, tile_map, wind_profile, time_elapsed, runtime, render_group)
+            _draw_gameplay_burst_batch(burst_particles, game_camera)
+            pr.end_texture_mode()
+
+    if grouped["unlit_alpha"]:
+        pr.begin_texture_mode(scene)
+        for values in grouped["unlit_alpha"]:
+            _draw_procedural_submission(*values, scene, game_camera, game_assets, tile_map, wind_profile, time_elapsed, runtime, render_group)
+        pr.end_texture_mode()
+
+    if grouped["emissive_additive"]:
+        pr.begin_texture_mode(scene)
+        pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
+        for values in grouped["emissive_additive"]:
+            _draw_procedural_submission(*values, scene, game_camera, game_assets, tile_map, wind_profile, time_elapsed, runtime, render_group)
+        pr.end_blend_mode()
+        pr.end_texture_mode()
+
+    elapsed = (time.perf_counter() - started) * 1000.0
+    stats["procedural_draw_calls"] = int(stats.get("procedural_draw_calls", 0)) + sum(len(values) for values in grouped.values())
+    calls_by_type = stats.setdefault("draw_calls_by_type", {})
+    for material_submissions in grouped.values():
+        for _submission, _emitter_id, emitter, _bounds in material_submissions:
+            effect_type = emitter.get("type", "unknown")
+            calls_by_type[effect_type] = int(calls_by_type.get(effect_type, 0)) + 1
+    stats["burst_draw_calls"] = int(stats.get("burst_draw_calls", 0)) + (1 if burst_particles else 0)
+    stats["submission_time_ms"] = float(stats.get("submission_time_ms", 0.0)) + elapsed
+    return {"emitters": sum(len(values) for values in grouped.values()), "draw_calls": draw_calls, "submission_time_ms": elapsed}
+
+def draw_effect_stats_debug(runtime, x=4, y=58):
+    stats = (runtime or {}).get("stats", {})
+    for submission in (runtime or {}).get("debug_submissions", ()):
+        left, top, width, height = submission["bounds"]
+        color = {
+            "fire": pr.ORANGE, "ember": pr.GOLD, "smoke": pr.GRAY,
+        }.get(submission["type"], pr.MAGENTA)
+        pr.draw_rectangle_lines_ex(pr.Rectangle(left, top, width, height), 1.0, color)
+        world_x, world_y = submission.get("world", (0.0, 0.0))
+        pr.draw_text(
+            f"{submission['shader']} s{submission['seed']} d{submission['density']:.2f} "
+            f"@{world_x:.0f},{world_y:.0f}",
+            int(left), int(top) - 9, 7, color,
+        )
+    by_type = stats.get("draw_calls_by_type", {})
+    type_text = " ".join(f"{name}:{count}" for name, count in sorted(by_type.items()))
+    pr.draw_text(
+        f"fx emit {stats.get('active_emitter_count', 0)}/{stats.get('authored_emitter_count', 0)} "
+        f"gpu draws {stats.get('procedural_draw_calls', 0)} culled {stats.get('culled_emitters', 0)} "
+        f"blood {stats.get('live_particle_count', 0)} "
+        f"{stats.get('update_time_ms', 0.0):.2f}+{stats.get('submission_time_ms', 0.0):.2f}ms",
+        x, y, 8, pr.LIME,
+    )
+    if type_text:
+        pr.draw_text(type_text, x, y + 9, 8, pr.LIME)
 
 def draw_render_item_occlusion_outline(scene, render_item, game_camera, game_assets):
     if render_item is None:

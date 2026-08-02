@@ -119,6 +119,40 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertEqual(restored["next_environment_object_id"], 3)
         self.assertNotIn("editor_state", restored)
 
+    def test_each_emitter_registry_entry_creates_in_emitters_collection(self):
+        entities = {}
+        emitter_types = [key for key in g_editor.PLACEMENT_TYPES if key.endswith("_emitter")]
+        self.assertEqual(set(emitter_types), {"smoke_emitter", "fire_emitter", "ember_emitter"})
+        for placement_type in emitter_types:
+            kind, object_id = g_editor.create_environment_object(entities, placement_type, {"tile_x": 0, "tile_y": 0, "x": 0.0, "y": 0.0})
+            self.assertEqual(kind, "emitter")
+            self.assertIn(object_id, entities["emitters"])
+
+    def test_emitter_duplicate_has_independent_nested_values_and_delete_removes_it(self):
+        entities = {}
+        kind, object_id = g_editor.create_environment_object(entities, "fire_emitter", {"tile_x": 1, "tile_y": 1, "x": 0.0, "y": 0.0})
+        state = g_editor.make_editor_state()
+        state.update({"selected_kind": kind, "selected_id": object_id})
+        duplicate_id = g_editor.duplicate_selected_environment_object(entities, state, self.tile_map)
+        entities["emitters"][duplicate_id]["light"]["color"][0] = 0.0
+        entities["emitters"][duplicate_id]["area_size"]["x"] = 999.0
+        self.assertEqual(entities["emitters"][object_id]["light"]["color"][0], 1.0)
+        self.assertNotEqual(entities["emitters"][object_id]["area_size"]["x"], 999.0)
+        self.assertTrue(g_editor.delete_selected_environment_object(entities, state))
+        self.assertNotIn(duplicate_id, entities["emitters"])
+
+    def test_placement_options_are_derived_from_registry(self):
+        self.assertEqual(g_editor.PLACEMENT_TYPES, tuple(g_editor.ENVIRONMENT_OBJECT_REGISTRY.keys()))
+        self.assertEqual(g_editor.get_environment_placement_types(), g_editor.PLACEMENT_TYPES)
+
+    def test_save_load_retains_authored_emitters_without_runtime(self):
+        entities = {}
+        g_editor.create_environment_object(entities, "smoke_emitter", {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0})
+        saved_arena = {"entities": entities}
+        restored = pickle.loads(pickle.dumps(saved_arena))
+        self.assertEqual(restored["entities"]["emitters"], entities["emitters"])
+        self.assertNotIn("effects_runtime", restored)
+
     def test_player_readability_light_has_constrained_capabilities(self):
         player = {"position": {"tile_x": 1, "tile_y": 1, "x": 0.0, "y": 0.0}}
         light = g_graphics.make_player_pointlight(player, self.tile_map)

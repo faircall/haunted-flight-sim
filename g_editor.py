@@ -3,11 +3,12 @@ import math
 
 import pyray as pr
 
+import g_effects
 import g_ui
 
 EDITOR_MODES = ("play", "tile", "entity", "environment")
 EDITOR_TOOLS = ("select", "place")
-PLACEMENT_TYPES = ("point_light", "spot_light", "top_down_light", "fog_volume")
+PLACEMENT_TYPES = ()
 RENDER_STYLES = ("world", "readability")
 MOBILITY_OPTIONS = ("static", "dynamic")
 
@@ -32,7 +33,8 @@ def make_editor_state():
             "fog_appearance": True,
             "fog_motion": False,
             "fog_lighting": False,
-            "fog_stylisation": False
+            "fog_stylisation": False,
+            "wind": True,
         }
     }
 
@@ -174,6 +176,8 @@ def migrate_environment_data(entities):
         light.setdefault("affects_entities", legacy_scene)
         light.setdefault("height", 180.0 if light.get("type") == "top_down" else 32.0)
 
+    g_effects.migrate_emitters(entities.get("emitters", {}))
+
     return entities
 
 def allocate_environment_object_id(entities, prefix):
@@ -313,6 +317,14 @@ def point_in_fog_volume(world_point, volume, tile_map, padding=0.0):
 def hit_test_fog_volume(world_point, volume, tile_map):
     return point_in_fog_volume(world_point, volume, tile_map, 4.0)
 
+def hit_test_emitter(world_point, emitter, tile_map):
+    centre = tile_position_to_world(emitter.get("position", {}), tile_map)
+    area = emitter.get("area_size", {})
+    return (
+        abs(world_point["x"] - centre["x"]) <= max(7.0, float(area.get("x", 0.0)) * 0.5 + 3.0)
+        and abs(world_point["y"] - centre["y"]) <= max(7.0, float(area.get("y", 0.0)) * 0.5 + 3.0)
+    )
+
 def hit_test_light(world_point, light, tile_map, handle_radius=7.0):
     centre = tile_position_to_world(light.get("position", {}), tile_map)
 
@@ -405,6 +417,16 @@ def get_drag_handle(world_point, selected, selected_kind, tile_map):
             return "size_y"
         return None
 
+    if selected_kind == "emitter":
+        area = selected.get("area_size", {})
+        x_handle = {"x": centre["x"] + float(area.get("x", 0.0)) * 0.5, "y": centre["y"]}
+        y_handle = {"x": centre["x"], "y": centre["y"] + float(area.get("y", 0.0)) * 0.5}
+        if distance_squared(world_point, x_handle) <= 7.0 ** 2:
+            return "size_x"
+        if distance_squared(world_point, y_handle) <= 7.0 ** 2:
+            return "size_y"
+        return None
+
     light_type = selected.get("type", "point")
 
     if light_type in {"point", "spot"}:
@@ -442,9 +464,11 @@ def apply_environment_drag(selected, selected_kind, drag_kind, world_point, tile
     elif drag_kind == "direction":
         selected["direction"] = normalize_spot_direction({"x": world_point["x"] - centre["x"], "y": world_point["y"] - centre["y"]})
     elif drag_kind == "size_x":
-        selected["size"]["x"] = max(4.0, abs(world_point["x"] - centre["x"]) * 2.0)
+        size = selected["area_size"] if selected_kind == "emitter" else selected["size"]
+        size["x"] = max(4.0, abs(world_point["x"] - centre["x"]) * 2.0)
     elif drag_kind == "size_y":
-        selected["size"]["y"] = max(4.0, abs(world_point["y"] - centre["y"]) * 2.0)
+        size = selected["area_size"] if selected_kind == "emitter" else selected["size"]
+        size["y"] = max(4.0, abs(world_point["y"] - centre["y"]) * 2.0)
     elif drag_kind == "size_xy":
         selected["size"]["x"] = max(4.0, abs(world_point["x"] - centre["x"]) * 2.0)
         selected["size"]["y"] = max(4.0, abs(world_point["y"] - centre["y"]) * 2.0)
@@ -527,6 +551,27 @@ def draw_fog_volume_handles(object_id, volume, game_camera, tile_map, selected):
     if selected:
         pr.draw_text(str(object_id), int(centre["x"] + 6), int(centre["y"] - 10), 8, selected_color)
 
+def draw_emitter_handles(object_id, emitter, game_camera, tile_map, selected):
+    centre_world = tile_position_to_world(emitter["position"], tile_map)
+    centre = world_to_screen(centre_world, game_camera)
+    area = emitter.get("area_size", {})
+    width = float(area.get("x", 0.0))
+    height = float(area.get("y", 0.0))
+    colors = {
+        "smoke": pr.Color(170, 175, 190, 255),
+        "fire": pr.Color(255, 120, 45, 255),
+        "ember": pr.Color(255, 190, 60, 255),
+    }
+    color = colors.get(emitter.get("type"), pr.MAGENTA) if emitter.get("enabled", True) else pr.GRAY
+    outline = pr.Color(255, 230, 115, 255) if selected else color
+    rect = pr.Rectangle(centre["x"] - width * 0.5, centre["y"] - height * 0.5, width, height)
+    pr.draw_rectangle_lines_ex(rect, 2.0 if selected else 1.0, outline)
+    draw_handle(centre, outline, 4 if selected else 3)
+    if selected:
+        draw_handle({"x": centre["x"] + width * 0.5, "y": centre["y"]}, outline)
+        draw_handle({"x": centre["x"], "y": centre["y"] + height * 0.5}, outline)
+        pr.draw_text(str(object_id), int(centre["x"] + 6), int(centre["y"] - 10), 8, outline)
+
 def draw_environment_handles(entities, editor_state, game_camera, tile_map):
     if not editor_state.get("show_handles", True):
         return
@@ -552,10 +597,7 @@ def draw_placement_preview(editor_state, game_camera, tile_map):
     position = world_to_tile_position(world_position, tile_map)
     preview = ENVIRONMENT_OBJECT_REGISTRY[placement_type]["factory"](position)
 
-    if placement_type == "fog_volume":
-        draw_fog_volume_handles("new", preview, game_camera, tile_map, True)
-    else:
-        draw_light_handles("new", preview, game_camera, tile_map, True)
+    ENVIRONMENT_OBJECT_REGISTRY[placement_type]["handles"]("new", preview, game_camera, tile_map, True)
 
 def update_environment_world(entities, editor_state, ui_state, game_camera, tile_map):
     validate_selection(entities, editor_state)
@@ -645,7 +687,7 @@ def draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
     editor_state["tool"], _ = g_ui.ui_dropdown(ui_state, "toolbar:tool", "", editor_state.get("tool", "select"), EDITOR_TOOLS, pr.Rectangle(82, 2, 66, 16), 2)
 
     if editor_mode == "environment":
-        editor_state["placement_type"], _ = g_ui.ui_dropdown(ui_state, "toolbar:placement", "", editor_state.get("placement_type", "point_light"), PLACEMENT_TYPES, pr.Rectangle(150, 2, 98, 16), 4)
+        editor_state["placement_type"], _ = g_ui.ui_dropdown(ui_state, "toolbar:placement", "", editor_state.get("placement_type", "point_light"), get_environment_placement_types(), pr.Rectangle(150, 2, 98, 16), 8)
 
     editor_state["preview_effects"], _ = g_ui.ui_checkbox(ui_state, "toolbar:preview", "fx", editor_state.get("preview_effects", True), pr.Rectangle(252, 3, 38, 14))
     editor_state["snap_enabled"], _ = g_ui.ui_checkbox(ui_state, "toolbar:snap", "snap", editor_state.get("snap_enabled", False), pr.Rectangle(292, 3, 48, 14))
@@ -722,6 +764,61 @@ def inspect_fog_volume(ui_state, editor_state, object_id, volume, tile_map):
     volume["edge_softness"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:softness", "edge softness", volume.get("edge_softness", 24.0), 0.0, 1000.0)
     volume["strength"], _ = g_ui.ui_slider_float(ui_state, f"{widget_id}:strength", "strength", volume.get("strength", 1.0), 0.0, 2.0, 0.01)
 
+def inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map):
+    widget_id = f"object:{object_id}"
+    g_effects.migrate_emitter(emitter)
+    effect_type = emitter.get("type", "smoke")
+    emitter["enabled"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:enabled", "enabled", emitter.get("enabled", True))
+    emitter["preview_enabled"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:preview", "preview", emitter.get("preview_enabled", True))
+    g_ui.ui_label(ui_state, f"{widget_id}:type", f"type: {effect_type}", font_size=8)
+    emitter["position"] = edit_world_position(ui_state, f"{widget_id}:position", emitter["position"], tile_map)
+    emitter["area_size"], _ = g_ui.ui_vec2_input(ui_state, f"{widget_id}:area", "area", emitter.get("area_size", {"x": 8.0, "y": 8.0}), 0.0, 4000.0)
+    emitter["seed"], _ = g_ui.ui_number_input_int(ui_state, f"{widget_id}:seed", "seed", int(emitter.get("seed", 1)), 1, 2147483647)
+    emitter["render_group"], _ = g_ui.ui_dropdown(ui_state, f"{widget_id}:group", "group", emitter.get("render_group", "world_front"), g_effects.RENDER_GROUPS)
+    for name, minimum, maximum in (("density", 0.0, 1.0), ("speed", 0.0, 8.0), ("opacity", 0.0, 1.0), ("posterize_levels", 2.0, 16.0)):
+        emitter[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", name.replace("_", " "), emitter.get(name, minimum), minimum, maximum)
+
+    if effect_type == "smoke":
+        emitter["size"], _ = g_ui.ui_vec2_input(ui_state, f"{widget_id}:size", "effect size", emitter.get("size", {"x": 34.0, "y": 52.0}), 1.0, 1000.0)
+        for name, minimum, maximum in (("turbulence", 0.0, 2.0), ("detail_scale", 0.01, 2.0), ("warp_strength", 0.0, 3.0), ("evolution_speed", 0.0, 4.0), ("wind_response", 0.0, 4.0)):
+            emitter[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", name.replace("_", " "), emitter.get(name, minimum), minimum, maximum)
+        color = emitter.get("color", [0.42, 0.43, 0.48, 1.0])
+        edited, _ = g_ui.ui_color3_editor(ui_state, f"{widget_id}:color", "smoke colour", color[:3])
+        emitter["color"] = list(edited) + [color[3] if len(color) > 3 else 1.0]
+
+    elif effect_type == "fire":
+        emitter["size"], _ = g_ui.ui_vec2_input(ui_state, f"{widget_id}:size", "flame size", emitter.get("size", {"x": 18.0, "y": 26.0}), 1.0, 1000.0)
+        for name, minimum, maximum in (("turbulence", 0.0, 2.0), ("wind_response", 0.0, 4.0), ("ember_density", 0.0, 1.0), ("ember_height", 0.0, 300.0)):
+            emitter[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", name.replace("_", " "), emitter.get(name, minimum), minimum, maximum)
+        palette = emitter.setdefault("palette", {})
+        for name, fallback in (("core", [1.0, 0.94, 0.55, 1.0]), ("hot", [1.0, 0.67, 0.18, 1.0]), ("mid", [0.92, 0.25, 0.045, 1.0]), ("outer", [0.30, 0.025, 0.012, 1.0])):
+            color = list(palette.get(name, fallback))
+            edited, _ = g_ui.ui_color3_editor(ui_state, f"{widget_id}:{name}", name, color[:3])
+            palette[name] = list(edited) + [color[3] if len(color) > 3 else 1.0]
+        light = emitter.setdefault("light", {})
+        light["enabled"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:light", "linked light", light.get("enabled", True))
+        light["radius"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_radius", "light radius", light.get("radius", 70.0), 0.0, 2000.0)
+        light["intensity"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_intensity", "light intensity", light.get("intensity", 0.8), 0.0, 10.0)
+    elif effect_type == "ember":
+        emitter["size"], _ = g_ui.ui_vec2_input(ui_state, f"{widget_id}:size", "field size", emitter.get("size", {"x": 24.0, "y": 42.0}), 1.0, 1000.0)
+        for name, minimum, maximum in (("turbulence", 0.0, 2.0), ("wind_response", 0.0, 4.0)):
+            emitter[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", name.replace("_", " "), emitter.get(name, minimum), minimum, maximum)
+        color = emitter.get("color", [1.0, 0.52, 0.12, 1.0])
+        edited, _ = g_ui.ui_color3_editor(ui_state, f"{widget_id}:color", "ember colour", color[:3])
+        emitter["color"] = list(edited) + [color[3] if len(color) > 3 else 1.0]
+
+def inspect_smoke_emitter(ui_state, editor_state, object_id, emitter, tile_map):
+    inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map)
+
+def inspect_fire_emitter(ui_state, editor_state, object_id, emitter, tile_map):
+    inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map)
+
+def inspect_ember_emitter(ui_state, editor_state, object_id, emitter, tile_map):
+    inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map)
+
+def get_environment_placement_types():
+    return tuple(ENVIRONMENT_OBJECT_REGISTRY.keys())
+
 def section_button(ui_state, editor_state, section_id, title):
     sections = editor_state.setdefault("sections", {})
     opened = sections.get(section_id, True)
@@ -775,7 +872,22 @@ def inspect_fog_profile(ui_state, editor_state, profile):
         profile["dither_enabled"], _ = g_ui.ui_checkbox(ui_state, "world:fog:dither", "dither", profile.get("dither_enabled", False))
         profile["dither_strength"], _ = g_ui.ui_slider_float(ui_state, "world:fog:dither_strength", "dither", profile.get("dither_strength", 1.0), 0.0, 4.0, 0.01)
 
-def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, tile_map):
+def inspect_wind_profile(ui_state, editor_state, profile):
+    if not section_button(ui_state, editor_state, "wind", "Wind"):
+        return
+    direction, changed = g_ui.ui_vec2_input(ui_state, "world:wind:direction", "direction", profile.get("direction", {"x": 1.0, "y": 0.0}), -1.0, 1.0)
+    if changed:
+        profile["direction"] = normalize_spot_direction(direction)
+    for name, minimum, maximum in (
+        ("strength", 0.0, 100.0),
+        ("gust_strength", 0.0, 100.0),
+        ("gust_speed", 0.0, 10.0),
+        ("spatial_scale", 0.0001, 1.0),
+        ("vertical_flutter", 0.0, 100.0),
+    ):
+        profile[name], _ = g_ui.ui_number_input_float(ui_state, f"world:wind:{name}", name.replace("_", " "), profile.get(name, minimum), minimum, maximum)
+
+def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map):
     collapse_rect = pr.Rectangle(308, 40, 14, 14)
 
     if g_ui.ui_button(ui_state, "inspector:collapse", "<" if editor_state.get("inspector_collapsed", False) else ">", collapse_rect):
@@ -802,6 +914,8 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
         inspect_lighting_profile(ui_state, editor_state, lighting_profile)
         g_ui.ui_separator(ui_state, "inspector:world_separator")
         inspect_fog_profile(ui_state, editor_state, fog_profile)
+        g_ui.ui_separator(ui_state, "inspector:wind_separator")
+        inspect_wind_profile(ui_state, editor_state, wind_profile)
     else:
         selected = get_selected_object(entities, editor_state)
 
@@ -817,7 +931,7 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
 
     g_ui.ui_end_panel(ui_state)
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, game_camera, tile_map, show_editor):
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor):
     if not show_editor:
         return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
@@ -830,7 +944,7 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
         if editor_state.get("tool") == "place" and not ui_state.get("mouse_captured"):
             draw_placement_preview(editor_state, game_camera, tile_map)
 
-        draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, tile_map)
+        draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map)
 
     return editor_mode
 
@@ -898,5 +1012,30 @@ ENVIRONMENT_OBJECT_REGISTRY = {
         "handles": draw_fog_volume_handles,
         "handle_hit_test": get_drag_handle,
         "manipulate": apply_environment_drag
-    }
+    },
+    "smoke_emitter": {
+        "target_collection": "emitters", "object_type": "smoke", "factory": g_effects.make_default_smoke_emitter,
+        "display_name": "Smoke emitter", "icon": "~", "debug_color": (170, 175, 190),
+        "selected_kind": "emitter", "id_prefix": "emitter", "inspector": inspect_smoke_emitter,
+        "hit_test": hit_test_emitter, "hit_priority": 3, "handles": draw_emitter_handles,
+        "handle_hit_test": get_drag_handle, "manipulate": apply_environment_drag
+    },
+    "fire_emitter": {
+        "target_collection": "emitters", "object_type": "fire", "factory": g_effects.make_default_fire_emitter,
+        "display_name": "Fire emitter", "icon": "^", "debug_color": (255, 120, 45),
+        "selected_kind": "emitter", "id_prefix": "emitter", "inspector": inspect_fire_emitter,
+        "hit_test": hit_test_emitter, "hit_priority": 3, "handles": draw_emitter_handles,
+        "handle_hit_test": get_drag_handle, "manipulate": apply_environment_drag
+    },
+    "ember_emitter": {
+        "target_collection": "emitters", "object_type": "ember", "factory": g_effects.make_default_ember_emitter,
+        "display_name": "Ember emitter", "icon": ".", "debug_color": (255, 190, 60),
+        "selected_kind": "emitter", "id_prefix": "emitter", "inspector": inspect_ember_emitter,
+        "hit_test": hit_test_emitter, "hit_priority": 3, "handles": draw_emitter_handles,
+        "handle_hit_test": get_drag_handle, "manipulate": apply_environment_drag
+    },
 }
+
+# Kept as a compatibility export, but derived from the registry so it cannot
+# drift away from the environment editor's actual supported object types.
+PLACEMENT_TYPES = get_environment_placement_types()

@@ -13,6 +13,7 @@ from pyrsistent import m, pmap, v
 import cyminiaudio as cma
 
 import g_graphics
+import g_effects
 import g_editor
 import g_render_order
 import g_ui
@@ -235,6 +236,43 @@ def make_tile_map(width, height, tile_width, tile_height):
 def mark_tile_map_geometry_dirty(tile_map):
     tile_map["geometry_revision"] = int(tile_map.get("geometry_revision", 0)) + 1
     return tile_map["geometry_revision"]
+
+def apply_effect_events_to_world(events, tile_map):
+    """Consume persistent outcomes from transient effects (currently decals)."""
+    if not tile_map:
+        return
+    tile_width = max(1.0, float(tile_map.get("tile_width", 16.0)))
+    tile_height = max(1.0, float(tile_map.get("tile_height", 16.0)))
+    map_width = int(tile_map.get("map_width", 0))
+    map_height = int(tile_map.get("map_height", 0))
+    tiles = tile_map.get("tiles", [])
+    for event in events:
+        if event.get("type") != "blood_decal":
+            continue
+        world_x = float(event.get("x", 0.0))
+        world_y = float(event.get("y", 0.0))
+        tile_x = math.floor(world_x / tile_width)
+        tile_y = math.floor(world_y / tile_height)
+        if tile_x < 0 or tile_y < 0 or tile_x >= map_width or tile_y >= map_height:
+            continue
+        flat_index = tile_y * map_width + tile_x
+        if flat_index < 0 or flat_index >= len(tiles):
+            continue
+        tile = tiles[flat_index]
+        decals = tile.setdefault("decals", [])
+        decal = {
+            "type": "blood",
+            "size": float(event.get("size", 3.0)),
+            "offset_x": world_x - tile_x * tile_width,
+            "offset_y": world_y - tile_y * tile_height,
+        }
+        maximum = 64
+        if len(decals) < maximum:
+            decals.append(decal)
+        else:
+            counter = int(tile.get("decal_counter", 0))
+            decals[counter % maximum] = decal
+            tile["decal_counter"] = counter + 1
 
 
 
@@ -631,18 +669,8 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
         entities["projectiles"] = {}
     if "brains" not in entities:
         entities["brains"] = {}
-    if "particle_systems" not in entities:
-        entities["particle_systems"] = {}
     if "pickups" not in entities:
         entities["pickups"] = {}
-
-    for key, particle_system in entities["particle_systems"].items():        
-        if key == "taken":
-            continue
-        for particle in particle_system["particles"]:
-            render_pos_x = tile_width * particle.get("position",{}).get("tile_x",0) + particle.get("position",{}).get("x",0) - game_camera_x
-            render_pos_y = tile_height * particle.get("position",{}).get("tile_y",0) + particle.get("position",{}).get("y",0) - game_camera_y
-            pr.draw_circle(int(render_pos_x), int(render_pos_y), particle.get("size",5), pr.RED)
     
 
     for entity in entities["projectiles"].values():        
@@ -1284,6 +1312,8 @@ def load_shaders():
         "dither_enabled_location": pr.get_shader_location(illuminated_fog, "ditherEnabled"),
         "dither_strength_location": pr.get_shader_location(illuminated_fog, "ditherStrength")
     }
+
+    g_graphics.load_effect_shaders(result)
 
     return result
 
@@ -3170,7 +3200,7 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
 
 
 
-def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, sounds, debug_queue = None):
+def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, sounds, debug_queue = None, effects_runtime=None):
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     if editor_mode != "play":
@@ -3252,76 +3282,6 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 play_pool_sound("health_pickup_pool", sounds, -1, 1)
         
 
-    if "particle_systems" not in entities:
-        entities["particle_systems"] = {}
-
-    for key, particle_system in entities["particle_systems"].items():        
-        if key == "taken":
-            continue
-        place_decal = False
-        # TODO should have two types of decal at least, wall and floor ones
-        # wall ones should be 'tall' and narrow, floor ones should be 'short' and wide
-        if particle_system["timer"] >= particle_system["duration"]:
-            # mark for deletion
-            deletions.append({"subdict": "particle_systems", "id" : particle_system["id"]})            
-            place_decal = True
-        for particle in particle_system["particles"]:
-            next_particle_pos_offset = vec2_add(particle["position"], vec2_scale(particle["velocity"], dt))            
-            next_pos = copy_entity_pos(particle["position"])
-            next_pos["x"] = next_particle_pos_offset["x"]
-            next_pos["y"] = next_particle_pos_offset["y"]
-            
-            particle["position"] = move_position_along_tiles(next_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
-            tile_x = particle["position"]["tile_x"]
-            tile_y = particle["position"]["tile_y"]
-            flat_index = get_flat_tile_index(tile_x, tile_y, tile_map)
-            tile_at_index = get_tile_at_index(flat_index, tile_map)
-
-            if tile_is_collidable(tile_at_index, tile_map):
-                particle["velocity"] = {"x" : 0, "y" : 0}
-            # BUG we currently allow particles to travel through walls which is wrong obviously
-            if place_decal:
-                # and maybe just place decal randomly?
-                
-                offset_x = particle["position"]["x"]
-                offset_y = particle["position"]["y"]
-                ground_particle_size = particle["size"] + 1
-                                                
-                if "decals" not in tile_at_index:
-                    tile_at_index["decals"] = []
-                    tile_at_index["decal_counter"] = 0
-                
-
-                 
-                # TODO (optimisation) : preallocate a certain amount of decals on each tile up front
-                # AND we already know the type of tile that it's landing on so we can properly like
-                # have different decals for different tile types!!
-                decal = {
-                    "type" : "blood",
-                    "size" : ground_particle_size,
-                    "offset_x" : offset_x,
-                    "offset_y" : offset_y,
-                }
-
-                # enforce max length on decals per tile?
-                max_decals_for_now = 64
-                if len(tile_at_index["decals"]) >= max_decals_for_now:
-                    counter = tile_at_index.get("decal_counter", 0)
-                    tile_at_index["decals"][counter % max_decals_for_now]
-                    tile_at_index["decal_counter"] = counter + 1
-                else:
-                    tile_at_index["decals"].append(decal)   
-
-                
-                
-
-                
-
-
-        particle_system["timer"] += dt                    
-            
-
-
     if "projectiles" not in entities:
         entities["projectiles"] = {}
     for entity in entities["projectiles"].values():        
@@ -3386,7 +3346,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             if bullet_key in bullet_tiles:
                 # possible collision!
                 # TODO but we're allowing one bullet in multiple times somehow?
-                print(f"we're saying there's {len(bullet_tiles[bullet_key])} in this square")
+                # print(f"we're saying there's {len(bullet_tiles[bullet_key])} in this square")
                 for bullet_id in bullet_tiles[bullet_key].keys():
                     bullet_list = bullet_tiles[bullet_key][bullet_id]
                     for bullet in bullet_list:
@@ -3409,9 +3369,6 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                 entity["previous_state_on_stagger"] = current_state
                             
                             
-                            # spawn particle
-                            start_color = {"r" : 100, "g" : "20", "b" : 20}
-                            end_color = {"r" : 100, "g" : "20", "b" : 20}
                             # want to know the velocity of the bullet that hit us
                             bullet_hitting_us = entities["projectiles"][bullet["id"]]
 
@@ -3433,41 +3390,31 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                             entity["health"] -= base_bullet_damage
 
                             if entity["health"] > 0:
-                                particle_system = make_blood_spatter(5, start_color,  end_color, 0.3, 0.1, 100, bullet_hitting_us, entity.get("position"))
+                                blood_amount, blood_duration = 5, 0.3
                                 play_pool_sound("stagger_hit_pool", sounds)                                
                             else:
                                 # kill them here
                                 if entity["current_state"] != "dead":
                                     play_pool_sound("death_hit_pool", sounds)                                
-                                    particle_system = make_blood_spatter(20, start_color,  end_color, 0.7, 0.1, 100, bullet_hitting_us, entity.get("position"))
+                                    blood_amount, blood_duration = 20, 0.7
                                 else:
                                     play_pool_sound("stagger_hit_pool", sounds)                                
-                                    particle_system = make_blood_spatter(5, start_color,  end_color, 0.1, 0.01, 100, bullet_hitting_us, entity.get("position"))
+                                    blood_amount, blood_duration = 5, 0.1
                                 entity["current_state"] = "dead"
 
                                 entity["animation_frame"] = "death_frame_start" # TODO make this directional
                                 
                                 
                             
-                            particle_system_id = len(entities["particle_systems"]) 
-                            particle_system["id"] = particle_system_id
-
-                            if "taken" not in entities["particle_systems"]:
-                                entities["particle_systems"]["taken"] = {}
-
-                            if not entities["particle_systems"].get("taken", False):
-                                entities["particle_systems"]["taken"][particle_system_id] = True
-                            else:
-                                found_free = False
-                                while not found_free:
-                                    particle_system_id += 1
-                                    if not entities["particle_systems"]["taken"].get(particle_system_id, False):
-                                        found_free = True             
-                                        particle_system["id"] = particle_system_id                   
-                                        entities["particle_systems"]["taken"][particle_system_id] = True
-                                        break
-
-                            entities["particle_systems"][particle_system_id] = particle_system
+                            if effects_runtime is not None:
+                                g_effects.spawn_blood_spatter(
+                                    effects_runtime,
+                                    blood_amount,
+                                    blood_duration,
+                                    bullet_hitting_us.get("velocity", {}),
+                                    entity.get("position", {}),
+                                    tile_map,
+                                )
                             if debug_queue is not None:
                                 debug_item = {
                                     "type" : "circle",
@@ -3503,8 +3450,6 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         id = deletion.get("id")
         if id in entities[sublist]:
             del entities[sublist][id]
-            if sublist == "particle_systems":
-                entities["particle_systems"]["taken"][id] = False
 
 def make_tile_x_y(x, y):
     return {"tile_x" : x, "tile_y" : y}
@@ -3561,7 +3506,7 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
 
     
     if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
-        player_speed_max = 90.0
+        player_speed_max = 65.0
 
     player_accel = 1500.0
     player_reverse_accel = 3000.0
@@ -3810,54 +3755,6 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
 def copy_position_dict(original):
     return {"x" : original.get("x",0), "y" : original.get("y",0), 
             "tile_x" : original.get("tile_x",0), "tile_y" : original.get("tile_y",0)}
-
-def make_blood_spatter(particle_amount, start_color, end_color, total_duration, spawn_time, max_amount, bullet_hit_us, spawn_position):    
-    # the better thing to do here would probably be
-    # to pool it?
-    bullet_magnitude = vec2_norm(bullet_hit_us.get("velocity"))
-    
-    bullet_normalized = vec2_normalize(bullet_hit_us.get("velocity"))
-
-    blood_particles = [] # maybe slow
-    print("spawning particle system")
-    
-
-    for i in range(particle_amount):
-        current_angle = angle_from_vector(bullet_normalized)
-        new_angle = current_angle + float(random.randint(-10, 10))
-        speed_offset = float(random.randint(-2, 2))
-        new_magnitude = bullet_magnitude / (max(1, speed_offset + 10))#(10 + speed_offset)
-        blood_velocity = vec2_scale(vector_from_angle(new_angle), new_magnitude)
-        spawn_pos = copy_entity_pos(spawn_position)
-        base_size = 2
-        size_offset = random.randint(-1,1)
-        random_offset_x = random.randint(-7,7)
-        random_offset_y = random.randint(-7,7)
-        spawn_pos["x"] += random_offset_x
-        spawn_pos["y"] += random_offset_y
-        particle = {
-            "velocity" : blood_velocity,
-            "size" : base_size + size_offset,
-            "timer" : 0.0,
-            "position" : spawn_pos,
-            
-        }
-        # TODO color them 'uniquely'
-        blood_particles.append(particle)
-        
-    particle_system = {}
-    particle_system["particles"] = blood_particles
-    particle_system["timer"] = 0.0
-    particle_system["duration"] = total_duration
-    particle_system["start_color"] = start_color
-    particle_system["end_color"] = end_color
-    
-    return particle_system
-
-def make_particle_system(particle_amount, start_color, end_color, total_duration, spawn_time, max_amount, direction):
-    particle_system = {}    
-    return particle_system
-
 
 def play_sound(sound):
     if g_mute:
@@ -4129,6 +4026,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F3):
         game_assets["show_entity_lighting_debug"] = not game_assets.get("show_entity_lighting_debug", False)
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F12):
+        if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT) or pr.is_key_down(pr.KeyboardKey.KEY_RIGHT_SHIFT):
+            game_assets["effect_debug_output"] = "raw" if game_assets.get("effect_debug_output", "final") == "final" else "final"
+            game_assets["show_effect_stats"] = True
+        else:
+            game_assets["show_effect_stats"] = not game_assets.get("show_effect_stats", False)
     
     
 
@@ -4152,7 +4055,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     shaders = game_assets.get("shaders")
     lighting_composite_shader = shaders.get("lighting_composite", {}) if shaders else {}
     entity_self_shadow_shader = shaders.get("entity_self_shadow", {}) if shaders else {}
-    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader or "self_shadow_mode_location" not in entity_self_shadow_shader or "self_shadow_pass_location" not in entity_self_shadow_shader:
+    effect_shaders_valid = shaders and all(
+        name in shaders and shaders[name].get("shader") is not None
+        for name in ("effect_fire", "effect_smoke")
+    )
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader or "self_shadow_mode_location" not in entity_self_shadow_shader or "self_shadow_pass_location" not in entity_self_shadow_shader or not effect_shaders_valid:
         if shaders:
             unload_shaders(shaders)
         shaders = load_shaders()
@@ -4183,6 +4090,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         entities = {}
 
     g_editor.migrate_environment_data(entities)
+    g_effects.discard_legacy_particle_systems(entities)
+    wind_profile = main_arena.get("wind_profile") or g_effects.make_wind_profile()
+    if game_assets.get("effects_entities_identity") != id(entities):
+        g_effects.clear_effects_runtime(game_assets)
+        game_assets["effects_entities_identity"] = id(entities)
+    effects_runtime = g_effects.ensure_effects_runtime(game_assets)
     ui_state = game_assets.get("ui_state")
 
     if ui_state is None:
@@ -4255,7 +4168,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         # square, so we avoid the quadratic thing
         # and then if there is a bullet(s) in the square,
         # we check against only those (there may be more than one I suppose)
-        update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
+        update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue, effects_runtime=effects_runtime)
     
     if ui_state.get("focused_id") is None and editor_state.get("drag_kind") is None:
         camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
@@ -4283,6 +4196,23 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
     render_environment_effects = editor_mode == "play" or preview_environment
+    g_effects.update_effects(
+        effects_runtime,
+        entities.get("emitters", {}),
+        wind_profile,
+        time_elapsed,
+        0.0 if pause_state == "paused" else dt,
+        tile_map,
+        update_authored=render_environment_effects,
+        update_bursts=editor_mode == "play",
+        respect_preview_enabled=editor_mode == "environment",
+    )
+    apply_effect_events_to_world(g_effects.drain_effect_events(effects_runtime), tile_map)
+    fire_light_emitters = entities.get("emitters", {})
+    if editor_mode == "environment":
+        fire_light_emitters = {key: value for key, value in fire_light_emitters.items() if value.get("preview_enabled", True)}
+    fire_lights = g_effects.build_fire_runtime_lights(fire_light_emitters, tile_map, time_elapsed) if render_environment_effects else {}
+    game_assets["runtime_lights"] = g_effects.replace_fire_runtime_lights(game_assets.get("runtime_lights", {}), fire_lights)
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
     prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
     sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
@@ -4302,6 +4232,13 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     pr.end_texture_mode()
 
     if render_environment_effects and not do_load_level:
+        g_graphics.render_effect_group(
+            render_target, camera_3d.position, game_assets, lighting_profile, None,
+            "floor_lit", False, entities.get("emitters", {}), tile_map,
+            wind_profile, time_elapsed, editor_mode == "environment",
+        )
+
+    if render_environment_effects and not do_load_level:
         g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, sorted_world_items, game_assets, prepared_flashlight)
 
     entity_light_target = None
@@ -4310,6 +4247,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if render_environment_effects:
         fog_light_target, readability_light_target, entity_light_target, entity_readability_light_target = g_graphics.render_prepared_lighting(lighting_frame, camera_3d.position, lighting_target, game_assets)
         g_graphics.apply_lighting(render_target, lighting_target, readability_light_target, game_assets, lighting_profile)
+        g_graphics.render_effect_group(
+            render_target, camera_3d.position, game_assets, lighting_profile,
+            lighting_target, "world_behind", True, entities.get("emitters", {}),
+            tile_map, wind_profile, time_elapsed, editor_mode == "environment",
+        )
 
     entity_render_started = time.perf_counter()
     entity_render_frame = g_graphics.draw_sorted_world_render_items(sorted_world_items, render_target, camera_3d.position, game_assets, lighting_profile, lighting_frame["prepared_lights"] if render_environment_effects else [], entity_readability_light_target, player_info)
@@ -4319,6 +4261,16 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     entity_light_target = entity_render_frame.get("entity_direct_light")
 
     if render_environment_effects:
+        g_graphics.render_effect_group(
+            render_target, camera_3d.position, game_assets, lighting_profile,
+            lighting_target, "world_front", True, entities.get("emitters", {}),
+            tile_map, wind_profile, time_elapsed, editor_mode == "environment",
+        )
+        g_graphics.render_effect_group(
+            render_target, camera_3d.position, game_assets, lighting_profile,
+            lighting_target, "emissive", False, entities.get("emitters", {}),
+            tile_map, wind_profile, time_elapsed, editor_mode == "environment",
+        )
         fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
         g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
 
@@ -4333,6 +4285,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if game_assets.get("show_lighting_stats", False) and render_environment_effects:
         g_graphics.draw_lighting_stats_debug(lighting_frame["stats"])
+    if game_assets.get("show_effect_stats", False) and render_environment_effects:
+        g_graphics.draw_effect_stats_debug(effects_runtime)
 
     if editor_mode != "play" and game_assets.get("show_cinematic_shadow_debug", False):
         g_graphics.draw_cinematic_shadow_debug(camera_3d.position, sorted_world_items, game_assets, prepared_flashlight)
@@ -4347,7 +4301,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if game_assets.get("show_entity_direction_basis_debug", False) and not full_entity_lighting_debug:
         g_graphics.draw_entity_direction_basis_debug(sorted_world_items, camera_3d.position, lighting_frame["prepared_lights"])
     
-    editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map, show_editor)
+    editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, camera_3d.position, tile_map, show_editor)
 
     if editor_mode == "tile":
         tile_type = tile_map["tile_types"][current_tile_selection]
@@ -4385,6 +4339,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         reset_all = True
         fog_profile = None
         lighting_profile = None
+        wind_profile = g_effects.make_wind_profile()
+        g_effects.clear_effects_runtime(game_assets)
+        game_assets.pop("effects_entities_identity", None)
 
     selected_save_index, load_saved_data = g_ui.draw_load_level(main_arena, game_assets)
 
@@ -4394,11 +4351,15 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         loaded_entities = main_arena.get("entities")
         lighting_profile = main_arena.get("lighting_profile") or g_graphics.make_lighting_profile("inky")
         fog_profile = main_arena.get("fog_profile") or g_graphics.make_fog_profile("misty")
+        wind_profile = main_arena.get("wind_profile") or g_effects.make_wind_profile()
         editor_mode = g_editor.migrate_editor_mode(main_arena.get("editor_mode", editor_mode))
+        g_effects.clear_effects_runtime(game_assets)
+        game_assets.pop("effects_entities_identity", None)
 
         if loaded_entities is not None:
             entities = loaded_entities
             g_editor.migrate_environment_data(entities)
+            g_effects.discard_legacy_particle_systems(entities)
             g_editor.validate_selection(entities, editor_state)
 
     if g_mute:
@@ -4439,6 +4400,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["selected_save_index"] = selected_save_index
     changes["lighting_profile"] = lighting_profile
     changes["fog_profile"] = fog_profile
+    changes["wind_profile"] = wind_profile
 
     result = changes.persistent()    
     
