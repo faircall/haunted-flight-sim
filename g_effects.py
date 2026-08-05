@@ -206,6 +206,182 @@ def make_wind_profile(profile_name="default"):
     }
 
 
+def make_rain_profile(profile_name="default"):
+    """Return fresh, serialisable global weather state for GPU-authored rain."""
+    return {
+        "name": str(profile_name),
+        "enabled": False,
+        "density": 0.30,
+        "speed": 1.0,
+        "direction": {"x": 0.12, "y": 1.0},
+        "seed": 4409,
+        "cell_size": {"x": 9.0, "y": 14.0},
+        "streak_length": 4.0,
+        "unlit_opacity": 0.012,
+        "lit_opacity": 0.20,
+        "light_threshold": 0.04,
+        "light_response": 1.0,
+        "light_color_influence": 0.70,
+        "ambient_color": [0.40, 0.48, 0.62],
+        "opacity_levels": 4,
+        "distortion_enabled": True,
+        "distortion_strength": 1.0,
+        "distortion_density": 0.16,
+        "distortion_scale": 18.0,
+        "distortion_speed": 0.55,
+    }
+
+
+def normalize_rain_profile(rain_profile):
+    """Fill and constrain a rain profile in place, including a safe direction."""
+    profile = rain_profile if isinstance(rain_profile, dict) else make_rain_profile()
+    defaults = make_rain_profile(profile.get("name", "default"))
+    for key, value in defaults.items():
+        if key not in profile:
+            profile[key] = copy.deepcopy(value)
+
+    direction = profile.get("direction")
+    if not isinstance(direction, dict):
+        direction = {}
+    dx = float(direction.get("x", defaults["direction"]["x"]))
+    dy = float(direction.get("y", defaults["direction"]["y"]))
+    length = math.hypot(dx, dy)
+    if length <= 0.000001:
+        dx, dy, length = 0.0, 1.0, 1.0
+    profile["direction"] = {"x": dx / length, "y": dy / length}
+
+    cell_size = profile.get("cell_size")
+    if not isinstance(cell_size, dict):
+        cell_size = defaults["cell_size"]
+    profile["cell_size"] = {
+        "x": _clamp(cell_size.get("x", 9.0), 2.0, 128.0),
+        "y": _clamp(cell_size.get("y", 14.0), 2.0, 128.0),
+    }
+    profile["enabled"] = bool(profile.get("enabled", False))
+    profile["density"] = _clamp(profile.get("density", 0.30), 0.0, 1.0)
+    profile["speed"] = _clamp(profile.get("speed", 1.0), 0.0, 20.0)
+    profile["seed"] = int(profile.get("seed", 4409))
+    profile["streak_length"] = _clamp(profile.get("streak_length", 4.0), 1.0, 8.0)
+    profile["unlit_opacity"] = _clamp(profile.get("unlit_opacity", 0.012), 0.0, 1.0)
+    profile["lit_opacity"] = _clamp(profile.get("lit_opacity", 0.20), 0.0, 1.0)
+    profile["light_threshold"] = _clamp(profile.get("light_threshold", 0.04), 0.0, 1.0)
+    profile["light_response"] = _clamp(profile.get("light_response", 1.0), 0.0, 20.0)
+    profile["light_color_influence"] = _clamp(profile.get("light_color_influence", 0.70), 0.0, 1.0)
+    ambient = list(profile.get("ambient_color", defaults["ambient_color"]))[:3]
+    while len(ambient) < 3:
+        ambient.append(defaults["ambient_color"][len(ambient)])
+    profile["ambient_color"] = [_clamp(value, 0.0, 1.0) for value in ambient]
+    profile["opacity_levels"] = max(2, min(64, int(round(float(profile.get("opacity_levels", 4))))))
+    profile["distortion_enabled"] = bool(profile.get("distortion_enabled", True))
+    # This milestone has a hard one-internal-pixel displacement contract.
+    profile["distortion_strength"] = _clamp(profile.get("distortion_strength", 1.0), 0.0, 1.0)
+    profile["distortion_density"] = _clamp(profile.get("distortion_density", 0.16), 0.0, 1.0)
+    profile["distortion_scale"] = _clamp(profile.get("distortion_scale", 18.0), 2.0, 128.0)
+    profile["distortion_speed"] = _clamp(profile.get("distortion_speed", 0.55), 0.0, 20.0)
+    return profile
+
+
+def get_tile_rain_exposure(tile):
+    if not isinstance(tile, dict):
+        return 0.0
+    return _clamp(tile.get("rain_exposure", 0.0), 0.0, 1.0)
+
+
+def set_tile_rain_exposure(tile, exposure):
+    """Set independent authored exposure and report whether its value changed."""
+    if not isinstance(tile, dict):
+        return False
+    value = _clamp(exposure, 0.0, 1.0)
+    previous = get_tile_rain_exposure(tile)
+    if value <= 0.0:
+        tile.pop("rain_exposure", None)
+    else:
+        tile["rain_exposure"] = float(value)
+    return previous != value
+
+
+def mark_rain_exposure_dirty(tile_map):
+    tile_map["rain_exposure_revision"] = int(tile_map.get("rain_exposure_revision", 0)) + 1
+    return tile_map["rain_exposure_revision"]
+
+
+def build_rain_exposure_pixel_data(tile_map):
+    """Build row-major RGBA8 data with one opaque pixel per authored map tile."""
+    width = max(0, int((tile_map or {}).get("map_width", 0)))
+    height = max(0, int((tile_map or {}).get("map_height", 0)))
+    tiles = (tile_map or {}).get("tiles", ())
+    pixels = bytearray(width * height * 4)
+    for flat_index in range(width * height):
+        exposure = get_tile_rain_exposure(tiles[flat_index] if flat_index < len(tiles) else None)
+        channel = max(0, min(255, int(round(exposure * 255.0))))
+        offset = flat_index * 4
+        pixels[offset] = channel
+        pixels[offset + 1] = 0
+        pixels[offset + 2] = 0
+        pixels[offset + 3] = 255
+    return bytes(pixels)
+
+
+def count_exposed_rain_tiles(tile_map):
+    width = max(0, int((tile_map or {}).get("map_width", 0)))
+    height = max(0, int((tile_map or {}).get("map_height", 0)))
+    tiles = (tile_map or {}).get("tiles", ())
+    return sum(
+        1 for index in range(min(width * height, len(tiles)))
+        if get_tile_rain_exposure(tiles[index]) > 0.0
+    )
+
+
+def flood_fill_rain_exposure(tile_map, start_x, start_y, target_exposure):
+    """Iteratively replace a four-connected region matching the start exposure."""
+    width = max(0, int((tile_map or {}).get("map_width", 0)))
+    height = max(0, int((tile_map or {}).get("map_height", 0)))
+    tiles = (tile_map or {}).get("tiles", ())
+    start_x = int(start_x)
+    start_y = int(start_y)
+    replacement = _clamp(target_exposure, 0.0, 1.0)
+    if start_x < 0 or start_y < 0 or start_x >= width or start_y >= height:
+        return 0
+    start_index = start_y * width + start_x
+    if start_index >= len(tiles):
+        return 0
+    initial = get_tile_rain_exposure(tiles[start_index])
+    if initial == replacement:
+        return 0
+
+    changed = 0
+    pending = [(start_x, start_y)]
+    seen = set()
+    while pending:
+        x, y = pending.pop()
+        if (x, y) in seen or x < 0 or y < 0 or x >= width or y >= height:
+            continue
+        seen.add((x, y))
+        flat_index = y * width + x
+        if flat_index >= len(tiles) or get_tile_rain_exposure(tiles[flat_index]) != initial:
+            continue
+        if set_tile_rain_exposure(tiles[flat_index], replacement):
+            changed += 1
+        pending.extend(((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)))
+
+    if changed:
+        mark_rain_exposure_dirty(tile_map)
+    return changed
+
+
+def fill_map_rain_exposure(tile_map, target_exposure):
+    width = max(0, int((tile_map or {}).get("map_width", 0)))
+    height = max(0, int((tile_map or {}).get("map_height", 0)))
+    tiles = (tile_map or {}).get("tiles", ())
+    changed = sum(
+        1 for tile in tiles[:width * height]
+        if set_tile_rain_exposure(tile, target_exposure)
+    )
+    if changed:
+        mark_rain_exposure_dirty(tile_map)
+    return changed
+
+
 def sample_wind(wind_profile, world_x, world_y, time_elapsed):
     profile = wind_profile or make_wind_profile()
     direction = profile.get("direction", {})

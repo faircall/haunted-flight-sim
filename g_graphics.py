@@ -115,6 +115,94 @@ def get_or_create_render_target(game_assets, name, width, height):
 
     return target
 
+
+def rain_exposure_texture_cache_key(tile_map):
+    return (
+        id(tile_map),
+        max(0, int((tile_map or {}).get("map_width", 0))),
+        max(0, int((tile_map or {}).get("map_height", 0))),
+        int((tile_map or {}).get("rain_exposure_revision", 0)),
+    )
+
+
+def rain_exposure_texture_cache_action(cache_metadata, tile_map):
+    """Pure cache decision used by the GPU path and unit tests."""
+    source_identity, width, height, revision = rain_exposure_texture_cache_key(tile_map)
+    if not isinstance(cache_metadata, dict) or cache_metadata.get("texture") is None:
+        return "recreate"
+    if cache_metadata.get("source_identity") != source_identity:
+        return "recreate"
+    if cache_metadata.get("width") != width or cache_metadata.get("height") != height:
+        return "recreate"
+    if cache_metadata.get("last_revision") != revision:
+        return "update"
+    return "reuse"
+
+
+def _load_rgba8_texture(width, height, pixel_data):
+    # Image retains the Python buffer for the duration of this immediate upload.
+    buffer = bytearray(pixel_data)
+    image = pr.Image(
+        buffer, width, height, 1,
+        int(pr.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8),
+    )
+    texture = pr.load_texture_from_image(image)
+    pr.set_texture_filter(texture, pr.TextureFilter.TEXTURE_FILTER_POINT)
+    return texture
+
+
+def ensure_rain_exposure_texture(game_assets, tile_map):
+    """Create/update the one-texel-per-tile exposure texture on revision changes."""
+    cache = game_assets.get("rain_exposure_texture_cache")
+    action = rain_exposure_texture_cache_action(cache, tile_map)
+    source_identity, width, height, revision = rain_exposure_texture_cache_key(tile_map)
+    # Raylib cannot create a zero-sized texture; invalid maps have no rain asset.
+    if width <= 0 or height <= 0:
+        if isinstance(cache, dict) and cache.get("texture") is not None:
+            pr.unload_texture(cache["texture"])
+        game_assets.pop("rain_exposure_texture_cache", None)
+        return None
+
+    if action == "reuse":
+        return cache["texture"]
+
+    pixels = g_effects.build_rain_exposure_pixel_data(tile_map)
+    exposed_count = g_effects.count_exposed_rain_tiles(tile_map)
+    rebuild_count = int(cache.get("rebuild_count", 0)) if isinstance(cache, dict) else 0
+    texture = cache.get("texture") if isinstance(cache, dict) else None
+    if action == "update" and texture is not None:
+        pixel_bytes = bytearray(pixels)
+        pixel_buffer = pr.ffi.from_buffer("unsigned char[]", pixel_bytes)
+        pr.update_texture(texture, pr.ffi.cast("void *", pixel_buffer))
+    else:
+        if texture is not None:
+            pr.unload_texture(texture)
+        texture = _load_rgba8_texture(width, height, pixels)
+        rebuild_count += 1
+
+    pr.set_texture_filter(texture, pr.TextureFilter.TEXTURE_FILTER_POINT)
+    game_assets["rain_exposure_texture_cache"] = {
+        "texture": texture,
+        "source_identity": source_identity,
+        "width": width,
+        "height": height,
+        "last_revision": revision,
+        "exposed_tile_count": exposed_count,
+        "rebuild_count": rebuild_count,
+    }
+    return texture
+
+
+def clear_rain_runtime_assets(game_assets):
+    cache = game_assets.pop("rain_exposure_texture_cache", None)
+    if isinstance(cache, dict) and cache.get("texture") is not None:
+        pr.unload_texture(cache["texture"])
+    render_targets = game_assets.get("render_targets", {})
+    target = render_targets.pop("rain_composite", None)
+    if target is not None:
+        pr.unload_render_texture(target)
+    game_assets.pop("rain_stats", None)
+
 def set_shader_texture(shader, location, texture):
     if location < 0:
         return
@@ -166,6 +254,16 @@ _EFFECT_SHADER_UNIFORMS = {
     ),
 }
 
+_RAIN_SHADER_UNIFORMS = (
+    "lightTexture", "rainExposureTexture", "resolution", "cameraPosition",
+    "tileSize", "mapSize", "time", "seed", "density", "speed",
+    "direction", "cellSize", "streakLength", "unlitOpacity", "litOpacity",
+    "lightThreshold", "lightResponse", "lightColorInfluence",
+    "ambientRainColor", "opacityLevels", "distortionEnabled",
+    "distortionStrength", "distortionDensity", "debugMode", "showExposureOverlay",
+    "disableStreakColor", "disableDistortion",
+)
+
 def load_effect_shaders(shader_registry):
     """Load procedural environment shaders and cache all uniform locations."""
     for shader_name, uniforms in _EFFECT_SHADER_UNIFORMS.items():
@@ -174,6 +272,11 @@ def load_effect_shaders(shader_registry):
         for uniform in uniforms:
             info[f"{uniform}_location"] = pr.get_shader_location(shader, uniform)
         shader_registry[shader_name] = info
+    rain_shader = pr.load_shader("", "shaders/rain_composite.fs")
+    rain_info = {"shader": rain_shader}
+    for uniform in _RAIN_SHADER_UNIFORMS:
+        rain_info[f"{uniform}_location"] = pr.get_shader_location(rain_shader, uniform)
+    shader_registry["rain_composite"] = rain_info
     return shader_registry
 
 def normalize_light_color(color):
@@ -3088,6 +3191,115 @@ def draw_render_item_occlusion_outline(scene, render_item, game_camera, game_ass
 def draw_render_item_occlusion_outlines(scene, outlined_items, game_camera, game_assets):
     for entry in outlined_items:
         draw_render_item_occlusion_outline(scene, entry.get("item"), game_camera, game_assets)
+
+
+def _rain_debug_mode(debug):
+    if debug.get("show_raw_exposure_texture", False):
+        return 5
+    if debug.get("show_raw_streak_mask", False):
+        return 2
+    if debug.get("show_distortion_mask", False):
+        return 3
+    if debug.get("show_sampled_light_amount", False):
+        return 4
+    return 0
+
+
+def apply_rain_composite(scene, world_light_target, rain_exposure_texture,
+                         rain_profile, game_assets, game_camera, tile_map,
+                         time_elapsed):
+    """Refract the completed scene vertically and composite light-revealed rain."""
+    started = time.perf_counter()
+    stats = game_assets.setdefault("rain_stats", {})
+    stats["composite_draw_calls"] = 0
+    stats["composite_submission_time_ms"] = 0.0
+    cache = game_assets.get("rain_exposure_texture_cache", {})
+    stats["enabled"] = bool((rain_profile or {}).get("enabled", False))
+    stats["exposed_tile_count"] = int(cache.get("exposed_tile_count", 0))
+    stats["exposure_texture_revision"] = cache.get("last_revision", -1)
+    stats["exposure_texture_rebuild_count"] = int(cache.get("rebuild_count", 0))
+
+    if not stats["enabled"] or stats["exposed_tile_count"] <= 0:
+        return False
+    if scene is None or world_light_target is None or rain_exposure_texture is None:
+        return False
+    if getattr(scene.texture, "id", 0) <= 0 or getattr(world_light_target.texture, "id", 0) <= 0:
+        return False
+    rain_shader = game_assets.get("shaders", {}).get("rain_composite")
+    if not isinstance(rain_shader, dict) or rain_shader.get("shader") is None:
+        return False
+
+    profile = g_effects.normalize_rain_profile(rain_profile)
+    width = int(scene.texture.width)
+    height = int(scene.texture.height)
+    composite_target = get_or_create_render_target(game_assets, "rain_composite", width, height)
+    shader = rain_shader["shader"]
+    direction = profile["direction"]
+    cell_size = profile["cell_size"]
+    ambient = profile["ambient_color"]
+    debug = game_assets.get("rain_debug", {})
+
+    set_shader_vec2(shader, rain_shader["resolution_location"], width, height)
+    set_shader_vec2(shader, rain_shader["cameraPosition_location"], game_camera.x, game_camera.y)
+    set_shader_vec2(shader, rain_shader["tileSize_location"], tile_map.get("tile_width", 16), tile_map.get("tile_height", 16))
+    set_shader_vec2(shader, rain_shader["mapSize_location"], tile_map.get("map_width", 0), tile_map.get("map_height", 0))
+    set_shader_float(shader, rain_shader["time_location"], time_elapsed)
+    set_shader_float(shader, rain_shader["seed_location"], profile["seed"])
+    set_shader_float(shader, rain_shader["density_location"], profile["density"])
+    set_shader_float(shader, rain_shader["speed_location"], profile["speed"])
+    set_shader_vec2(shader, rain_shader["direction_location"], direction["x"], direction["y"])
+    set_shader_vec2(shader, rain_shader["cellSize_location"], cell_size["x"], cell_size["y"])
+    set_shader_float(shader, rain_shader["streakLength_location"], profile["streak_length"])
+    set_shader_float(shader, rain_shader["unlitOpacity_location"], profile["unlit_opacity"])
+    set_shader_float(shader, rain_shader["litOpacity_location"], profile["lit_opacity"])
+    set_shader_float(shader, rain_shader["lightThreshold_location"], profile["light_threshold"])
+    set_shader_float(shader, rain_shader["lightResponse_location"], profile["light_response"])
+    set_shader_float(shader, rain_shader["lightColorInfluence_location"], profile["light_color_influence"])
+    set_shader_vec3(shader, rain_shader["ambientRainColor_location"], ambient[0], ambient[1], ambient[2])
+    set_shader_float(shader, rain_shader["opacityLevels_location"], profile["opacity_levels"])
+    set_shader_float(shader, rain_shader["distortionEnabled_location"], 1.0 if profile["distortion_enabled"] else 0.0)
+    set_shader_float(shader, rain_shader["distortionStrength_location"], profile["distortion_strength"])
+    set_shader_float(shader, rain_shader["distortionDensity_location"], profile["distortion_density"])
+    set_shader_int(shader, rain_shader["debugMode_location"], _rain_debug_mode(debug))
+    set_shader_float(shader, rain_shader["showExposureOverlay_location"], 1.0 if debug.get("show_exposure_overlay", False) else 0.0)
+    set_shader_float(shader, rain_shader["disableStreakColor_location"], 1.0 if debug.get("disable_streak_color", False) else 0.0)
+    set_shader_float(shader, rain_shader["disableDistortion_location"], 1.0 if debug.get("disable_distortion", False) else 0.0)
+
+    source = pr.Rectangle(0, 0, width, -height)
+    destination = pr.Rectangle(0, 0, width, height)
+    point_filter = pr.TextureFilter.TEXTURE_FILTER_POINT
+    pr.set_texture_filter(scene.texture, point_filter)
+    pr.set_texture_filter(world_light_target.texture, point_filter)
+    pr.set_texture_filter(rain_exposure_texture, point_filter)
+    pr.set_texture_filter(composite_target.texture, point_filter)
+
+    pr.begin_texture_mode(composite_target)
+    pr.clear_background(pr.BLANK)
+    pr.begin_shader_mode(shader)
+    set_shader_texture(shader, rain_shader["lightTexture_location"], world_light_target.texture)
+    set_shader_texture(shader, rain_shader["rainExposureTexture_location"], rain_exposure_texture)
+    pr.draw_texture_pro(scene.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_shader_mode()
+    pr.end_texture_mode()
+
+    pr.begin_texture_mode(scene)
+    pr.clear_background(pr.BLANK)
+    pr.draw_texture_pro(composite_target.texture, source, destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    pr.end_texture_mode()
+
+    stats["composite_draw_calls"] = 1
+    stats["composite_submission_time_ms"] = (time.perf_counter() - started) * 1000.0
+    return True
+
+
+def draw_rain_stats_debug(game_assets, x=4, y=54):
+    stats = game_assets.get("rain_stats", {})
+    pr.draw_text(
+        f"rain {'on' if stats.get('enabled', False) else 'off'} exposed {stats.get('exposed_tile_count', 0)} "
+        f"rev {stats.get('exposure_texture_revision', -1)} rebuilds {stats.get('exposure_texture_rebuild_count', 0)} "
+        f"draws {stats.get('composite_draw_calls', 0)} {stats.get('composite_submission_time_ms', 0.0):.2f}ms",
+        x, y, 8, pr.SKYBLUE,
+    )
 
 def apply_illuminated_fog(scene, fog_lighting, fog_volume_mask, game_assets, fog_profile, game_camera, time_elapsed):
     if not fog_profile.get("enabled", True):

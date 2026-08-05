@@ -210,6 +210,7 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["tile_width"] = tile_width
     result["tile_height"] = tile_height    
     result["geometry_revision"] = 0
+    result["rain_exposure_revision"] = 0
     result["tile_types"] = [{"type" : "blank_tile", "color" : "BLACK"}, 
                             {"type" : "carpet", "color" : "BLUE"}, 
                             {"type" : "door", "color" : "RED"}, 
@@ -236,6 +237,10 @@ def make_tile_map(width, height, tile_width, tile_height):
 def mark_tile_map_geometry_dirty(tile_map):
     tile_map["geometry_revision"] = int(tile_map.get("geometry_revision", 0)) + 1
     return tile_map["geometry_revision"]
+
+
+def flood_fill_rain_exposure(tile_map, start_x, start_y, target_exposure):
+    return g_effects.flood_fill_rain_exposure(tile_map, start_x, start_y, target_exposure)
 
 def apply_effect_events_to_world(events, tile_map):
     """Consume persistent outcomes from transient effects (currently decals)."""
@@ -519,6 +524,9 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
     map_width = tile_map["map_width"]
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
+    editor_state = game_assets.get("editor_state", {})
+    tile_edit_mode = editor_state.get("tile_edit_mode", "appearance")
+    rain_exposure_value = float(editor_state.get("rain_exposure_value", 1.0))
     
     internal_res_x = 1920
     internal_res_y = 1080
@@ -576,22 +584,29 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                     #     seen = {}
                     #     do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen)
 
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
-                        # do a flood fill
-                        # get the initial tile
-                        initial = tile_map["tiles"][y*map_width + x]["index"]
-                        seen = {}
-                        initial_force_collidable = bool(tile_map["tiles"][y*map_width + x].get("force_collidable", False))
-                        if initial != current_tile_selection or initial_force_collidable != bool(current_tile_force_collidable):
-                            do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, force_collidable=current_tile_force_collidable)
+                    if tile_edit_mode == "rain_exposure":
+                        if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
+                            flood_fill_rain_exposure(tile_map, x, y, rain_exposure_value)
+                        if g_ui.interactive_mouse_left_down():
+                            edited_tile = tile_map["tiles"][y*map_width + x]
+                            if g_effects.set_tile_rain_exposure(edited_tile, rain_exposure_value):
+                                g_effects.mark_rain_exposure_dirty(tile_map)
+                    else:
+                        if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
+                            # Appearance flood fill retains the existing tile/collision semantics.
+                            initial = tile_map["tiles"][y*map_width + x]["index"]
+                            seen = {}
+                            initial_force_collidable = bool(tile_map["tiles"][y*map_width + x].get("force_collidable", False))
+                            if initial != current_tile_selection or initial_force_collidable != bool(current_tile_force_collidable):
+                                do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, force_collidable=current_tile_force_collidable)
 
-                    if g_ui.interactive_mouse_left_down():
-                        edited_tile = tile_map["tiles"][y*map_width + x]
-                        if edited_tile.get("index", 0) != current_tile_selection or edited_tile.get("shape_index", 0) != current_shape_selection or bool(edited_tile.get("force_collidable", False)) != bool(current_tile_force_collidable):
-                            edited_tile["index"] = current_tile_selection
-                            edited_tile["shape_index"] = current_shape_selection
-                            set_tile_force_collidable(edited_tile, current_tile_force_collidable)
-                            mark_tile_map_geometry_dirty(tile_map)
+                        if g_ui.interactive_mouse_left_down():
+                            edited_tile = tile_map["tiles"][y*map_width + x]
+                            if edited_tile.get("index", 0) != current_tile_selection or edited_tile.get("shape_index", 0) != current_shape_selection or bool(edited_tile.get("force_collidable", False)) != bool(current_tile_force_collidable):
+                                edited_tile["index"] = current_tile_selection
+                                edited_tile["shape_index"] = current_shape_selection
+                                set_tile_force_collidable(edited_tile, current_tile_force_collidable)
+                                mark_tile_map_geometry_dirty(tile_map)
                             
                 pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
@@ -4084,7 +4099,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     entities = main_arena.get("entities")
 
     if not tile_map:
-        tile_map = make_tile_map(100, 100, 16, 16)        
+        tile_map = make_tile_map(100, 100, 16, 16)
+    tile_map.setdefault("rain_exposure_revision", 0)
 
     if not entities:
         entities = {}
@@ -4092,6 +4108,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     g_editor.migrate_environment_data(entities)
     g_effects.discard_legacy_particle_systems(entities)
     wind_profile = main_arena.get("wind_profile") or g_effects.make_wind_profile()
+    rain_profile = g_effects.normalize_rain_profile(main_arena.get("rain_profile") or g_effects.make_rain_profile())
     if game_assets.get("effects_entities_identity") != id(entities):
         g_effects.clear_effects_runtime(game_assets)
         game_assets["effects_entities_identity"] = id(entities)
@@ -4102,11 +4119,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         ui_state = g_ui.make_ui_state()
         game_assets["ui_state"] = ui_state
 
-    show_editor = ui_state.get("show_editor", False)
+    show_editor = ui_state.get("show_editor", True)
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F10):
         show_editor = not show_editor
     editor_state = g_editor.get_or_create_editor_state(game_assets)
+    game_assets["rain_debug"] = editor_state.get("rain_debug", {})
     g_ui.ui_begin_frame(ui_state, sounds)
     g_editor.capture_editor_ui_regions(ui_state, editor_state, editor_mode)
 
@@ -4116,7 +4134,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if do_load_level and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(90, 30, 340, 230)):
         g_ui.ui_capture_mouse(ui_state)
 
-    if editor_mode == "tile" and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(330, 40, 142, 18)):
+    if editor_mode == "tile" and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(330, 30, 142, 110)):
         g_ui.ui_capture_mouse(ui_state)
 
     g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
@@ -4271,6 +4289,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             lighting_target, "emissive", False, entities.get("emitters", {}),
             tile_map, wind_profile, time_elapsed, editor_mode == "environment",
         )
+        rain_exposure_texture = g_graphics.ensure_rain_exposure_texture(game_assets, tile_map)
+        g_graphics.apply_rain_composite(
+            render_target, lighting_target, rain_exposure_texture, rain_profile,
+            game_assets, camera_3d.position, tile_map, time_elapsed,
+        )
         fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
         g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
 
@@ -4287,6 +4310,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         g_graphics.draw_lighting_stats_debug(lighting_frame["stats"])
     if game_assets.get("show_effect_stats", False) and render_environment_effects:
         g_graphics.draw_effect_stats_debug(effects_runtime)
+    if editor_state.get("rain_debug", {}).get("show_stats", False) and render_environment_effects:
+        g_graphics.draw_rain_stats_debug(game_assets)
 
     if editor_mode != "play" and game_assets.get("show_cinematic_shadow_debug", False):
         g_graphics.draw_cinematic_shadow_debug(camera_3d.position, sorted_world_items, game_assets, prepared_flashlight)
@@ -4301,20 +4326,26 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if game_assets.get("show_entity_direction_basis_debug", False) and not full_entity_lighting_debug:
         g_graphics.draw_entity_direction_basis_debug(sorted_world_items, camera_3d.position, lighting_frame["prepared_lights"])
     
-    editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, camera_3d.position, tile_map, show_editor)
-
+    g_editor.draw_rain_exposure_overlay(editor_state, editor_mode, camera_3d.position, tile_map)
+    editor_mode = g_editor.draw_editor_overlay(
+        ui_state, editor_state, editor_mode, entities, lighting_profile,
+        fog_profile, wind_profile, camera_3d.position, tile_map, show_editor,
+        rain_profile=rain_profile,
+    )
     if editor_mode == "tile":
-        tile_type = tile_map["tile_types"][current_tile_selection]
-        draw_tile_texture_from_type(game_assets, tile_type, 275, 42, current_shape_selection, pr.PINK if current_tile_force_collidable else pr.WHITE)
-        pr.draw_text(tile_type.get("type", ""), 275, 32, 8, pr.WHITE)
-        pr.draw_text(g_tile_collision_shapes[current_shape_selection], 275, 60, 8, pr.WHITE)
-        current_tile_force_collidable, _ = g_ui.ui_checkbox(
-            ui_state,
-            "tile:force_collidable",
-            "force solid",
-            current_tile_force_collidable,
-            pr.Rectangle(332, 42, 92, 14),
-        )
+        g_editor.draw_tile_edit_controls(ui_state, editor_state, tile_map)
+        if editor_state.get("tile_edit_mode", "appearance") == "appearance":
+            tile_type = tile_map["tile_types"][current_tile_selection]
+            draw_tile_texture_from_type(game_assets, tile_type, 275, 42, current_shape_selection, pr.PINK if current_tile_force_collidable else pr.WHITE)
+            pr.draw_text(tile_type.get("type", ""), 275, 32, 8, pr.WHITE)
+            pr.draw_text(g_tile_collision_shapes[current_shape_selection], 275, 60, 8, pr.WHITE)
+            current_tile_force_collidable, _ = g_ui.ui_checkbox(
+                ui_state,
+                "tile:force_collidable",
+                "force solid",
+                current_tile_force_collidable,
+                pr.Rectangle(332, 61, 92, 14),
+            )
     elif editor_mode == "entity":
         pr.draw_text(entity_types[current_entity_selection], 275, 42, 8, pr.WHITE)
 
@@ -4340,8 +4371,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         fog_profile = None
         lighting_profile = None
         wind_profile = g_effects.make_wind_profile()
+        rain_profile = g_effects.make_rain_profile()
         g_effects.clear_effects_runtime(game_assets)
         game_assets.pop("effects_entities_identity", None)
+        g_graphics.clear_rain_runtime_assets(game_assets)
 
     selected_save_index, load_saved_data = g_ui.draw_load_level(main_arena, game_assets)
 
@@ -4352,9 +4385,13 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         lighting_profile = main_arena.get("lighting_profile") or g_graphics.make_lighting_profile("inky")
         fog_profile = main_arena.get("fog_profile") or g_graphics.make_fog_profile("misty")
         wind_profile = main_arena.get("wind_profile") or g_effects.make_wind_profile()
+        rain_profile = g_effects.normalize_rain_profile(main_arena.get("rain_profile") or g_effects.make_rain_profile())
         editor_mode = g_editor.migrate_editor_mode(main_arena.get("editor_mode", editor_mode))
         g_effects.clear_effects_runtime(game_assets)
         game_assets.pop("effects_entities_identity", None)
+        g_graphics.clear_rain_runtime_assets(game_assets)
+        if tile_map is not None:
+            tile_map.setdefault("rain_exposure_revision", 0)
 
         if loaded_entities is not None:
             entities = loaded_entities
@@ -4401,6 +4438,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["lighting_profile"] = lighting_profile
     changes["fog_profile"] = fog_profile
     changes["wind_profile"] = wind_profile
+    changes["rain_profile"] = rain_profile
 
     result = changes.persistent()    
     

@@ -21,6 +21,19 @@ def make_editor_state():
         "drag_kind": None,
         "drag_offset": {"x": 0.0, "y": 0.0},
         "preview_effects": True,
+        "tile_edit_mode": "appearance",
+        "rain_exposure_value": 1.0,
+        "show_rain_exposure_overlay": True,
+        "rain_debug": {
+            "show_exposure_overlay": False,
+            "show_raw_exposure_texture": False,
+            "show_raw_streak_mask": False,
+            "show_distortion_mask": False,
+            "show_sampled_light_amount": False,
+            "disable_streak_color": False,
+            "disable_distortion": False,
+            "show_stats": False,
+        },
         "show_handles": True,
         "snap_enabled": False,
         "snap_size": 4.0,
@@ -35,6 +48,8 @@ def make_editor_state():
             "fog_lighting": False,
             "fog_stylisation": False,
             "wind": True,
+            "rain": True,
+            "rain_debug": False,
         }
     }
 
@@ -49,6 +64,8 @@ def get_or_create_editor_state(game_assets):
 
         for key, value in defaults.items():
             editor_state.setdefault(key, copy.deepcopy(value))
+        for key, value in defaults["rain_debug"].items():
+            editor_state["rain_debug"].setdefault(key, value)
 
     return editor_state
 
@@ -666,6 +683,75 @@ def capture_editor_ui_regions(ui_state, editor_state, editor_mode):
     if g_ui.ui_point_in_rect(mouse, toolbar_rect) or (inspector_visible and g_ui.ui_point_in_rect(mouse, inspector_rect)):
         g_ui.ui_capture_mouse(ui_state)
 
+
+def draw_rain_exposure_overlay(editor_state, editor_mode, game_camera, tile_map,
+                               viewport_width=480, viewport_height=270):
+    """Draw the authoring-only tile overlay after scene composites and before UI."""
+    if editor_mode != "tile":
+        return
+    if (editor_state.get("tile_edit_mode", "appearance") != "rain_exposure"
+            and not editor_state.get("show_rain_exposure_overlay", True)):
+        return
+    width = int(tile_map.get("map_width", 0))
+    height = int(tile_map.get("map_height", 0))
+    tile_width = max(1, int(tile_map.get("tile_width", 16)))
+    tile_height = max(1, int(tile_map.get("tile_height", 16)))
+    tiles = tile_map.get("tiles", ())
+    start_x = max(0, int(math.floor(game_camera.x / tile_width)))
+    start_y = max(0, int(math.floor(game_camera.y / tile_height)))
+    end_x = min(width, start_x + int(viewport_width / tile_width) + 2)
+    end_y = min(height, start_y + int(viewport_height / tile_height) + 2)
+    for tile_y in range(start_y, end_y):
+        for tile_x in range(start_x, end_x):
+            flat_index = tile_y * width + tile_x
+            if flat_index >= len(tiles):
+                continue
+            exposure = g_effects.get_tile_rain_exposure(tiles[flat_index])
+            if exposure <= 0.0:
+                continue
+            alpha = max(1, min(150, int(round(28.0 + exposure * 92.0))))
+            pr.draw_rectangle(
+                int(tile_x * tile_width - game_camera.x),
+                int(tile_y * tile_height - game_camera.y),
+                tile_width, tile_height, pr.Color(35, 190, 235, alpha),
+            )
+
+
+def draw_tile_edit_controls(ui_state, editor_state, tile_map):
+    mode = editor_state.get("tile_edit_mode", "appearance")
+    pr.draw_text("Tile edit", 332, 32, 8, pr.WHITE)
+    appearance_rect = pr.Rectangle(332, 42, 67, 15)
+    rain_rect = pr.Rectangle(401, 42, 69, 15)
+    if g_ui.ui_button(ui_state, "tile:mode:appearance", "Appearance", appearance_rect):
+        mode = "appearance"
+    if g_ui.ui_button(ui_state, "tile:mode:rain", "Rain", rain_rect):
+        mode = "rain_exposure"
+    selected_rect = appearance_rect if mode == "appearance" else rain_rect
+    pr.draw_rectangle_lines_ex(selected_rect, 1.0, g_ui.UI_ACCENT)
+    editor_state["tile_edit_mode"] = mode
+
+    if mode != "rain_exposure":
+        return
+    pr.draw_text("Rain exposure", 332, 61, 8, pr.WHITE)
+    covered_rect = pr.Rectangle(332, 71, 67, 15)
+    exposed_rect = pr.Rectangle(401, 71, 69, 15)
+    exposure = 1.0 if float(editor_state.get("rain_exposure_value", 1.0)) > 0.0 else 0.0
+    if g_ui.ui_button(ui_state, "tile:rain:covered", "Covered", covered_rect):
+        exposure = 0.0
+    if g_ui.ui_button(ui_state, "tile:rain:exposed", "Exposed", exposed_rect):
+        exposure = 1.0
+    pr.draw_rectangle_lines_ex(exposed_rect if exposure > 0.0 else covered_rect, 1.0, g_ui.UI_ACCENT)
+    editor_state["rain_exposure_value"] = exposure
+    editor_state["show_rain_exposure_overlay"], _ = g_ui.ui_checkbox(
+        ui_state, "tile:rain:overlay", "show overlay",
+        editor_state.get("show_rain_exposure_overlay", True),
+        pr.Rectangle(332, 89, 138, 14),
+    )
+    if g_ui.ui_button(ui_state, "tile:rain:fill_covered", "Fill map covered", pr.Rectangle(332, 105, 138, 15)):
+        g_effects.fill_map_rain_exposure(tile_map, 0.0)
+    if g_ui.ui_button(ui_state, "tile:rain:fill_exposed", "Fill map exposed", pr.Rectangle(332, 122, 138, 15)):
+        g_effects.fill_map_rain_exposure(tile_map, 1.0)
+
 def update_editor_shortcuts(entities, editor_state, ui_state, tile_map):
     if ui_state.get("focused_id") is not None:
         return
@@ -887,7 +973,55 @@ def inspect_wind_profile(ui_state, editor_state, profile):
     ):
         profile[name], _ = g_ui.ui_number_input_float(ui_state, f"world:wind:{name}", name.replace("_", " "), profile.get(name, minimum), minimum, maximum)
 
-def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map):
+
+def inspect_rain_profile(ui_state, editor_state, profile):
+    if not section_button(ui_state, editor_state, "rain", "Rain"):
+        return
+    profile = g_effects.normalize_rain_profile(profile)
+    profile["enabled"], _ = g_ui.ui_checkbox(ui_state, "world:rain:enabled", "enabled", profile["enabled"])
+    for name, minimum, maximum in (
+        ("density", 0.0, 1.0), ("speed", 0.0, 20.0),
+    ):
+        profile[name], _ = g_ui.ui_slider_float(ui_state, f"world:rain:{name}", name, profile[name], minimum, maximum, 0.01)
+    direction, changed = g_ui.ui_vec2_input(ui_state, "world:rain:direction", "direction", profile["direction"], -1.0, 1.0)
+    if changed:
+        profile["direction"] = direction
+    profile["seed"], _ = g_ui.ui_number_input_int(ui_state, "world:rain:seed", "seed", profile["seed"], -2147483648, 2147483647)
+    profile["cell_size"], _ = g_ui.ui_vec2_input(ui_state, "world:rain:cell", "cell size", profile["cell_size"], 2.0, 128.0)
+    for name, minimum, maximum, step in (
+        ("streak_length", 1.0, 8.0, 0.25),
+        ("unlit_opacity", 0.0, 1.0, 0.001),
+        ("lit_opacity", 0.0, 1.0, 0.005),
+        ("light_threshold", 0.0, 1.0, 0.005),
+        ("light_response", 0.0, 20.0, 0.05),
+        ("light_color_influence", 0.0, 1.0, 0.01),
+    ):
+        profile[name], _ = g_ui.ui_slider_float(ui_state, f"world:rain:{name}", name.replace("_", " "), profile[name], minimum, maximum, step)
+    profile["ambient_color"], _ = g_ui.ui_color3_editor(ui_state, "world:rain:ambient", "ambient rain", profile["ambient_color"])
+    profile["opacity_levels"], _ = g_ui.ui_number_input_int(ui_state, "world:rain:levels", "opacity levels", profile["opacity_levels"], 2, 64)
+    profile["distortion_enabled"], _ = g_ui.ui_checkbox(ui_state, "world:rain:distortion", "distortion", profile["distortion_enabled"])
+    for name, minimum, maximum, step in (
+        ("distortion_strength", 0.0, 1.0, 0.05),
+        ("distortion_density", 0.0, 1.0, 0.01),
+    ):
+        profile[name], _ = g_ui.ui_slider_float(ui_state, f"world:rain:{name}", name.replace("_", " "), profile[name], minimum, maximum, step)
+    g_effects.normalize_rain_profile(profile)
+
+    if section_button(ui_state, editor_state, "rain_debug", "Rain debug"):
+        debug = editor_state.setdefault("rain_debug", make_editor_state()["rain_debug"])
+        for name, label in (
+            ("show_exposure_overlay", "exposure in play"),
+            ("show_raw_exposure_texture", "raw exposure texture"),
+            ("show_raw_streak_mask", "raw streak mask"),
+            ("show_distortion_mask", "distortion mask"),
+            ("show_sampled_light_amount", "sampled light"),
+            ("disable_streak_color", "disable streak colour"),
+            ("disable_distortion", "disable distortion"),
+            ("show_stats", "show statistics"),
+        ):
+            debug[name], _ = g_ui.ui_checkbox(ui_state, f"world:rain:debug:{name}", label, debug.get(name, False))
+
+def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map, rain_profile=None):
     collapse_rect = pr.Rectangle(308, 40, 14, 14)
 
     if g_ui.ui_button(ui_state, "inspector:collapse", "<" if editor_state.get("inspector_collapsed", False) else ">", collapse_rect):
@@ -916,6 +1050,8 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
         inspect_fog_profile(ui_state, editor_state, fog_profile)
         g_ui.ui_separator(ui_state, "inspector:wind_separator")
         inspect_wind_profile(ui_state, editor_state, wind_profile)
+        g_ui.ui_separator(ui_state, "inspector:rain_separator")
+        inspect_rain_profile(ui_state, editor_state, rain_profile or g_effects.make_rain_profile())
     else:
         selected = get_selected_object(entities, editor_state)
 
@@ -931,7 +1067,7 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
 
     g_ui.ui_end_panel(ui_state)
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor):
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None):
     if not show_editor:
         return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
@@ -944,7 +1080,7 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
         if editor_state.get("tool") == "place" and not ui_state.get("mouse_captured"):
             draw_placement_preview(editor_state, game_camera, tile_map)
 
-        draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map)
+        draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map, rain_profile)
 
     return editor_mode
 

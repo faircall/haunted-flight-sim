@@ -1,9 +1,21 @@
 import unittest
+import inspect
 
 import g_render_order
+import g_update_and_render
 
 
 class RenderOrderTests(unittest.TestCase):
+    def test_environment_composites_place_rain_between_emissive_fog_and_outlines(self):
+        source = inspect.getsource(g_update_and_render.update_and_render)
+        emissive = source.index('"emissive", False')
+        rain = source.index("g_graphics.apply_rain_composite(")
+        fog = source.index("g_graphics.apply_illuminated_fog(")
+        outlines = source.index("g_graphics.draw_render_item_occlusion_outlines(")
+        self.assertLess(emissive, rain)
+        self.assertLess(rain, fog)
+        self.assertLess(fog, outlines)
+
     def setUp(self):
         self.tile_map = {"tile_width": 16, "tile_height": 16}
         self.assets = {

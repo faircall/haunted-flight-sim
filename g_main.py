@@ -36,6 +36,7 @@ g_shader_source_files = (
     "shaders/fog_volume_mask.fs",
     "shaders/lighting_composite.fs",
     "shaders/illuminated_fog.fs",
+    "shaders/rain_composite.fs",
     "shaders/effect_fire.fs",
     "shaders/effect_smoke.fs"
 )
@@ -44,6 +45,7 @@ g_module_persistent_reload_specs = {
     "g_effects": {
         "arena_factories": (
             ("wind_profile", "make_wind_profile", "default"),
+            ("rain_profile", "make_rain_profile", "default"),
         ),
         "game_asset_keys_to_clear": (
             "effects_runtime",
