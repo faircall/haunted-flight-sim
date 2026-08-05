@@ -65,6 +65,12 @@ g_editor_sounds = True
 
 g_mouse_is_ui_captured = False
 
+DEFAULT_AIM_HEADING_DEGREES = 0.0
+DEFAULT_MOUSE_AIM_SENSITIVITY = 1.0
+DEFAULT_AIM_CURSOR_DISTANCE = 72.0
+MAX_AIM_CURSOR_DISTANCE = 120.0
+AIM_INPUT_VERSION = 2
+
 g_tile_collision_shapes = [
     "full",
     "triangle_top_left",
@@ -953,6 +959,12 @@ def make_default_player(x,y,z):
 
     player["ammo"]["pistol"] = 20    
     player["ammo"]["spare_pistol"] = 20
+
+    player["aim_heading"] = DEFAULT_AIM_HEADING_DEGREES
+    player["aim_direction"] = {"x": 1.0, "y": 0.0}
+    player["aim_cursor_offset"] = {"x": DEFAULT_AIM_CURSOR_DISTANCE, "y": 0.0}
+    player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
+    player["aim_input_version"] = AIM_INPUT_VERSION
 
     g_render_order.ensure_entity_render_metadata(player, "player")
     return player
@@ -2712,7 +2724,7 @@ def vector_from_angle(angle_deg):
 
 
 
-def angle_from_vector(v):    
+def angle_from_vector(v):
     x = v.get("x",0)
     y = v.get("y",0)
     # if x == 0:
@@ -2727,6 +2739,129 @@ def angle_from_vector(v):
     angle = rad_to_deg(math.atan2(y, x))    
     # angle = rad_to_deg(math.atan(tan_ratio))    
     return angle + 180
+
+
+def normalize_aim_heading(angle_degrees):
+    return float(angle_degrees) % 360.0
+
+
+def aim_direction_from_heading(angle_degrees):
+    radians = math.radians(normalize_aim_heading(angle_degrees))
+    return {"x": math.cos(radians), "y": math.sin(radians)}
+
+
+def aim_heading_from_direction(direction, fallback=DEFAULT_AIM_HEADING_DEGREES):
+    direction = direction or {}
+    x = float(direction.get("x", 0.0))
+    y = float(direction.get("y", 0.0))
+    if math.hypot(x, y) <= 0.000001:
+        return normalize_aim_heading(fallback)
+    return normalize_aim_heading(math.degrees(math.atan2(y, x)))
+
+
+def ensure_player_aim_state(player):
+    """Migrate old aim data and maintain the player-relative virtual cursor."""
+    migrated = int(player.get("aim_input_version", 0)) != AIM_INPUT_VERSION
+    if "aim_heading" not in player:
+        player["aim_heading"] = aim_heading_from_direction(player.get("aim_direction"))
+    player["aim_heading"] = normalize_aim_heading(player.get("aim_heading", DEFAULT_AIM_HEADING_DEGREES))
+    direction = aim_direction_from_heading(player["aim_heading"])
+    cursor = player.get("aim_cursor_offset")
+    if migrated or not isinstance(cursor, dict):
+        cursor = vec2_scale(direction, DEFAULT_AIM_CURSOR_DISTANCE)
+        player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
+    else:
+        cursor = {"x": float(cursor.get("x", 0.0)), "y": float(cursor.get("y", 0.0))}
+        cursor_length = math.hypot(cursor["x"], cursor["y"])
+        if cursor_length > 0.000001:
+            player["aim_heading"] = aim_heading_from_direction(cursor, player["aim_heading"])
+            direction = aim_direction_from_heading(player["aim_heading"])
+    player["aim_cursor_offset"] = cursor
+    player["aim_direction"] = direction
+    player.setdefault("mouse_aim_sensitivity", DEFAULT_MOUSE_AIM_SENSITIVITY)
+    player["aim_input_version"] = AIM_INPUT_VERSION
+    return player["aim_direction"]
+
+
+def apply_player_aim_turn(player, turn_degrees):
+    """Apply device-independent relative turn input to persistent aim state."""
+    ensure_player_aim_state(player)
+    cursor = player["aim_cursor_offset"]
+    cursor_distance = math.hypot(cursor["x"], cursor["y"])
+    if cursor_distance <= 0.000001:
+        cursor_distance = DEFAULT_AIM_CURSOR_DISTANCE
+    player["aim_heading"] = normalize_aim_heading(player["aim_heading"] + float(turn_degrees))
+    player["aim_direction"] = aim_direction_from_heading(player["aim_heading"])
+    player["aim_cursor_offset"] = vec2_scale(player["aim_direction"], cursor_distance)
+    return player["aim_direction"]
+
+
+def apply_player_aim_cursor_delta(player, delta_x, delta_y):
+    """Move the virtual cursor relative to its current player-local position."""
+    previous_direction = ensure_player_aim_state(player)
+    cursor = player["aim_cursor_offset"]
+    candidate = {
+        "x": cursor["x"] + float(delta_x),
+        "y": cursor["y"] + float(delta_y),
+    }
+    candidate_length = math.hypot(candidate["x"], candidate["y"])
+    if candidate_length > MAX_AIM_CURSOR_DISTANCE:
+        candidate = vec2_scale(candidate, MAX_AIM_CURSOR_DISTANCE / candidate_length)
+        candidate_length = MAX_AIM_CURSOR_DISTANCE
+    player["aim_cursor_offset"] = candidate
+    if candidate_length > 0.000001:
+        player["aim_heading"] = aim_heading_from_direction(candidate, player["aim_heading"])
+        player["aim_direction"] = aim_direction_from_heading(player["aim_heading"])
+    else:
+        player["aim_direction"] = dict(previous_direction)
+    return player["aim_direction"]
+
+
+def apply_player_mouse_aim_delta(player, mouse_delta_x, mouse_delta_y):
+    sensitivity = max(0.0, float(player.get("mouse_aim_sensitivity", DEFAULT_MOUSE_AIM_SENSITIVITY)))
+    return apply_player_aim_cursor_delta(
+        player, float(mouse_delta_x) * sensitivity,
+        float(mouse_delta_y) * sensitivity,
+    )
+
+
+def scale_mouse_delta_to_internal(mouse_delta_x, mouse_delta_y, screen_width, screen_height):
+    """Convert window-pixel motion into the fixed internal scene coordinate space."""
+    width = max(1.0, float(screen_width))
+    height = max(1.0, float(screen_height))
+    return {
+        "x": float(mouse_delta_x) * float(g_internal_width) / width,
+        "y": float(mouse_delta_y) * float(g_internal_height) / height,
+    }
+
+
+def get_player_aim_cursor_screen_position(player, tile_map, game_camera):
+    ensure_player_aim_state(player)
+    cursor = player["aim_cursor_offset"]
+    world_position = make_pos_abs(
+        player.get("position", {}), tile_map.get("tile_width", 16),
+        tile_map.get("tile_height", 16),
+    )
+    return pr.Vector2(
+        world_position["x"] - game_camera.x + cursor["x"],
+        world_position["y"] - game_camera.y + cursor["y"],
+    )
+
+
+def update_play_mouse_capture(game_assets, should_capture):
+    """Use unbounded relative mouse input during unobstructed play."""
+    should_capture = bool(should_capture)
+    was_captured = bool(game_assets.get("play_mouse_captured", False))
+    if should_capture == was_captured:
+        return was_captured
+    if should_capture:
+        pr.disable_cursor()
+    else:
+        pr.enable_cursor()
+        pr.hide_cursor()
+    game_assets["play_mouse_captured"] = should_capture
+    game_assets["suppress_aim_mouse_delta_once"] = True
+    return should_capture
 
 
 def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
@@ -3600,7 +3735,8 @@ def apply_force():
     # A = F / m
     pass
 
-def update_player_interaction(tile_map, entity, game_camera, entities, sounds, audio_engine, dt, debug_state, debug_queue):
+def update_player_interaction(tile_map, entity, game_camera, entities, sounds, audio_engine, dt, debug_state, debug_queue,
+                              aim_input_enabled=True, mouse_delta=None):
     player_pos = entity["position"]
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
@@ -3610,13 +3746,19 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
 
     player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"], tile_height * player_pos["tile_y"] + player_pos["y"])    
 
-    mouse_pos = g_ui.get_mouse_position() #mouse_pos_world_from_lowres() #pr.get_mouse_position()
-    
-    mouse_pos_mine = {"x" : mouse_pos.x, "y" : mouse_pos.y}
-
     arm_length = 20
 
-    aim_heading_normal = vec2_normalize(vec2_subtract(mouse_pos_mine, player_render_pos))
+    if mouse_delta is None:
+        mouse_delta = pr.get_mouse_delta()
+    if aim_input_enabled:
+        internal_mouse_delta = scale_mouse_delta_to_internal(
+            mouse_delta.x, mouse_delta.y, pr.get_screen_width(), pr.get_screen_height(),
+        )
+        aim_heading_normal = apply_player_mouse_aim_delta(
+            entity, internal_mouse_delta["x"], internal_mouse_delta["y"],
+        )
+    else:
+        aim_heading_normal = ensure_player_aim_state(entity)
     aim_heading = vec2_scale(aim_heading_normal, arm_length)
 
     spawn_pos = vec2_add_any(player_pos_center, aim_heading)
@@ -3651,22 +3793,6 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
                     "debug_modes" : ["all"]
                 }
         debug_queue.append(debug_item)
-
-        debug_item = {
-                    "type" : "circle",
-                    "drawing_function" : draw_debug_circle,
-                    "pos" : mouse_pos_mine,                    
-                    "tile_width" : tile_width,
-                    "tile_height" : tile_height,
-                    "radius" : 2,
-                    "color" : "WHITE",
-                    "z_sort" : 0,
-                    "tile_width" : tile_width,
-                    "tile_height" : tile_height,
-                    "debug_modes" : ["all"]
-                }
-        debug_queue.append(debug_item)
-
 
     #pr.draw_circle(int(spawn_pos["x"] - game_camera.x), int(spawn_pos["y"] - game_camera.y), 300, pr.WHITE)
 
@@ -3762,7 +3888,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
             # try playing a gunshot sound directly here
         
     
-    entity["aim_direction"] = aim_heading
+    entity["aim_direction"] = dict(aim_heading_normal)
     
     entity["gunshot_timer"] = max(0, gunshot_timer - dt)
 
@@ -4123,6 +4249,15 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F10):
         show_editor = not show_editor
+    aim_controls_active = (
+        editor_mode == "play"
+        and pause_state == "unpaused"
+        and not show_options
+        and not do_load_level
+    )
+    # F10-visible editor UI keeps an absolute pointer available. Hiding it
+    # captures the mouse for unbounded relative turning during normal play.
+    update_play_mouse_capture(game_assets, aim_controls_active and not show_editor)
     editor_state = g_editor.get_or_create_editor_state(game_assets)
     game_assets["rain_debug"] = editor_state.get("rain_debug", {})
     g_ui.ui_begin_frame(ui_state, sounds)
@@ -4192,7 +4327,15 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
-        update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, dt, debug_state, debug_queue)
+        aim_mouse_delta = pr.get_mouse_delta()
+        if game_assets.pop("suppress_aim_mouse_delta_once", False):
+            aim_mouse_delta = pr.Vector2(0.0, 0.0)
+        update_player_interaction(
+            tile_map, player_info, camera_3d.position, entities, sounds,
+            cma_engine, dt, debug_state, debug_queue,
+            aim_input_enabled=aim_controls_active and not g_mouse_is_ui_captured,
+            mouse_delta=aim_mouse_delta,
+        )
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
@@ -4406,8 +4549,15 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if pause_state == "paused":
         pr.draw_text("PAUSED", 220, 130, 12, pr.WHITE)
 
-    mp = g_ui.get_mouse_position()
-    pr.draw_circle(int(mp.x), int(mp.y), 4 if editor_mode != "play" else 1, pr.WHITE)
+    if editor_mode == "play" and player_info is not None and tile_map is not None:
+        aim_cursor = get_player_aim_cursor_screen_position(player_info, tile_map, camera_3d.position)
+        cursor_x = int(round(aim_cursor.x))
+        cursor_y = int(round(aim_cursor.y))
+        pr.draw_circle_lines(cursor_x, cursor_y, 3.0, pr.WHITE)
+        pr.draw_circle(cursor_x, cursor_y, 1.0, pr.WHITE)
+    if editor_mode != "play" or not game_assets.get("play_mouse_captured", False):
+        mp = g_ui.get_mouse_position()
+        pr.draw_circle(int(mp.x), int(mp.y), 4 if editor_mode != "play" else 1, pr.WHITE)
     pr.end_texture_mode()
     g_ui.ui_end_frame(ui_state)
     ui_state["show_editor"] = show_editor
