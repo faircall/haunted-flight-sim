@@ -1622,15 +1622,16 @@ def _make_per_light_render_item(render_item, light_record, mode_override=None):
 def _draw_render_item_main_shape(render_item, texture, game_camera):
     source = render_item["source_rect"]
     destination = render_item["dest_rect"]
-    # Snap after applying the camera so large pixel-art entities remain aligned
-    # with the screen pixel grid while the camera moves.  Every entity-lighting
-    # pass uses this helper, keeping the albedo and lighting masks registered.
-    screen_x = round(destination["x"] - game_camera.x)
-    screen_y = round(destination["y"] - game_camera.y)
+    # World and camera snapping are deliberately independent. This keeps a
+    # fractionally placed sprite registered with integer-authored tiles while
+    # the camera moves. Every entity-lighting pass uses this same helper.
+    screen_position = g_render_order.world_to_screen_pixel(
+        destination["x"], destination["y"], game_camera,
+    )
     pr.draw_texture_pro(
         texture,
         pr.Rectangle(source["x"], source["y"], source["width"], source["height"]),
-        pr.Rectangle(screen_x, screen_y, destination["width"], destination["height"]),
+        pr.Rectangle(screen_position["x"], screen_position["y"], destination["width"], destination["height"]),
         pr.Vector2(0, 0), 0, pr.WHITE
     )
 
@@ -3165,7 +3166,13 @@ def draw_render_item_occlusion_outline(scene, render_item, game_camera, game_ass
     source_data = render_item["source_rect"]
     dest_data = render_item["dest_rect"]
     sprite_source = pr.Rectangle(source_data["x"], source_data["y"], source_data["width"], source_data["height"])
-    sprite_destination = pr.Rectangle(dest_data["x"] - game_camera.x, dest_data["y"] - game_camera.y, dest_data["width"], dest_data["height"])
+    screen_position = g_render_order.world_to_screen_pixel(
+        dest_data["x"], dest_data["y"], game_camera,
+    )
+    sprite_destination = pr.Rectangle(
+        screen_position["x"], screen_position["y"],
+        dest_data["width"], dest_data["height"],
+    )
     full_source = pr.Rectangle(0, 0, width, -height)
     full_destination = pr.Rectangle(0, 0, width, height)
     pr.begin_texture_mode(mask_target)

@@ -5,6 +5,20 @@ import math
 SORT_LAYER_ORDER = {"floor": 0, "world": 100, "overlay": 200}
 
 
+def world_to_screen_pixel(world_x, world_y, game_camera):
+    """Snap world and camera independently so stationary sprites stay registered."""
+    if isinstance(game_camera, dict):
+        camera_x = float(game_camera.get("x", 0.0))
+        camera_y = float(game_camera.get("y", 0.0))
+    else:
+        camera_x = float(getattr(game_camera, "x", 0.0))
+        camera_y = float(getattr(game_camera, "y", 0.0))
+    return {
+        "x": round(float(world_x)) - round(camera_x),
+        "y": round(float(world_y)) - round(camera_y),
+    }
+
+
 def make_default_entity_render_metadata(entity_type):
     entity_type = str(entity_type or "").lower().replace("_", " ")
     common = {

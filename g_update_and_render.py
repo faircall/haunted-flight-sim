@@ -578,6 +578,12 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
             editor_collision_tint = should_tint_forced_collision_tile(tile_to_draw, mode)
             
             tile_type = tile_map["tile_types"][tile_index]
+            snapped_tile_position = g_render_order.world_to_screen_pixel(
+                x * tile_width, y * tile_height, game_camera,
+            )
+            render_pos = pr.Vector2(
+                snapped_tile_position["x"], snapped_tile_position["y"],
+            )
 
             if mode in tile_select_modes and x == mouse_tile_pos.x and y == mouse_tile_pos.y:
                 is_highlight = True
@@ -614,7 +620,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                                 set_tile_force_collidable(edited_tile, current_tile_force_collidable)
                                 mark_tile_map_geometry_dirty(tile_map)
                             
-                pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
+                pr.draw_rectangle(int(render_pos.x), int(render_pos.y), tile_width, tile_height, tile_color)
 
             if mode == "entity":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
@@ -659,21 +665,20 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
 
                     
                             
-                pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
+                pr.draw_rectangle(int(render_pos.x), int(render_pos.y), tile_width, tile_height, tile_color)
 
-            render_pos = pr.Vector2((int(x*tile_width - game_camera_x)), (int(y*tile_height - game_camera_y)))
-            if tile_type.get("type") == "wood":                
+            if tile_type.get("type") == "wood":
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("wood_texture"), render_pos, shape_index, game_assets)
-            elif tile_type.get("type") == "wall":                                                
+            elif tile_type.get("type") == "wall":
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("wall_texture"), render_pos, shape_index, game_assets)
-            elif tile_type.get("type") == "stone":                
+            elif tile_type.get("type") == "stone":
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, shape_index, game_assets)
-            elif tile_type.get("type") == "carpet":  #change to other tile               
+            elif tile_type.get("type") == "carpet":  #change to other tile
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, shape_index, game_assets)
             if editor_collision_tint:
                 draw_tile_shape_tint(render_pos, shape_index, tile_width, tile_height, pr.Color(255, 70, 180, 128))
             if is_highlight:
-                pr.draw_rectangle_lines(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, pr.WHITE)
+                pr.draw_rectangle_lines(int(render_pos.x), int(render_pos.y), tile_width, tile_height, pr.WHITE)
 
             if "decals" in tile_to_draw:
                 for decal in tile_to_draw["decals"]:

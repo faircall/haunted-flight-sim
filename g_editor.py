@@ -4,6 +4,7 @@ import math
 import pyray as pr
 
 import g_effects
+import g_render_order
 import g_ui
 
 EDITOR_MODES = ("play", "tile", "entity", "environment")
@@ -710,9 +711,11 @@ def draw_rain_exposure_overlay(editor_state, editor_mode, game_camera, tile_map,
             if exposure <= 0.0:
                 continue
             alpha = max(1, min(150, int(round(28.0 + exposure * 92.0))))
+            screen_position = g_render_order.world_to_screen_pixel(
+                tile_x * tile_width, tile_y * tile_height, game_camera,
+            )
             pr.draw_rectangle(
-                int(tile_x * tile_width - game_camera.x),
-                int(tile_y * tile_height - game_camera.y),
+                screen_position["x"], screen_position["y"],
                 tile_width, tile_height, pr.Color(35, 190, 235, alpha),
             )
 

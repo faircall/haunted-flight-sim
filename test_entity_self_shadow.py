@@ -50,7 +50,7 @@ class EntitySelfShadowTests(unittest.TestCase):
             g_graphics._draw_render_item_main_shape(item, object(), SimpleNamespace(x=2.6, y=3.2))
 
         destination = draw_texture.call_args.args[2]
-        self.assertEqual(destination.x, 18.0)
+        self.assertEqual(destination.x, 17.0)
         self.assertEqual(destination.y, 38.0)
 
     def test_player_flashlight_has_stable_entity_direction_origin(self):
