@@ -5,6 +5,7 @@ import re
 import pyray as pr
 from pyrsistent import m, pmap, v
 
+import g_audio
 import g_update_and_render as game
 
 UI_BACKGROUND = pr.Color(24, 22, 34, 238)
@@ -30,11 +31,11 @@ def make_ui_state():
         "mouse_captured": False,
         "previous_hot_id": None,
         "dropdown_scroll": {},
-        "sounds": None,
+        "audio_runtime": None,
         "panel_stack": []
     }
 
-def ui_begin_frame(ui_state, sounds):
+def ui_begin_frame(ui_state, audio_runtime):
     defaults = make_ui_state()
 
     for key, value in defaults.items():
@@ -44,7 +45,7 @@ def ui_begin_frame(ui_state, sounds):
     ui_state["previous_hot_id_sound"] = ui_state.get("hot_id_sound")
     ui_state["hot_id"] = None
     ui_state["mouse_captured"] = ui_state.get("active_id") is not None or ui_state.get("focused_id") is not None or ui_state.get("open_dropdown_id") is not None
-    ui_state["sounds"] = sounds
+    ui_state["audio_runtime"] = audio_runtime
     ui_state["panel_stack"] = []
     return ui_state
 
@@ -77,10 +78,12 @@ def ui_hover(ui_state, widget_id, rect, does_sound = True):
         ui_capture_mouse(ui_state)
 
         if ui_state.get("previous_hot_id_sound") != widget_id and does_sound:
-            sounds = ui_state.get("sounds")
-            
-            if sounds and sounds.get("ui_hover"):
-                game.play_sound(sounds["ui_hover"])
+            audio_runtime = ui_state.get("audio_runtime")
+            if audio_runtime is not None:
+                g_audio.queue_audio_event(audio_runtime, {
+                    "type": "ui_hover", "source_id": f"ui:{widget_id}",
+                    "source_kind": "ui", "priority": 0.7,
+                })
 
     return hovered
 
@@ -465,7 +468,7 @@ def draw_screen_boundary_rect(rect, off_color, on_color, button_states, button_i
     pr.draw_rectangle_rec(rect, color_to_draw)
     return mouse_collides
 
-def do_button(sounds, pos, width = 50, height = 20, name = "some buttons"):
+def do_button(audio_runtime, pos, width = 50, height = 20, name = "some buttons"):
     widget_id = f"legacy:{name}:{int(pos.x)}:{int(pos.y)}"
     font_width = 6
     width = len(name) * font_width
@@ -477,7 +480,11 @@ def do_button(sounds, pos, width = 50, height = 20, name = "some buttons"):
         game.g_interacted_ui_this_frame += 1
         if game.g_last_interacted_ui_id != widget_id:
             game.g_last_interacted_ui_id = widget_id
-            game.play_sound(sounds["ui_hover"])
+            if audio_runtime is not None:
+                g_audio.queue_audio_event(audio_runtime, {
+                    "type": "ui_hover", "source_id": f"ui:{widget_id}",
+                    "source_kind": "ui", "priority": 0.7,
+                })
             # play a  sound here
 
         game.g_mouse_is_ui_captured = True
@@ -531,12 +538,12 @@ def draw_load_level(arena, assets):
     width = 120
     for i in range(start_index, end_index):
         saved_file = saved_files[i]
-        if do_button(assets.get("sounds"), pr.Vector2(dropdown_x, dropdown_y + drawn*height), width, height, f"{saved_file}"):
+        if do_button(assets.get("audio_runtime"), pr.Vector2(dropdown_x, dropdown_y + drawn*height), width, height, f"{saved_file}"):
             selected_file = i
         drawn += 1    
 
     do_load = False
-    if do_button(assets.get("sounds"), pr.Vector2(dropdown_x + 200, dropdown_y), 100, 40, f"load {saved_files[selected_file]}"):
+    if do_button(assets.get("audio_runtime"), pr.Vector2(dropdown_x + 200, dropdown_y), 100, 40, f"load {saved_files[selected_file]}"):
         do_load = True
     return selected_file, do_load
 

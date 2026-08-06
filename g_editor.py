@@ -3,6 +3,7 @@ import math
 
 import pyray as pr
 
+import g_audio
 import g_effects
 import g_render_order
 import g_ui
@@ -25,6 +26,16 @@ def make_editor_state():
         "tile_edit_mode": "appearance",
         "rain_exposure_value": 1.0,
         "show_rain_exposure_overlay": True,
+        "acoustic_zone_value": 0,
+        "footstep_overlay_value": "none",
+        "show_acoustic_zone_overlay": True,
+        "show_footstep_overlay": True,
+        "audio_debug": {
+            "show_stats": False,
+            "show_world": False,
+            "show_acoustic_zones": False,
+            "show_contact_overlays": False,
+        },
         "rain_debug": {
             "show_exposure_overlay": False,
             "show_raw_exposure_texture": False,
@@ -51,6 +62,7 @@ def make_editor_state():
             "wind": True,
             "rain": True,
             "rain_debug": False,
+            "audio": False,
         }
     }
 
@@ -67,6 +79,8 @@ def get_or_create_editor_state(game_assets):
             editor_state.setdefault(key, copy.deepcopy(value))
         for key, value in defaults["rain_debug"].items():
             editor_state["rain_debug"].setdefault(key, value)
+        for key, value in defaults["audio_debug"].items():
+            editor_state["audio_debug"].setdefault(key, value)
 
     return editor_state
 
@@ -688,7 +702,7 @@ def capture_editor_ui_regions(ui_state, editor_state, editor_mode):
 def draw_rain_exposure_overlay(editor_state, editor_mode, game_camera, tile_map,
                                viewport_width=480, viewport_height=270):
     """Draw the authoring-only tile overlay after scene composites and before UI."""
-    if editor_mode != "tile":
+    if editor_mode not in {"tile", "audio_debug"}:
         return
     if (editor_state.get("tile_edit_mode", "appearance") != "rain_exposure"
             and not editor_state.get("show_rain_exposure_overlay", True)):
@@ -720,40 +734,123 @@ def draw_rain_exposure_overlay(editor_state, editor_mode, game_camera, tile_map,
             )
 
 
-def draw_tile_edit_controls(ui_state, editor_state, tile_map):
+def draw_audio_tile_overlays(editor_state, editor_mode, game_camera, tile_map,
+                             viewport_width=480, viewport_height=270):
+    if editor_mode not in {"tile", "audio_debug"}:
+        return
     mode = editor_state.get("tile_edit_mode", "appearance")
+    show_zones = mode == "acoustic_zone" or editor_state.get("show_acoustic_zone_overlay", False)
+    show_contacts = mode == "footstep_overlay" or editor_state.get("show_footstep_overlay", False)
+    if not show_zones and not show_contacts:
+        return
+    width = int(tile_map.get("map_width", 0))
+    height = int(tile_map.get("map_height", 0))
+    tile_width = max(1, int(tile_map.get("tile_width", 16)))
+    tile_height = max(1, int(tile_map.get("tile_height", 16)))
+    tiles = tile_map.get("tiles", ())
+    start_x = max(0, int(math.floor(game_camera.x / tile_width)))
+    start_y = max(0, int(math.floor(game_camera.y / tile_height)))
+    end_x = min(width, start_x + int(viewport_width / tile_width) + 2)
+    end_y = min(height, start_y + int(viewport_height / tile_height) + 2)
+    for tile_y in range(start_y, end_y):
+        for tile_x in range(start_x, end_x):
+            index = tile_y * width + tile_x
+            if index >= len(tiles) or not isinstance(tiles[index], dict):
+                continue
+            tile = tiles[index]
+            screen = g_render_order.world_to_screen_pixel(
+                tile_x * tile_width, tile_y * tile_height, game_camera,
+            )
+            if show_zones:
+                zone_id = g_audio.get_tile_acoustic_zone(tile)
+                if zone_id > 0:
+                    color = pr.Color(
+                        80 + (zone_id * 53) % 130,
+                        65 + (zone_id * 89) % 140,
+                        95 + (zone_id * 37) % 120,
+                        76,
+                    )
+                    pr.draw_rectangle(screen["x"], screen["y"], tile_width, tile_height, color)
+            if show_contacts and tile.get("footstep_overlay") == "puddle":
+                pr.draw_rectangle(
+                    screen["x"], screen["y"], tile_width, tile_height,
+                    pr.Color(40, 125, 215, 105),
+                )
+                pr.draw_rectangle_lines(
+                    screen["x"], screen["y"], tile_width, tile_height,
+                    pr.Color(85, 215, 245, 180),
+                )
+
+
+def draw_tile_edit_controls(ui_state, editor_state, tile_map):
+    modes = ("appearance", "rain_exposure", "acoustic_zone", "footstep_overlay")
+    mode = editor_state.get("tile_edit_mode", "appearance")
+    mode = mode if mode in modes else "appearance"
     pr.draw_text("Tile edit", 332, 32, 8, pr.WHITE)
-    appearance_rect = pr.Rectangle(332, 42, 67, 15)
-    rain_rect = pr.Rectangle(401, 42, 69, 15)
-    if g_ui.ui_button(ui_state, "tile:mode:appearance", "Appearance", appearance_rect):
-        mode = "appearance"
-    if g_ui.ui_button(ui_state, "tile:mode:rain", "Rain", rain_rect):
-        mode = "rain_exposure"
-    selected_rect = appearance_rect if mode == "appearance" else rain_rect
-    pr.draw_rectangle_lines_ex(selected_rect, 1.0, g_ui.UI_ACCENT)
+    mode, _ = g_ui.ui_dropdown(
+        ui_state, "tile:edit_mode", "", mode, modes,
+        pr.Rectangle(332, 42, 138, 15), 4,
+    )
     editor_state["tile_edit_mode"] = mode
 
-    if mode != "rain_exposure":
+    if mode == "appearance":
         return
-    pr.draw_text("Rain exposure", 332, 61, 8, pr.WHITE)
-    covered_rect = pr.Rectangle(332, 71, 67, 15)
-    exposed_rect = pr.Rectangle(401, 71, 69, 15)
-    exposure = 1.0 if float(editor_state.get("rain_exposure_value", 1.0)) > 0.0 else 0.0
-    if g_ui.ui_button(ui_state, "tile:rain:covered", "Covered", covered_rect):
-        exposure = 0.0
-    if g_ui.ui_button(ui_state, "tile:rain:exposed", "Exposed", exposed_rect):
-        exposure = 1.0
-    pr.draw_rectangle_lines_ex(exposed_rect if exposure > 0.0 else covered_rect, 1.0, g_ui.UI_ACCENT)
-    editor_state["rain_exposure_value"] = exposure
-    editor_state["show_rain_exposure_overlay"], _ = g_ui.ui_checkbox(
-        ui_state, "tile:rain:overlay", "show overlay",
-        editor_state.get("show_rain_exposure_overlay", True),
+    if mode == "rain_exposure":
+        pr.draw_text("Rain exposure", 332, 61, 8, pr.WHITE)
+        covered_rect = pr.Rectangle(332, 71, 67, 15)
+        exposed_rect = pr.Rectangle(401, 71, 69, 15)
+        exposure = 1.0 if float(editor_state.get("rain_exposure_value", 1.0)) > 0.0 else 0.0
+        if g_ui.ui_button(ui_state, "tile:rain:covered", "Covered", covered_rect):
+            exposure = 0.0
+        if g_ui.ui_button(ui_state, "tile:rain:exposed", "Exposed", exposed_rect):
+            exposure = 1.0
+        pr.draw_rectangle_lines_ex(exposed_rect if exposure > 0.0 else covered_rect, 1.0, g_ui.UI_ACCENT)
+        editor_state["rain_exposure_value"] = exposure
+        editor_state["show_rain_exposure_overlay"], _ = g_ui.ui_checkbox(
+            ui_state, "tile:rain:overlay", "show overlay",
+            editor_state.get("show_rain_exposure_overlay", True),
+            pr.Rectangle(332, 89, 138, 14),
+        )
+        if g_ui.ui_button(ui_state, "tile:rain:fill_covered", "Fill map covered", pr.Rectangle(332, 105, 138, 15)):
+            g_effects.fill_map_rain_exposure(tile_map, 0.0)
+        if g_ui.ui_button(ui_state, "tile:rain:fill_exposed", "Fill map exposed", pr.Rectangle(332, 122, 138, 15)):
+            g_effects.fill_map_rain_exposure(tile_map, 1.0)
+        return
+    if mode == "acoustic_zone":
+        pr.draw_text("Acoustic zone", 332, 61, 8, pr.WHITE)
+        zones = tile_map.get("acoustic_zones", {})
+        zone_ids = sorted({0} | {
+            int(key) for key in zones.keys()
+            if str(key).lstrip("-").isdigit() and int(key) >= 0
+        })
+        zone_value = int(editor_state.get("acoustic_zone_value", 0))
+        if zone_value not in zone_ids:
+            zone_value = 0
+        zone_value, _ = g_ui.ui_dropdown(
+            ui_state, "tile:acoustic:zone", "zone", zone_value, zone_ids,
+            pr.Rectangle(332, 71, 138, 15), 6,
+        )
+        editor_state["acoustic_zone_value"] = int(zone_value)
+        definition = g_audio.get_acoustic_zone_definition(tile_map, zone_value)
+        pr.draw_text(str(definition.get("name", "zone")), 332, 89, 8, g_ui.UI_MUTED)
+        editor_state["show_acoustic_zone_overlay"], _ = g_ui.ui_checkbox(
+            ui_state, "tile:acoustic:overlay", "show zones",
+            editor_state.get("show_acoustic_zone_overlay", True),
+            pr.Rectangle(332, 102, 138, 14),
+        )
+        return
+    pr.draw_text("Foot contact", 332, 61, 8, pr.WHITE)
+    overlay = editor_state.get("footstep_overlay_value", "none")
+    overlay, _ = g_ui.ui_dropdown(
+        ui_state, "tile:footstep:overlay_value", "", overlay,
+        g_audio.FOOTSTEP_OVERLAYS, pr.Rectangle(332, 71, 138, 15), 2,
+    )
+    editor_state["footstep_overlay_value"] = overlay
+    editor_state["show_footstep_overlay"], _ = g_ui.ui_checkbox(
+        ui_state, "tile:footstep:overlay", "show contacts",
+        editor_state.get("show_footstep_overlay", True),
         pr.Rectangle(332, 89, 138, 14),
     )
-    if g_ui.ui_button(ui_state, "tile:rain:fill_covered", "Fill map covered", pr.Rectangle(332, 105, 138, 15)):
-        g_effects.fill_map_rain_exposure(tile_map, 0.0)
-    if g_ui.ui_button(ui_state, "tile:rain:fill_exposed", "Fill map exposed", pr.Rectangle(332, 122, 138, 15)):
-        g_effects.fill_map_rain_exposure(tile_map, 1.0)
 
 def update_editor_shortcuts(entities, editor_state, ui_state, tile_map):
     if ui_state.get("focused_id") is not None:
@@ -1024,7 +1121,51 @@ def inspect_rain_profile(ui_state, editor_state, profile):
         ):
             debug[name], _ = g_ui.ui_checkbox(ui_state, f"world:rain:debug:{name}", label, debug.get(name, False))
 
-def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map, rain_profile=None):
+
+def inspect_audio_profile(ui_state, editor_state, profile, audio_runtime=None):
+    if not section_button(ui_state, editor_state, "audio", "Audio"):
+        return
+    profile = g_audio.normalize_audio_profile(profile)
+    for name in (
+        "master_gain", "sfx_gain", "footstep_gain", "weapon_gain",
+        "ambience_gain", "weather_gain", "ui_gain",
+    ):
+        profile[name], _ = g_ui.ui_slider_float(
+            ui_state, f"world:audio:{name}", name.replace("_", " "),
+            profile[name], 0.0, 2.0, 0.01,
+        )
+    for name, minimum, maximum in (
+        ("minimum_distance", 0.0, 500.0),
+        ("maximum_distance", 1.0, 2000.0),
+        ("pan_distance", 1.0, 1000.0),
+        ("maximum_pan", 0.0, 1.0),
+        ("loop_attack_seconds", 0.01, 5.0),
+        ("loop_release_seconds", 0.01, 5.0),
+    ):
+        profile[name], _ = g_ui.ui_number_input_float(
+            ui_state, f"world:audio:{name}", name.replace("_", " "),
+            profile[name], minimum, maximum,
+        )
+    debug = editor_state.setdefault("audio_debug", make_editor_state()["audio_debug"])
+    for name, label in (
+        ("show_stats", "audio statistics"),
+        ("show_world", "world sources"),
+        ("show_acoustic_zones", "zone overlay"),
+        ("show_contact_overlays", "contact overlay"),
+    ):
+        debug[name], _ = g_ui.ui_checkbox(
+            ui_state, f"world:audio:debug:{name}", label, debug.get(name, False)
+        )
+    if audio_runtime is not None:
+        capabilities = audio_runtime.get("capabilities", {})
+        g_ui.ui_label(
+            ui_state, "world:audio:capabilities",
+            f"DSP: {capabilities.get('treatment_mode', 'gain_fallback')}",
+            color=g_ui.UI_MUTED, font_size=8,
+        )
+
+
+def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map, rain_profile=None, audio_profile=None, audio_runtime=None):
     collapse_rect = pr.Rectangle(308, 40, 14, 14)
 
     if g_ui.ui_button(ui_state, "inspector:collapse", "<" if editor_state.get("inspector_collapsed", False) else ">", collapse_rect):
@@ -1055,6 +1196,11 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
         inspect_wind_profile(ui_state, editor_state, wind_profile)
         g_ui.ui_separator(ui_state, "inspector:rain_separator")
         inspect_rain_profile(ui_state, editor_state, rain_profile or g_effects.make_rain_profile())
+        g_ui.ui_separator(ui_state, "inspector:audio_separator")
+        inspect_audio_profile(
+            ui_state, editor_state,
+            audio_profile or g_audio.make_audio_profile(), audio_runtime,
+        )
     else:
         selected = get_selected_object(entities, editor_state)
 
@@ -1070,7 +1216,7 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
 
     g_ui.ui_end_panel(ui_state)
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None):
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None):
     if not show_editor:
         return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
@@ -1083,7 +1229,10 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
         if editor_state.get("tool") == "place" and not ui_state.get("mouse_captured"):
             draw_placement_preview(editor_state, game_camera, tile_map)
 
-        draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profile, wind_profile, tile_map, rain_profile)
+        draw_inspector(
+            ui_state, editor_state, entities, lighting_profile, fog_profile,
+            wind_profile, tile_map, rain_profile, audio_profile, audio_runtime,
+        )
 
     return editor_mode
 

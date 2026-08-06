@@ -16,6 +16,7 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_audio", update_and_render_module.g_audio),
     ("g_light_visibility", update_and_render_module.g_graphics.light_visibility),
     ("g_effects", update_and_render_module.g_effects),
     ("g_graphics", update_and_render_module.g_graphics),
@@ -42,6 +43,12 @@ g_shader_source_files = (
 )
 
 g_module_persistent_reload_specs = {
+    "g_audio": {
+        # The current serialisable profile remains in main_arena. The transient
+        # runtime is stopped before the module object is reloaded.
+        "arena_factories": (),
+        "game_asset_keys_to_clear": (),
+    },
     "g_effects": {
         "arena_factories": (
             ("wind_profile", "make_wind_profile", "default"),
@@ -83,7 +90,7 @@ def get_file_write_time(file_name):
         result = ""
     return result
 
-def reload_modules_if_needed(module_write_times):
+def reload_modules_if_needed(module_write_times, game_assets=None):
     reloaded_module_names = set()
 
     for name_mod in g_reloadable_modules:
@@ -94,6 +101,9 @@ def reload_modules_if_needed(module_write_times):
             module_write_times[name] = get_file_write_time(file_name)
         if module_write_times[name] != get_file_write_time(file_name):
             try:
+                if name == "g_audio" and game_assets is not None:
+                    mod.shutdown_audio_runtime(game_assets)
+                    game_assets.pop("audio_runtime", None)
                 mod = importlib.reload(mod)
                 render_error_message("reloaded module!")
                 module_write_times[name] = get_file_write_time(file_name)
@@ -243,7 +253,7 @@ def g_main():
             skip_update = False
             update_timer = 0.0
             reload_timer = 0.0
-            reloaded_module_names = reload_modules_if_needed(module_write_times)
+            reloaded_module_names = reload_modules_if_needed(module_write_times, game_assets)
             main_arena = refresh_persistent_data_after_module_reloads(main_arena, game_assets, reloaded_module_names)
             reload_shaders_if_needed(shader_write_times, game_assets)
         # if pr.is_key_released(pr.KeyboardKey.KEY_F5):                                    
@@ -339,6 +349,11 @@ def g_main():
         
         
         
+    update_and_render_module.g_audio.shutdown_audio_runtime(game_assets)
+    try:
+        cma_engine.close()
+    except Exception:
+        pass
     pr.close_window()
 
 if __name__ == '__main__':

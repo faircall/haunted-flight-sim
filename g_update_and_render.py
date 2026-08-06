@@ -10,9 +10,8 @@ import queue
 import pyray as pr
 from pyrsistent import m, pmap, v
 
-import cyminiaudio as cma
-
 import g_graphics
+import g_audio
 import g_effects
 import g_editor
 import g_render_order
@@ -217,13 +216,16 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["tile_height"] = tile_height    
     result["geometry_revision"] = 0
     result["rain_exposure_revision"] = 0
-    result["tile_types"] = [{"type" : "blank_tile", "color" : "BLACK"}, 
-                            {"type" : "carpet", "color" : "BLUE"}, 
-                            {"type" : "door", "color" : "RED"}, 
-                            {"type" : "wall", "color" : "PURPLE"}, 
-                            {"type" : "wood", "color" : "BROWN"}, 
-                            {"type" : "grass", "color" : "GREEN"}, 
-                            {"type" : "stone", "color" : "GREY"}]
+    result["acoustic_revision"] = 0
+    result["audio_surface_schema_revision"] = g_audio.AUDIO_SURFACE_SCHEMA_REVISION
+    result["acoustic_zones"] = g_audio.make_default_acoustic_zones()
+    result["tile_types"] = [{"type" : "blank_tile", "color" : "BLACK", "audio_surface": "dirt"},
+                            {"type" : "carpet", "color" : "BLUE", "audio_surface": "carpet"},
+                            {"type" : "door", "color" : "RED", "audio_surface": "generic"},
+                            {"type" : "wall", "color" : "PURPLE", "audio_surface": "generic"},
+                            {"type" : "wood", "color" : "BROWN", "audio_surface": "wood"},
+                            {"type" : "grass", "color" : "GREEN", "audio_surface": "grass"},
+                            {"type" : "stone", "color" : "GREY", "audio_surface": "stone"}]
     result["tile_names"] = {}    
     result["tile_types_amount"] = len(result["tile_types"])
     tiles = []
@@ -533,6 +535,8 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
     editor_state = game_assets.get("editor_state", {})
     tile_edit_mode = editor_state.get("tile_edit_mode", "appearance")
     rain_exposure_value = float(editor_state.get("rain_exposure_value", 1.0))
+    acoustic_zone_value = int(editor_state.get("acoustic_zone_value", 0))
+    footstep_overlay_value = editor_state.get("footstep_overlay_value", "none")
     
     internal_res_x = 1920
     internal_res_y = 1080
@@ -603,6 +607,20 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                             edited_tile = tile_map["tiles"][y*map_width + x]
                             if g_effects.set_tile_rain_exposure(edited_tile, rain_exposure_value):
                                 g_effects.mark_rain_exposure_dirty(tile_map)
+                    elif tile_edit_mode == "acoustic_zone":
+                        if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
+                            g_audio.flood_fill_acoustic_zone(tile_map, x, y, acoustic_zone_value)
+                        if g_ui.interactive_mouse_left_down():
+                            edited_tile = tile_map["tiles"][y*map_width + x]
+                            if g_audio.set_tile_acoustic_zone(edited_tile, acoustic_zone_value):
+                                g_audio.mark_acoustic_dirty(tile_map)
+                    elif tile_edit_mode == "footstep_overlay":
+                        if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
+                            g_audio.flood_fill_footstep_overlay(tile_map, x, y, footstep_overlay_value)
+                        if g_ui.interactive_mouse_left_down():
+                            g_audio.set_tile_footstep_overlay(
+                                tile_map["tiles"][y*map_width + x], footstep_overlay_value,
+                            )
                     else:
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             # Appearance flood fill retains the existing tile/collision semantics.
@@ -1051,50 +1069,25 @@ def categorise_entity_type(entity_type):
 
     return category_map[entity_type]
 
-def load_sound(engine, file_name, looping, volume, pitch, pan):
-    sound = cma.Sound(engine, file_name)
-    sound.looping = looping
-    sound.volume = volume
-    sound.pitch = pitch
-    sound.pan = pan
-    return sound
 
-def load_pistol_pool(engine):
-    variants = 10
-    result = {"index" : 0, "pool" : []}
-    for i in range(variants):        
-        pistol_shot = load_sound(engine, "sounds/pistol_shot_lofi.wav", False, 0.5, 1 , 0)
-        result["pool"].append(pistol_shot)
-    return result
-
-def load_sound_pool(engine, variants, base_file, base_volume, base_pitch, base_pan):    
-    result = {"index" : 0, "pool" : []}
-    for i in range(variants):        
-        pool_sound = load_sound(engine, f"sounds/{base_file}", False, base_volume, base_pitch , base_pan)
-        result["pool"].append(pool_sound)
-    return result
-
-def stop_pool_sounds(pool_name, sounds):
-    if pool_name in sounds and sounds[pool_name] is not None:            
-        for i in range(len(sounds[pool_name]["pool"])):
-            sound_to_play = sounds[pool_name]["pool"][i]            
-            sound_to_play.stop()
-            sound_to_play.seek(0)        
-
-def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25, volume = -1):
-    if g_mute:
-        return
-    if pool_name in sounds and sounds[pool_name] is not None:            
-        sound_to_play_idx = sounds[pool_name]["index"]
-        sound_to_play = sounds[pool_name]["pool"][sound_to_play_idx]
-        sound_to_play.pitch = 1 + float(random.randint(rand_lower,rand_upper) / rand_base)
-        # TODO careful this might permanently change the volume?
-        if volume != -1:
-            sound_to_play.volume = volume
-        sounds[pool_name]["index"] = (sounds[pool_name]["index"] + 1) % len(sounds[pool_name]["pool"])
-        sound_to_play.stop()
-        sound_to_play.seek(0)
-        sound_to_play.start()
+def queue_gameplay_audio(audio_runtime, event_type, source_id, source_kind,
+                         world_position=None, priority=1.0, gain=1.0, data=None):
+    if isinstance(world_position, dict):
+        position = dict(world_position)
+    else:
+        position = {
+            "x": float(getattr(world_position, "x", 0.0)),
+            "y": float(getattr(world_position, "y", 0.0)),
+        }
+    return g_audio.queue_audio_event(audio_runtime, {
+        "type": event_type,
+        "source_id": str(source_id),
+        "source_kind": str(source_kind),
+        "world_position": position,
+        "priority": float(priority),
+        "gain": float(gain),
+        "data": dict(data or {}),
+    })
 
 
 
@@ -1112,42 +1105,6 @@ def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25
 
 
 
-
-def load_sounds(engine):
-    result = {}
-    
-    # player foot steps
-    
-    # enemy foot steps
-    
-    pistol_hit_wall = load_sound(engine, "sounds/pistol_hit_wall.wav", False, 0.75, 1, 0)
-
-    pistol_reload = load_sound(engine, "sounds/pistol_reload.wav", False, 0.75, 1, 0)
-
-    ui_hover = load_sound(engine, "sounds/ui_hover.wav", False, 0.75, 1, 0)
-
-    result["ui_hover"] = ui_hover
-    result["pistol_reload"] = pistol_reload
-
-    result["whoosh_pool"] = load_sound_pool(engine, 10, "whoosh.wav", 0.75, 0.7, 0)
-
-    result["player_footstep_pool"] = load_sound_pool(engine, 10, "player_footstep.wav", 0.75, 0.7, 0)
-    result["pistol_pool"] = load_pistol_pool(engine)
-    result["stagger_hit_pool"] = load_sound_pool(engine, 10, "punch_1.wav", 0.75, 0.7, 0)
-
-    result["ammo_pickup_pool"] = load_sound_pool(engine, 10, "ammo_pickup.wav", 0.75, 0.7, 0)
-
-    result["health_pickup_pool"] = load_sound_pool(engine, 10, "health_apply.wav", 0.75, 0.7, 0)
-
-    result["death_hit_pool"] = load_sound_pool(engine, 10, "death_hit.wav", 0.5, 1, 0)
-
-    result["pistol_empty_pool"] = load_sound_pool(engine, 10, "pistol_empty.wav", 0.5, 1, 0)
-        
-    result["pistol_hit_wall"] = pistol_hit_wall    
-
-
-    return result
-    
 
 def load_sprite_sheets():
     result = {}    
@@ -1413,12 +1370,12 @@ def get_tile_at_index(flat_index, tile_map):
     tile_at_index = tile_map["tiles"][flat_index]
     return tile_at_index
 
-def update_player_flashlight_toggle(player_entity, editor_mode, pause_state, sounds):
+def update_player_flashlight_toggle(player_entity, editor_mode, pause_state, audio_runtime):
     if "flashlight_enabled" not in player_entity:
         player_entity["flashlight_enabled"] = True
 
     if editor_mode == "play" and pause_state == "unpaused" and pr.is_key_pressed(pr.KeyboardKey.KEY_F):
-        play_sound(sounds["ui_hover"])
+        queue_gameplay_audio(audio_runtime, "ui_hover", "player:flashlight", "ui", priority=1.2)
         player_entity["flashlight_enabled"] = not player_entity["flashlight_enabled"]
 
     return player_entity["flashlight_enabled"]
@@ -2985,7 +2942,7 @@ def stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt)
     
 
 
-def attack_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
+def attack_state(entity, current_state, player_info, tile_map, debug_queue, audio_runtime, dt):
     player_pos = player_info.get("position",{}) # top left
     next_state = current_state
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
@@ -3053,9 +3010,15 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
             # now we do damage
             damage_per_hit = 20
             player_info["health"] -= damage_per_hit
-            play_pool_sound("stagger_hit_pool", sounds)                                
+            queue_gameplay_audio(
+                audio_runtime, "stagger_impact", "player", "player",
+                player_pos_abs, priority=1.4,
+            )
         else:
-            play_pool_sound("whoosh_pool", sounds)                                            
+            queue_gameplay_audio(
+                audio_runtime, "melee_whoosh", f"enemy:{entity.get('id', 'unknown')}",
+                "enemy", attack_point, priority=0.8,
+            )
             # TODO play the miss ound
 
     
@@ -3168,7 +3131,7 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     return next_state
 
 
-def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
+def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, audio_runtime, dt):
 
     player_pos = player_info["position"]
     # this state exists for 
@@ -3256,24 +3219,6 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     dest_threshold = 40
     give_up_threshold = 10
 
-    current_speed = entity.get("current_speed", 0)
-    footstep_timer = get_or_set(entity, "footstep_timer", 0)
-    footstep_timer += dt * 0.009 * current_speed
-    footstep_timer_base_gap = entity.get("base_gap", 0.3)
-
-    if footstep_timer >= footstep_timer_base_gap:
-        # sounds horrible at a constant speed like this
-        # also needs to be way creepier and in a different range than the player
-        footstep_timer = 0
-        # this helps to sound less mechanical, for now, 
-        # though introducing some actual speed variation in enemies might be good
-        new_base_gap = float(random.randint(30,50))/100.0
-        entity["base_gap"] = new_base_gap
-        play_pool_sound("player_footstep_pool", sounds, 10, 15, 40, 0.3) # make this an enemy footstep, creepier, later
-
-    entity["footstep_timer"] = footstep_timer
-
-
     
 
     
@@ -3318,7 +3263,7 @@ def apply_force(entity, force):
     pass
     
 
-def transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
+def transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, audio_runtime, dt):
     player_pos = player_info.get("position",{}) # top left
     # TODO in addition to line of sight
     # need like a line of sound / within earshot function
@@ -3334,13 +3279,13 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
     elif current_state == "angry chase":        
         # this is essentially a 'go to last position' state
         # with maybe a different animation and / or speed
-        next_state = angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)
+        next_state = angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, audio_runtime, dt)
     elif current_state == "stagger":        
         next_state = stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt)
     elif current_state == "dead":        
         next_state = death_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
     elif current_state == "angry and attacking":        
-        next_state = attack_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)        
+        next_state = attack_state(entity, current_state, player_info, tile_map, debug_queue, audio_runtime, dt)
         # if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
         #     # keep try attacking if close enough
         #     pass
@@ -3355,7 +3300,8 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
 
 
 
-def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt, sounds, debug_queue = None, effects_runtime=None):
+def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt,
+                    audio_runtime, audio_profile, debug_queue=None, effects_runtime=None):
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     if editor_mode != "play":
@@ -3428,13 +3374,13 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         if point_in_rect(player_pos_abs, minkowski_rect):#vec2_distance(player_pos, pickup["position"]) < pickup_rad:
             deletions.append({"subdict": "pickups", "id" : pickup["id"]})            
             if pickup.get("type") == "pistol_ammo_pickup":
-                print("got ammo")                
-                player_info["ammo"]["spare_pistol"] += pickup.get("value", 0)                    
-                play_pool_sound("ammo_pickup_pool", sounds, -1, 1)
-            elif pickup.get("type") == "health_pickup":                                        
+                print("got ammo")
+                player_info["ammo"]["spare_pistol"] += pickup.get("value", 0)
+                queue_gameplay_audio(audio_runtime, "pickup_ammo", "player", "player", player_pos_abs, 1.1)
+            elif pickup.get("type") == "health_pickup":
                 print("got health")
                 player_info["health"] += pickup.get("value", 0)
-                play_pool_sound("health_pickup_pool", sounds, -1, 1)
+                queue_gameplay_audio(audio_runtime, "pickup_health", "player", "player", player_pos_abs, 1.1)
         
 
     if "projectiles" not in entities:
@@ -3461,8 +3407,11 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             step_size = 2
             collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, bullet_tiles, entity["id"], debug_queue)
             if collides:
-                play_sound(sounds["pistol_hit_wall"])
-                deletions.append({"subdict": "projectiles", "id" : entity["id"]})            
+                queue_gameplay_audio(
+                    audio_runtime, "bullet_wall_impact", f"projectile:{entity['id']}",
+                    "world", next_bullet_pos, priority=0.9,
+                )
+                deletions.append({"subdict": "projectiles", "id" : entity["id"]})
             entity["position"] = next_bullet_pos
             entity["timer"] += dt
             max_bullet_time_for_now = 0.6
@@ -3477,10 +3426,11 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     costly_updates = 0
     max_costly_updates_per_frame = 2
 
-    for entity in entities.get("brains",{}).values():
+    for entity_id, entity in entities.get("brains",{}).items():
         
 
         if entity.get("type","") == "red head":
+            previous_audio_position = make_pos_abs(entity.get("position", {}), tile_width, tile_height)
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
             # he definitely needs to know about the player
@@ -3492,11 +3442,25 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
             current_state = get_or_set(entity, "current_state", "idle")
             # there's a lot of logic happening in these states!
-            next_state = transition_entity_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)
+            next_state = transition_entity_state(
+                entity, current_state, player_info, tile_map, debug_queue,
+                audio_runtime, dt,
+            )
             # next_state = "idle"
             # update_tile_manager(entity["old_tile"], entity["position"], entity["id"], tile_map)
             entity["current_state"] = next_state
             pos_abs = tile_and_offset_to_absolute(tile_map, entity.get("position",{}))
+            current_audio_position = make_pos_abs(entity.get("position", {}), tile_width, tile_height)
+            # Seed from the actual pre-update position so the first moving frame
+            # contributes collision-resolved distance without a synthetic step.
+            step_state = entity.setdefault("audio_step_state", {})
+            step_state.setdefault("previous_world_position", previous_audio_position)
+            g_audio.update_actor_footstep_travel(
+                entity, current_audio_position,
+                g_audio.normalize_audio_profile(audio_profile)["enemy_stride"],
+                f"enemy:{entity_id}", "enemy", audio_runtime,
+                priority=0.75, gait="walk",
+            )
             bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
             if bullet_key in bullet_tiles:
                 # possible collision!
@@ -3546,14 +3510,23 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
                             if entity["health"] > 0:
                                 blood_amount, blood_duration = 5, 0.3
-                                play_pool_sound("stagger_hit_pool", sounds)                                
+                                queue_gameplay_audio(
+                                    audio_runtime, "stagger_impact", f"enemy:{entity_id}",
+                                    "enemy", pos_abs, priority=1.0,
+                                )
                             else:
                                 # kill them here
                                 if entity["current_state"] != "dead":
-                                    play_pool_sound("death_hit_pool", sounds)                                
+                                    queue_gameplay_audio(
+                                        audio_runtime, "death_impact", f"enemy:{entity_id}",
+                                        "enemy", pos_abs, priority=1.25,
+                                    )
                                     blood_amount, blood_duration = 20, 0.7
                                 else:
-                                    play_pool_sound("stagger_hit_pool", sounds)                                
+                                    queue_gameplay_audio(
+                                        audio_runtime, "stagger_impact", f"enemy:{entity_id}",
+                                        "enemy", pos_abs, priority=0.8,
+                                    )
                                     blood_amount, blood_duration = 5, 0.1
                                 entity["current_state"] = "dead"
 
@@ -3648,19 +3621,18 @@ def point_in_rect(point_position, rectangle):
     return point_position["x"] >= rect_left and point_position["x"] <= rect_right and point_position["y"] >= rect_top and point_position["y"] <= rect_bottom 
     
 
-def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, sounds, debug_queue=None):
+def update_player_position(tile_map, entity, editor_mode, collision_mode, dt,
+                           audio_runtime, audio_profile, debug_queue=None):
     if editor_mode != "play":
         return entity.get("position", {})
 
     player_velocity = get_or_set(entity, "player_velocity", {"x": 0.0, "y": 0.0})
 
-    player_footstep_timer = get_or_set(entity, "player_footstep_timer", 0)
-
-    
     player_speed_max = 35.0
 
     
-    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+    running = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT)
+    if running:
         player_speed_max = 65.0
 
     player_accel = 1500.0
@@ -3709,22 +3681,16 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, so
     new_pos = move_entity_with_velocity(entity, player_velocity, tile_map, debug_queue, dt)
 
     entity["player_velocity"] = player_velocity
-
-    
-    resolved_speed = vec2_norm(player_velocity)
-
-    player_footstep_timer_base_gap = 0.135
-
-    if resolved_speed > 0:
-        #player_footstep_timer += (dt * 0.003 * resolved_speed)
-        player_footstep_timer += (dt * 0.006 * resolved_speed)
-
-    if (player_footstep_timer >= player_footstep_timer_base_gap):
-        player_footstep_timer = 0
-
-        play_pool_sound("player_footstep_pool", sounds,-3, 3, 40, 0.2)
-
-    entity["player_footstep_timer"] = (player_footstep_timer)
+    old_world = make_pos_abs(entity.get("position", {}), tile_map["tile_width"], tile_map["tile_height"])
+    new_world = make_pos_abs(new_pos, tile_map["tile_width"], tile_map["tile_height"])
+    step_state = entity.setdefault("audio_step_state", {})
+    step_state.setdefault("previous_world_position", old_world)
+    profile = g_audio.normalize_audio_profile(audio_profile)
+    stride = profile["player_run_stride"] if running else profile["player_walk_stride"]
+    g_audio.update_actor_footstep_travel(
+        entity, new_world, stride, "player", "player", audio_runtime,
+        priority=1.5, gait="run" if running else "walk",
+    )
 
     return new_pos
 
@@ -3740,7 +3706,7 @@ def apply_force():
     # A = F / m
     pass
 
-def update_player_interaction(tile_map, entity, game_camera, entities, sounds, audio_engine, dt, debug_state, debug_queue,
+def update_player_interaction(tile_map, entity, game_camera, entities, audio_runtime, dt, debug_state, debug_queue,
                               aim_input_enabled=True, mouse_delta=None):
     player_pos = entity["position"]
     tile_height = tile_map["tile_height"]
@@ -3845,8 +3811,12 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
         # should also be able to interrupt this
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_R):
-        if entity.get("reload_state","") != "reloading":                        
-            play_sound(sounds["pistol_reload"])
+        if entity.get("reload_state","") != "reloading":
+            queue_gameplay_audio(
+                audio_runtime, "reload_start", "player", "player",
+                player_pos_center, priority=1.4,
+                data={"instance_key": "player:pistol_reload"},
+            )
             entity["reload_state"] = "reloading"
 
 
@@ -3854,14 +3824,21 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
         
         current_ammo = entity["ammo"][current_gun]
         if entity.get("reload_state","") == "reloading":
-            stop_sound(sounds["pistol_reload"])            
+            queue_gameplay_audio(
+                audio_runtime, "reload_stop", "player", "player",
+                player_pos_center, priority=2.0,
+                data={"instance_key": "player:pistol_reload"},
+            )
             entity["reload_timer"] = 0
             entity["reload_state"] = "interrupted" # could do something with this
 
 
         if current_ammo <= 0:
-            print("no bullets")            
-            play_pool_sound("pistol_empty_pool", sounds)
+            print("no bullets")
+            queue_gameplay_audio(
+                audio_runtime, "weapon_empty", "player", "player",
+                player_pos_center, priority=1.3,
+            )
             # play reload sound
         else:
             bullet_pos = {"x" : spawn_pos["x"], "y" :spawn_pos["y"]} # world space I think
@@ -3875,9 +3852,12 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
             bullet_id = len(entities["projectiles"])
             bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
             
-            # TODO! move this stuff to an audio manager, just need the sound info
             gunshot_timer = 0.07
-            play_pool_sound("pistol_pool", sounds, rand_lower=5, rand_upper=6)        
+            queue_gameplay_audio(
+                audio_runtime, "gunshot", "player", "player",
+                current_pos, priority=2.0,
+                data={"weapon": "pistol"},
+            )
 
             entities["projectiles"][bullet_id] = bullet
 
@@ -3902,21 +3882,7 @@ def copy_position_dict(original):
     return {"x" : original.get("x",0), "y" : original.get("y",0), 
             "tile_x" : original.get("tile_x",0), "tile_y" : original.get("tile_y",0)}
 
-def play_sound(sound):
-    if g_mute:
-        return
-
-    sound.stop()
-    sound.seek(0)
-    sound.start()
-
-def stop_sound(sound):
-    sound.stop()
-    sound.seek(0)
-
-
-
-def move_position_along_tiles(new_pos, tile_width, tile_height):    
+def move_position_along_tiles(new_pos, tile_width, tile_height):
 
     additional_x_tiles = math.floor(new_pos["x"] / tile_width)
 
@@ -4084,6 +4050,66 @@ def find_unpickleable_values(value, path="arena", seen=None):
     
 
 
+def draw_audio_stats_debug(audio_runtime):
+    stats = (audio_runtime or {}).get("stats", {})
+    rain_targets = stats.get("rain_loop_targets", {})
+    target_summary = " ".join(
+        f"{name.removeprefix('rain_')}={gain:.2f}"
+        for name, gain in rain_targets.items() if gain > 0.0
+    ) or "none"
+    treatment = stats.get("requested_treatment", {})
+    lines = (
+        f"audio queued {stats.get('queued_events', 0)} accepted {stats.get('accepted_events', 0)} discarded {stats.get('discarded_events', 0)}",
+        f"voices {stats.get('active_one_shot_voices', 0)} loops {stats.get('active_loop_voices', 0)} steals {stats.get('voice_steals', 0)} enemy suppress {stats.get('enemy_footstep_suppressions', 0)}",
+        f"zone {stats.get('listener_zone', 0)} rain {stats.get('listener_rain_state', 'dry')} surface {stats.get('listener_tile_surface', 'generic')}",
+        f"step {stats.get('last_footstep_base_surface')} + {stats.get('last_footstep_overlay')} DSP {stats.get('actual_treatment', 'gain_fallback')}",
+        f"discard {stats.get('discard_reasons', {})}",
+        f"ambience {stats.get('current_ambience_set')} rain targets {target_summary}",
+        f"treatment LPF {treatment.get('low_pass_hz')} wet {treatment.get('wet_send', 0.0):.2f} {treatment.get('reverb_preset')}",
+        f"nearest fires {[item.get('id') for item in stats.get('nearest_fire_loop_sources', [])]}",
+        f"missing families {stats.get('missing_asset_families', [])}",
+    )
+    for index, line in enumerate(lines):
+        pr.draw_text(line, 4, 151 + index * 9, 8, pr.LIME)
+
+
+def draw_audio_world_debug(audio_runtime, game_camera, audio_profile, entities=None, tile_map=None):
+    listener = (audio_runtime or {}).get("listener", {}).get("world_position", {})
+    listener_screen = g_render_order.world_to_screen_pixel(
+        listener.get("x", 0.0), listener.get("y", 0.0), game_camera,
+    )
+    pr.draw_circle_lines(listener_screen["x"], listener_screen["y"], 4.0, pr.LIME)
+    pr.draw_circle_lines(
+        listener_screen["x"], listener_screen["y"],
+        float(audio_profile.get("maximum_distance", 260.0)), pr.Color(80, 220, 130, 90),
+    )
+    sources = []
+    sources.extend((audio_runtime or {}).get("active_voices", []))
+    sources.extend((audio_runtime or {}).get("loop_voices", {}).values())
+    for source in sources:
+        position = source.get("world_position")
+        if not isinstance(position, dict):
+            continue
+        screen = g_render_order.world_to_screen_pixel(
+            position.get("x", 0.0), position.get("y", 0.0), game_camera,
+        )
+        pr.draw_circle(screen["x"], screen["y"], 2.0, pr.ORANGE)
+    for entity in (entities or {}).get("brains", {}).values():
+        footprint = g_audio.get_corpse_contact_footprint(entity, tile_map or {})
+        if footprint is None:
+            continue
+        screen = g_render_order.world_to_screen_pixel(
+            footprint["x"] - footprint["width"] * 0.5,
+            footprint["y"] - footprint["height"] * 0.5,
+            game_camera,
+        )
+        pr.draw_rectangle_lines(
+            screen["x"], screen["y"],
+            int(round(footprint["width"])), int(round(footprint["height"])),
+            pr.Color(205, 75, 115, 210),
+        )
+
+
 g_internal_width = 480
 g_internal_height = 270
 
@@ -4119,6 +4145,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if fog_profile is None:
         fog_profile = g_graphics.make_fog_profile("misty")
+
+    audio_profile = g_audio.normalize_audio_profile(
+        main_arena.get("audio_profile") or g_audio.make_audio_profile()
+    )
 
     # could handle a pause event here...?
     if pr.is_key_pressed(pr.KeyboardKey.KEY_PAUSE):
@@ -4184,10 +4214,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if not saved_files:
         saved_files = get_saved_files()
 
-    sounds = game_assets.get("sounds")
-    if not sounds:
-        sounds = load_sounds(cma_engine)
-        game_assets["sounds"] = sounds
+    audio_runtime = g_audio.ensure_audio_runtime(game_assets, cma_engine)
+    audio_runtime["muted"] = bool(g_mute)
     textures = game_assets.get("textures")
     if not textures:
         textures = load_textures()        
@@ -4232,6 +4260,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if not tile_map:
         tile_map = make_tile_map(100, 100, 16, 16)
     tile_map.setdefault("rain_exposure_revision", 0)
+    g_audio.migrate_tile_audio_data(tile_map)
 
     if not entities:
         entities = {}
@@ -4265,7 +4294,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     update_play_mouse_capture(game_assets, aim_controls_active and not show_editor)
     editor_state = g_editor.get_or_create_editor_state(game_assets)
     game_assets["rain_debug"] = editor_state.get("rain_debug", {})
-    g_ui.ui_begin_frame(ui_state, sounds)
+    g_ui.ui_begin_frame(ui_state, audio_runtime)
     g_editor.capture_editor_ui_regions(ui_state, editor_state, editor_mode)
 
     if show_options and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(0, 0, 170, 180)):
@@ -4311,8 +4340,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     #input handling
 
     if pause_state != "paused":
-        player_info["position"] = update_player_position(entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, sounds=sounds, tile_map=tile_map, debug_queue=debug_queue)
-        update_player_flashlight_toggle(player_info, editor_mode, pause_state, sounds)
+        player_info["position"] = update_player_position(
+            entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode,
+            dt=dt, audio_runtime=audio_runtime, audio_profile=audio_profile,
+            tile_map=tile_map, debug_queue=debug_queue,
+        )
+        update_player_flashlight_toggle(player_info, editor_mode, pause_state, audio_runtime)
     
     if pause_state != "paused":
         # I think we want to have the current 'hot spots' in terms of bullets cached
@@ -4326,7 +4359,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         # square, so we avoid the quadratic thing
         # and then if there is a bullet(s) in the square,
         # we check against only those (there may be more than one I suppose)
-        update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue, effects_runtime=effects_runtime)
+        update_entities(
+            entities=entities, player_info=player_info, editor_mode=editor_mode,
+            collision_mode=collision_mode, dt=dt, tile_map=tile_map,
+            audio_runtime=audio_runtime, audio_profile=audio_profile,
+            debug_queue=debug_queue, effects_runtime=effects_runtime,
+        )
     
     if ui_state.get("focused_id") is None and editor_state.get("drag_kind") is None:
         camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
@@ -4336,8 +4374,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         if game_assets.pop("suppress_aim_mouse_delta_once", False):
             aim_mouse_delta = pr.Vector2(0.0, 0.0)
         update_player_interaction(
-            tile_map, player_info, camera_3d.position, entities, sounds,
-            cma_engine, dt, debug_state, debug_queue,
+            tile_map, player_info, camera_3d.position, entities, audio_runtime,
+            dt, debug_state, debug_queue,
             aim_input_enabled=aim_controls_active and not g_mouse_is_ui_captured,
             mouse_delta=aim_mouse_delta,
         )
@@ -4473,12 +4511,36 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     full_entity_lighting_debug = editor_mode != "play" and game_assets.get("show_entity_lighting_debug", False)
     if game_assets.get("show_entity_direction_basis_debug", False) and not full_entity_lighting_debug:
         g_graphics.draw_entity_direction_basis_debug(sorted_world_items, camera_3d.position, lighting_frame["prepared_lights"])
-    
+
+    audio_debug = editor_state.get("audio_debug", {})
+    if audio_debug.get("show_stats", False):
+        draw_audio_stats_debug(audio_runtime)
+    if audio_debug.get("show_world", False):
+        draw_audio_world_debug(
+            audio_runtime, camera_3d.position, audio_profile, entities, tile_map,
+        )
+    if (audio_debug.get("show_world", False)
+            or audio_debug.get("show_acoustic_zones", False)
+            or audio_debug.get("show_contact_overlays", False)):
+        g_editor.draw_audio_tile_overlays(
+            {
+                "tile_edit_mode": "appearance",
+                "show_acoustic_zone_overlay": audio_debug.get("show_acoustic_zones", False),
+                "show_footstep_overlay": (
+                    audio_debug.get("show_world", False)
+                    or audio_debug.get("show_contact_overlays", False)
+                ),
+            },
+            "audio_debug", camera_3d.position, tile_map,
+        )
+
     g_editor.draw_rain_exposure_overlay(editor_state, editor_mode, camera_3d.position, tile_map)
+    g_editor.draw_audio_tile_overlays(editor_state, editor_mode, camera_3d.position, tile_map)
     editor_mode = g_editor.draw_editor_overlay(
         ui_state, editor_state, editor_mode, entities, lighting_profile,
         fog_profile, wind_profile, camera_3d.position, tile_map, show_editor,
-        rain_profile=rain_profile,
+        rain_profile=rain_profile, audio_profile=audio_profile,
+        audio_runtime=audio_runtime,
     )
     if editor_mode == "tile":
         g_editor.draw_tile_edit_controls(ui_state, editor_state, tile_map)
@@ -4494,23 +4556,28 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
                 current_tile_force_collidable,
                 pr.Rectangle(332, 61, 92, 14),
             )
+            tile_type["audio_surface"], _ = g_ui.ui_dropdown(
+                ui_state, "tile:audio_surface", "sound", tile_type.get("audio_surface", "generic"),
+                g_audio.AUDIO_SURFACES, pr.Rectangle(332, 78, 138, 15), 6,
+            )
     elif editor_mode == "entity":
         pr.draw_text(entity_types[current_entity_selection], 275, 42, 8, pr.WHITE)
 
     if show_options:
-        if g_ui.do_button(sounds, pr.Vector2(10, 100), name="reload assets"):
+        if g_ui.do_button(audio_runtime, pr.Vector2(10, 100), name="reload assets"):
             unload_shaders(game_assets["shaders"])
             game_assets["textures"] = None
             game_assets["sprite_sheets"] = None
             game_assets["shaders"] = None
-            game_assets["sounds"] = None
+            g_audio.clear_audio_runtime(game_assets)
+            audio_runtime = g_audio.ensure_audio_runtime(game_assets, cma_engine)
 
-        if g_ui.do_button(sounds, pr.Vector2(10, 140), name="reset player"):
+        if g_ui.do_button(audio_runtime, pr.Vector2(10, 140), name="reset player"):
             player_info = None
 
     reset_all = False
 
-    if show_options and g_ui.do_button(sounds, pr.Vector2(10, 42), name="reset all"):
+    if show_options and g_ui.do_button(audio_runtime, pr.Vector2(10, 42), name="reset all"):
         player_info = None
         tile_map = None
         game_assets["textures"] = None
@@ -4520,9 +4587,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         lighting_profile = None
         wind_profile = g_effects.make_wind_profile()
         rain_profile = g_effects.make_rain_profile()
+        audio_profile = g_audio.make_audio_profile()
         g_effects.clear_effects_runtime(game_assets)
         game_assets.pop("effects_entities_identity", None)
         g_graphics.clear_rain_runtime_assets(game_assets)
+        g_audio.clear_audio_runtime(game_assets)
+        audio_runtime = g_audio.ensure_audio_runtime(game_assets, cma_engine)
 
     selected_save_index, load_saved_data = g_ui.draw_load_level(main_arena, game_assets)
 
@@ -4534,12 +4604,16 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         fog_profile = main_arena.get("fog_profile") or g_graphics.make_fog_profile("misty")
         wind_profile = main_arena.get("wind_profile") or g_effects.make_wind_profile()
         rain_profile = g_effects.normalize_rain_profile(main_arena.get("rain_profile") or g_effects.make_rain_profile())
+        audio_profile = g_audio.normalize_audio_profile(main_arena.get("audio_profile") or g_audio.make_audio_profile())
         editor_mode = g_editor.migrate_editor_mode(main_arena.get("editor_mode", editor_mode))
         g_effects.clear_effects_runtime(game_assets)
         game_assets.pop("effects_entities_identity", None)
         g_graphics.clear_rain_runtime_assets(game_assets)
+        g_audio.clear_audio_runtime(game_assets)
+        audio_runtime = g_audio.ensure_audio_runtime(game_assets, cma_engine)
         if tile_map is not None:
             tile_map.setdefault("rain_exposure_revision", 0)
+            g_audio.migrate_tile_audio_data(tile_map)
 
         if loaded_entities is not None:
             entities = loaded_entities
@@ -4568,6 +4642,18 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     ui_state["show_editor"] = show_editor
     g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
 
+    listener_position = make_pos_abs(
+        (player_info or {}).get("position", {}),
+        (tile_map or {}).get("tile_width", 16),
+        (tile_map or {}).get("tile_height", 16),
+    )
+    g_audio.update_audio(
+        audio_runtime, cma_engine, dt,
+        {"source_id": "player", "world_position": listener_position},
+        tile_map or {}, entities or {}, rain_profile,
+        (entities or {}).get("emitters", {}), audio_profile,
+    )
+
 
     # update persistent variables here
     changes = main_arena.evolver()
@@ -4594,6 +4680,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["fog_profile"] = fog_profile
     changes["wind_profile"] = wind_profile
     changes["rain_profile"] = rain_profile
+    changes["audio_profile"] = audio_profile
 
     result = changes.persistent()    
     
