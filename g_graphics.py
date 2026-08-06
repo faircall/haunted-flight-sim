@@ -1622,12 +1622,16 @@ def _make_per_light_render_item(render_item, light_record, mode_override=None):
 def _draw_render_item_main_shape(render_item, texture, game_camera):
     source = render_item["source_rect"]
     destination = render_item["dest_rect"]
-    # World and camera snapping are deliberately independent. This keeps a
-    # fractionally placed sprite registered with integer-authored tiles while
-    # the camera moves. Every entity-lighting pass uses this same helper.
-    screen_position = g_render_order.world_to_screen_pixel(
-        destination["x"], destination["y"], game_camera,
+    # Static world items snap world and camera independently to stay registered
+    # with tiles. Moving actors snap their relative position once so co-moving
+    # fractional player/camera motion cannot toggle by a pixel. Every entity
+    # lighting pass comes through this same policy.
+    snap = (
+        g_render_order.moving_world_to_screen_pixel
+        if render_item.get("screen_snap") == "relative_motion"
+        else g_render_order.world_to_screen_pixel
     )
+    screen_position = snap(destination["x"], destination["y"], game_camera)
     pr.draw_texture_pro(
         texture,
         pr.Rectangle(source["x"], source["y"], source["width"], source["height"]),
@@ -1646,10 +1650,13 @@ def _get_player_pistol_part(render_item, game_camera, game_assets):
     pseudo_item = dict(render_item)
     pseudo_item["source_rect"] = {"x": 0.0, "y": 0.0, "width": float(texture.width), "height": float(texture.height)}
     pseudo_item["self_shadow"] = {"mode": "none", "strength": 0.0}
+    screen_position = g_render_order.moving_world_to_screen_pixel(
+        position.get("x", 0.0), position.get("y", 0.0), game_camera,
+    )
     return {
         "texture": texture,
         "render_item": pseudo_item,
-        "screen_position": pr.Vector2(position.get("x", 0.0) - game_camera.x, position.get("y", 0.0) - game_camera.y),
+        "screen_position": pr.Vector2(screen_position["x"], screen_position["y"]),
         "angle": float(draw_data.get("pistol_angle", 0.0))
     }
 
@@ -1725,8 +1732,14 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
                     draw_data = item.get("draw_data", {})
                     center = draw_data.get("center_world", {})
                     gun = draw_data.get("gun_world", {})
-                    center_screen = pr.Vector2(center.get("x", 0.0) - game_camera.x, center.get("y", 0.0) - game_camera.y)
-                    gun_screen = pr.Vector2(gun.get("x", 0.0) - game_camera.x, gun.get("y", 0.0) - game_camera.y)
+                    center_pixel = g_render_order.moving_world_to_screen_pixel(
+                        center.get("x", 0.0), center.get("y", 0.0), game_camera,
+                    )
+                    gun_pixel = g_render_order.moving_world_to_screen_pixel(
+                        gun.get("x", 0.0), gun.get("y", 0.0), game_camera,
+                    )
+                    center_screen = pr.Vector2(center_pixel["x"], center_pixel["y"])
+                    gun_screen = pr.Vector2(gun_pixel["x"], gun_pixel["y"])
                     if player_entity is not None:
                         player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
                     pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))
@@ -1818,8 +1831,14 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
             draw_data = item.get("draw_data", {})
             center = draw_data.get("center_world", {})
             gun = draw_data.get("gun_world", {})
-            center_screen = pr.Vector2(center.get("x", 0.0) - game_camera.x, center.get("y", 0.0) - game_camera.y)
-            gun_screen = pr.Vector2(gun.get("x", 0.0) - game_camera.x, gun.get("y", 0.0) - game_camera.y)
+            center_pixel = g_render_order.moving_world_to_screen_pixel(
+                center.get("x", 0.0), center.get("y", 0.0), game_camera,
+            )
+            gun_pixel = g_render_order.moving_world_to_screen_pixel(
+                gun.get("x", 0.0), gun.get("y", 0.0), game_camera,
+            )
+            center_screen = pr.Vector2(center_pixel["x"], center_pixel["y"])
+            gun_screen = pr.Vector2(gun_pixel["x"], gun_pixel["y"])
             if player_entity is not None:
                 player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
             pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))

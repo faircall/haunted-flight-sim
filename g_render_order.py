@@ -19,6 +19,20 @@ def world_to_screen_pixel(world_x, world_y, game_camera):
     }
 
 
+def moving_world_to_screen_pixel(world_x, world_y, game_camera):
+    """Snap relative motion once so co-moving actor/camera fractions cannot jitter."""
+    if isinstance(game_camera, dict):
+        camera_x = float(game_camera.get("x", 0.0))
+        camera_y = float(game_camera.get("y", 0.0))
+    else:
+        camera_x = float(getattr(game_camera, "x", 0.0))
+        camera_y = float(getattr(game_camera, "y", 0.0))
+    return {
+        "x": round(float(world_x) - camera_x),
+        "y": round(float(world_y) - camera_y),
+    }
+
+
 def make_default_entity_render_metadata(entity_type):
     entity_type = str(entity_type or "").lower().replace("_", " ")
     common = {
@@ -208,7 +222,9 @@ def build_player_render_item(player_entity, tile_map, game_assets):
         pistol_texture = "pistol_texture_flipped"
         pistol_angle += 180.0
     draw_data = {"center_world": dict(world_position), "gun_world": gun_position, "pistol_world": pistol_position, "pistol_texture": pistol_texture, "pistol_angle": pistol_angle}
-    return make_world_render_item("entity", "player", "player", player_entity.get("id", "player"), player_entity, world_position, 32.0, 32.0, make_texture_reference("sprite_sheets", "blue_oxford_texture_sheet", "sheet"), {"x": float(frame_number) * 32.0, "y": 0.0, "width": 32.0, "height": 32.0}, draw_data)
+    render_item = make_world_render_item("entity", "player", "player", player_entity.get("id", "player"), player_entity, world_position, 32.0, 32.0, make_texture_reference("sprite_sheets", "blue_oxford_texture_sheet", "sheet"), {"x": float(frame_number) * 32.0, "y": 0.0, "width": 32.0, "height": 32.0}, draw_data)
+    render_item["screen_snap"] = "relative_motion"
+    return render_item
 
 
 def build_brain_render_item(object_id, entity, tile_map, game_assets):

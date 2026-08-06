@@ -27,6 +27,18 @@ class CameraRenderAlignmentTests(unittest.TestCase):
 
         self.assertEqual(relative_offsets, [20, 20, 20, 20])
 
+    def test_moving_actor_snap_uses_relative_position_once(self):
+        screen_positions = []
+        for world_x, camera_x in ((100.4, -139.4), (100.6, -139.2)):
+            screen_positions.append(
+                g_render_order.moving_world_to_screen_pixel(
+                    world_x, 40.25, SimpleNamespace(x=camera_x, y=-20.0),
+                )["x"]
+            )
+        # Both pairs have the same 239.8-pixel relative separation. Independent
+        # rounding would incorrectly produce 239 then 240.
+        self.assertEqual(screen_positions, [240, 240])
+
     def test_tile_sprite_uses_same_camera_relative_snap_as_world_entities(self):
         camera = SimpleNamespace(x=2.6, y=3.2)
         tile_map = {
@@ -59,6 +71,21 @@ class CameraRenderAlignmentTests(unittest.TestCase):
 
         destination = draw_texture.call_args.args[2]
         expected = g_render_order.world_to_screen_pixel(20.0, 40.0, camera)
+        self.assertEqual((destination.x, destination.y), (expected["x"], expected["y"]))
+
+    def test_player_sprite_uses_moving_relative_snap(self):
+        camera = SimpleNamespace(x=-139.4, y=3.2)
+        item = {
+            "source": "player",
+            "screen_snap": "relative_motion",
+            "source_rect": {"x": 0.0, "y": 0.0, "width": 32.0, "height": 32.0},
+            "dest_rect": {"x": 100.4, "y": 40.25, "width": 32.0, "height": 32.0},
+        }
+        with mock.patch.object(g_graphics.pr, "draw_texture_pro") as draw_texture:
+            g_graphics._draw_render_item_main_shape(item, object(), camera)
+
+        destination = draw_texture.call_args.args[2]
+        expected = g_render_order.moving_world_to_screen_pixel(100.4, 40.25, camera)
         self.assertEqual((destination.x, destination.y), (expected["x"], expected["y"]))
 
 
