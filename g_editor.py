@@ -19,6 +19,7 @@ def make_editor_state():
         "tool": "select",
         "placement_type": "point_light",
         "selected_kind": None,
+        "selected_collection": None,
         "selected_id": None,
         "drag_kind": None,
         "drag_offset": {"x": 0.0, "y": 0.0},
@@ -209,6 +210,7 @@ def migrate_environment_data(entities):
         light.setdefault("height", 180.0 if light.get("type") == "top_down" else 32.0)
 
     g_effects.migrate_emitters(entities.get("emitters", {}))
+    g_audio.migrate_sound_emitters(entities.get("sound_emitters", {}))
 
     return entities
 
@@ -282,6 +284,131 @@ def delete_selected_environment_object(entities, editor_state):
     editor_state["selected_id"] = None
     editor_state["drag_kind"] = None
     return True
+
+GAMEPLAY_ENTITY_COLLECTIONS = ("brains", "pickups")
+
+def gameplay_entity_selection_bounds(entity, tile_map):
+    entity_type = str(entity.get("type", ""))
+    world = tile_position_to_world(entity.get("position", {}), tile_map)
+    anchor = entity.get("render_anchor_offset", {})
+    default_size = {
+        "buddha": (128.0, 128.0),
+        "red head": (24.0, 24.0),
+        "pistol_ammo_pickup": (24.0, 24.0),
+        "health_pickup": (24.0, 24.0),
+    }.get(entity_type, (
+        max(8.0, float(entity.get("entity_width", 16.0))),
+        max(8.0, float(entity.get("entity_height", 16.0))),
+    ))
+    return {
+        "x": world["x"] + float(anchor.get("x", -default_size[0] * 0.5)),
+        "y": world["y"] + float(anchor.get("y", -default_size[1] * 0.5)),
+        "width": default_size[0], "height": default_size[1],
+    }
+
+def gameplay_entity_bounds_contains(bounds, world_point, padding=3.0):
+    return (
+        bounds["x"] - padding <= world_point["x"] <= bounds["x"] + bounds["width"] + padding
+        and bounds["y"] - padding <= world_point["y"] <= bounds["y"] + bounds["height"] + padding
+    )
+
+def get_selected_gameplay_entity(entities, editor_state):
+    if editor_state.get("selected_kind") != "gameplay_entity":
+        return None
+    collection_name = editor_state.get("selected_collection")
+    if collection_name not in GAMEPLAY_ENTITY_COLLECTIONS:
+        return None
+    return entities.get(collection_name, {}).get(editor_state.get("selected_id"))
+
+def select_gameplay_entity_at(entities, editor_state, world_point, tile_map):
+    previous_collection = editor_state.get("selected_collection")
+    previous_id = editor_state.get("selected_id")
+    candidates = []
+    for collection_name in GAMEPLAY_ENTITY_COLLECTIONS:
+        for entity_id, entity in entities.get(collection_name, {}).items():
+            if not isinstance(entity, dict):
+                continue
+            bounds = gameplay_entity_selection_bounds(entity, tile_map)
+            if not gameplay_entity_bounds_contains(bounds, world_point):
+                continue
+            centre_x = bounds["x"] + bounds["width"] * 0.5
+            centre_y = bounds["y"] + bounds["height"] * 0.5
+            distance = (world_point["x"] - centre_x) ** 2 + (world_point["y"] - centre_y) ** 2
+            already_selected = collection_name == previous_collection and entity_id == previous_id
+            candidates.append({
+                "sort_key": (
+                    0 if already_selected else 1,
+                    bounds["width"] * bounds["height"], distance,
+                    collection_name, str(entity_id),
+                ),
+                "collection": collection_name,
+                "id": entity_id,
+            })
+    if not candidates:
+        editor_state.update({
+            "selected_kind": None, "selected_collection": None,
+            "selected_id": None, "drag_kind": None,
+        })
+        return None
+    chosen = min(candidates, key=lambda candidate: candidate["sort_key"])
+    editor_state.update({
+        "selected_kind": "gameplay_entity",
+        "selected_collection": chosen["collection"],
+        "selected_id": chosen["id"],
+    })
+    return chosen["collection"], chosen["id"]
+
+def delete_selected_gameplay_entity(entities, editor_state):
+    collection_name = editor_state.get("selected_collection")
+    entity_id = editor_state.get("selected_id")
+    if (editor_state.get("selected_kind") != "gameplay_entity"
+            or collection_name not in GAMEPLAY_ENTITY_COLLECTIONS
+            or entity_id not in entities.get(collection_name, {})):
+        return False
+    del entities[collection_name][entity_id]
+    editor_state.update({
+        "selected_kind": None, "selected_collection": None,
+        "selected_id": None, "drag_kind": None,
+    })
+    return True
+
+def move_selected_gameplay_entity(entities, editor_state, world_point, tile_map):
+    entity = get_selected_gameplay_entity(entities, editor_state)
+    if entity is None:
+        return False
+    offset = editor_state.get("drag_offset", {})
+    destination = {
+        "x": float(world_point["x"]) + float(offset.get("x", 0.0)),
+        "y": float(world_point["y"]) + float(offset.get("y", 0.0)),
+    }
+    destination = snap_world_position(destination, editor_state)
+    entity["position"] = world_to_tile_position(destination, tile_map)
+    return True
+
+def allocate_gameplay_entity_id(collection):
+    numeric_ids = []
+    for entity_id in collection:
+        try:
+            numeric_ids.append(int(entity_id))
+        except (TypeError, ValueError):
+            continue
+    return max(numeric_ids, default=-1) + 1
+
+def draw_gameplay_entity_selection(editor_state, entities, game_camera, tile_map):
+    entity = get_selected_gameplay_entity(entities, editor_state)
+    if entity is None:
+        return
+    bounds = gameplay_entity_selection_bounds(entity, tile_map)
+    screen = world_to_screen({"x": bounds["x"], "y": bounds["y"]}, game_camera)
+    color = pr.Color(255, 225, 90, 235)
+    pr.draw_rectangle_lines_ex(
+        pr.Rectangle(screen["x"], screen["y"], bounds["width"], bounds["height"]),
+        1.0, color,
+    )
+    pr.draw_text(
+        f"{entity.get('type', 'entity')} [{editor_state.get('selected_id')}]",
+        int(screen["x"]), int(screen["y"] - 9), 8, color,
+    )
 
 def duplicate_selected_environment_object(entities, editor_state, tile_map):
     selected = get_selected_object(entities, editor_state)
@@ -357,6 +484,10 @@ def hit_test_emitter(world_point, emitter, tile_map):
         and abs(world_point["y"] - centre["y"]) <= max(7.0, float(area.get("y", 0.0)) * 0.5 + 3.0)
     )
 
+def hit_test_sound_emitter(world_point, emitter, tile_map):
+    centre = tile_position_to_world(emitter.get("position", {}), tile_map)
+    return distance_squared(world_point, centre) <= 9.0 ** 2
+
 def hit_test_light(world_point, light, tile_map, handle_radius=7.0):
     centre = tile_position_to_world(light.get("position", {}), tile_map)
 
@@ -430,6 +561,7 @@ def select_environment_object_at(entities, editor_state, world_point, tile_map):
     chosen = min(candidates)
     editor_state["selected_kind"] = chosen[3]
     editor_state["selected_id"] = chosen[4]
+    editor_state["inspector_tab"] = "object"
     return chosen[3], chosen[4]
 
 def get_drag_handle(world_point, selected, selected_kind, tile_map):
@@ -457,6 +589,9 @@ def get_drag_handle(world_point, selected, selected_kind, tile_map):
             return "size_x"
         if distance_squared(world_point, y_handle) <= 7.0 ** 2:
             return "size_y"
+        return None
+
+    if selected_kind == "sound_emitter":
         return None
 
     light_type = selected.get("type", "point")
@@ -604,6 +739,34 @@ def draw_emitter_handles(object_id, emitter, game_camera, tile_map, selected):
         draw_handle({"x": centre["x"], "y": centre["y"] + height * 0.5}, outline)
         pr.draw_text(str(object_id), int(centre["x"] + 6), int(centre["y"] - 10), 8, outline)
 
+def draw_sound_emitter_handles(object_id, emitter, game_camera, tile_map, selected):
+    g_audio.normalize_sound_emitter(emitter)
+    centre_world = tile_position_to_world(emitter["position"], tile_map)
+    centre = world_to_screen(centre_world, game_camera)
+    color = pr.Color(150, 220, 255, 255) if emitter.get("enabled", True) else pr.GRAY
+    outline = pr.Color(255, 230, 115, 255) if selected else color
+    if selected:
+        pr.draw_circle_lines(
+            int(centre["x"]), int(centre["y"]),
+            float(emitter["maximum_distance"]), pr.Color(90, 180, 235, 150),
+        )
+        pr.draw_circle_lines(
+            int(centre["x"]), int(centre["y"]),
+            float(emitter["minimum_distance"]), pr.Color(150, 230, 255, 190),
+        )
+    draw_handle(centre, outline, 5 if selected else 4)
+    pr.draw_text("S", int(centre["x"] - 2), int(centre["y"] - 3), 6, pr.BLACK)
+    if selected:
+        pr.draw_text(
+            f"{object_id} {emitter['family']} ({emitter['playback_mode']})",
+            int(centre["x"] + 7), int(centre["y"] - 10), 8, outline,
+        )
+        pr.draw_text(
+            f"min {emitter['minimum_distance']:g}  max {emitter['maximum_distance']:g}",
+            int(centre["x"] + 7), int(centre["y"]), 8,
+            pr.Color(150, 230, 255, 220),
+        )
+
 def draw_environment_handles(entities, editor_state, game_camera, tile_map):
     if not editor_state.get("show_handles", True):
         return
@@ -660,6 +823,7 @@ def update_environment_world(entities, editor_state, ui_state, game_camera, tile
             kind, object_id = create_environment_object(entities, placement_type, world_to_tile_position(snapped_world, tile_map))
             editor_state["selected_kind"] = kind
             editor_state["selected_id"] = object_id
+            editor_state["inspector_tab"] = "object"
         return
 
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
@@ -800,11 +964,14 @@ def draw_tile_edit_controls(ui_state, editor_state, tile_map):
         covered_rect = pr.Rectangle(332, 71, 67, 15)
         exposed_rect = pr.Rectangle(401, 71, 69, 15)
         exposure = 1.0 if float(editor_state.get("rain_exposure_value", 1.0)) > 0.0 else 0.0
-        if g_ui.ui_button(ui_state, "tile:rain:covered", "Covered", covered_rect):
+        if g_ui.ui_button(
+                ui_state, "tile:rain:covered", "Covered", covered_rect,
+                selected=exposure <= 0.0):
             exposure = 0.0
-        if g_ui.ui_button(ui_state, "tile:rain:exposed", "Exposed", exposed_rect):
+        if g_ui.ui_button(
+                ui_state, "tile:rain:exposed", "Exposed", exposed_rect,
+                selected=exposure > 0.0):
             exposure = 1.0
-        pr.draw_rectangle_lines_ex(exposed_rect if exposure > 0.0 else covered_rect, 1.0, g_ui.UI_ACCENT)
         editor_state["rain_exposure_value"] = exposure
         editor_state["show_rain_exposure_overlay"], _ = g_ui.ui_checkbox(
             ui_state, "tile:rain:overlay", "show overlay",
@@ -1002,6 +1169,59 @@ def inspect_fire_emitter(ui_state, editor_state, object_id, emitter, tile_map):
 def inspect_ember_emitter(ui_state, editor_state, object_id, emitter, tile_map):
     inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map)
 
+def inspect_sound_emitter(ui_state, editor_state, object_id, emitter, tile_map):
+    widget_id = f"object:{object_id}"
+    g_audio.normalize_sound_emitter(emitter)
+    emitter["enabled"], _ = g_ui.ui_checkbox(
+        ui_state, f"{widget_id}:enabled", "enabled", emitter["enabled"],
+    )
+    emitter["family"], _ = g_ui.ui_dropdown(
+        ui_state, f"{widget_id}:family", "sound", emitter["family"],
+        g_audio.SOUND_EMITTER_FAMILIES,
+    )
+    emitter["playback_mode"], _ = g_ui.ui_dropdown(
+        ui_state, f"{widget_id}:mode", "mode", emitter["playback_mode"],
+        ("loop", "cadence"),
+    )
+    emitter["position"] = edit_world_position(
+        ui_state, f"{widget_id}:position", emitter["position"], tile_map,
+    )
+    emitter["gain"], _ = g_ui.ui_slider_float(
+        ui_state, f"{widget_id}:gain", "gain", emitter["gain"], 0.0, 2.0, 0.01,
+    )
+    for name, minimum, maximum in (
+        ("minimum_distance", 0.0, 2000.0),
+        ("maximum_distance", 1.0, 4000.0),
+        ("pan_distance", 1.0, 4000.0),
+        ("maximum_pan", 0.0, 1.0),
+    ):
+        emitter[name], _ = g_ui.ui_number_input_float(
+            ui_state, f"{widget_id}:{name}", {
+                "minimum_distance": "emitter min radius",
+                "maximum_distance": "emitter max radius",
+            }.get(name, name.replace("_", " ")),
+            emitter[name], minimum, maximum,
+        )
+    if emitter["playback_mode"] == "cadence":
+        emitter["cadence_seconds"], _ = g_ui.ui_number_input_float(
+            ui_state, f"{widget_id}:cadence", "cadence seconds",
+            emitter["cadence_seconds"], 0.25, 3600.0,
+        )
+        emitter["cadence_variation"], _ = g_ui.ui_number_input_float(
+            ui_state, f"{widget_id}:variation", "cadence variation",
+            emitter["cadence_variation"], 0.0, 3600.0,
+        )
+        emitter["seed"], _ = g_ui.ui_number_input_int(
+            ui_state, f"{widget_id}:seed", "seed", emitter["seed"],
+            0, 2147483647,
+        )
+    g_ui.ui_label(
+        ui_state, f"{widget_id}:spatial_note",
+        "2D positional (mono source recommended)",
+        color=g_ui.UI_MUTED, font_size=8,
+    )
+    g_audio.normalize_sound_emitter(emitter)
+
 def get_environment_placement_types():
     return tuple(ENVIRONMENT_OBJECT_REGISTRY.keys())
 
@@ -1143,7 +1363,10 @@ def inspect_audio_profile(ui_state, editor_state, profile, audio_runtime=None):
         ("loop_release_seconds", 0.01, 5.0),
     ):
         profile[name], _ = g_ui.ui_number_input_float(
-            ui_state, f"world:audio:{name}", name.replace("_", " "),
+            ui_state, f"world:audio:{name}", {
+                "minimum_distance": "global min distance",
+                "maximum_distance": "global max distance",
+            }.get(name, name.replace("_", " ")),
             profile[name], minimum, maximum,
         )
     debug = editor_state.setdefault("audio_debug", make_editor_state()["audio_debug"])
@@ -1180,8 +1403,15 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
         editor_state["inspector_scroll"] = max(0.0, editor_state.get("inspector_scroll", 0.0) - pr.get_mouse_wheel_move() * 18.0)
 
     g_ui.ui_begin_panel(ui_state, "inspector:panel", panel_rect, "Environment", editor_state.get("inspector_scroll", 0.0))
-    object_tab = g_ui.ui_button(ui_state, "inspector:object_tab", "Object", g_ui.ui_next_rect(ui_state, 14, 70))
-    world_tab = g_ui.ui_button(ui_state, "inspector:world_tab", "World", g_ui.ui_next_rect(ui_state, 14, 70))
+    active_tab = editor_state.get("inspector_tab", "object")
+    object_tab = g_ui.ui_button(
+        ui_state, "inspector:object_tab", "Object",
+        g_ui.ui_next_rect(ui_state, 14, 70), selected=active_tab == "object",
+    )
+    world_tab = g_ui.ui_button(
+        ui_state, "inspector:world_tab", "World",
+        g_ui.ui_next_rect(ui_state, 14, 70), selected=active_tab == "world",
+    )
 
     if object_tab:
         editor_state["inspector_tab"] = "object"
@@ -1233,6 +1463,11 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
             ui_state, editor_state, entities, lighting_profile, fog_profile,
             wind_profile, tile_map, rain_profile, audio_profile, audio_runtime,
         )
+    elif editor_mode == "entity" and ui_state.get("focused_id") is None:
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_Q):
+            editor_state["tool"] = "select"
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_P):
+            editor_state["tool"] = "place"
 
     return editor_mode
 
@@ -1320,6 +1555,16 @@ ENVIRONMENT_OBJECT_REGISTRY = {
         "display_name": "Ember emitter", "icon": ".", "debug_color": (255, 190, 60),
         "selected_kind": "emitter", "id_prefix": "emitter", "inspector": inspect_ember_emitter,
         "hit_test": hit_test_emitter, "hit_priority": 3, "handles": draw_emitter_handles,
+        "handle_hit_test": get_drag_handle, "manipulate": apply_environment_drag
+    },
+    "sound_emitter": {
+        "target_collection": "sound_emitters", "object_type": "sound",
+        "factory": g_audio.make_default_sound_emitter,
+        "display_name": "Sound emitter", "icon": "S", "debug_color": (150, 220, 255),
+        "selected_kind": "sound_emitter", "id_prefix": "sound",
+        "inspector": inspect_sound_emitter,
+        "hit_test": hit_test_sound_emitter, "hit_priority": 2,
+        "handles": draw_sound_emitter_handles,
         "handle_hit_test": get_drag_handle, "manipulate": apply_environment_drag
     },
 }

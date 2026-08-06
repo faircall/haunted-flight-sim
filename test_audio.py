@@ -484,6 +484,101 @@ class LoopAndRainTests(unittest.TestCase):
         self.assertNotIn("fire:f:bed", runtime["loop_voices"])
 
 
+class AuthoredSoundEmitterTests(unittest.TestCase):
+    def setUp(self):
+        FakeSound.instances = []
+        self.tile_map = make_map(20, 20)
+        self.profile = g_audio.make_audio_profile()
+        self.profile["loop_attack_seconds"] = 0.1
+        self.profile["loop_release_seconds"] = 0.1
+
+    def make_emitter(self, world_x=80.0, world_y=32.0):
+        emitter = g_audio.make_default_sound_emitter({
+            "tile_x": int(world_x // 16), "tile_y": int(world_y // 16),
+            "x": world_x % 16, "y": world_y % 16,
+        })
+        emitter["minimum_distance"] = 0.0
+        emitter["maximum_distance"] = 200.0
+        emitter["pan_distance"] = 100.0
+        return emitter
+
+    def test_factory_is_serialisable_and_normalisation_clamps(self):
+        emitter = self.make_emitter()
+        emitter.update({"gain": 99.0, "maximum_pan": 2.0,
+                        "cadence_seconds": 0.0, "playback_mode": "wrong"})
+        g_audio.normalize_sound_emitter(emitter)
+        self.assertEqual(emitter["gain"], 2.0)
+        self.assertEqual(emitter["maximum_pan"], 1.0)
+        self.assertEqual(emitter["cadence_seconds"], 0.25)
+        self.assertEqual(emitter["playback_mode"], "loop")
+        json.dumps(emitter)
+
+    def test_loop_is_positional_reused_and_fades_after_deletion(self):
+        runtime = g_audio.make_audio_runtime(object())
+        entities = {"sound_emitters": {"bell": self.make_emitter()}}
+        with mock.patch.object(g_audio.cma, "Sound", FakeSound):
+            g_audio.update_audio(
+                runtime, runtime["engine"], 0.1, listener(0.0, 32.0),
+                self.tile_map, entities, {}, {}, self.profile,
+            )
+            loop = runtime["loop_voices"]["sound_emitter:bell:loop"]
+            sound = loop["sound"]
+            self.assertGreater(sound.pan, 0.0)
+            g_audio.update_audio(
+                runtime, runtime["engine"], 0.1, listener(160.0, 32.0),
+                self.tile_map, entities, {}, {}, self.profile,
+            )
+            self.assertIs(loop["sound"], sound)
+            self.assertLess(sound.pan, 0.0)
+            entities["sound_emitters"].clear()
+            g_audio.update_audio(
+                runtime, runtime["engine"], 0.1, listener(),
+                self.tile_map, entities, {}, {}, self.profile,
+            )
+        self.assertNotIn("sound_emitter:bell:loop", runtime["loop_voices"])
+        self.assertTrue(sound.closed)
+
+    def test_cadence_is_deterministic_and_deferred(self):
+        first = self.make_emitter()
+        second = self.make_emitter()
+        first.update({"playback_mode": "cadence", "cadence_seconds": 4.0,
+                      "cadence_variation": 1.0, "seed": 17})
+        second.update(first)
+        self.assertEqual(
+            [g_audio.sound_emitter_cadence_interval(first, index) for index in range(6)],
+            [g_audio.sound_emitter_cadence_interval(second, index) for index in range(6)],
+        )
+        runtime = g_audio.make_audio_runtime(object())
+        entities = {"sound_emitters": {"bell": first}}
+        with mock.patch.object(g_audio.cma, "Sound", FakeSound):
+            first_stats = g_audio.update_audio(
+                runtime, runtime["engine"], 0.1, listener(),
+                self.tile_map, entities, {}, {}, self.profile,
+            )
+            self.assertEqual(first_stats["accepted_events"], 0)
+            self.assertEqual(len(runtime["event_queue"]), 1)
+            second_stats = g_audio.update_audio(
+                runtime, runtime["engine"], 0.1, listener(),
+                self.tile_map, entities, {}, {}, self.profile,
+            )
+        self.assertEqual(second_stats["accepted_events"], 1)
+        self.assertEqual(runtime["event_queue"], [])
+        self.assertEqual(FakeSound.instances[-1].looping, False)
+
+    def test_emitter_distance_overrides_global_profile(self):
+        event = {
+            "type": "sound_emitter_cadence", "source_kind": "sound_emitter",
+            "world_position": {"x": 60.0, "y": 0.0}, "gain": 1.0,
+            "data": {"spatial_policy": {
+                "minimum_distance": 0.0, "maximum_distance": 50.0,
+                "pan_distance": 50.0, "maximum_pan": 1.0,
+            }},
+        }
+        self.assertEqual(g_audio.estimate_event_audibility(
+            event, listener(), {"direct_gain": 1.0}, self.profile,
+        ), 0.0)
+
+
 class VoiceAndLifecycleTests(unittest.TestCase):
     def test_low_priority_voice_can_be_stolen(self):
         active = [{"priority": 0.1, "estimated_gain": 0.05, "started_at": 0.0,

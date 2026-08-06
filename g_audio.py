@@ -22,12 +22,17 @@ PLAYER_FOOTSTEP_VARIANT_COUNTS = {
     "stone": 5,
     "grass": 5,
 }
+SOUND_EMITTER_ASSETS = {
+    "bells": ("sounds/ambience/bells/bell_loop.wav",),
+}
+SOUND_EMITTER_FAMILIES = tuple(SOUND_EMITTER_ASSETS)
 FOOTSTEP_OVERLAYS = ("none", "puddle")
 SUPPORTED_EVENT_TYPES = {
     "footstep", "gunshot", "reload_start", "reload_stop", "weapon_empty",
     "bullet_wall_impact", "melee_whoosh", "stagger_impact", "death_impact",
     "pickup_ammo", "pickup_health", "ui_hover", "fire_crackle",
     "ambience_incidental",
+    "sound_emitter_cadence",
 }
 OUTDOOR_ENVIRONMENTS = {"open_exterior", "covered_exterior"}
 INTERIOR_ENVIRONMENTS = {
@@ -81,6 +86,90 @@ def make_audio_profile(profile_name="default"):
         "player_run_stride": 18.0,
         "enemy_stride": 15.0,
     }
+
+
+def make_default_sound_emitter(position):
+    """Return persistent authored data; the live Sound remains in audio_runtime."""
+    return {
+        "type": "sound",
+        "position": copy.deepcopy(position),
+        "enabled": True,
+        "family": "bells",
+        "playback_mode": "loop",
+        "gain": 0.8,
+        "minimum_distance": 12.0,
+        "maximum_distance": 260.0,
+        "pan_distance": 140.0,
+        "maximum_pan": 0.85,
+        "cadence_seconds": 50.0,
+        "cadence_variation": 0.0,
+        "seed": 4409,
+    }
+
+
+def normalize_sound_emitter(emitter):
+    if not isinstance(emitter, dict):
+        return emitter
+    defaults = make_default_sound_emitter(emitter.get("position", {}))
+    for key, value in defaults.items():
+        emitter.setdefault(key, copy.deepcopy(value))
+    emitter["type"] = "sound"
+    emitter["enabled"] = bool(emitter.get("enabled", True))
+    family = str(emitter.get("family", "bells"))
+    emitter["family"] = family if family in SOUND_EMITTER_FAMILIES else "bells"
+    mode = str(emitter.get("playback_mode", "loop"))
+    emitter["playback_mode"] = mode if mode in {"loop", "cadence"} else "loop"
+    emitter["gain"] = _clamp(emitter.get("gain", 0.8), 0.0, 2.0)
+    emitter["minimum_distance"] = _clamp(
+        emitter.get("minimum_distance", 12.0), 0.0, 10000.0,
+    )
+    emitter["maximum_distance"] = max(
+        emitter["minimum_distance"] + 0.001,
+        _clamp(emitter.get("maximum_distance", 260.0), 0.001, 10000.0),
+    )
+    emitter["pan_distance"] = _clamp(
+        emitter.get("pan_distance", 140.0), 0.001, 10000.0,
+    )
+    emitter["maximum_pan"] = _clamp(emitter.get("maximum_pan", 0.85), 0.0, 1.0)
+    emitter["cadence_seconds"] = _clamp(
+        emitter.get("cadence_seconds", 50.0), 0.25, 3600.0,
+    )
+    emitter["cadence_variation"] = _clamp(
+        emitter.get("cadence_variation", 0.0), 0.0,
+        emitter["cadence_seconds"] * 0.95,
+    )
+    emitter["seed"] = _clamp_int(emitter.get("seed", 4409), 0, 2147483647, 4409)
+    return emitter
+
+
+def migrate_sound_emitters(sound_emitters):
+    if not isinstance(sound_emitters, dict):
+        return sound_emitters
+    for emitter in sound_emitters.values():
+        normalize_sound_emitter(emitter)
+    return sound_emitters
+
+
+def sound_emitter_spatial_policy(emitter):
+    emitter = normalize_sound_emitter(emitter)
+    return {
+        "minimum_distance": emitter["minimum_distance"],
+        "maximum_distance": emitter["maximum_distance"],
+        "pan_distance": emitter["pan_distance"],
+        "maximum_pan": emitter["maximum_pan"],
+    }
+
+
+def sound_emitter_cadence_interval(emitter, occurrence_index):
+    emitter = normalize_sound_emitter(emitter)
+    randomizer = random.Random(
+        int(emitter["seed"]) + max(0, int(occurrence_index)) * 104729,
+    )
+    variation = emitter["cadence_variation"]
+    return max(
+        0.25,
+        emitter["cadence_seconds"] + randomizer.uniform(-variation, variation),
+    )
 
 
 def normalize_audio_profile(profile):
@@ -227,6 +316,14 @@ def make_audio_manifest():
                 "medium_interior", "large_interior", "stone_hall",
             )
         },
+        "sound_emitters": {
+            family_name: _family(
+                variants=asset_paths,
+                fallback=None, base_gain=1.0, pitch_variation=0.0,
+                voice_count=3, spatial=True, bus="ambience",
+            )
+            for family_name, asset_paths in SOUND_EMITTER_ASSETS.items()
+        },
         "ui": {
             "hover": _family(fallback="sounds/ui_hover.wav", base_gain=0.75,
                               voice_count=3, spatial=False, bus="UI"),
@@ -292,6 +389,7 @@ def _empty_stats():
         "listener_tile_surface": "generic", "last_footstep_base_surface": None,
         "last_footstep_overlay": None, "current_ambience_set": None,
         "rain_loop_targets": {}, "nearest_fire_loop_sources": [],
+        "nearest_sound_emitter_sources": [],
         "requested_treatment": {}, "actual_treatment": "gain_fallback",
         "missing_asset_families": [], "missing_asset_paths": [],
     }
@@ -455,6 +553,34 @@ def stereo_pan(listener_position, source_position, pan_distance, maximum_pan):
     return _clamp(delta_x / distance, -maximum, maximum)
 
 
+def _event_spatial_policy(event, profile):
+    overrides = event.get("data", {}).get("spatial_policy", {})
+    if not isinstance(overrides, dict):
+        overrides = {}
+    minimum = _clamp(
+        overrides.get("minimum_distance", profile["minimum_distance"]),
+        0.0, 10000.0,
+    )
+    maximum = max(
+        minimum + 0.001,
+        _clamp(
+            overrides.get("maximum_distance", profile["maximum_distance"]),
+            0.001, 10000.0,
+        ),
+    )
+    return {
+        "minimum_distance": minimum,
+        "maximum_distance": maximum,
+        "pan_distance": _clamp(
+            overrides.get("pan_distance", profile["pan_distance"]),
+            0.001, 10000.0,
+        ),
+        "maximum_pan": _clamp(
+            overrides.get("maximum_pan", profile["maximum_pan"]), 0.0, 1.0,
+        ),
+    }
+
+
 def estimate_event_audibility(event, listener, acoustic_context, audio_profile):
     if not isinstance(event, dict):
         return 0.0
@@ -462,10 +588,11 @@ def estimate_event_audibility(event, listener, acoustic_context, audio_profile):
     if event.get("source_kind") == "ui" or event.get("type") == "ui_hover":
         attenuation = 1.0
     else:
+        spatial_policy = _event_spatial_policy(event, profile)
         attenuation = distance_attenuation(
             (listener or {}).get("world_position", listener or {}),
             event.get("world_position", {}),
-            profile["minimum_distance"], profile["maximum_distance"],
+            spatial_policy["minimum_distance"], spatial_policy["maximum_distance"],
         )
     treatment = acoustic_context or {}
     return max(0.0, float(event.get("gain", 1.0))) * attenuation * max(
@@ -1036,13 +1163,14 @@ def _play_family_layer(runtime, family, event, listener, context, profile, layer
     attenuation = 1.0
     pan = 0.0
     if spatial:
+        spatial_policy = _event_spatial_policy(event, profile)
         attenuation = distance_attenuation(
             listener.get("world_position", {}), event.get("world_position", {}),
-            profile["minimum_distance"], profile["maximum_distance"],
+            spatial_policy["minimum_distance"], spatial_policy["maximum_distance"],
         )
         pan = stereo_pan(
             listener.get("world_position", {}), event.get("world_position", {}),
-            profile["pan_distance"], profile["maximum_pan"],
+            spatial_policy["pan_distance"], spatial_policy["maximum_pan"],
         )
         if event.get("source_kind") == "player":
             pan *= 0.35
@@ -1212,6 +1340,10 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
     if event_type == "ambience_incidental":
         environment = str(event.get("data", {}).get("environment", "open_exterior"))
         family_map[event_type] = f"ambience.{environment}.incidental"
+    if event_type == "sound_emitter_cadence":
+        emitter_family = str(event.get("data", {}).get("family", "bells"))
+        if emitter_family in SOUND_EMITTER_FAMILIES:
+            family_map[event_type] = f"sound_emitters.{emitter_family}"
     if event_type == "gunshot":
         used_paths = set()
         voices = []
@@ -1237,7 +1369,7 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
 
 
 def request_loop(runtime, key, family, target_gain, world_position=None, spatial=False,
-                 treatment=None):
+                 treatment=None, spatial_policy=None):
     loops = runtime.setdefault("loop_voices", {})
     loop = loops.get(key)
     if loop is None and float(target_gain) <= 0.0:
@@ -1246,7 +1378,8 @@ def request_loop(runtime, key, family, target_gain, world_position=None, spatial
         loop = {
             "key": key, "family": family, "sound": None, "path": None,
             "current_gain": 0.0, "target_gain": 0.0, "world_position": None,
-            "spatial": bool(spatial), "treatment": {}, "last_requested_frame": -1,
+            "spatial": bool(spatial), "treatment": {}, "spatial_policy": {},
+            "last_requested_frame": -1,
             "start_count": 0,
         }
         loops[key] = loop
@@ -1255,6 +1388,7 @@ def request_loop(runtime, key, family, target_gain, world_position=None, spatial
     loop["world_position"] = copy.deepcopy(world_position) if world_position is not None else None
     loop["spatial"] = bool(spatial)
     loop["treatment"] = copy.deepcopy(treatment or {})
+    loop["spatial_policy"] = copy.deepcopy(spatial_policy or {})
     loop["last_requested_frame"] = runtime.get("frame", 0)
     return loop
 
@@ -1298,13 +1432,21 @@ def update_loop_voices(runtime, dt, listener, profile):
             gain *= _bus_gain(profile, definition.get("bus", "ambience"))
             pan = 0.0
             if loop.get("spatial") and loop.get("world_position"):
+                spatial_policy = loop.get("spatial_policy", {})
+                minimum_distance = spatial_policy.get(
+                    "minimum_distance", profile["minimum_distance"],
+                )
+                maximum_distance = spatial_policy.get(
+                    "maximum_distance", profile["maximum_distance"],
+                )
                 gain *= distance_attenuation(
                     listener.get("world_position", {}), loop["world_position"],
-                    profile["minimum_distance"], profile["maximum_distance"],
+                    minimum_distance, maximum_distance,
                 )
                 pan = stereo_pan(
                     listener.get("world_position", {}), loop["world_position"],
-                    profile["pan_distance"], profile["maximum_pan"],
+                    spatial_policy.get("pan_distance", profile["pan_distance"]),
+                    spatial_policy.get("maximum_pan", profile["maximum_pan"]),
                 )
                 gain *= max(0.0, float(treatment.get("direct_gain", 1.0)))
                 if (treatment.get("low_pass_hz") is not None
@@ -1344,8 +1486,62 @@ def resolve_listener_rain_state(listener_position, tile_map, rain_profile):
     return "covered_exterior", {"rain_open_body": 0.35, "rain_open_detail": 0.08, "rain_roof": 0.85, "rain_muffled": 0.18}
 
 
+def _request_sound_emitters(runtime, listener_position, tile_map, entities):
+    sound_emitters = entities.get("sound_emitters", {}) if isinstance(entities, dict) else {}
+    migrate_sound_emitters(sound_emitters)
+    sources = []
+    for emitter_id, emitter in sound_emitters.items():
+        if not isinstance(emitter, dict) or not emitter.get("enabled", True):
+            continue
+        position = _entity_world_position(emitter, tile_map)
+        context = resolve_source_listener_acoustic_context(
+            position, listener_position, tile_map,
+        )
+        spatial_policy = sound_emitter_spatial_policy(emitter)
+        family_name = emitter["family"]
+        source_key = f"sound_emitter:{emitter_id}"
+        distance = math.hypot(
+            position["x"] - float(listener_position.get("x", 0.0)),
+            position["y"] - float(listener_position.get("y", 0.0)),
+        )
+        sources.append({
+            "id": str(emitter_id), "family": family_name,
+            "mode": emitter["playback_mode"], "distance": distance,
+            "position": position,
+        })
+        if emitter["playback_mode"] == "loop":
+            request_loop(
+                runtime, f"{source_key}:loop", f"sound_emitters.{family_name}",
+                emitter["gain"], position, True, context, spatial_policy,
+            )
+            continue
+        state = runtime.setdefault("source_state", {}).setdefault(source_key, {})
+        next_play_at = float(state.get("next_play_at", runtime["time"]))
+        occurrence = max(0, int(state.get("occurrence", 0)))
+        if runtime["time"] >= next_play_at:
+            queue_audio_event(runtime, {
+                "type": "sound_emitter_cadence", "source_id": source_key,
+                "source_kind": "sound_emitter", "world_position": position,
+                "priority": 0.45, "gain": emitter["gain"],
+                "data": {
+                    "family": family_name,
+                    "spatial_policy": spatial_policy,
+                    "emitter_id": str(emitter_id),
+                },
+            })
+            occurrence += 1
+            next_play_at = runtime["time"] + sound_emitter_cadence_interval(
+                emitter, occurrence,
+            )
+        state["next_play_at"] = next_play_at
+        state["occurrence"] = occurrence
+    sources.sort(key=lambda item: item["distance"])
+    runtime["stats"]["nearest_sound_emitter_sources"] = sources[:8]
+
+
 def _request_environment_loops(runtime, listener, tile_map, entities, rain_profile, emitters, profile):
     listener_position = listener.get("world_position", {})
+    _request_sound_emitters(runtime, listener_position, tile_map, entities)
     rain_state, rain_targets = resolve_listener_rain_state(listener_position, tile_map, rain_profile)
     runtime["stats"]["listener_rain_state"] = rain_state
     runtime["stats"]["rain_loop_targets"] = dict(rain_targets)

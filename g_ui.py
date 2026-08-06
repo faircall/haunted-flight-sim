@@ -187,7 +187,7 @@ def ui_separator(ui_state, widget_id, rect=None):
     pr.draw_line(int(rect.x), int(rect.y + 1), int(rect.x + rect.width), int(rect.y + 1), UI_NORMAL)
     return rect
 
-def ui_button(ui_state, widget_id, text, rect=None):
+def ui_button(ui_state, widget_id, text, rect=None, selected=False):
     rect = rect or ui_next_rect(ui_state, 15)
     hovered = ui_hover(ui_state, widget_id, rect)
     pressed = hovered and pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT)
@@ -196,9 +196,13 @@ def ui_button(ui_state, widget_id, text, rect=None):
         ui_queue_focused_numeric_commit(ui_state)
         ui_state["active_id"] = widget_id
 
-    color = UI_ACTIVE if ui_state.get("active_id") == widget_id else UI_HOT if hovered else UI_NORMAL
+    color = (
+        UI_ACTIVE
+        if selected or ui_state.get("active_id") == widget_id
+        else UI_HOT if hovered else UI_NORMAL
+    )
     pr.draw_rectangle_rec(rect, color)
-    pr.draw_rectangle_lines_ex(rect, 1.0, UI_BACKGROUND)
+    pr.draw_rectangle_lines_ex(rect, 1.0, UI_ACCENT if selected else UI_BACKGROUND)
     pr.draw_text(text, int(rect.x + 4), int(rect.y + 3), 9, UI_TEXT)
     return pressed
 

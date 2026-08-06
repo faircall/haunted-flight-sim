@@ -517,6 +517,50 @@ def draw_tile_shape_tint(render_pos, shape_index, tile_width, tile_height, color
         pr.draw_triangle(*(pr.Vector2(*vertex) for vertex in vertices), color)
 
 
+def update_gameplay_entity_editor(entities, editor_state, game_camera, mouse_screen, tile_map):
+    if g_mouse_is_ui_captured:
+        return
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_DELETE):
+        g_editor.delete_selected_gameplay_entity(entities, editor_state)
+    if editor_state.get("tool", "select") != "select":
+        return
+    mouse_world = {
+        "x": float(mouse_screen.x) + float(game_camera.x),
+        "y": float(mouse_screen.y) + float(game_camera.y),
+    }
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
+        editor_state.update({
+            "selected_kind": None, "selected_collection": None,
+            "selected_id": None, "drag_kind": None,
+        })
+        return
+    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+        if g_editor.select_gameplay_entity_at(entities, editor_state, mouse_world, tile_map):
+            g_editor.delete_selected_gameplay_entity(entities, editor_state)
+        return
+    if g_ui.interactive_mouse_left_pressed():
+        selected_key = g_editor.select_gameplay_entity_at(
+            entities, editor_state, mouse_world, tile_map,
+        )
+        if selected_key is not None:
+            selected = g_editor.get_selected_gameplay_entity(entities, editor_state)
+            selected_world = g_editor.tile_position_to_world(
+                selected.get("position", {}), tile_map,
+            )
+            editor_state["drag_kind"] = "gameplay_entity_move"
+            editor_state["drag_offset"] = {
+                "x": selected_world["x"] - mouse_world["x"],
+                "y": selected_world["y"] - mouse_world["y"],
+            }
+    if (editor_state.get("drag_kind") == "gameplay_entity_move"
+            and pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT)):
+        g_editor.move_selected_gameplay_entity(
+            entities, editor_state, mouse_world, tile_map,
+        )
+    if pr.is_mouse_button_released(pr.MouseButton.MOUSE_BUTTON_LEFT):
+        editor_state["drag_kind"] = None
+
+
 def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, ignore, player_entity, mode, debug_queue, draw_tiles, draw_entities):
     # Todo:
     # tiles are tiles,
@@ -537,6 +581,10 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
     rain_exposure_value = float(editor_state.get("rain_exposure_value", 1.0))
     acoustic_zone_value = int(editor_state.get("acoustic_zone_value", 0))
     footstep_overlay_value = editor_state.get("footstep_overlay_value", "none")
+    if mode == "entity" and draw_tiles:
+        update_gameplay_entity_editor(
+            entities, editor_state, game_camera, mouse_pos_world, tile_map,
+        )
     
     internal_res_x = 1920
     internal_res_y = 1080
@@ -642,8 +690,8 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
 
             if mode == "entity":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
-                    
-                    if g_ui.interactive_mouse_left_pressed():
+                    if (editor_state.get("tool", "select") == "place"
+                            and g_ui.interactive_mouse_left_pressed()):
                         new_entity = {}
                         entity_types = game_assets.get("entity_types", [])
                         if current_entity_selection < len(entity_types):
@@ -660,26 +708,16 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
 
                         give_entity_stats_from_type(new_entity, entity_type)
 
-                        if categorise_entity_type(entity_type) == "brains":
-                            if "brains" not in entities:
-                                entities["brains"] = {}
-                            id = len(entities["brains"]) # this id system could use some improving!
-                            new_entity["id"] = id                            
-                            entities["brains"][id] = new_entity
-                        elif categorise_entity_type(entity_type) == "pickups":
-                            # in the C version we might want to 
-                            # be slightly more clever about how we store ids 
-                            # and whatnot
-                            if "pickups" not in entities:
-                                entities["pickups"] = {}
-                            id = len(entities["pickups"]) # this id system could use some improving!
-                            new_entity["id"] = id                            
-                            entities["pickups"][id] = new_entity
-
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
-                        latest_id = max(len(entities) - 1,0)
-                        if latest_id in entities:
-                            del entities[latest_id]
+                        collection_name = categorise_entity_type(entity_type)
+                        collection = entities.setdefault(collection_name, {})
+                        entity_id = g_editor.allocate_gameplay_entity_id(collection)
+                        new_entity["id"] = entity_id
+                        collection[entity_id] = new_entity
+                        editor_state.update({
+                            "selected_kind": "gameplay_entity",
+                            "selected_collection": collection_name,
+                            "selected_id": entity_id,
+                        })
 
                     
                             
@@ -4536,6 +4574,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     g_editor.draw_rain_exposure_overlay(editor_state, editor_mode, camera_3d.position, tile_map)
     g_editor.draw_audio_tile_overlays(editor_state, editor_mode, camera_3d.position, tile_map)
+    if editor_mode == "entity":
+        g_editor.draw_gameplay_entity_selection(
+            editor_state, entities, camera_3d.position, tile_map,
+        )
     editor_mode = g_editor.draw_editor_overlay(
         ui_state, editor_state, editor_mode, entities, lighting_profile,
         fog_profile, wind_profile, camera_3d.position, tile_map, show_editor,

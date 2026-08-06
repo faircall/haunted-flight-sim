@@ -1,7 +1,9 @@
 import math
 import pickle
 import unittest
+from unittest import mock
 
+import g_audio
 import g_editor
 import g_graphics
 import g_ui
@@ -21,6 +23,10 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertEqual(second["position"]["x"], 3.0)
         self.assertEqual(second["color"][0], 1.0)
         self.assertEqual(second["direction"]["x"], 1.0)
+        first_sound = g_audio.make_default_sound_emitter(position)
+        second_sound = g_audio.make_default_sound_emitter(position)
+        first_sound["position"]["x"] = 88.0
+        self.assertEqual(second_sound["position"]["x"], 3.0)
 
     def test_environment_registry_has_explicit_editor_dispatch(self):
         required = {"target_collection", "factory", "display_name", "icon", "debug_color", "inspector", "hit_test", "handles", "handle_hit_test", "manipulate"}
@@ -70,7 +76,9 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertEqual(g_editor.select_environment_object_at(entities, state, {"x": 32.0, "y": 48.0}, self.tile_map), ("fog_volume", "fog:2"))
         state["selected_kind"] = None
         state["selected_id"] = None
+        state["inspector_tab"] = "world"
         self.assertEqual(g_editor.select_environment_object_at(entities, state, {"x": 32.0, "y": 48.0}, self.tile_map), ("light", "light:1"))
+        self.assertEqual(state["inspector_tab"], "object")
 
     def test_duplicate_gets_new_id_and_independent_nested_data(self):
         entities = {}
@@ -119,14 +127,17 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertEqual(restored["next_environment_object_id"], 3)
         self.assertNotIn("editor_state", restored)
 
-    def test_each_emitter_registry_entry_creates_in_emitters_collection(self):
+    def test_each_emitter_registry_entry_creates_in_its_owned_collection(self):
         entities = {}
         emitter_types = [key for key in g_editor.PLACEMENT_TYPES if key.endswith("_emitter")]
-        self.assertEqual(set(emitter_types), {"smoke_emitter", "fire_emitter", "ember_emitter"})
+        self.assertEqual(set(emitter_types), {
+            "smoke_emitter", "fire_emitter", "ember_emitter", "sound_emitter",
+        })
         for placement_type in emitter_types:
             kind, object_id = g_editor.create_environment_object(entities, placement_type, {"tile_x": 0, "tile_y": 0, "x": 0.0, "y": 0.0})
-            self.assertEqual(kind, "emitter")
-            self.assertIn(object_id, entities["emitters"])
+            registry = g_editor.ENVIRONMENT_OBJECT_REGISTRY[placement_type]
+            self.assertEqual(kind, registry["selected_kind"])
+            self.assertIn(object_id, entities[registry["target_collection"]])
 
     def test_emitter_duplicate_has_independent_nested_values_and_delete_removes_it(self):
         entities = {}
@@ -145,13 +156,67 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertEqual(g_editor.PLACEMENT_TYPES, tuple(g_editor.ENVIRONMENT_OBJECT_REGISTRY.keys()))
         self.assertEqual(g_editor.get_environment_placement_types(), g_editor.PLACEMENT_TYPES)
 
+    def test_sound_emitter_rings_use_its_authored_distances(self):
+        emitter = g_audio.make_default_sound_emitter({
+            "tile_x": 5, "tile_y": 5, "x": 0.0, "y": 0.0,
+        })
+        emitter["minimum_distance"] = 25.0
+        emitter["maximum_distance"] = 90.0
+        camera = type("Camera", (), {"x": 0.0, "y": 0.0})()
+        with mock.patch.object(g_editor.pr, "draw_circle_lines") as circles, \
+                mock.patch.object(g_editor.pr, "draw_circle"), \
+                mock.patch.object(g_editor.pr, "draw_text"):
+            g_editor.draw_sound_emitter_handles(
+                "sound:1", emitter, camera, self.tile_map, True,
+            )
+        self.assertEqual([call.args[2] for call in circles.call_args_list], [90.0, 25.0])
+
     def test_save_load_retains_authored_emitters_without_runtime(self):
         entities = {}
         g_editor.create_environment_object(entities, "smoke_emitter", {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0})
+        g_editor.create_environment_object(entities, "sound_emitter", {"tile_x": 4, "tile_y": 5, "x": 6.0, "y": 7.0})
         saved_arena = {"entities": entities}
         restored = pickle.loads(pickle.dumps(saved_arena))
         self.assertEqual(restored["entities"]["emitters"], entities["emitters"])
+        self.assertEqual(restored["entities"]["sound_emitters"], entities["sound_emitters"])
         self.assertNotIn("effects_runtime", restored)
+
+    def test_gameplay_entities_can_be_selected_moved_and_deleted(self):
+        entities = {
+            "brains": {
+                2: {
+                    "id": 2, "type": "buddha",
+                    "position": {"tile_x": 4, "tile_y": 4, "x": 0.0, "y": 0.0},
+                    "render_anchor_offset": {"x": -64.0, "y": -64.0},
+                },
+                7: {
+                    "id": 7, "type": "red head",
+                    "position": {"tile_x": 4, "tile_y": 4, "x": 0.0, "y": 0.0},
+                    "render_anchor_offset": {"x": -24.0, "y": -24.0},
+                },
+            },
+            "pickups": {},
+        }
+        state = g_editor.make_editor_state()
+        # The smaller overlapping red-head bounds win over the Buddha.
+        selected = g_editor.select_gameplay_entity_at(
+            entities, state, {"x": 50.0, "y": 50.0}, self.tile_map,
+        )
+        self.assertEqual(selected, ("brains", 7))
+        state["drag_offset"] = {"x": 0.0, "y": 0.0}
+        self.assertTrue(g_editor.move_selected_gameplay_entity(
+            entities, state, {"x": 81.5, "y": 34.25}, self.tile_map,
+        ))
+        self.assertEqual(entities["brains"][7]["position"], {
+            "tile_x": 5, "tile_y": 2, "x": 1.5, "y": 2.25,
+        })
+        self.assertTrue(g_editor.delete_selected_gameplay_entity(entities, state))
+        self.assertNotIn(7, entities["brains"])
+        self.assertIsNone(state["selected_id"])
+
+    def test_gameplay_entity_ids_do_not_overwrite_after_deletion(self):
+        collection = {0: {}, 2: {}, "legacy": {}}
+        self.assertEqual(g_editor.allocate_gameplay_entity_id(collection), 3)
 
     def test_player_readability_light_has_constrained_capabilities(self):
         player = {"position": {"tile_x": 1, "tile_y": 1, "x": 0.0, "y": 0.0}}
@@ -166,6 +231,19 @@ class EnvironmentEditorDataTests(unittest.TestCase):
 
 
 class ImmediateModeUIHelperTests(unittest.TestCase):
+    def test_selected_button_keeps_active_fill_and_accent_border(self):
+        state = g_ui.make_ui_state()
+        rect = g_editor.pr.Rectangle(0, 0, 40, 15)
+        with mock.patch.object(g_ui, "ui_hover", return_value=False), \
+                mock.patch.object(g_ui.pr, "draw_rectangle_rec") as fill, \
+                mock.patch.object(g_ui.pr, "draw_rectangle_lines_ex") as border, \
+                mock.patch.object(g_ui.pr, "draw_text"):
+            self.assertFalse(g_ui.ui_button(
+                state, "mode:a", "A", rect, selected=True,
+            ))
+        self.assertIs(fill.call_args.args[1], g_ui.UI_ACTIVE)
+        self.assertIs(border.call_args.args[2], g_ui.UI_ACCENT)
+
     def test_numeric_input_parsing(self):
         self.assertEqual(g_ui.parse_numeric_input("-1.25e2"), -125.0)
         self.assertEqual(g_ui.parse_numeric_input("42", True), 42)
