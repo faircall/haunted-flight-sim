@@ -130,6 +130,18 @@ class VariantAndManifestTests(unittest.TestCase):
                 for path in paths
             ))
 
+    def test_redhead_surface_families_use_all_authored_variants(self):
+        runtime = g_audio.make_audio_runtime()
+        for surface in ("carpet", "wood", "stone", "grass"):
+            paths = g_audio.resolve_available_family_paths(
+                runtime, f"footsteps.enemy_contact.{surface}",
+            )
+            self.assertEqual(len(paths), 5)
+            self.assertTrue(all(
+                f"/redhead/{surface}/redhead_{surface}_" in path
+                for path in paths
+            ))
+
     def test_shuffle_bag_visits_every_variant_before_reshuffle(self):
         state = {}
         variants = ["a", "b", "c", "d"]
@@ -335,6 +347,29 @@ class FootstepTravelAndArbitrationTests(unittest.TestCase):
             stats = g_audio.update_audio(runtime, runtime["engine"], 0.01, listener(),
                 make_map(), {}, {}, {}, g_audio.make_audio_profile())
         self.assertEqual(stats["accepted_events"], 1)
+
+    def test_redhead_surface_step_is_positional(self):
+        FakeSound.instances = []
+        runtime = g_audio.make_audio_runtime(object())
+        profile = g_audio.make_audio_profile()
+        profile.update({
+            "minimum_distance": 0.0, "maximum_distance": 100.0,
+            "pan_distance": 40.0, "maximum_pan": 1.0,
+        })
+        g_audio.queue_audio_event(runtime, {
+            "type": "footstep", "source_id": "enemy:redhead:7",
+            "source_kind": "enemy", "world_position": {"x": 20.0, "y": 0.0},
+            "priority": 0.75,
+        })
+        with mock.patch.object(g_audio.cma, "Sound", FakeSound):
+            stats = g_audio.update_audio(
+                runtime, runtime["engine"], 0.1, listener(),
+                make_map(surface="stone"), {}, {}, {}, profile,
+            )
+        self.assertEqual(stats["accepted_events"], 1)
+        self.assertIn("/redhead/stone/redhead_stone_", FakeSound.instances[-1].path)
+        self.assertGreater(FakeSound.instances[-1].pan, 0.0)
+        self.assertLess(FakeSound.instances[-1].volume, 1.0)
 
 
 class AcousticZoneTests(unittest.TestCase):

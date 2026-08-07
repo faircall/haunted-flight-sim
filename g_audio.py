@@ -22,6 +22,12 @@ PLAYER_FOOTSTEP_VARIANT_COUNTS = {
     "stone": 5,
     "grass": 5,
 }
+REDHEAD_FOOTSTEP_VARIANT_COUNTS = {
+    "carpet": 5,
+    "wood": 5,
+    "stone": 5,
+    "grass": 5,
+}
 SOUND_EMITTER_ASSETS = {
     "bells": ("sounds/ambience/bells/bell_loop.wav",),
 }
@@ -250,8 +256,16 @@ def make_audio_manifest():
                          pitch_variation=0.035, voice_count=5, bus="footsteps")
         for surface in AUDIO_SURFACES
     }
+    redhead_surface_variants = {
+        surface: [
+            f"sounds/footsteps/redhead/{surface}/redhead_{surface}_{index}.wav"
+            for index in range(1, variant_count + 1)
+        ]
+        for surface, variant_count in REDHEAD_FOOTSTEP_VARIANT_COUNTS.items()
+    }
     enemy_surfaces = {
-        surface: _family(fallback="sounds/player_footstep.wav", base_gain=0.58,
+        surface: _family(variants=redhead_surface_variants.get(surface, ()),
+                         fallback="sounds/player_footstep.wav", base_gain=0.58,
                          pitch_variation=0.045, voice_count=5, bus="footsteps")
         for surface in AUDIO_SURFACES
     }
