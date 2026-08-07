@@ -70,6 +70,13 @@ DEFAULT_AIM_CURSOR_DISTANCE = 72.0
 MAX_AIM_CURSOR_DISTANCE = 120.0
 AIM_INPUT_VERSION = 2
 
+# Redhead positions are the bottom-right anchor of their 24x24 render frame.
+# Keep the gameplay hurtbox on the visible body rather than on that anchor tile.
+DEFAULT_REDHEAD_BULLET_HURTBOX = {
+    "offset": {"x": -20.0, "y": -22.0},
+    "size": {"x": 16.0, "y": 22.0},
+}
+
 g_tile_collision_shapes = [
     "full",
     "triangle_top_left",
@@ -995,6 +1002,10 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["notice_duration"] = 1.0
         entity["attack_engage_distance"] = 40.0
         entity["attack_exit_delay"] = 1.0
+        entity["bullet_hurtbox"] = {
+            "offset": dict(DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]),
+            "size": dict(DEFAULT_REDHEAD_BULLET_HURTBOX["size"]),
+        }
         attack_windup_duration = 1
     
     
@@ -1987,7 +1998,7 @@ def tile_and_offset_to_absolute(tile_map, position):
     tile_height = tile_map.get("tile_height",0)
 
     abs_x = tile_width * position.get("tile_x") + position.get("x")
-    abs_y = tile_width * position.get("tile_y") + position.get("y")
+    abs_y = tile_height * position.get("tile_y") + position.get("y")
 
     return {"x" : abs_x, "y": abs_y}
 
@@ -2048,72 +2059,214 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
             return True
     return False           
 
-def ray_along_tiles_collides(original_position, end_range, step_size, normalized_ray_direction, tile_map, bullet_stamps, bullet_id, debug_queue = None):
-    # original position is a tile/offset pair
-    i = 0    
-    while i < end_range:
-        i += step_size
-        dist_to_push = i
-        ray = vec2_scale(normalized_ray_direction, dist_to_push)        
-        abs_pos = tile_and_offset_to_absolute(tile_map, original_position)
-        pos_test = vec2_add(ray, abs_pos)
-
-        pos_pair = move_position_along_tiles(get_tile_index_and_offset_from_pos(pos_test, tile_map, None), tile_map.get("tile_width"), tile_map.get("tile_height"))
-
-        pos_pair["id"] = bullet_id
-        test_tiles = get_tile_index_from_pos(pos_test, tile_map)
-
-        
-        if tile_not_in_bounds(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map):
+def _segment_aabb_fraction_values(start_x, start_y, delta_x, delta_y,
+                                  left, top, right, bottom):
+    entry_fraction = 0.0
+    exit_fraction = 1.0
+    for origin, delta, minimum, maximum in (
+            (start_x, delta_x, left, right),
+            (start_y, delta_y, top, bottom)):
+        if abs(delta) <= 0.0000001:
+            if origin < minimum or origin > maximum:
+                return None
             continue
-        found_tile = tile_map["tiles"][test_tiles.get("tile_y", 0) * tile_map["map_width"] + test_tiles.get("tile_x", 0)]
+        first = (minimum - origin) / delta
+        second = (maximum - origin) / delta
+        if first > second:
+            first, second = second, first
+        entry_fraction = max(entry_fraction, first)
+        exit_fraction = min(exit_fraction, second)
+        if entry_fraction > exit_fraction:
+            return None
+    if exit_fraction < 0.0 or entry_fraction > 1.0:
+        return None
+    return max(0.0, min(1.0, entry_fraction))
 
 
-        if tile_is_collidable(found_tile, tile_map):
-            if debug_queue is not None:
-                debug_item = {
-                    "type" : "tile",
-                    "tile_x" : test_tiles.get("tile_x",0),
-                    "tile_y" : test_tiles.get("tile_y",0),
-                    "tile_width" : tile_map.get("tile_width",5),
-                    "tile_height" : tile_map.get("tile_height",5),
-                    "color" : "PINK",
-                    "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1,
-                    "debug_modes" : ["line_of_sight"]
-
-                }    
-                debug_queue.append(debug_item)
-            return True        
-        else:
-            
-            bullet_key = f"{pos_pair.get("tile_x")},{pos_pair.get("tile_y")}"
-
-            if bullet_key not in bullet_stamps:
-                bullet_stamps[bullet_key] = {}
-            if bullet_id not in bullet_stamps[bullet_key]:
-                bullet_stamps[bullet_key][bullet_id] = []
-            
+def segment_aabb_intersection_fraction(start, end, rectangle):
+    """Return the first [0, 1] fraction where a segment enters an AABB."""
+    try:
+        start_x, start_y = float(start["x"]), float(start["y"])
+        delta_x = float(end["x"]) - start_x
+        delta_y = float(end["y"]) - start_y
+        left = float(rectangle["x"])
+        top = float(rectangle["y"])
+        right = left + float(rectangle["width"])
+        bottom = top + float(rectangle["height"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if (not all(math.isfinite(value) for value in (
+            start_x, start_y, delta_x, delta_y, left, top, right, bottom))
+            or right < left or bottom < top):
+        return None
+    return _segment_aabb_fraction_values(
+        start_x, start_y, delta_x, delta_y, left, top, right, bottom,
+    )
 
 
-            bullet_stamps[bullet_key][bullet_id].append(pos_pair)
-            if debug_queue is not None:
-                debug_item = {
-                    "type" : "tile",
-                    "tile_x" : test_tiles.get("tile_x",0),
-                    "tile_y" : test_tiles.get("tile_y",0),
-                    "tile_width" : tile_map.get("tile_width",5),
-                    "tile_height" : tile_map.get("tile_height",5),
-                    "color" : "RED",
-                    "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1,
-                    "debug_modes" : ["line_of_sight"]
+def point_along_segment(start, end, fraction):
+    fraction = max(0.0, min(1.0, float(fraction)))
+    return {
+        "x": float(start["x"]) + (float(end["x"]) - float(start["x"])) * fraction,
+        "y": float(start["y"]) + (float(end["y"]) - float(start["y"])) * fraction,
+    }
 
-                }    
-                debug_queue.append(debug_item)
 
-                
-    return False           
+def get_redhead_bullet_hurtbox(entity, tile_map):
+    """Build the authored body hurtbox in absolute world coordinates."""
+    world_position = make_pos_abs(
+        entity.get("position", {}),
+        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+    authored = entity.get("bullet_hurtbox", {})
+    if not isinstance(authored, dict):
+        authored = {}
+    offset = authored.get("offset", DEFAULT_REDHEAD_BULLET_HURTBOX["offset"])
+    size = authored.get("size", DEFAULT_REDHEAD_BULLET_HURTBOX["size"])
+    if not isinstance(offset, dict):
+        offset = DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]
+    if not isinstance(size, dict):
+        size = DEFAULT_REDHEAD_BULLET_HURTBOX["size"]
+    try:
+        offset_x = float(offset.get("x", DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]["x"]))
+        offset_y = float(offset.get("y", DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]["y"]))
+        width = max(0.0, float(size.get("x", DEFAULT_REDHEAD_BULLET_HURTBOX["size"]["x"])))
+        height = max(0.0, float(size.get("y", DEFAULT_REDHEAD_BULLET_HURTBOX["size"]["y"])))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        offset_x = DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]["x"]
+        offset_y = DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]["y"]
+        width = DEFAULT_REDHEAD_BULLET_HURTBOX["size"]["x"]
+        height = DEFAULT_REDHEAD_BULLET_HURTBOX["size"]["y"]
+    return {
+        "x": world_position["x"] + offset_x,
+        "y": world_position["y"] + offset_y,
+        "width": width,
+        "height": height,
+    }
+
+
+def build_redhead_bullet_targets(brains, tile_map):
+    targets = []
+    for entity_id, entity in (brains or {}).items():
+        if not isinstance(entity, dict) or entity.get("type") != "red head":
+            continue
+        hurtbox = get_redhead_bullet_hurtbox(entity, tile_map)
+        targets.append({
+            "entity_id": entity_id,
+            "entity": entity,
+            "hurtbox": hurtbox,
+            "left": hurtbox["x"],
+            "top": hurtbox["y"],
+            "right": hurtbox["x"] + hurtbox["width"],
+            "bottom": hurtbox["y"] + hurtbox["height"],
+        })
+    return targets
+
+
+def find_first_redhead_bullet_hit(start, end, brains, tile_map,
+                                  maximum_fraction=None,
+                                  prepared_targets=None):
+    """Return the nearest exact body hit strictly before a blocking wall."""
+    closest = None
+    limit = None if maximum_fraction is None else max(
+        0.0, min(1.0, float(maximum_fraction)),
+    )
+    start_x, start_y = float(start["x"]), float(start["y"])
+    delta_x = float(end["x"]) - start_x
+    delta_y = float(end["y"]) - start_y
+    segment_left = min(start_x, start_x + delta_x)
+    segment_right = max(start_x, start_x + delta_x)
+    segment_top = min(start_y, start_y + delta_y)
+    segment_bottom = max(start_y, start_y + delta_y)
+    targets = prepared_targets
+    if targets is None:
+        targets = build_redhead_bullet_targets(brains, tile_map)
+    for target in targets:
+        if (target["right"] < segment_left or target["left"] > segment_right
+                or target["bottom"] < segment_top
+                or target["top"] > segment_bottom):
+            continue
+        fraction = _segment_aabb_fraction_values(
+            start_x, start_y, delta_x, delta_y,
+            target["left"], target["top"], target["right"], target["bottom"],
+        )
+        if fraction is None or (limit is not None and fraction >= limit):
+            continue
+        entity_id = target["entity_id"]
+        candidate_key = (fraction, str(entity_id))
+        if closest is None or candidate_key < closest["sort_key"]:
+            closest = {
+                "sort_key": candidate_key,
+                "fraction": fraction,
+                "position": point_along_segment(start, end, fraction),
+                "entity_id": entity_id,
+                "entity": target["entity"],
+                "hurtbox": target["hurtbox"],
+            }
+    if closest is not None:
+        closest.pop("sort_key", None)
+    return closest
+
+
+def first_solid_tile_hit_on_segment(start, end, tile_map, step_size=2.0,
+                                    debug_queue=None):
+    """Return the first sampled physical-tile hit along a bullet segment."""
+    start_tile = get_tile_index_and_offset_from_pos(start, tile_map)
+    start_in_bounds = not tile_not_in_bounds(
+        start_tile["tile_x"], start_tile["tile_y"], tile_map,
+    )
+    if start_in_bounds and position_collides_within_tile_shape(start_tile, tile_map):
+        return {
+            "fraction": 0.0,
+            "position": dict(start),
+            "tile_x": start_tile["tile_x"],
+            "tile_y": start_tile["tile_y"],
+        }
+    delta = vec2_subtract(end, start)
+    distance = vec2_norm(delta)
+    if distance <= 0.0000001:
+        return None
+    direction = vec2_scale(delta, 1.0 / distance)
+    step_size = max(0.25, float(step_size))
+    sample_distance = min(step_size, distance)
+    while sample_distance <= distance + 0.0000001:
+        position = vec2_add(start, vec2_scale(direction, sample_distance))
+        tile_position = get_tile_index_and_offset_from_pos(position, tile_map)
+        in_bounds = not tile_not_in_bounds(
+            tile_position["tile_x"], tile_position["tile_y"], tile_map,
+        )
+        collides = in_bounds and position_collides_within_tile_shape(
+            tile_position, tile_map,
+        )
+        if debug_queue is not None and in_bounds:
+            debug_queue.append({
+                "type": "tile",
+                "tile_x": tile_position["tile_x"],
+                "tile_y": tile_position["tile_y"],
+                "tile_width": tile_map.get("tile_width", 5),
+                "tile_height": tile_map.get("tile_height", 5),
+                "color": "PINK" if collides else "RED",
+                "drawing_function": draw_debug_tile,
+                "z_sort": 1,
+                "debug_modes": ["line_of_sight"],
+            })
+        if collides:
+            fraction = min(1.0, sample_distance / distance)
+            return {
+                "fraction": fraction,
+                "position": point_along_segment(start, end, fraction),
+                "tile_x": tile_position["tile_x"],
+                "tile_y": tile_position["tile_y"],
+            }
+        if sample_distance >= distance:
+            break
+        sample_distance = min(distance, sample_distance + step_size)
+    return None
+
+
+def allocate_projectile_id(projectiles):
+    numeric_ids = [key for key in (projectiles or {}) if isinstance(key, int)]
+    return max(numeric_ids, default=-1) + 1
 
 
 def tiles_equal(a, b):
@@ -3515,6 +3668,73 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
 
 
 
+def apply_bullet_hit_to_redhead(entity, entity_id, bullet, state_before_update,
+                                tile_map, audio_runtime, effects_runtime=None,
+                                debug_queue=None):
+    was_dead = entity.get("current_state") == "dead"
+    if was_dead:
+        entity["death_timer"] = 0.0
+    else:
+        entity["current_state"] = "stagger"
+        entity["stagger_timer"] = 0.0
+    if state_before_update != "stagger":
+        entity["previous_state_on_stagger"] = state_before_update
+
+    bullet_velocity = bullet.get("velocity", {})
+    bullet_magnitude = vec2_norm(bullet_velocity)
+    bullet_normalized = vec2_normalize(bullet_velocity)
+    entity["bullet_hit_magnitude"] = bullet_magnitude
+    entity["bullet_normalized"] = bullet_normalized
+    entity["bullet_impulse"] = vec2_scale(
+        bullet_normalized, bullet_magnitude * 0.2,
+    )
+    entity["health"] = entity.get("health", 0) - 20
+    world_position = make_pos_abs(
+        entity.get("position", {}),
+        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+    if entity["health"] > 0:
+        blood_amount, blood_duration = 5, 0.3
+        queue_gameplay_audio(
+            audio_runtime, "stagger_impact", f"enemy:{entity_id}",
+            "enemy", world_position, priority=1.0,
+        )
+    else:
+        if was_dead:
+            queue_gameplay_audio(
+                audio_runtime, "stagger_impact", f"enemy:{entity_id}",
+                "enemy", world_position, priority=0.8,
+            )
+            blood_amount, blood_duration = 5, 0.1
+        else:
+            queue_gameplay_audio(
+                audio_runtime, "death_impact", f"enemy:{entity_id}",
+                "enemy", world_position, priority=1.25,
+            )
+            blood_amount, blood_duration = 20, 0.7
+        entity["current_state"] = "dead"
+        entity["animation_frame"] = "death_frame_start"
+
+    if effects_runtime is not None:
+        g_effects.spawn_blood_spatter(
+            effects_runtime, blood_amount, blood_duration, bullet_velocity,
+            entity.get("position", {}), tile_map,
+        )
+    if debug_queue is not None:
+        debug_queue.append({
+            "type": "circle",
+            "drawing_function": draw_debug_circle,
+            "pos": entity.get("position"),
+            "font_size": 16,
+            "radius": 60,
+            "color": "BLUE",
+            "z_sort": -2,
+            "tile_width": tile_map.get("tile_width", 16),
+            "tile_height": tile_map.get("tile_height", 16),
+            "debug_modes": ["damage"],
+        })
+
+
 def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt,
                     audio_runtime, audio_profile, debug_queue=None, effects_runtime=None):
     tile_height = tile_map["tile_height"]
@@ -3526,7 +3746,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
     deletions = []
 
-    bullet_tiles = {}
+    bullet_traces = []
     # TODO make a 'reverse particle' system style weapon that
     # sucks up ammo from a corpse
     # like in Tenent
@@ -3600,50 +3820,33 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
     if "projectiles" not in entities:
         entities["projectiles"] = {}
-    for entity in entities["projectiles"].values():        
-        # TODO (Cooper) : move this stuff into an update function later
-        if entity.get("type","") == "bullet":        
-            # TODO 
-            # make 'dynamite bullets' 
-            # that take a few seconds before exploding
-            # kinda like the flare gun from Blood
-
-            # we should actually apply our 'move along tile' thing to the 
-            # bullet too...I think?
-            # maybe later though let's leave it for now since
-            # I want to keep some momentum to get
-            # enemy hits in
-            next_bullet_pos = vec2_add(entity["position"], vec2_scale(entity["velocity"], dt))            
-            current_tile_and_offset = get_tile_index_and_offset_from_pos(entity["position"], tile_map, None)
-
-            target_tile_next = get_tile_index_from_pos(next_bullet_pos, tile_map, None)
-            end_range = (vec2_norm(vec2_subtract(next_bullet_pos, entity["position"])))
-            direction = vec2_normalize(vec2_subtract(next_bullet_pos, entity["position"]))
-            step_size = 2
-            collides = ray_along_tiles_collides(current_tile_and_offset, end_range, step_size, direction, tile_map, bullet_tiles, entity["id"], debug_queue)
-            if collides:
-                queue_gameplay_audio(
-                    audio_runtime, "bullet_wall_impact", f"projectile:{entity['id']}",
-                    "world", next_bullet_pos, priority=0.9,
-                )
-                deletions.append({"subdict": "projectiles", "id" : entity["id"]})
-            entity["position"] = next_bullet_pos
-            entity["timer"] += dt
-            max_bullet_time_for_now = 0.6
-            if entity["timer"] >= max_bullet_time_for_now:
-                deletions.append({"subdict": "projectiles", "id" : entity["id"]})            
-
-            
-            
-
-            # interp the tiles between this and next 
-
+    for projectile in entities["projectiles"].values():
+        if projectile.get("type", "") != "bullet":
+            continue
+        segment_start = dict(projectile["position"])
+        segment_end = vec2_add(
+            segment_start, vec2_scale(projectile["velocity"], dt),
+        )
+        wall_hit = first_solid_tile_hit_on_segment(
+            segment_start, segment_end, tile_map, 2.0, debug_queue,
+        )
+        bullet_traces.append({
+            "projectile": projectile,
+            "start": segment_start,
+            "end": segment_end,
+            "wall_hit": wall_hit,
+        })
+        projectile["position"] = segment_end
+        projectile["timer"] += dt
+        if projectile["timer"] >= 0.6:
+            deletions.append({
+                "subdict": "projectiles", "id": projectile["id"],
+            })
     costly_updates = 0
     max_costly_updates_per_frame = 2
+    redhead_states_before_update = {}
 
     for entity_id, entity in entities.get("brains",{}).items():
-        
-
         if entity.get("type","") == "red head":
             previous_audio_position = make_pos_abs(entity.get("position", {}), tile_width, tile_height)
             # he needs to know about the environment (the tilemap)
@@ -3656,6 +3859,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 entity["old_tile"] = {}
             
             current_state = get_or_set(entity, "current_state", "idle")
+            redhead_states_before_update[entity_id] = current_state
             # there's a lot of logic happening in these states!
             next_state = transition_entity_state(
                 entity, current_state, player_info, tile_map, debug_queue,
@@ -3676,107 +3880,16 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 f"enemy:{entity_id}", "enemy", audio_runtime,
                 priority=0.75, gait="walk",
             )
-            bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
-            if bullet_key in bullet_tiles:
-                # possible collision!
-                # TODO but we're allowing one bullet in multiple times somehow?
-                # print(f"we're saying there's {len(bullet_tiles[bullet_key])} in this square")
-                for bullet_id in bullet_tiles[bullet_key].keys():
-                    bullet_list = bullet_tiles[bullet_key][bullet_id]
-                    for bullet in bullet_list:
-                        bullet_dist = vec2_distance(bullet, entity.get("position")) 
-                        # this is where our radius might be small
-                        # and should technically check on the enemy as
-                        # like, a body, not a point
-                        if bullet_dist < 30:                        
-                            # apply damage!
-                            # subtract health
-
-                            if entity["current_state"] != "dead":
-                                entity["current_state"] = "stagger"
-                                entity["stagger_timer"] = 0
-                            else:
-                                entity["death_timer"] = 0
-
-                            
-                            if current_state != "stagger":
-                                entity["previous_state_on_stagger"] = current_state
-                            
-                            
-                            # want to know the velocity of the bullet that hit us
-                            bullet_hitting_us = entities["projectiles"][bullet["id"]]
-
-                            deletions.append({"subdict": "projectiles", "id" : bullet_hitting_us["id"]})            
-                            bullet_magnitude = vec2_norm(bullet_hitting_us.get("velocity"))    
-
-
-
-                            bullet_normalized = vec2_normalize(bullet_hitting_us.get("velocity")) 
-                            entity["bullet_hit_magnitude"] = bullet_magnitude
-                            entity["bullet_normalized"] = bullet_normalized
-                            entity["bullet_impulse"] = vec2_scale(bullet_normalized, bullet_magnitude*0.2)
-
-                            
-                            # if you need to turn off damage, do so here
-                            base_bullet_damage = 20
-                            # base_bullet_damage = 0
-
-                            entity["health"] -= base_bullet_damage
-
-                            if entity["health"] > 0:
-                                blood_amount, blood_duration = 5, 0.3
-                                queue_gameplay_audio(
-                                    audio_runtime, "stagger_impact", f"enemy:{entity_id}",
-                                    "enemy", pos_abs, priority=1.0,
-                                )
-                            else:
-                                # kill them here
-                                if entity["current_state"] != "dead":
-                                    queue_gameplay_audio(
-                                        audio_runtime, "death_impact", f"enemy:{entity_id}",
-                                        "enemy", pos_abs, priority=1.25,
-                                    )
-                                    blood_amount, blood_duration = 20, 0.7
-                                else:
-                                    queue_gameplay_audio(
-                                        audio_runtime, "stagger_impact", f"enemy:{entity_id}",
-                                        "enemy", pos_abs, priority=0.8,
-                                    )
-                                    blood_amount, blood_duration = 5, 0.1
-                                entity["current_state"] = "dead"
-
-                                entity["animation_frame"] = "death_frame_start" # TODO make this directional
-                                
-                                
-                            
-                            if effects_runtime is not None:
-                                g_effects.spawn_blood_spatter(
-                                    effects_runtime,
-                                    blood_amount,
-                                    blood_duration,
-                                    bullet_hitting_us.get("velocity", {}),
-                                    entity.get("position", {}),
-                                    tile_map,
-                                )
-                            if debug_queue is not None:
-                                debug_item = {
-                                    "type" : "circle",
-                                    "drawing_function" : draw_debug_circle,
-                                    "pos" : entity.get("position"),                                        
-                                    "font_size" : 16,
-                                    "radius" : 60,
-                                    "color" : "BLUE",
-                                    "z_sort" : -2,                    
-                                    "tile_width" : tile_width,
-                                    "tile_height" : tile_height,
-                                    "debug_modes" : ["damage"]                 
-                                }
-                                debug_queue.append(debug_item)
-                            break
-
-
-            
             if debug_queue is not None:
+                hurtbox = get_redhead_bullet_hurtbox(entity, tile_map)
+                debug_queue.append({
+                    "type": "rectangle",
+                    "drawing_function": draw_debug_rect,
+                    "x": hurtbox["x"], "y": hurtbox["y"],
+                    "width": hurtbox["width"], "height": hurtbox["height"],
+                    "color": "YELLOW", "z_sort": 0,
+                    "debug_modes": ["collisions"],
+                })
                 debug_item = {
                     "type" : "text",
                     "drawing_function" : draw_debug_text,
@@ -3788,6 +3901,43 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "debug_modes" : ["entity_states"]                 
                 }
                 debug_queue.append(debug_item)
+
+    bullet_targets = build_redhead_bullet_targets(
+        entities.get("brains", {}), tile_map,
+    )
+    for trace in bullet_traces:
+        projectile = trace["projectile"]
+        wall_hit = trace["wall_hit"]
+        enemy_hit = find_first_redhead_bullet_hit(
+            trace["start"], trace["end"], entities.get("brains", {}),
+            tile_map,
+            wall_hit["fraction"] if wall_hit is not None else None,
+            bullet_targets,
+        )
+        if enemy_hit is not None:
+            projectile["position"] = enemy_hit["position"]
+            apply_bullet_hit_to_redhead(
+                enemy_hit["entity"], enemy_hit["entity_id"], projectile,
+                redhead_states_before_update.get(
+                    enemy_hit["entity_id"],
+                    enemy_hit["entity"].get("current_state", "idle"),
+                ),
+                tile_map, audio_runtime, effects_runtime, debug_queue,
+            )
+            deletions.append({
+                "subdict": "projectiles", "id": projectile["id"],
+            })
+        elif wall_hit is not None:
+            projectile["position"] = wall_hit["position"]
+            queue_gameplay_audio(
+                audio_runtime, "bullet_wall_impact",
+                f"projectile:{projectile['id']}", "world",
+                wall_hit["position"], priority=0.9,
+            )
+            deletions.append({
+                "subdict": "projectiles", "id": projectile["id"],
+            })
+
     for deletion in deletions:
         sublist = deletion.get("subdict")
         id = deletion.get("id")
@@ -4064,7 +4214,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
             # in the horizontal before it hits the ground
             if "projectiles" not in entities:
                 entities["projectiles"] = {}
-            bullet_id = len(entities["projectiles"])
+            bullet_id = allocate_projectile_id(entities["projectiles"])
             bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
             
             gunshot_timer = 0.07
