@@ -319,19 +319,27 @@ def draw_tile_texture_from_type(game_assets, tile_type, x, y, shape_index=0, tin
     
 def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True):
     initial_seen_count = len(seen)
-
-    if (x,y) in seen or x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] == current_tile_selection):
-        return
-    
-    seen[(x,y)] = True
-    tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection
-    do_flood_fill(current_tile_selection, x, y+1, tile_map, map_width, seen, False)
-    do_flood_fill(current_tile_selection, x, y-1, tile_map, map_width, seen, False)
-    do_flood_fill(current_tile_selection, x+1, y, tile_map, map_width, seen, False)
-    do_flood_fill(current_tile_selection, x-1, y, tile_map, map_width, seen, False)
+    map_height = int(tile_map.get("map_height", 0))
+    tiles = tile_map.get("tiles", [])
+    pending = [(int(x), int(y))]
+    while pending:
+        current_x, current_y = pending.pop()
+        if ((current_x, current_y) in seen or current_x < 0 or current_y < 0
+                or current_x >= map_width or current_y >= map_height):
+            continue
+        index = current_y * map_width + current_x
+        if index >= len(tiles) or tiles[index].get("index", 0) == current_tile_selection:
+            continue
+        seen[(current_x, current_y)] = True
+        tiles[index]["index"] = current_tile_selection
+        pending.extend((
+            (current_x, current_y + 1), (current_x, current_y - 1),
+            (current_x + 1, current_y), (current_x - 1, current_y),
+        ))
 
     if mark_revision and len(seen) > initial_seen_count:
         mark_tile_map_geometry_dirty(tile_map)
+    return len(seen) - initial_seen_count
 
 def set_tile_force_collidable(tile, enabled):
     """Store only an enabled per-instance override; absence means use tile-type policy."""
@@ -343,23 +351,121 @@ def set_tile_force_collidable(tile, enabled):
 
 def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True, force_collidable=False):
     initial_seen_count = len(seen)
-
-    if mark_revision and initial == current_tile_selection and bool(tile_map["tiles"][y*map_width + x].get("force_collidable", False)) == bool(force_collidable):
-        return
-
-    if x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] != initial) or (x,y) in seen:
-        return
-    seen[(x,y)] = True
-    edited_tile = tile_map["tiles"][y*map_width + x]
-    edited_tile["index"] = current_tile_selection
-    set_tile_force_collidable(edited_tile, force_collidable)
-    do_flood_fill_replace(initial, current_tile_selection, x, y+1, tile_map, map_width, seen, False, force_collidable)
-    do_flood_fill_replace(initial, current_tile_selection, x, y-1, tile_map, map_width, seen, False, force_collidable)
-    do_flood_fill_replace(initial, current_tile_selection, x+1, y, tile_map, map_width, seen, False, force_collidable)
-    do_flood_fill_replace(initial, current_tile_selection, x-1, y, tile_map, map_width, seen, False, force_collidable)
+    map_height = int(tile_map.get("map_height", 0))
+    tiles = tile_map.get("tiles", [])
+    if x < 0 or y < 0 or x >= map_width or y >= map_height:
+        return 0
+    start_index = int(y) * map_width + int(x)
+    if start_index >= len(tiles):
+        return 0
+    if (initial == current_tile_selection
+            and bool(tiles[start_index].get("force_collidable", False)) == bool(force_collidable)):
+        return 0
+    pending = [(int(x), int(y))]
+    while pending:
+        current_x, current_y = pending.pop()
+        if ((current_x, current_y) in seen or current_x < 0 or current_y < 0
+                or current_x >= map_width or current_y >= map_height):
+            continue
+        index = current_y * map_width + current_x
+        if index >= len(tiles) or tiles[index].get("index", 0) != initial:
+            continue
+        edited_tile = tiles[index]
+        seen[(current_x, current_y)] = True
+        edited_tile["index"] = current_tile_selection
+        set_tile_force_collidable(edited_tile, force_collidable)
+        pending.extend((
+            (current_x, current_y + 1), (current_x, current_y - 1),
+            (current_x + 1, current_y), (current_x - 1, current_y),
+        ))
 
     if mark_revision and len(seen) > initial_seen_count:
         mark_tile_map_geometry_dirty(tile_map)
+    return len(seen) - initial_seen_count
+
+
+def interpolate_tile_line(start, end):
+    """Return an eight-connected integer tile path including both endpoints."""
+    start_x, start_y = int(start[0]), int(start[1])
+    end_x, end_y = int(end[0]), int(end[1])
+    delta_x = end_x - start_x
+    delta_y = end_y - start_y
+    steps = max(abs(delta_x), abs(delta_y))
+    if steps == 0:
+        return [(start_x, start_y)]
+    points = []
+    for step in range(steps + 1):
+        tile = (
+            round(start_x + delta_x * step / steps),
+            round(start_y + delta_y * step / steps),
+        )
+        if not points or points[-1] != tile:
+            points.append(tile)
+    return points
+
+
+def paint_tile_editor_points(tile_map, points, tile_edit_mode,
+                             tile_selection=0, shape_selection=0,
+                             force_collidable=False, rain_exposure=1.0,
+                             acoustic_zone=0, footstep_overlay="none"):
+    width = int(tile_map.get("map_width", 0))
+    height = int(tile_map.get("map_height", 0))
+    tiles = tile_map.get("tiles", [])
+    changed = 0
+    visited = set()
+    for tile_x, tile_y in points:
+        tile_x, tile_y = int(tile_x), int(tile_y)
+        if ((tile_x, tile_y) in visited or tile_x < 0 or tile_y < 0
+                or tile_x >= width or tile_y >= height):
+            continue
+        visited.add((tile_x, tile_y))
+        index = tile_y * width + tile_x
+        if index >= len(tiles) or not isinstance(tiles[index], dict):
+            continue
+        tile = tiles[index]
+        if tile_edit_mode == "rain_exposure":
+            changed += int(g_effects.set_tile_rain_exposure(tile, rain_exposure))
+        elif tile_edit_mode == "acoustic_zone":
+            changed += int(g_audio.set_tile_acoustic_zone(tile, acoustic_zone))
+        elif tile_edit_mode == "footstep_overlay":
+            changed += int(g_audio.set_tile_footstep_overlay(tile, footstep_overlay))
+        elif (tile.get("index", 0) != tile_selection
+                or tile.get("shape_index", 0) != shape_selection
+                or bool(tile.get("force_collidable", False)) != bool(force_collidable)):
+            tile["index"] = tile_selection
+            tile["shape_index"] = shape_selection
+            set_tile_force_collidable(tile, force_collidable)
+            changed += 1
+    if changed:
+        if tile_edit_mode == "rain_exposure":
+            g_effects.mark_rain_exposure_dirty(tile_map)
+        elif tile_edit_mode == "acoustic_zone":
+            g_audio.mark_acoustic_dirty(tile_map)
+        elif tile_edit_mode == "appearance":
+            mark_tile_map_geometry_dirty(tile_map)
+    return changed
+
+
+def update_tile_editor_paint(editor_state, tile_map, mouse_tile_pos,
+                             tile_selection, shape_selection, force_collidable,
+                             rain_exposure, acoustic_zone, footstep_overlay):
+    if not g_ui.interactive_mouse_left_down():
+        editor_state["tile_paint_previous"] = None
+        editor_state["tile_paint_mode"] = None
+        return 0
+    current = (int(mouse_tile_pos.x), int(mouse_tile_pos.y))
+    mode = editor_state.get("tile_edit_mode", "appearance")
+    previous = editor_state.get("tile_paint_previous")
+    if editor_state.get("tile_paint_mode") != mode or not isinstance(previous, (list, tuple)):
+        points = [current]
+    else:
+        points = interpolate_tile_line(previous, current)
+    editor_state["tile_paint_previous"] = current
+    editor_state["tile_paint_mode"] = mode
+    return paint_tile_editor_points(
+        tile_map, points, mode, tile_selection, shape_selection,
+        force_collidable, rain_exposure, acoustic_zone, footstep_overlay,
+    )
 
         
         
@@ -597,10 +703,25 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
     visible_tiles_across = int(internal_res_x / tile_width)
     visible_tiles_down = int(internal_res_y / tile_height)
 
-    mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera_x)/tile_width), int((mouse_pos_world.y + game_camera_y)/tile_height))
+    mouse_tile_pos = pr.Vector2(
+        math.floor((mouse_pos_world.x + game_camera_x) / tile_width),
+        math.floor((mouse_pos_world.y + game_camera_y) / tile_height),
+    )
 
     mouse_tile_pos_offset_x = (mouse_pos_world.x + game_camera_x) - mouse_tile_pos.x*tile_width
     mouse_tile_pos_offset_y = (mouse_pos_world.y + game_camera_y) - mouse_tile_pos.y*tile_height
+
+    if draw_tiles:
+        if mode == "tile":
+            update_tile_editor_paint(
+                editor_state, tile_map, mouse_tile_pos,
+                current_tile_selection, current_shape_selection,
+                current_tile_force_collidable, rain_exposure_value,
+                acoustic_zone_value, footstep_overlay_value,
+            )
+        else:
+            editor_state["tile_paint_previous"] = None
+            editor_state["tile_paint_mode"] = None
 
 
 
@@ -651,24 +772,12 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                     if tile_edit_mode == "rain_exposure":
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             flood_fill_rain_exposure(tile_map, x, y, rain_exposure_value)
-                        if g_ui.interactive_mouse_left_down():
-                            edited_tile = tile_map["tiles"][y*map_width + x]
-                            if g_effects.set_tile_rain_exposure(edited_tile, rain_exposure_value):
-                                g_effects.mark_rain_exposure_dirty(tile_map)
                     elif tile_edit_mode == "acoustic_zone":
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             g_audio.flood_fill_acoustic_zone(tile_map, x, y, acoustic_zone_value)
-                        if g_ui.interactive_mouse_left_down():
-                            edited_tile = tile_map["tiles"][y*map_width + x]
-                            if g_audio.set_tile_acoustic_zone(edited_tile, acoustic_zone_value):
-                                g_audio.mark_acoustic_dirty(tile_map)
                     elif tile_edit_mode == "footstep_overlay":
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             g_audio.flood_fill_footstep_overlay(tile_map, x, y, footstep_overlay_value)
-                        if g_ui.interactive_mouse_left_down():
-                            g_audio.set_tile_footstep_overlay(
-                                tile_map["tiles"][y*map_width + x], footstep_overlay_value,
-                            )
                     else:
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             # Appearance flood fill retains the existing tile/collision semantics.
@@ -678,14 +787,6 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                             if initial != current_tile_selection or initial_force_collidable != bool(current_tile_force_collidable):
                                 do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, force_collidable=current_tile_force_collidable)
 
-                        if g_ui.interactive_mouse_left_down():
-                            edited_tile = tile_map["tiles"][y*map_width + x]
-                            if edited_tile.get("index", 0) != current_tile_selection or edited_tile.get("shape_index", 0) != current_shape_selection or bool(edited_tile.get("force_collidable", False)) != bool(current_tile_force_collidable):
-                                edited_tile["index"] = current_tile_selection
-                                edited_tile["shape_index"] = current_shape_selection
-                                set_tile_force_collidable(edited_tile, current_tile_force_collidable)
-                                mark_tile_map_geometry_dirty(tile_map)
-                            
                 pr.draw_rectangle(int(render_pos.x), int(render_pos.y), tile_width, tile_height, tile_color)
 
             if mode == "entity":
@@ -889,9 +990,12 @@ def give_entity_stats_from_type(entity, entity_type):
     if entity_type == "red head":
         entity["health"] = 60
         entity["attack_damage"] = 5
-        entity["attack_timer"] = 0        
+        entity["attack_timer"] = 0
         entity["attack_cooldown"] = 1
-        attack_windup_duration = 1 
+        entity["notice_duration"] = 1.0
+        entity["attack_engage_distance"] = 40.0
+        entity["attack_exit_delay"] = 1.0
+        attack_windup_duration = 1
     
     
         entity["attack_windup_duration"] = attack_windup_duration
@@ -2659,37 +2763,84 @@ def make_pos_abs(pos, tile_width, tile_height):
     
     return pos_abs
 
+
+def reset_redhead_attack_cycle(entity):
+    entity["attack_timer"] = 0.0
+    entity["attack_substate"] = "windup"
+    entity["attack_out_of_range_timer"] = 0.0
+
+
+def prepare_redhead_pursuit_path(entity, seen_pos, tile_map):
+    if not isinstance(seen_pos, dict):
+        return False
+    map_width = int(tile_map.get("map_width", 0))
+    map_height = int(tile_map.get("map_height", 0))
+    target_x = int(seen_pos.get("tile_x", -1))
+    target_y = int(seen_pos.get("tile_y", -1))
+    entity_pos = entity.get("position", {})
+    start_x = int(entity_pos.get("tile_x", -1))
+    start_y = int(entity_pos.get("tile_y", -1))
+    if (target_x < 0 or target_y < 0 or start_x < 0 or start_y < 0
+            or target_x >= map_width or target_y >= map_height
+            or start_x >= map_width or start_y >= map_height):
+        return False
+    tiles = tile_map.get("tiles", [])
+    target_index = target_y * map_width + target_x
+    start_index = start_y * map_width + start_x
+    if target_index >= len(tiles) or start_index >= len(tiles):
+        return False
+    target_tile = tiles[target_index]
+    start_tile = tiles[start_index]
+    came_from = a_star_path(start_tile, target_tile, tile_map)
+    if get_tile_id_for_hash(target_tile) not in came_from:
+        return False
+    entity["path_to_player"] = reconstruct_path(
+        came_from, target_tile, start_tile,
+    )
+    entity["path_to_player_current_index"] = 0
+    entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
+    entity["give_up_time"] = 0.0
+    entity["breadcrumb_timer"] = 0.0
+    return True
+
+
+def on_redhead_state_enter(entity, state, entered_from, tile_map, audio_runtime):
+    entity["state_entered_from"] = entered_from
+    resumed_after_stagger = (
+        entered_from == "stagger"
+        and entity.get("previous_state_on_stagger") == state
+    )
+    if resumed_after_stagger:
+        return
+    world_position = make_pos_abs(
+        entity.get("position", {}),
+        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+    source_id = f"enemy:{entity.get('id', 'unknown')}"
+    if state == "noticing":
+        entity["notice_timer"] = 0.0
+        entity["pursuit_bark_pending"] = False
+        queue_gameplay_audio(
+            audio_runtime, "redhead_startle", source_id, "enemy",
+            world_position, priority=0.95,
+        )
+    elif state == "angry chase" and entity.pop("pursuit_bark_pending", False):
+        queue_gameplay_audio(
+            audio_runtime, "redhead_pursuit_hiss", source_id, "enemy",
+            world_position, priority=1.0,
+        )
+    elif state == "angry and attacking":
+        reset_redhead_attack_cycle(entity)
+
 def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt):
-    player_pos = player_info["position"]
-    entity_pos = entity.get("position",{})        
     next_state = current_state
-    tile_width = tile_map.get("tile_width", 0)
-    tile_height = tile_map.get("tile_height", 0)
-    entity_pos = entity.get("position",{})
-    player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
-                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
-    
-    entity_pos_abs = get_abs_pos_from_index(entity_pos, tile_map)
-    
-    entity_collide_distance = 5
     bored_timer = entity.get("bored_timer", 0)
 
     bored_threshold = 1
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
         
-    if vec2_distance(entity_pos_abs, player_pos_abs) < entity_collide_distance:
-        
-        next_state = "angry and attacking"
-    elif can_see:
-        next_state = "angry chase"
-        # path to player needed here
-        
-        target_tile_from_tile_map = tile_map.get("tiles")[seen_pos.get("tile_y")*tile_map.get("map_width") + seen_pos.get("tile_x")]
-        start_tile_from_tile_map = tile_map.get("tiles")[entity_pos.get("tile_y")*tile_map.get("map_width") + entity_pos.get("tile_x")]
-        path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
-        entity["path_to_player"] = path_to_player
-        entity["path_to_player_current_index"] = 0
-        entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
+    if can_see:
+        next_state = "noticing"
     else:
         bored_timer += dt
         # TODO
@@ -2705,6 +2856,24 @@ def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue
     animation_direction = direction_from_angle(entity.get("sight_angle",0)) 
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
     return next_state
+
+
+def noticing_redhead_state(entity, current_state, player_info, tile_map,
+                           debug_queue, dt):
+    notice_timer = max(0.0, float(entity.get("notice_timer", 0.0))) + dt
+    entity["notice_timer"] = notice_timer
+    notice_duration = max(0.0, float(entity.get("notice_duration", 1.0)))
+    if notice_timer < notice_duration:
+        return current_state
+    can_see, seen_pos = alice_can_see_bob_points(
+        entity, player_info, tile_map, debug_queue,
+    )
+    entity["notice_timer"] = 0.0
+    if can_see and prepare_redhead_pursuit_path(entity, seen_pos, tile_map):
+        entity["pursuit_bark_pending"] = True
+        return "angry chase"
+    entity["pursuit_bark_pending"] = False
+    return "idle"
 
 def deg_to_rad(deg):
     if not deg:
@@ -2983,31 +3152,46 @@ def stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt)
 def attack_state(entity, current_state, player_info, tile_map, debug_queue, audio_runtime, dt):
     player_pos = player_info.get("position",{}) # top left
     next_state = current_state
+    attack_substate = get_or_set(entity, "attack_substate", "windup")
     can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
-    can_move = alice_can_move_to_bob(entity, player_info, tile_map, debug_queue)
     if can_see:
         # on some interval we should also update the path to the player here...I think
         entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
-    else:
-        if entity.get("attack_substate","") != "committed":
-            can_see = False
-            # this should be on a timer tho
-            next_state = "idle" # also probably should be a 'searching' state
-    entity_collide_distance = 5
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)
     # TODO: mismatch here between player position which is offset, turned into abs
     # and entity positions, which are currenty only abs
     entity_pos = entity.get("position",{})
 
-    player_pos_abs = get_abs_pos_from_index(player_pos, tile_map)                              
-    entity_pos_abs = get_abs_pos_from_index(entity_pos, tile_map)                             
+    player_pos_abs = get_abs_pos_from_index(player_pos, tile_map)
+    entity_pos_abs = get_abs_pos_from_index(entity_pos, tile_map)
+
+    if not can_see and attack_substate != "committed":
+        reset_redhead_attack_cycle(entity)
+        return "idle"  # A searching state can replace this later.
+
+    attack_engage_distance = max(
+        0.0, float(entity.get("attack_engage_distance", 40.0)),
+    )
+    attack_exit_delay = max(0.0, float(entity.get("attack_exit_delay", 1.0)))
+    distance_to_player = vec2_distance(entity_pos_abs, player_pos_abs)
+    if distance_to_player > attack_engage_distance:
+        out_of_range_timer = max(
+            0.0, float(entity.get("attack_out_of_range_timer", 0.0)),
+        ) + dt
+    else:
+        out_of_range_timer = 0.0
+    entity["attack_out_of_range_timer"] = out_of_range_timer
+    if out_of_range_timer >= attack_exit_delay:
+        reset_redhead_attack_cycle(entity)
+        return "angry chase"
     
     # check if our distance to the player allows us to do our attack
     # if not we need to chase again to last known position
-    attack_substate = get_or_set(entity, "attack_substate", "windup")
     attack_direction = get_or_set(entity, "attack_direction", {"x" : 0, "y" : 0})
-    attack_windup_duration = 1 
+    attack_windup_duration = max(
+        0.0, float(entity.get("attack_windup_duration", 1.0)),
+    )
     attack_timer = entity["attack_timer"]
     attack_timer += dt
     attack_range = 10
@@ -3142,24 +3326,6 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, audi
     # entity.get("position",{})["x"] = new_position.get("x", 0)
     # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    dest_threshold = 40
-    give_up_threshold = 3
-
-    # if not fast_distance_within_tiles(new_position, player_pos, dest_threshold) and attack_substate != "committed":
-    #     next_state = "angry chase"
-    #     entity["attack_substate"] = "windup"
-    #     entity["attack_timer"] = 0
-
-    
-    if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
-        get_or_set(entity, "give_up_time", 0)
-        entity["give_up_time"] += dt
-        if entity["give_up_time"] > give_up_threshold and attack_substate != "committed":
-            next_state = "idle"
-            entity["attack_substate"] = "windup"
-            entity["attack_timer"] = 0
-
-    
     # if can_see and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
     #     target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
     #     start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
@@ -3254,7 +3420,9 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     # entity.get("position",{})["x"] = new_position.get("x", 0)
     # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    dest_threshold = 40
+    dest_threshold = max(
+        0.0, float(entity.get("attack_engage_distance", 40.0)),
+    )
     give_up_threshold = 10
 
     
@@ -3305,15 +3473,24 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
     player_pos = player_info.get("position",{}) # top left
     # TODO in addition to line of sight
     # need like a line of sound / within earshot function
-    if entity.get("previous_state") != current_state:
-        entity["entered_new_state"] = True
+    entered_from = entity.get("previous_state")
+    entered_new_state = entered_from != current_state
+    entity["entered_new_state"] = entered_new_state
+    if entered_new_state:
+        on_redhead_state_enter(
+            entity, current_state, entered_from, tile_map, audio_runtime,
+        )
     
     next_state = current_state
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)    
 
     if current_state == "idle":
-        next_state = idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
+        next_state = idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt)
+    elif current_state == "noticing":
+        next_state = noticing_redhead_state(
+            entity, current_state, player_info, tile_map, debug_queue, dt,
+        )
     elif current_state == "angry chase":        
         # this is essentially a 'go to last position' state
         # with maybe a different animation and / or speed

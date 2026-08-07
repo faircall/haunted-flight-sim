@@ -142,6 +142,47 @@ class VariantAndManifestTests(unittest.TestCase):
                 for path in paths
             ))
 
+    def test_redhead_bark_families_use_authored_startle_and_hisses(self):
+        runtime = g_audio.make_audio_runtime()
+        self.assertEqual(
+            g_audio.resolve_available_family_paths(
+                runtime, "barks.redhead.startle",
+            ),
+            ["sounds/barks/redhead/redhead_startle_1.wav"],
+        )
+        hisses = g_audio.resolve_available_family_paths(
+            runtime, "barks.redhead.pursuit_hiss",
+        )
+        self.assertEqual(len(hisses), 3)
+        self.assertTrue(all("/redhead/redhead_hiss_" in path for path in hisses))
+
+    def test_redhead_barks_are_positional(self):
+        for event_type, expected_name in (
+            ("redhead_startle", "redhead_startle_1.wav"),
+            ("redhead_pursuit_hiss", "redhead_hiss_"),
+        ):
+            with self.subTest(event_type=event_type):
+                FakeSound.instances = []
+                runtime = g_audio.make_audio_runtime(object())
+                profile = g_audio.make_audio_profile()
+                profile.update({
+                    "minimum_distance": 0.0, "maximum_distance": 100.0,
+                    "pan_distance": 40.0, "maximum_pan": 1.0,
+                })
+                g_audio.queue_audio_event(runtime, {
+                    "type": event_type, "source_id": "enemy:7",
+                    "source_kind": "enemy",
+                    "world_position": {"x": 20.0, "y": 0.0},
+                })
+                with mock.patch.object(g_audio.cma, "Sound", FakeSound):
+                    stats = g_audio.update_audio(
+                        runtime, runtime["engine"], 0.1, listener(),
+                        make_map(), {}, {}, {}, profile,
+                    )
+                self.assertEqual(stats["accepted_events"], 1)
+                self.assertIn(expected_name, FakeSound.instances[-1].path)
+                self.assertGreater(FakeSound.instances[-1].pan, 0.0)
+
     def test_shuffle_bag_visits_every_variant_before_reshuffle(self):
         state = {}
         variants = ["a", "b", "c", "d"]

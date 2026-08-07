@@ -37,6 +37,7 @@ SUPPORTED_EVENT_TYPES = {
     "footstep", "gunshot", "reload_start", "reload_stop", "weapon_empty",
     "bullet_wall_impact", "melee_whoosh", "stagger_impact", "death_impact",
     "pickup_ammo", "pickup_health", "ui_hover", "fire_crackle",
+    "redhead_startle", "redhead_pursuit_hiss",
     "ambience_incidental",
     "sound_emitter_cadence",
 }
@@ -283,6 +284,23 @@ def make_audio_manifest():
         "footstep_overlays": {
             "puddle": _family(optional=True, base_gain=1.0, bus="footsteps"),
             "corpse": _family(optional=True, base_gain=1.0, bus="footsteps"),
+        },
+        "barks": {
+            "redhead": {
+                "startle": _family(
+                    variants=("sounds/barks/redhead/redhead_startle_1.wav",),
+                    base_gain=0.8, pitch_variation=0.01,
+                    voice_count=3, spatial=True, bus="sfx",
+                ),
+                "pursuit_hiss": _family(
+                    variants=tuple(
+                        f"sounds/barks/redhead/redhead_hiss_{index}.wav"
+                        for index in range(1, 4)
+                    ),
+                    base_gain=0.8, pitch_variation=0.025,
+                    voice_count=3, spatial=True, bus="sfx",
+                ),
+            },
         },
         "weapons": {
             "pistol_shot": _family(fallback="sounds/pistol_shot_lofi.wav", base_gain=0.5,
@@ -1350,6 +1368,8 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
         "stagger_impact": "impacts.stagger", "death_impact": "impacts.death",
         "pickup_ammo": "pickups.ammo", "pickup_health": "pickups.health",
         "ui_hover": "ui.hover", "fire_crackle": "fire.fire_crackle",
+        "redhead_startle": "barks.redhead.startle",
+        "redhead_pursuit_hiss": "barks.redhead.pursuit_hiss",
     }
     if event_type == "ambience_incidental":
         environment = str(event.get("data", {}).get("environment", "open_exterior"))

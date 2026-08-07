@@ -23,6 +23,8 @@ def make_editor_state():
         "selected_id": None,
         "drag_kind": None,
         "drag_offset": {"x": 0.0, "y": 0.0},
+        "tile_paint_previous": None,
+        "tile_paint_mode": None,
         "preview_effects": True,
         "tile_edit_mode": "appearance",
         "rain_exposure_value": 1.0,
