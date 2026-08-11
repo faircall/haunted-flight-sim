@@ -142,7 +142,7 @@ class VariantAndManifestTests(unittest.TestCase):
                 for path in paths
             ))
 
-    def test_redhead_bark_families_use_authored_startle_and_hisses(self):
+    def test_redhead_bark_families_use_all_authored_variants(self):
         runtime = g_audio.make_audio_runtime()
         self.assertEqual(
             g_audio.resolve_available_family_paths(
@@ -155,11 +155,19 @@ class VariantAndManifestTests(unittest.TestCase):
         )
         self.assertEqual(len(hisses), 3)
         self.assertTrue(all("/redhead/redhead_hiss_" in path for path in hisses))
+        evades = g_audio.resolve_available_family_paths(
+            runtime, "barks.redhead.evade",
+        )
+        self.assertEqual(evades, [
+            "sounds/barks/redhead/redhead_evade_1.wav",
+            "sounds/barks/redhead/redhead_evade_2.wav",
+        ])
 
     def test_redhead_barks_are_positional(self):
         for event_type, expected_name in (
             ("redhead_startle", "redhead_startle_1.wav"),
             ("redhead_pursuit_hiss", "redhead_hiss_"),
+            ("redhead_evade", "redhead_evade_"),
         ):
             with self.subTest(event_type=event_type):
                 FakeSound.instances = []

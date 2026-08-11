@@ -37,7 +37,7 @@ SUPPORTED_EVENT_TYPES = {
     "footstep", "gunshot", "reload_start", "reload_stop", "weapon_empty",
     "bullet_wall_impact", "melee_whoosh", "stagger_impact", "death_impact",
     "pickup_ammo", "pickup_health", "ui_hover", "fire_crackle",
-    "redhead_startle", "redhead_pursuit_hiss",
+    "redhead_startle", "redhead_pursuit_hiss", "redhead_evade",
     "ambience_incidental",
     "sound_emitter_cadence",
 }
@@ -298,6 +298,14 @@ def make_audio_manifest():
                         for index in range(1, 4)
                     ),
                     base_gain=0.8, pitch_variation=0.025,
+                    voice_count=3, spatial=True, bus="sfx",
+                ),
+                "evade": _family(
+                    variants=tuple(
+                        f"sounds/barks/redhead/redhead_evade_{index}.wav"
+                        for index in range(1, 3)
+                    ),
+                    base_gain=0.8, pitch_variation=0.02,
                     voice_count=3, spatial=True, bus="sfx",
                 ),
             },
@@ -1370,6 +1378,7 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
         "ui_hover": "ui.hover", "fire_crackle": "fire.fire_crackle",
         "redhead_startle": "barks.redhead.startle",
         "redhead_pursuit_hiss": "barks.redhead.pursuit_hiss",
+        "redhead_evade": "barks.redhead.evade",
     }
     if event_type == "ambience_incidental":
         environment = str(event.get("data", {}).get("environment", "open_exterior"))
