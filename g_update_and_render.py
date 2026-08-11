@@ -86,11 +86,27 @@ REDHEAD_EVADE_DEFAULTS = {
     "cooldown": 3.0,
     "duration_min": 1.0,
     "duration_max": 2.0,
-    "side_switch_min": 0.30,
-    "side_switch_max": 0.45,
-    "forward_weight": 0.75,
-    "lateral_weight": 0.95,
-    "speed_multiplier": 1.0,
+    "search_radius_tiles": 4,
+    "minimum_lateral_tiles": 1.25,
+    "maximum_retreat_tiles": 0.50,
+    "top_candidate_count": 3,
+    "lateral_score_weight": 2.0,
+    "aim_clearance_score_weight": 2.5,
+    "progress_score_weight": 1.0,
+    "path_cost_score_weight": 0.35,
+    "preferred_side_score": 0.40,
+    "cover_score_weight": 0.0,
+    "waypoint_arrival_radius": 4.0,
+    "stuck_replan_delay": 0.35,
+}
+
+REDHEAD_MOVEMENT_DEFAULTS = {
+    "max_speed": 70.0,
+    "acceleration": 140.0,
+    "deceleration": 220.0,
+    "reverse_acceleration": 280.0,
+    "arrival_radius": 3.0,
+    "evade_speed_multiplier": 1.0,
 }
 
 g_tile_collision_shapes = [
@@ -1023,6 +1039,7 @@ def give_entity_stats_from_type(entity, entity_type):
             "size": dict(DEFAULT_REDHEAD_BULLET_HURTBOX["size"]),
         }
         entity["evade_settings"] = dict(REDHEAD_EVADE_DEFAULTS)
+        entity["movement_settings"] = dict(REDHEAD_MOVEMENT_DEFAULTS)
         attack_windup_duration = 1
     
     
@@ -2745,47 +2762,122 @@ def vec2_rotate_by(vec, amount): #in degrees
     result = vector_from_angle(angle + amount)
     return result
 
-def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queue, dt):
-    tile_width = tile_map["tile_width"]
-    tile_height = tile_map["tile_height"]
+def move_redhead_with_locomotion(entity, desired_direction, tile_map,
+                                  debug_queue, dt, desired_speed=None,
+                                  speed_multiplier=1.0):
+    """Move a redhead using its shared, persistent locomotion velocity."""
+    settings = get_redhead_movement_settings(entity)
+    try:
+        speed_multiplier = float(speed_multiplier)
+    except (TypeError, ValueError, OverflowError):
+        speed_multiplier = 1.0
+    if not math.isfinite(speed_multiplier):
+        speed_multiplier = 1.0
+    maximum_speed = settings["max_speed"] * max(0.0, speed_multiplier)
 
-    entity_position_abs = make_pos_abs(entity["position"], tile_width, tile_height)
-
-    vector_to_target = vec2_subtract(target_position, entity_position_abs)
-
-    distance_to_target = vec2_norm(vector_to_target)
-
-    default_speed = 150.0
-    entity_speed = entity.get("speed", default_speed)
-
-    entity_acceleration = entity.get("acceleration", 1000.0)
-
-    entity_reverse_acceleration = entity.get("reverse_acceleration", 1800.0)
-
-    arrival_radius = entity.get("arrival_radius", 1.0)
-
-    ai_velocity = get_or_set(entity, "ai_velocity", {"x": 0.0, "y": 0.0})
-
-    if distance_to_target <= arrival_radius:
+    direction = vec2_normalize(desired_direction)
+    if vec2_norm(direction) <= 0.000001 or maximum_speed <= 0.0:
         target_velocity = {"x": 0.0, "y": 0.0}
     else:
-        target_direction = vec2_normalize(vector_to_target)
-        target_velocity = vec2_scale(target_direction, entity_speed)
+        if desired_speed is None:
+            target_speed = maximum_speed
+        else:
+            try:
+                target_speed = float(desired_speed)
+            except (TypeError, ValueError, OverflowError):
+                target_speed = maximum_speed
+            if not math.isfinite(target_speed):
+                target_speed = maximum_speed
+            target_speed = max(0.0, min(maximum_speed, target_speed))
+        target_velocity = vec2_scale(direction, target_speed)
 
-    acceleration = entity_acceleration
+    authored_velocity = entity.get("ai_velocity", {})
+    if not isinstance(authored_velocity, dict):
+        authored_velocity = {}
 
-    if vec2_dot(ai_velocity, target_velocity) < 0:
-        acceleration = entity_reverse_acceleration
+    def velocity_component(name):
+        try:
+            component = float(authored_velocity.get(name, 0.0))
+        except (TypeError, ValueError, OverflowError):
+            component = 0.0
+        return component if math.isfinite(component) else 0.0
 
-    ai_velocity = vec2_move_towards(ai_velocity, target_velocity, acceleration * dt)
+    ai_velocity = {
+        "x": velocity_component("x"),
+        "y": velocity_component("y"),
+    }
+    current_speed = vec2_norm(ai_velocity)
+    target_speed = vec2_norm(target_velocity)
+    if target_speed <= 0.000001:
+        acceleration = settings["deceleration"]
+    elif (current_speed > 0.000001
+            and vec2_dot(ai_velocity, target_velocity) < 0.0):
+        acceleration = settings["reverse_acceleration"]
+    elif target_speed < current_speed:
+        acceleration = settings["deceleration"]
+    else:
+        acceleration = settings["acceleration"]
 
-    # This mutates ai_velocity so that blocked components
-    # remain removed after collision resolution.
-    new_entity_position = move_entity_with_velocity(entity, ai_velocity, tile_map, debug_queue, dt)
+    try:
+        frame_dt = max(0.0, float(dt))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    ai_velocity = vec2_move_towards(
+        ai_velocity, target_velocity, acceleration * frame_dt,
+    )
 
+    # Collision resolution mutates this velocity so blocked components stay
+    # removed from the persistent locomotion state on the next frame.
+    new_entity_position = move_entity_with_velocity(
+        entity, ai_velocity, tile_map, debug_queue, frame_dt,
+    )
     entity["ai_velocity"] = ai_velocity
-
     return new_entity_position
+
+
+def move_entity_towards_target_abs(entity, target_position, tile_map,
+                                   debug_queue, dt, arrival_radius=None,
+                                   speed_multiplier=1.0):
+    """Target adapter for the shared redhead locomotion implementation."""
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]
+    settings = get_redhead_movement_settings(entity)
+    if arrival_radius is None:
+        arrival_radius = settings["arrival_radius"]
+    else:
+        try:
+            arrival_radius = max(0.0, float(arrival_radius))
+        except (TypeError, ValueError, OverflowError):
+            arrival_radius = settings["arrival_radius"]
+
+    entity_position_abs = make_pos_abs(
+        entity["position"], tile_width, tile_height,
+    )
+    vector_to_target = vec2_subtract(target_position, entity_position_abs)
+    distance_to_target = vec2_norm(vector_to_target)
+    remaining_distance = max(0.0, distance_to_target - arrival_radius)
+    direction = (
+        vec2_normalize(vector_to_target)
+        if remaining_distance > 0.000001
+        else {"x": 0.0, "y": 0.0}
+    )
+
+    maximum_speed = settings["max_speed"] * max(0.0, speed_multiplier)
+    if settings["deceleration"] > 0.0:
+        # v^2 = 2as: begin slowing early enough to arrive without oscillating.
+        arrival_speed = math.sqrt(
+            2.0 * settings["deceleration"] * remaining_distance,
+        )
+        desired_speed = min(maximum_speed, arrival_speed)
+    else:
+        desired_speed = maximum_speed if remaining_distance > 0.0 else 0.0
+
+    return move_redhead_with_locomotion(
+        entity, direction, tile_map, debug_queue, dt,
+        desired_speed=desired_speed, speed_multiplier=speed_multiplier,
+    )
 
 
 def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue, dt):
@@ -2916,6 +3008,61 @@ def reset_redhead_attack_cycle(entity):
     entity["attack_out_of_range_timer"] = 0.0
 
 
+def get_redhead_movement_settings(entity):
+    """Return safe locomotion values without mutating authored entity data."""
+    authored = entity.get("movement_settings", {})
+    if not isinstance(authored, dict):
+        authored = {}
+
+    legacy_fields = {
+        "max_speed": "speed",
+        "acceleration": "acceleration",
+        "reverse_acceleration": "reverse_acceleration",
+        "arrival_radius": "arrival_radius",
+    }
+
+    def value(name):
+        if name in authored:
+            raw_value = authored[name]
+        elif name in legacy_fields and legacy_fields[name] in entity:
+            raw_value = entity[legacy_fields[name]]
+        elif name == "evade_speed_multiplier":
+            evade_settings = entity.get("evade_settings", {})
+            raw_value = (
+                evade_settings.get("speed_multiplier")
+                if isinstance(evade_settings, dict)
+                and "speed_multiplier" in evade_settings
+                else REDHEAD_MOVEMENT_DEFAULTS[name]
+            )
+        else:
+            raw_value = REDHEAD_MOVEMENT_DEFAULTS[name]
+        try:
+            result = float(raw_value)
+        except (TypeError, ValueError, OverflowError):
+            result = float(REDHEAD_MOVEMENT_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(REDHEAD_MOVEMENT_DEFAULTS[name])
+        return result
+
+    return {
+        "max_speed": max(0.0, value("max_speed")),
+        "acceleration": max(0.0, value("acceleration")),
+        "deceleration": max(0.0, value("deceleration")),
+        "reverse_acceleration": max(0.0, value("reverse_acceleration")),
+        "arrival_radius": max(0.0, value("arrival_radius")),
+        "evade_speed_multiplier": max(
+            0.0, value("evade_speed_multiplier"),
+        ),
+    }
+
+
+def ensure_redhead_movement_settings(entity):
+    """Migrate legacy locomotion fields to the serialisable authored profile."""
+    settings = get_redhead_movement_settings(entity)
+    entity["movement_settings"] = settings
+    return settings
+
+
 def get_redhead_evade_settings(entity):
     authored = entity.get("evade_settings", {})
     if not isinstance(authored, dict):
@@ -2930,8 +3077,6 @@ def get_redhead_evade_settings(entity):
 
     duration_min = max(0.05, value("duration_min"))
     duration_max = max(duration_min, value("duration_max"))
-    switch_min = max(0.05, value("side_switch_min"))
-    switch_max = max(switch_min, value("side_switch_max"))
     return {
         "chance": max(0.0, min(1.0, value("chance"))),
         "aim_margin": max(0.0, value("aim_margin")),
@@ -2941,11 +3086,22 @@ def get_redhead_evade_settings(entity):
         "cooldown": max(0.0, value("cooldown")),
         "duration_min": duration_min,
         "duration_max": duration_max,
-        "side_switch_min": switch_min,
-        "side_switch_max": switch_max,
-        "forward_weight": max(0.05, value("forward_weight")),
-        "lateral_weight": max(0.0, value("lateral_weight")),
-        "speed_multiplier": max(0.1, value("speed_multiplier")),
+        "search_radius_tiles": max(1, int(round(value("search_radius_tiles")))),
+        "minimum_lateral_tiles": max(0.0, value("minimum_lateral_tiles")),
+        "maximum_retreat_tiles": max(0.0, value("maximum_retreat_tiles")),
+        "top_candidate_count": max(1, int(round(value("top_candidate_count")))),
+        "lateral_score_weight": max(0.0, value("lateral_score_weight")),
+        "aim_clearance_score_weight": max(
+            0.0, value("aim_clearance_score_weight"),
+        ),
+        "progress_score_weight": max(0.0, value("progress_score_weight")),
+        "path_cost_score_weight": max(0.0, value("path_cost_score_weight")),
+        "preferred_side_score": max(0.0, value("preferred_side_score")),
+        "cover_score_weight": max(0.0, value("cover_score_weight")),
+        "waypoint_arrival_radius": max(
+            0.0, value("waypoint_arrival_radius"),
+        ),
+        "stuck_replan_delay": max(0.05, value("stuck_replan_delay")),
     }
 
 
@@ -3061,13 +3217,10 @@ def on_redhead_state_enter(entity, state, entered_from, tile_map, audio_runtime)
         entity["evade_duration"] = random.uniform(
             settings["duration_min"], settings["duration_max"],
         )
-        entity["evade_side"] = -1.0 if random.random() < 0.5 else 1.0
-        entity["evade_side_switch_timer"] = random.uniform(
-            settings["side_switch_min"], settings["side_switch_max"],
-        )
         entity["evade_cooldown_timer"] = settings["cooldown"]
         entity["evade_reaction_timer"] = 0.0
         entity["evade_retry_timer"] = 0.0
+        entity["evade_stuck_timer"] = 0.0
         queue_gameplay_audio(
             audio_runtime, "redhead_evade", source_id, "enemy",
             world_position, priority=1.0,
@@ -3599,88 +3752,359 @@ def get_redhead_chase_target_abs(entity, player_info, tile_map, can_move):
     return make_pos_abs(entity.get("position", {}), tile_width, tile_height)
 
 
-def redhead_evade_direction(entity, target_position, tile_map, side=None):
+def tactical_tile_center_position(tile_x, tile_y, tile_map):
+    return {
+        "tile_x": int(tile_x),
+        "tile_y": int(tile_y),
+        "x": tile_map.get("tile_width", 16) * 0.5,
+        "y": tile_map.get("tile_height", 16) * 0.5,
+    }
+
+
+def redhead_can_occupy_tactical_tile(entity, tile_x, tile_y, tile_map):
+    if tile_not_in_bounds(tile_x, tile_y, tile_map):
+        return False
+    index = tile_y * tile_map["map_width"] + tile_x
+    tiles = tile_map.get("tiles", [])
+    if index < 0 or index >= len(tiles) or tile_is_collidable(
+            tiles[index], tile_map):
+        return False
+    tile_width = max(1.0, float(tile_map.get("tile_width", 16)))
+    tile_height = max(1.0, float(tile_map.get("tile_height", 16)))
+    centre_x = (tile_x + 0.5) * tile_width
+    centre_y = (tile_y + 0.5) * tile_height
+    half_width = max(0.0, float(entity.get("entity_width", 0.0))) * 0.5
+    half_height = max(0.0, float(entity.get("entity_height", 0.0))) * 0.5
+    map_pixel_width = tile_map.get("map_width", 0) * tile_width
+    map_pixel_height = tile_map.get("map_height", 0) * tile_height
+    if (centre_x - half_width < 0.0 or centre_y - half_height < 0.0
+            or centre_x + half_width >= map_pixel_width
+            or centre_y + half_height >= map_pixel_height):
+        return False
+    footprint = make_player_points(
+        tactical_tile_center_position(tile_x, tile_y, tile_map),
+        entity["entity_width"], entity["entity_height"],
+        tile_width, tile_height,
+    )
+    return is_legal_position_on_tilemap(footprint, tile_map)
+
+
+def build_redhead_tactical_reachability(entity, tile_map, radius_tiles):
+    """Perform one bounded local search and retain paths to every result."""
+    start = entity.get("position", {})
+    start_key = (
+        int(start.get("tile_x", -1)), int(start.get("tile_y", -1)),
+    )
+    if tile_not_in_bounds(start_key[0], start_key[1], tile_map):
+        return {"start": start_key, "came_from": {}, "cost": {}, "depth": {}}
+
+    radius_tiles = max(1, int(radius_tiles))
+    frontier = [start_key]
+    frontier_index = 0
+    came_from = {start_key: None}
+    cost = {start_key: 0.0}
+    depth = {start_key: 0}
+    occupancy_cache = {}
+    tiles = tile_map.get("tiles", [])
+    map_width = tile_map.get("map_width", 0)
+
+    def can_occupy(tile_key):
+        if tile_key not in occupancy_cache:
+            occupancy_cache[tile_key] = redhead_can_occupy_tactical_tile(
+                entity, tile_key[0], tile_key[1], tile_map,
+            )
+        return occupancy_cache[tile_key]
+
+    while frontier_index < len(frontier):
+        current_key = frontier[frontier_index]
+        frontier_index += 1
+        current_depth = depth[current_key]
+        if current_depth >= radius_tiles:
+            continue
+        current_index = current_key[1] * map_width + current_key[0]
+        if current_index < 0 or current_index >= len(tiles):
+            continue
+        current_tile = tiles[current_index]
+        neighbours = current_tile.get("neighbours")
+        if not isinstance(neighbours, dict):
+            neighbours = get_neighbouring_tiles(current_tile, tile_map)
+        for neighbour in filter_invalid_neighbours(neighbours, tile_map):
+            next_key = (
+                int(neighbour.get("tile_x", -1)),
+                int(neighbour.get("tile_y", -1)),
+            )
+            if next_key in came_from or not can_occupy(next_key):
+                continue
+            diagonal = (
+                next_key[0] != current_key[0]
+                and next_key[1] != current_key[1]
+            )
+            if diagonal and (
+                    not can_occupy((next_key[0], current_key[1]))
+                    or not can_occupy((current_key[0], next_key[1]))):
+                continue
+            came_from[next_key] = current_key
+            depth[next_key] = current_depth + 1
+            cost[next_key] = cost[current_key] + (
+                math.sqrt(2.0) if diagonal else 1.0
+            )
+            frontier.append(next_key)
+    return {
+        "start": start_key,
+        "came_from": came_from,
+        "cost": cost,
+        "depth": depth,
+    }
+
+
+def reconstruct_tactical_tile_path(reachability, goal_key):
+    came_from = reachability.get("came_from", {})
+    if goal_key not in came_from:
+        return []
+    path = []
+    current = goal_key
+    while current is not None:
+        path.append({"tile_x": current[0], "tile_y": current[1]})
+        current = came_from[current]
+    path.reverse()
+    return path
+
+
+def redhead_evade_cover_score(entity, candidate_tile, player_info, tile_map):
+    """Extension seam for later authored or geometric cover evaluation."""
+    return 0.0
+
+
+def make_redhead_evade_scoring_context(entity, player_info, chase_target,
+                                        tile_map, settings=None):
+    if settings is None:
+        settings = get_redhead_evade_settings(entity)
+    tile_width = max(1.0, float(tile_map.get("tile_width", 16)))
+    tile_height = max(1.0, float(tile_map.get("tile_height", 16)))
+    tile_scale = max(1.0, (tile_width + tile_height) * 0.5)
     entity_world = make_pos_abs(
-        entity.get("position", {}),
-        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+        entity.get("position", {}), tile_width, tile_height,
     )
-    forward = vec2_normalize(vec2_subtract(target_position, entity_world))
+    player_world = make_pos_abs(
+        player_info.get("position", {}), tile_width, tile_height,
+    )
+    aim_direction = vec2_normalize(player_info.get("aim_direction", {}))
+    if vec2_norm(aim_direction) <= 0.000001:
+        aim_direction = vec2_normalize(
+            vec2_subtract(entity_world, player_world),
+        )
+    forward = vec2_normalize(vec2_subtract(chase_target, entity_world))
     if vec2_norm(forward) <= 0.000001:
-        return forward
-    settings = get_redhead_evade_settings(entity)
-    lateral = {"x": -forward["y"], "y": forward["x"]}
-    side = float(entity.get("evade_side", 1.0) if side is None else side)
-    desired = vec2_add(
-        vec2_scale(forward, settings["forward_weight"]),
-        vec2_scale(lateral, settings["lateral_weight"] * side),
+        forward = vec2_scale(aim_direction, -1.0)
+    return {
+        "settings": settings,
+        "tile_width": tile_width,
+        "tile_height": tile_height,
+        "tile_scale": tile_scale,
+        "entity_world": entity_world,
+        "player_world": player_world,
+        "aim_direction": aim_direction,
+        "lateral_axis": {"x": -forward["y"], "y": forward["x"]},
+        "current_distance": vec2_distance(entity_world, chase_target),
+    }
+
+
+def score_redhead_evade_candidate(entity, candidate_key, path_cost,
+                                  player_info, chase_target, tile_map,
+                                  preferred_side, settings=None,
+                                  scoring_context=None):
+    if scoring_context is None:
+        scoring_context = make_redhead_evade_scoring_context(
+            entity, player_info, chase_target, tile_map, settings,
+        )
+    settings = scoring_context["settings"]
+    tile_width = scoring_context["tile_width"]
+    tile_height = scoring_context["tile_height"]
+    tile_scale = scoring_context["tile_scale"]
+    entity_world = scoring_context["entity_world"]
+    candidate_position = tactical_tile_center_position(
+        candidate_key[0], candidate_key[1], tile_map,
     )
-    return vec2_normalize(desired)
-
-
-def choose_redhead_evade_direction(entity, target_position, tile_map, dt):
-    settings = get_redhead_evade_settings(entity)
-    entity_world = make_pos_abs(
-        entity.get("position", {}),
-        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    candidate_world = make_pos_abs(
+        candidate_position, tile_width, tile_height,
     )
-    forward = vec2_normalize(vec2_subtract(target_position, entity_world))
-    if vec2_norm(forward) <= 0.000001:
-        return forward
-    speed = float(entity.get("speed", 150.0)) * settings["speed_multiplier"]
-    current_distance = vec2_distance(entity_world, target_position)
+    candidate_delta = vec2_subtract(candidate_world, entity_world)
 
-    def candidate_is_useful(direction):
-        candidate = move_position_by_velocity(
-            entity.get("position", {}), vec2_scale(direction, speed), dt,
-            tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
-        )
-        candidate_world = make_pos_abs(
-            candidate,
-            tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
-        )
-        return (
-            vec2_distance(candidate_world, target_position)
-            <= current_distance + 0.0001
-            and entity_position_is_legal(candidate, entity, tile_map)
-        )
+    player_world = scoring_context["player_world"]
+    aim_direction = scoring_context["aim_direction"]
+    lateral_axis = scoring_context["lateral_axis"]
+    signed_lateral = vec2_dot(candidate_delta, lateral_axis) / tile_scale
+    lateral_tiles = abs(signed_lateral)
 
-    side = -1.0 if float(entity.get("evade_side", 1.0)) < 0.0 else 1.0
-    preferred = redhead_evade_direction(entity, target_position, tile_map, side)
-    if candidate_is_useful(preferred):
-        return preferred
-    alternate = redhead_evade_direction(entity, target_position, tile_map, -side)
-    if candidate_is_useful(alternate):
-        entity["evade_side"] = -side
-        return alternate
-    return forward
+    current_distance = scoring_context["current_distance"]
+    candidate_distance = vec2_distance(candidate_world, chase_target)
+    progress_tiles = (current_distance - candidate_distance) / tile_scale
+    if progress_tiles < -settings["maximum_retreat_tiles"]:
+        return None
+    if lateral_tiles < settings["minimum_lateral_tiles"]:
+        return None
+
+    player_to_candidate = vec2_subtract(candidate_world, player_world)
+    aim_distance = vec2_dot(player_to_candidate, aim_direction)
+    aim_distance = max(0.0, min(settings["aim_max_distance"], aim_distance))
+    nearest_aim_point = vec2_add(
+        player_world, vec2_scale(aim_direction, aim_distance),
+    )
+    aim_clearance_tiles = (
+        vec2_distance(candidate_world, nearest_aim_point) / tile_scale
+    )
+    side_bonus = (
+        1.0 if signed_lateral * preferred_side > 0.0 else 0.0
+    )
+    cover_score = redhead_evade_cover_score(
+        entity, candidate_position, player_info, tile_map,
+    )
+    components = {
+        "signed_lateral_tiles": signed_lateral,
+        "lateral_tiles": lateral_tiles,
+        "aim_clearance_tiles": aim_clearance_tiles,
+        "progress_tiles": progress_tiles,
+        "path_cost": path_cost,
+        "preferred_side": side_bonus,
+        "cover": cover_score,
+    }
+    score = (
+        lateral_tiles * settings["lateral_score_weight"]
+        + aim_clearance_tiles * settings["aim_clearance_score_weight"]
+        + progress_tiles * settings["progress_score_weight"]
+        - path_cost * settings["path_cost_score_weight"]
+        + side_bonus * settings["preferred_side_score"]
+        + cover_score * settings["cover_score_weight"]
+    )
+    return {
+        "tile_x": candidate_key[0],
+        "tile_y": candidate_key[1],
+        "score": score,
+        "components": components,
+    }
+
+
+def choose_redhead_evade_navigation(entity, player_info, chase_target,
+                                     tile_map, preferred_side=None):
+    settings = get_redhead_evade_settings(entity)
+    if preferred_side is None:
+        preferred_side = random.choice((-1.0, 1.0))
+    preferred_side = -1.0 if float(preferred_side) < 0.0 else 1.0
+    reachability = build_redhead_tactical_reachability(
+        entity, tile_map, settings["search_radius_tiles"],
+    )
+    scoring_context = make_redhead_evade_scoring_context(
+        entity, player_info, chase_target, tile_map, settings,
+    )
+    candidates = []
+    start_key = reachability["start"]
+    for candidate_key, path_cost in reachability["cost"].items():
+        if candidate_key == start_key:
+            continue
+        candidate = score_redhead_evade_candidate(
+            entity, candidate_key, path_cost, player_info, chase_target,
+            tile_map, preferred_side, settings, scoring_context,
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+    candidates.sort(
+        key=lambda candidate: (
+            -candidate["score"], candidate["tile_y"], candidate["tile_x"],
+        ),
+    )
+    if not candidates:
+        return None
+    top_candidates = []
+    for candidate in candidates:
+        candidate_position = tactical_tile_center_position(
+            candidate["tile_x"], candidate["tile_y"], tile_map,
+        )
+        if entity_position_is_legal(candidate_position, entity, tile_map):
+            top_candidates.append(candidate)
+            if len(top_candidates) >= settings["top_candidate_count"]:
+                break
+    if not top_candidates:
+        return None
+    selected = random.choice(top_candidates)
+    goal_key = (selected["tile_x"], selected["tile_y"])
+    path = reconstruct_tactical_tile_path(reachability, goal_key)
+    if len(path) < 2:
+        return None
+    selected_side = (
+        -1.0
+        if selected["components"]["signed_lateral_tiles"] < 0.0
+        else 1.0
+    )
+    return {
+        "intent": "evade",
+        "goal_tile": {"tile_x": goal_key[0], "tile_y": goal_key[1]},
+        "path": path,
+        "waypoint_index": 1,
+        "geometry_revision": int(tile_map.get("geometry_revision", 0)),
+        "preferred_side": selected_side,
+        "requested_side": preferred_side,
+        "score": selected["score"],
+        "score_components": dict(selected["components"]),
+    }
+
+
+def prepare_redhead_evade_navigation(entity, player_info, chase_target,
+                                      tile_map, preferred_side=None):
+    navigation = choose_redhead_evade_navigation(
+        entity, player_info, chase_target, tile_map, preferred_side,
+    )
+    if navigation is None:
+        return False
+    entity["navigation"] = navigation
+    entity["evade_side"] = navigation["preferred_side"]
+    entity["evade_stuck_timer"] = 0.0
+    return True
+
+
+def get_redhead_evade_waypoint(entity, tile_map, arrival_epsilon=6.0):
+    navigation = entity.get("navigation", {})
+    if not isinstance(navigation, dict) or navigation.get("intent") != "evade":
+        return None, None
+    path = navigation.get("path", [])
+    if not isinstance(path, list) or not path:
+        return None, None
+    waypoint_index = max(1, int(navigation.get("waypoint_index", 1)))
+    tile_offset = {
+        "x": tile_map.get("tile_width", 16) * 0.5,
+        "y": tile_map.get("tile_height", 16) * 0.5,
+    }
+    while waypoint_index < len(path) and tiles_close(
+            entity.get("position", {}), path[waypoint_index], tile_offset,
+            arrival_epsilon):
+        waypoint_index += 1
+    navigation["waypoint_index"] = waypoint_index
+    if waypoint_index >= len(path):
+        return None, None
+    waypoint = path[waypoint_index]
+    return waypoint, get_abs_pos_from_index_given_offset(
+        waypoint, tile_offset, tile_map,
+    )
 
 
 def move_redhead_in_direction(entity, direction, tile_map, debug_queue, dt,
                               speed_multiplier=1.0):
-    speed = float(entity.get("speed", 150.0)) * max(0.1, speed_multiplier)
-    target_velocity = vec2_scale(vec2_normalize(direction), speed)
-    acceleration = float(entity.get("acceleration", 1000.0))
-    reverse_acceleration = float(entity.get("reverse_acceleration", 1800.0))
-    ai_velocity = get_or_set(entity, "ai_velocity", {"x": 0.0, "y": 0.0})
-    if vec2_dot(ai_velocity, target_velocity) < 0.0:
-        acceleration = reverse_acceleration
-    ai_velocity = vec2_move_towards(
-        ai_velocity, target_velocity, acceleration * max(0.0, dt),
+    return move_redhead_with_locomotion(
+        entity, direction, tile_map, debug_queue, dt,
+        speed_multiplier=speed_multiplier,
     )
-    new_position = move_entity_with_velocity(
-        entity, ai_velocity, tile_map, debug_queue, dt,
-    )
-    entity["ai_velocity"] = ai_velocity
-    return new_position
+
+
+def clear_redhead_evade_navigation(entity):
+    navigation = entity.get("navigation")
+    if isinstance(navigation, dict) and navigation.get("intent") == "evade":
+        entity.pop("navigation", None)
+    entity["evade_stuck_timer"] = 0.0
 
 
 def evade_redhead_state(entity, current_state, player_info, tile_map,
                          debug_queue, dt):
     settings = get_redhead_evade_settings(entity)
     can_see, seen_pos = alice_can_see_bob_points(
-        entity, player_info, tile_map, debug_queue,
-    )
-    can_move = can_see and alice_can_move_to_bob(
         entity, player_info, tile_map, debug_queue,
     )
     if can_see:
@@ -3693,54 +4117,101 @@ def evade_redhead_state(entity, current_state, player_info, tile_map,
             0.0, float(entity.get("breadcrumb_timer", 0.0)),
         ) + max(0.0, dt)
 
-    target_position = get_redhead_chase_target_abs(
-        entity, player_info, tile_map, can_move,
+    tile_width = tile_map.get("tile_width", 16)
+    tile_height = tile_map.get("tile_height", 16)
+    chase_target = make_pos_abs(
+        player_info.get("position", {}), tile_width, tile_height,
     )
-    switch_timer = float(entity.get("evade_side_switch_timer", 0.0)) - dt
-    if switch_timer <= 0.0:
-        entity["evade_side"] = -float(entity.get("evade_side", 1.0))
-        switch_timer = random.uniform(
-            settings["side_switch_min"], settings["side_switch_max"],
+    navigation = entity.get("navigation", {})
+    navigation_valid = (
+        isinstance(navigation, dict)
+        and navigation.get("intent") == "evade"
+        and int(navigation.get("geometry_revision", -1))
+        == int(tile_map.get("geometry_revision", 0))
+    )
+    if not navigation_valid:
+        preferred_side = (
+            navigation.get("preferred_side")
+            if isinstance(navigation, dict) else None
         )
-    entity["evade_side_switch_timer"] = switch_timer
+        if not prepare_redhead_evade_navigation(
+                entity, player_info, chase_target, tile_map, preferred_side):
+            clear_redhead_evade_navigation(entity)
+            return "angry chase"
+        navigation = entity["navigation"]
 
-    desired_direction = choose_redhead_evade_direction(
-        entity, target_position, tile_map, dt,
+    waypoint, waypoint_target = get_redhead_evade_waypoint(
+        entity, tile_map,
     )
-    entity["position"] = move_redhead_in_direction(
-        entity, desired_direction, tile_map, debug_queue, dt,
-        settings["speed_multiplier"],
+    if waypoint is None:
+        clear_redhead_evade_navigation(entity)
+        return "angry chase"
+
+    before_world = make_pos_abs(
+        entity.get("position", {}), tile_width, tile_height,
     )
+    movement_settings = get_redhead_movement_settings(entity)
+    entity["position"] = move_entity_towards_target_abs(
+        entity, waypoint_target, tile_map, debug_queue, dt,
+        arrival_radius=settings["waypoint_arrival_radius"],
+        speed_multiplier=movement_settings["evade_speed_multiplier"],
+    )
+    after_world = make_pos_abs(
+        entity.get("position", {}), tile_width, tile_height,
+    )
+    moved_distance = vec2_distance(before_world, after_world)
+    ai_velocity = entity.get("ai_velocity", {})
+    ai_speed = math.hypot(
+        float(ai_velocity.get("x", 0.0)) if isinstance(ai_velocity, dict) else 0.0,
+        float(ai_velocity.get("y", 0.0)) if isinstance(ai_velocity, dict) else 0.0,
+    )
+    if moved_distance <= 0.01 and ai_speed <= 1.0:
+        entity["evade_stuck_timer"] = max(
+            0.0, float(entity.get("evade_stuck_timer", 0.0)),
+        ) + max(0.0, dt)
+    else:
+        entity["evade_stuck_timer"] = 0.0
+    if entity["evade_stuck_timer"] >= settings["stuck_replan_delay"]:
+        alternate_side = -float(navigation.get("preferred_side", 1.0))
+        if not prepare_redhead_evade_navigation(
+                entity, player_info, chase_target, tile_map, alternate_side):
+            clear_redhead_evade_navigation(entity)
+            return "angry chase"
+
     entity["evade_elapsed"] = max(
         0.0, float(entity.get("evade_elapsed", 0.0)),
     ) + max(0.0, dt)
 
     if debug_queue is not None:
-        entity_world = make_pos_abs(
-            entity.get("position", {}),
-            tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
-        )
-        debug_queue.append({
-            "type": "line", "drawing_function": draw_debug_line,
-            "pos_start": entity_world,
-            "pos_end": vec2_add(entity_world, vec2_scale(desired_direction, 24.0)),
-            "line_width": 2, "color": "PURPLE", "z_sort": -1,
-            "debug_modes": ["collisions"],
-        })
+        active_navigation = entity.get("navigation", navigation)
+        active_path = active_navigation.get("path", [])
+        active_index = int(active_navigation.get("waypoint_index", 1))
+        for path_index, path_tile in enumerate(active_path):
+            debug_queue.append({
+                "type": "tile",
+                "tile_x": path_tile.get("tile_x", 0),
+                "tile_y": path_tile.get("tile_y", 0),
+                "tile_width": tile_width,
+                "tile_height": tile_height,
+                "color": "PURPLE" if path_index >= active_index else "PINK",
+                "drawing_function": draw_debug_tile,
+                "z_sort": 1,
+                "debug_modes": ["pathfinding"],
+            })
 
     player_world = make_pos_abs(
-        player_info.get("position", {}),
-        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+        player_info.get("position", {}), tile_width, tile_height,
     )
     entity_world = make_pos_abs(
-        entity.get("position", {}),
-        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+        entity.get("position", {}), tile_width, tile_height,
     )
     if vec2_distance(entity_world, player_world) <= max(
             0.0, float(entity.get("attack_engage_distance", 40.0))):
+        clear_redhead_evade_navigation(entity)
         return "angry and attacking"
     if entity["evade_elapsed"] >= float(entity.get(
             "evade_duration", settings["duration_max"])):
+        clear_redhead_evade_navigation(entity)
         return "angry chase"
     return current_state
 
@@ -3822,7 +4293,14 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
         debug_queue.append(debug_item)
 
 
-    new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
+    direct_arrival_radius = (
+        max(0.0, float(entity.get("attack_engage_distance", 40.0)))
+        if can_move else None
+    )
+    new_position = move_entity_towards_target_abs(
+        entity, target_pos, tile_map, debug_queue, dt,
+        arrival_radius=direct_arrival_radius,
+    )
     # we could do a raycast along positions to check if we 'hit' the target on the way maybe
 
     entity["position"] = new_position
@@ -3867,7 +4345,13 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
             and update_redhead_evade_trigger(
                 entity, player_info, tile_map, can_see, dt,
             )):
-        next_state = "evade"
+        if prepare_redhead_evade_navigation(
+                entity, player_info, player_pos_abs, tile_map):
+            next_state = "evade"
+        else:
+            entity["evade_retry_timer"] = get_redhead_evade_settings(
+                entity,
+            )["failed_retry_delay"]
     return next_state
 
 
@@ -4122,6 +4606,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
     for entity_id, entity in entities.get("brains",{}).items():
         if entity.get("type","") == "red head":
+            ensure_redhead_movement_settings(entity)
             previous_audio_position = make_pos_abs(entity.get("position", {}), tile_width, tile_height)
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
@@ -5184,6 +5669,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         fog_profile, wind_profile, camera_3d.position, tile_map, show_editor,
         rain_profile=rain_profile, audio_profile=audio_profile,
         audio_runtime=audio_runtime,
+        redhead_movement_defaults=REDHEAD_MOVEMENT_DEFAULTS,
+        redhead_evade_defaults=REDHEAD_EVADE_DEFAULTS,
     )
     if editor_mode == "tile":
         g_editor.draw_tile_edit_controls(ui_state, editor_state, tile_map)

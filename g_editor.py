@@ -859,7 +859,7 @@ def capture_editor_ui_regions(ui_state, editor_state, editor_mode):
     toolbar_rect = pr.Rectangle(0, 0, 480, 38)
     inspector_rect = pr.Rectangle(306, 38, 174, 232)
 
-    inspector_visible = editor_mode == "environment" and not editor_state.get("inspector_collapsed", False)
+    inspector_visible = editor_mode in {"environment", "entity"} and not editor_state.get("inspector_collapsed", False)
 
     if g_ui.ui_point_in_rect(mouse, toolbar_rect) or (inspector_visible and g_ui.ui_point_in_rect(mouse, inspector_rect)):
         g_ui.ui_capture_mouse(ui_state)
@@ -1448,7 +1448,127 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
 
     g_ui.ui_end_panel(ui_state)
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None):
+def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
+                                   movement_defaults=None,
+                                   evade_defaults=None):
+    collapse_rect = pr.Rectangle(308, 40, 14, 14)
+    if g_ui.ui_button(
+            ui_state, "entity_inspector:collapse",
+            "<" if editor_state.get("inspector_collapsed", False) else ">",
+            collapse_rect):
+        editor_state["inspector_collapsed"] = not editor_state.get(
+            "inspector_collapsed", False,
+        )
+    if editor_state.get("inspector_collapsed", False):
+        return
+
+    panel_rect = pr.Rectangle(324, 38, 156, 232)
+    if (g_ui.ui_point_in_rect(g_ui.get_mouse_position(), panel_rect)
+            and ui_state.get("open_dropdown_id") is None):
+        editor_state["entity_inspector_scroll"] = max(
+            0.0,
+            editor_state.get("entity_inspector_scroll", 0.0)
+            - pr.get_mouse_wheel_move() * 18.0,
+        )
+    g_ui.ui_begin_panel(
+        ui_state, "entity_inspector:panel", panel_rect, "Entity",
+        editor_state.get("entity_inspector_scroll", 0.0),
+    )
+    entity = get_selected_gameplay_entity(entities, editor_state)
+    if entity is None:
+        g_ui.ui_label(
+            ui_state, "entity_inspector:none", "No entity selected",
+            color=g_ui.UI_MUTED, font_size=8,
+        )
+        g_ui.ui_end_panel(ui_state)
+        return
+
+    entity_id = editor_state.get("selected_id")
+    entity_type = str(entity.get("type", "entity"))
+    g_ui.ui_label(
+        ui_state, "entity_inspector:selected",
+        f"{entity_type} [{entity_id}]", color=g_ui.UI_ACCENT, font_size=8,
+    )
+    g_ui.ui_label(
+        ui_state, "entity_inspector:state",
+        f"state: {entity.get('current_state', 'n/a')}",
+        color=g_ui.UI_MUTED, font_size=8,
+    )
+
+    if entity_type == "red head" and isinstance(movement_defaults, dict):
+        movement = entity.setdefault("movement_settings", {})
+        if not isinstance(movement, dict):
+            movement = {}
+            entity["movement_settings"] = movement
+        legacy_fields = {
+            "max_speed": "speed",
+            "acceleration": "acceleration",
+            "reverse_acceleration": "reverse_acceleration",
+            "arrival_radius": "arrival_radius",
+        }
+        ranges = (
+            ("max_speed", "max speed", 0.0, 300.0),
+            ("acceleration", "acceleration", 0.0, 1000.0),
+            ("deceleration", "deceleration", 0.0, 1500.0),
+            ("reverse_acceleration", "reverse accel", 0.0, 2000.0),
+            ("arrival_radius", "arrival radius", 0.0, 64.0),
+            ("evade_speed_multiplier", "evade speed", 0.0, 3.0),
+        )
+        for name, label, minimum, maximum in ranges:
+            fallback = movement_defaults.get(name, minimum)
+            legacy_name = legacy_fields.get(name)
+            if name == "evade_speed_multiplier":
+                evade = entity.get("evade_settings", {})
+                if isinstance(evade, dict):
+                    fallback = evade.get("speed_multiplier", fallback)
+            elif legacy_name is not None:
+                fallback = entity.get(legacy_name, fallback)
+            movement[name], _ = g_ui.ui_number_input_float(
+                ui_state, f"entity_inspector:movement:{name}", label,
+                movement.get(name, fallback), minimum, maximum,
+            )
+
+        if isinstance(evade_defaults, dict):
+            g_ui.ui_separator(ui_state, "entity_inspector:evade_separator")
+            g_ui.ui_label(
+                ui_state, "entity_inspector:evade_label", "Evade planning",
+                color=g_ui.UI_ACCENT, font_size=8,
+            )
+            evade = entity.setdefault("evade_settings", {})
+            if not isinstance(evade, dict):
+                evade = {}
+                entity["evade_settings"] = evade
+            for name, label, minimum, maximum in (
+                    ("chance", "chance", 0.0, 1.0),
+                    ("duration_min", "duration min", 0.05, 5.0),
+                    ("duration_max", "duration max", 0.05, 5.0),
+                    ("minimum_lateral_tiles", "minimum lateral", 0.0, 8.0),
+                    ("maximum_retreat_tiles", "maximum retreat", 0.0, 4.0),
+                    ("lateral_score_weight", "lateral weight", 0.0, 10.0),
+                    ("aim_clearance_score_weight", "aim clearance", 0.0, 10.0),
+                    ("progress_score_weight", "progress weight", 0.0, 10.0),
+                    ("path_cost_score_weight", "path cost", 0.0, 10.0),
+                    ("preferred_side_score", "side preference", 0.0, 10.0),
+                    ("waypoint_arrival_radius", "waypoint radius", 0.0, 16.0),
+                    ("stuck_replan_delay", "stuck replan", 0.05, 2.0)):
+                evade[name], _ = g_ui.ui_number_input_float(
+                    ui_state, f"entity_inspector:evade:{name}", label,
+                    evade.get(name, evade_defaults.get(name, minimum)),
+                    minimum, maximum,
+                )
+            for name, label, minimum, maximum in (
+                    ("search_radius_tiles", "search radius", 1, 10),
+                    ("top_candidate_count", "top candidates", 1, 12)):
+                evade[name], _ = g_ui.ui_number_input_int(
+                    ui_state, f"entity_inspector:evade:{name}", label,
+                    int(evade.get(name, evade_defaults.get(name, minimum))),
+                    minimum, maximum,
+                )
+
+    g_ui.ui_end_panel(ui_state)
+
+
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None):
     if not show_editor:
         return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
@@ -1470,6 +1590,12 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
             editor_state["tool"] = "select"
         if pr.is_key_pressed(pr.KeyboardKey.KEY_P):
             editor_state["tool"] = "place"
+
+    if editor_mode == "entity":
+        draw_gameplay_entity_inspector(
+            ui_state, editor_state, entities, redhead_movement_defaults,
+            redhead_evade_defaults,
+        )
 
     return editor_mode
 

@@ -218,6 +218,76 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         collection = {0: {}, 2: {}, "legacy": {}}
         self.assertEqual(g_editor.allocate_gameplay_entity_id(collection), 3)
 
+    def test_selected_redhead_inspector_authors_individual_movement_values(self):
+        entity = {
+            "id": 7,
+            "type": "red head",
+            "current_state": "idle",
+            "movement_settings": {
+                "max_speed": 70.0,
+                "acceleration": 140.0,
+                "deceleration": 220.0,
+                "reverse_acceleration": 280.0,
+                "arrival_radius": 3.0,
+                "evade_speed_multiplier": 1.0,
+            },
+        }
+        entities = {"brains": {7: entity}, "pickups": {}}
+        state = g_editor.make_editor_state()
+        state.update({
+            "selected_kind": "gameplay_entity",
+            "selected_collection": "brains",
+            "selected_id": 7,
+        })
+        defaults = dict(entity["movement_settings"])
+        evade_defaults = {
+            "chance": 0.35, "duration_min": 1.0, "duration_max": 2.0,
+            "minimum_lateral_tiles": 1.25,
+            "maximum_retreat_tiles": 0.5,
+            "lateral_score_weight": 2.0,
+            "aim_clearance_score_weight": 2.5,
+            "progress_score_weight": 1.0,
+            "path_cost_score_weight": 0.35,
+            "preferred_side_score": 0.4,
+            "cover_score_weight": 0.0,
+            "waypoint_arrival_radius": 4.0,
+            "stuck_replan_delay": 0.35,
+            "search_radius_tiles": 4,
+            "top_candidate_count": 3,
+        }
+
+        def edit_number(_ui, widget_id, _label, value, _minimum, _maximum,
+                        rect=None):
+            if widget_id.endswith(":max_speed"):
+                return 52.0, True
+            return value, False
+
+        with mock.patch.object(g_ui, "ui_button", return_value=False), \
+                mock.patch.object(g_ui, "ui_point_in_rect", return_value=False), \
+                mock.patch.object(g_ui, "get_mouse_position", return_value=object()), \
+                mock.patch.object(g_ui, "ui_begin_panel"), \
+                mock.patch.object(g_ui, "ui_end_panel"), \
+                mock.patch.object(g_ui, "ui_label"), \
+                mock.patch.object(
+                    g_ui, "ui_separator",
+                ), \
+                mock.patch.object(
+                    g_ui, "ui_number_input_float", side_effect=edit_number,
+                ) as inputs, \
+                mock.patch.object(
+                    g_ui, "ui_number_input_int",
+                    side_effect=lambda _ui, _id, _label, value, _min, _max,
+                    rect=None: (value, False),
+                ) as integer_inputs:
+            g_editor.draw_gameplay_entity_inspector(
+                {}, state, entities, defaults, evade_defaults,
+            )
+
+        self.assertEqual(entity["movement_settings"]["max_speed"], 52.0)
+        self.assertEqual(inputs.call_count, 18)
+        self.assertEqual(integer_inputs.call_count, 2)
+        self.assertEqual(entity["evade_settings"]["search_radius_tiles"], 4)
+
     def test_player_readability_light_has_constrained_capabilities(self):
         player = {"position": {"tile_x": 1, "tile_y": 1, "x": 0.0, "y": 0.0}}
         light = g_graphics.make_player_pointlight(player, self.tile_map)

@@ -163,10 +163,16 @@ class RedheadEvadeStateTests(unittest.TestCase):
         self.entity["evade_settings"]["chance"] = 2.0
         self.entity["evade_settings"]["duration_min"] = 2.0
         self.entity["evade_settings"]["duration_max"] = 1.0
+        self.entity["evade_settings"]["search_radius_tiles"] = 0
+        self.entity["evade_settings"]["top_candidate_count"] = 0
+        self.entity["evade_settings"]["minimum_lateral_tiles"] = -1.0
         settings = game.get_redhead_evade_settings(self.entity)
         self.assertEqual(settings["chance"], 1.0)
         self.assertEqual(settings["duration_min"], 2.0)
         self.assertEqual(settings["duration_max"], 2.0)
+        self.assertEqual(settings["search_radius_tiles"], 1)
+        self.assertEqual(settings["top_candidate_count"], 1)
+        self.assertEqual(settings["minimum_lateral_tiles"], 0.0)
         self.assertEqual(
             other["evade_settings"]["chance"],
             game.REDHEAD_EVADE_DEFAULTS["chance"],
@@ -228,18 +234,26 @@ class RedheadEvadeStateTests(unittest.TestCase):
                 mock.patch.object(
                     game, "move_entity_towards_target_abs",
                     return_value=dict(self.entity["position"])), \
+                mock.patch.object(
+                    game, "prepare_redhead_evade_navigation", return_value=True,
+                ) as prepare_evade, \
                 mock.patch.object(game.random, "random", return_value=0.0):
             self.assertEqual(game.angry_chase_state(
                 self.entity, "angry chase", self.player, self.tile_map,
                 None, self.audio, 0.01,
             ), "evade")
+        prepare_evade.assert_called_once()
 
     def test_evade_entry_initialises_once_and_queues_positional_bark(self):
         self.entity.update({
             "current_state": "evade", "previous_state": "angry chase",
+            "evade_side": -1.0,
+            "navigation": {
+                "intent": "evade", "preferred_side": -1.0,
+                "path": [{"tile_x": 5, "tile_y": 2}],
+            },
         })
-        with mock.patch.object(game.random, "uniform", side_effect=(1.5, 0.4)), \
-                mock.patch.object(game.random, "random", return_value=0.25), \
+        with mock.patch.object(game.random, "uniform", return_value=1.5), \
                 mock.patch.object(game, "evade_redhead_state", return_value="evade"):
             next_state = game.transition_entity_state(
                 self.entity, "evade", self.player, self.tile_map, None,
@@ -261,18 +275,159 @@ class RedheadEvadeStateTests(unittest.TestCase):
             {"x": 88.0, "y": 40.0},
         )
 
-    def test_evade_direction_has_lateral_and_forward_components(self):
-        target = {"x": 200.0, "y": 40.0}
-        right = game.redhead_evade_direction(
-            self.entity, target, self.tile_map, side=1.0,
+    def test_evade_navigation_selects_a_lateral_reachable_path(self):
+        target = game.make_pos_abs(self.player["position"], 16, 16)
+        with mock.patch.object(
+                game.random, "choice", side_effect=lambda values: values[0]), \
+                mock.patch.object(game, "a_star_path") as global_pathfinder:
+            navigation = game.choose_redhead_evade_navigation(
+                self.entity, self.player, target, self.tile_map,
+                preferred_side=1.0,
+            )
+
+        self.assertIsNotNone(navigation)
+        self.assertEqual(navigation["intent"], "evade")
+        self.assertGreaterEqual(len(navigation["path"]), 2)
+        self.assertEqual(navigation["path"][0], {"tile_x": 5, "tile_y": 2})
+        self.assertGreaterEqual(
+            navigation["score_components"]["lateral_tiles"],
+            self.entity["evade_settings"]["minimum_lateral_tiles"],
         )
-        left = game.redhead_evade_direction(
-            self.entity, target, self.tile_map, side=-1.0,
+        self.assertLessEqual(
+            -navigation["score_components"]["progress_tiles"],
+            self.entity["evade_settings"]["maximum_retreat_tiles"],
         )
-        self.assertGreater(right["x"], 0.0)
-        self.assertGreater(right["y"], 0.0)
-        self.assertGreater(left["x"], 0.0)
-        self.assertLess(left["y"], 0.0)
+        global_pathfinder.assert_not_called()
+
+    def test_tactical_reachability_rejects_walls_and_map_edge_footprints(self):
+        wall = self.tile_map["tiles"][2 * 16 + 4]
+        wall["index"] = 3
+
+        reachability = game.build_redhead_tactical_reachability(
+            self.entity, self.tile_map, 4,
+        )
+
+        self.assertNotIn((4, 2), reachability["cost"])
+        self.assertFalse(any(
+            tile_y in {0, 5} for _tile_x, tile_y in reachability["cost"]
+        ))
+
+    def test_candidate_cover_component_is_an_explicit_scoring_hook(self):
+        target = game.make_pos_abs(self.player["position"], 16, 16)
+        self.entity["evade_settings"]["cover_score_weight"] = 2.0
+        with mock.patch.object(
+                game, "redhead_evade_cover_score", return_value=0.0):
+            uncovered = game.score_redhead_evade_candidate(
+                self.entity, (4, 4), 2.0, self.player, target,
+                self.tile_map, 1.0,
+            )
+        with mock.patch.object(
+                game, "redhead_evade_cover_score", return_value=5.0):
+            covered = game.score_redhead_evade_candidate(
+                self.entity, (4, 4), 2.0, self.player, target,
+                self.tile_map, 1.0,
+            )
+
+        self.assertEqual(covered["components"]["cover"], 5.0)
+        self.assertAlmostEqual(covered["score"] - uncovered["score"], 10.0)
+
+    def test_evade_waypoints_advance_without_touching_pursuit_path(self):
+        pursuit_path = [{"tile_x": 5, "tile_y": 2}]
+        self.entity["path_to_player"] = pursuit_path
+        self.entity["navigation"] = {
+            "intent": "evade",
+            "path": [
+                {"tile_x": 5, "tile_y": 2},
+                {"tile_x": 4, "tile_y": 3},
+                {"tile_x": 3, "tile_y": 4},
+            ],
+            "waypoint_index": 1,
+        }
+
+        waypoint, target = game.get_redhead_evade_waypoint(
+            self.entity, self.tile_map,
+        )
+        self.assertEqual(waypoint, {"tile_x": 4, "tile_y": 3})
+        self.assertEqual(target, {"x": 72.0, "y": 56.0})
+
+        self.entity["position"] = {
+            "tile_x": 4, "tile_y": 3, "x": 8.0, "y": 8.0,
+        }
+        waypoint, _ = game.get_redhead_evade_waypoint(
+            self.entity, self.tile_map,
+        )
+        self.assertEqual(waypoint, {"tile_x": 3, "tile_y": 4})
+        self.assertIs(self.entity["path_to_player"], pursuit_path)
+
+    def test_evade_state_follows_planned_waypoint_not_lateral_steering(self):
+        self.entity.update({
+            "current_state": "evade", "previous_state": "evade",
+            "evade_elapsed": 0.0, "evade_duration": 2.0,
+            "navigation": {
+                "intent": "evade",
+                "path": [
+                    {"tile_x": 5, "tile_y": 2},
+                    {"tile_x": 4, "tile_y": 3},
+                ],
+                "waypoint_index": 1,
+                "geometry_revision": 0,
+                "preferred_side": 1.0,
+            },
+        })
+        with mock.patch.object(
+                game, "alice_can_see_bob_points",
+                return_value=(True, self.player["position"])), \
+                mock.patch.object(
+                    game, "move_entity_towards_target_abs",
+                    return_value=dict(self.entity["position"]),
+                ) as move_to_waypoint, \
+                mock.patch.object(game, "move_redhead_in_direction") as steering:
+            state = game.evade_redhead_state(
+                self.entity, "evade", self.player, self.tile_map, None, 0.1,
+            )
+
+        self.assertEqual(state, "evade")
+        self.assertEqual(move_to_waypoint.call_args.args[1], {
+            "x": 72.0, "y": 56.0,
+        })
+        self.assertEqual(
+            move_to_waypoint.call_args.kwargs["arrival_radius"],
+            self.entity["evade_settings"]["waypoint_arrival_radius"],
+        )
+        steering.assert_not_called()
+
+    def test_failed_tactical_plan_keeps_chasing_and_sets_retry_delay(self):
+        self.entity["evade_settings"].update({
+            "chance": 1.0, "reaction_time": 0.0,
+        })
+        self.entity.update({
+            "current_state": "angry chase",
+            "previous_state": "angry chase",
+            "path_to_player": [self.tile_map["tiles"][2 * 16 + 5]],
+            "path_to_player_current_index": 0,
+            "last_seen_player_pos": dict(self.player["position"]),
+        })
+        with mock.patch.object(
+                game, "alice_can_see_bob_points",
+                return_value=(True, self.player["position"])), \
+                mock.patch.object(game, "alice_can_move_to_bob", return_value=True), \
+                mock.patch.object(
+                    game, "move_entity_towards_target_abs",
+                    return_value=dict(self.entity["position"])), \
+                mock.patch.object(
+                    game, "prepare_redhead_evade_navigation", return_value=False,
+                ), \
+                mock.patch.object(game.random, "random", return_value=0.0):
+            state = game.angry_chase_state(
+                self.entity, "angry chase", self.player, self.tile_map,
+                None, self.audio, 0.01,
+            )
+
+        self.assertEqual(state, "angry chase")
+        self.assertEqual(
+            self.entity["evade_retry_timer"],
+            self.entity["evade_settings"]["failed_retry_delay"],
+        )
 
     def test_evade_moves_forward_then_resumes_existing_chase_path(self):
         path = [
@@ -286,17 +441,18 @@ class RedheadEvadeStateTests(unittest.TestCase):
             "last_seen_player_pos": dict(self.player["position"]),
             "evade_elapsed": 0.0,
             "evade_duration": 0.2,
-            "evade_side": 1.0,
-            "evade_side_switch_timer": 1.0,
         })
         self.player["position"]["tile_x"] = 14
+        self.player["aim_direction"] = {"x": -1.0, "y": 0.0}
         before = game.make_pos_abs(self.entity["position"], 16, 16)
         target = game.make_pos_abs(self.player["position"], 16, 16)
         before_distance = game.vec2_distance(before, target)
         with mock.patch.object(
                 game, "alice_can_see_bob_points",
                 return_value=(True, self.player["position"])), \
-                mock.patch.object(game, "alice_can_move_to_bob", return_value=True):
+                mock.patch.object(
+                    game.random, "choice", side_effect=lambda values: values[0],
+                ):
             self.assertEqual(game.evade_redhead_state(
                 self.entity, "evade", self.player, self.tile_map, None, 0.1,
             ), "evade")
@@ -312,7 +468,10 @@ class RedheadEvadeStateTests(unittest.TestCase):
             "current_state": "evade", "previous_state": "stagger",
             "previous_state_on_stagger": "evade",
             "evade_elapsed": 0.7, "evade_duration": 1.4,
-            "evade_side": 1.0, "evade_side_switch_timer": 0.2,
+            "navigation": {
+                "intent": "evade", "preferred_side": 1.0,
+                "path": [{"tile_x": 5, "tile_y": 2}],
+            },
         })
         with mock.patch.object(game, "evade_redhead_state", return_value="evade"):
             game.transition_entity_state(
@@ -321,6 +480,133 @@ class RedheadEvadeStateTests(unittest.TestCase):
             )
         self.assertEqual(self.entity["evade_elapsed"], 0.7)
         self.assertEqual(self.audio["event_queue"], [])
+
+
+class RedheadLocomotionTests(unittest.TestCase):
+    def setUp(self):
+        self.tile_map = game.make_tile_map(24, 8, 16, 16)
+        self.entity = make_redhead(tile_x=8, tile_y=3)
+
+    def test_movement_settings_are_fresh_and_have_slower_authored_defaults(self):
+        other = make_redhead()
+        self.entity["movement_settings"]["max_speed"] = 12.0
+
+        self.assertEqual(
+            other["movement_settings"]["max_speed"],
+            game.REDHEAD_MOVEMENT_DEFAULTS["max_speed"],
+        )
+        self.assertEqual(game.REDHEAD_MOVEMENT_DEFAULTS["max_speed"], 70.0)
+        self.assertEqual(game.REDHEAD_MOVEMENT_DEFAULTS["acceleration"], 140.0)
+
+    def test_movement_settings_clamp_and_fall_back_from_invalid_values(self):
+        self.entity["movement_settings"].update({
+            "max_speed": -5.0,
+            "acceleration": float("nan"),
+            "deceleration": -2.0,
+            "reverse_acceleration": None,
+            "arrival_radius": -4.0,
+            "evade_speed_multiplier": -1.0,
+        })
+
+        settings = game.get_redhead_movement_settings(self.entity)
+
+        self.assertEqual(settings["max_speed"], 0.0)
+        self.assertEqual(
+            settings["acceleration"],
+            game.REDHEAD_MOVEMENT_DEFAULTS["acceleration"],
+        )
+        self.assertEqual(settings["deceleration"], 0.0)
+        self.assertEqual(
+            settings["reverse_acceleration"],
+            game.REDHEAD_MOVEMENT_DEFAULTS["reverse_acceleration"],
+        )
+        self.assertEqual(settings["arrival_radius"], 0.0)
+        self.assertEqual(settings["evade_speed_multiplier"], 0.0)
+
+    def test_legacy_top_level_fields_and_evade_multiplier_migrate(self):
+        self.entity.pop("movement_settings")
+        self.entity.update({
+            "speed": 48.0,
+            "acceleration": 90.0,
+            "reverse_acceleration": 175.0,
+            "arrival_radius": 6.0,
+        })
+        self.entity["evade_settings"]["speed_multiplier"] = 1.25
+
+        settings = game.ensure_redhead_movement_settings(self.entity)
+
+        self.assertEqual(settings["max_speed"], 48.0)
+        self.assertEqual(settings["acceleration"], 90.0)
+        self.assertEqual(settings["reverse_acceleration"], 175.0)
+        self.assertEqual(settings["arrival_radius"], 6.0)
+        self.assertEqual(settings["evade_speed_multiplier"], 1.25)
+        self.assertIs(self.entity["movement_settings"], settings)
+
+    def test_accelerates_instead_of_reaching_maximum_speed_immediately(self):
+        before = game.make_pos_abs(self.entity["position"], 16, 16)
+
+        self.entity["position"] = game.move_redhead_in_direction(
+            self.entity, {"x": 1.0, "y": 0.0},
+            self.tile_map, None, 0.1,
+        )
+
+        after = game.make_pos_abs(self.entity["position"], 16, 16)
+        self.assertAlmostEqual(self.entity["ai_velocity"]["x"], 14.0)
+        self.assertAlmostEqual(self.entity["ai_velocity"]["y"], 0.0)
+        self.assertAlmostEqual(after["x"] - before["x"], 1.4)
+        self.assertLess(
+            self.entity["current_speed"],
+            self.entity["movement_settings"]["max_speed"],
+        )
+
+    def test_deceleration_and_reverse_acceleration_use_distinct_limits(self):
+        self.entity["ai_velocity"] = {"x": 70.0, "y": 0.0}
+        game.move_redhead_with_locomotion(
+            self.entity, {"x": 0.0, "y": 0.0},
+            self.tile_map, None, 0.1,
+        )
+        self.assertAlmostEqual(self.entity["ai_velocity"]["x"], 48.0)
+
+        self.entity["ai_velocity"] = {"x": 70.0, "y": 0.0}
+        game.move_redhead_with_locomotion(
+            self.entity, {"x": -1.0, "y": 0.0},
+            self.tile_map, None, 0.1,
+        )
+        self.assertAlmostEqual(self.entity["ai_velocity"]["x"], 42.0)
+
+    def test_target_adapter_uses_braking_distance_near_arrival_radius(self):
+        origin = game.make_pos_abs(self.entity["position"], 16, 16)
+        target = {"x": origin["x"] + 4.0, "y": origin["y"]}
+
+        with mock.patch.object(
+                game, "move_redhead_with_locomotion",
+                return_value=dict(self.entity["position"])) as move:
+            game.move_entity_towards_target_abs(
+                self.entity, target, self.tile_map, None, 0.1,
+                arrival_radius=3.0,
+            )
+
+        self.assertAlmostEqual(
+            move.call_args.kwargs["desired_speed"],
+            (2.0 * 220.0 * 1.0) ** 0.5,
+        )
+        self.assertEqual(move.call_args.args[1], {"x": 1.0, "y": 0.0})
+
+    def test_chase_and_evade_adapters_share_persistent_velocity(self):
+        target = {"x": 300.0, "y": 56.0}
+        first_position = game.move_entity_towards_target_abs(
+            self.entity, target, self.tile_map, None, 0.1,
+        )
+        first_speed = game.vec2_norm(self.entity["ai_velocity"])
+        self.entity["position"] = first_position
+
+        self.entity["position"] = game.move_redhead_in_direction(
+            self.entity, {"x": 1.0, "y": 0.0},
+            self.tile_map, None, 0.1,
+        )
+
+        self.assertAlmostEqual(first_speed, 14.0)
+        self.assertAlmostEqual(game.vec2_norm(self.entity["ai_velocity"]), 28.0)
 
 
 if __name__ == "__main__":
