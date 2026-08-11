@@ -112,17 +112,22 @@ class RedheadPerceptionCadenceTests(unittest.TestCase):
         self.entity["perception_settings"][
             "line_of_sight_checks_per_second"
         ] = 1000.0
+        self.entity["perception_settings"]["flashlight_notice_duration"] = -2.0
+        self.entity["perception_settings"]["flashlight_intensity_threshold"] = 99.0
+        settings = game.get_redhead_perception_settings(self.entity)
         self.assertEqual(
-            game.get_redhead_perception_settings(self.entity)[
-                "line_of_sight_checks_per_second"
-            ],
-            60.0,
+            settings["line_of_sight_checks_per_second"], 60.0,
         )
+        self.assertEqual(settings["flashlight_notice_duration"], 0.0)
+        self.assertEqual(settings["flashlight_intensity_threshold"], 10.0)
         self.assertEqual(
             other["perception_settings"][
                 "line_of_sight_checks_per_second"
             ],
             4.0,
+        )
+        self.assertEqual(
+            other["perception_settings"]["flashlight_notice_duration"], 0.1,
         )
 
     def test_sixty_updates_issue_four_los_and_corridor_samples(self):
@@ -191,6 +196,107 @@ class RedheadPerceptionCadenceTests(unittest.TestCase):
             )
 
         self.assertEqual(visibility.call_count, 3)
+
+    def test_flashlight_exposure_turns_then_queues_generic_awareness(self):
+        lighting_frame = {
+            "prepared_by_id": {"runtime:player_flashlight": {"light": {}}},
+            "collision_grid": {},
+        }
+        with mock.patch.object(
+                game.g_graphics,
+                "get_prepared_gameplay_light_strength_at_world_point",
+                return_value=0.5,
+        ):
+            game.update_redhead_flashlight_awareness(
+                {"brains": {7: self.entity}}, self.player, self.tile_map,
+                lighting_frame, 0.06,
+            )
+            self.assertNotIn("pending_awareness_stimulus", self.entity)
+            game.update_redhead_flashlight_awareness(
+                {"brains": {7: self.entity}}, self.player, self.tile_map,
+                lighting_frame, 0.05,
+            )
+
+        stimulus = self.entity["pending_awareness_stimulus"]
+        self.assertEqual(stimulus["type"], "light")
+        self.assertEqual(stimulus["strength"], 0.5)
+        facing = game.vector_from_angle(self.entity["sight_angle"])
+        self.assertGreater(facing["x"], 0.99)
+
+        with mock.patch.object(
+                game, "alice_can_see_bob_points", return_value=(False, None),
+        ) as visibility:
+            state = game.idle_redhead_state(
+                self.entity, "idle", self.player, self.tile_map, None, 0.01,
+            )
+        self.assertEqual(state, "noticing")
+        visibility.assert_not_called()
+        self.assertEqual(self.entity["last_awareness_stimulus"]["type"], "light")
+
+    def test_continuous_flashlight_exposure_latches_until_light_leaves(self):
+        lighting_frame = {
+            "prepared_by_id": {"runtime:player_flashlight": {"light": {}}},
+            "collision_grid": {},
+        }
+        with mock.patch.object(
+                game.g_graphics,
+                "get_prepared_gameplay_light_strength_at_world_point",
+                return_value=0.5,
+        ):
+            game.update_redhead_flashlight_awareness(
+                {"brains": {7: self.entity}}, self.player, self.tile_map,
+                lighting_frame, 0.11,
+            )
+            self.entity.pop("pending_awareness_stimulus")
+            game.update_redhead_flashlight_awareness(
+                {"brains": {7: self.entity}}, self.player, self.tile_map,
+                lighting_frame, 1.0,
+            )
+        self.assertNotIn("pending_awareness_stimulus", self.entity)
+
+        with mock.patch.object(
+                game.g_graphics,
+                "get_prepared_gameplay_light_strength_at_world_point",
+                return_value=0.0,
+        ):
+            game.update_redhead_flashlight_awareness(
+                {"brains": {7: self.entity}}, self.player, self.tile_map,
+                lighting_frame, 0.01,
+            )
+        self.assertFalse(
+            self.entity["awareness_runtime"]["flashlight_latched"],
+        )
+
+    def test_prepared_gameplay_light_uses_visibility_polygon_without_new_ray(self):
+        prepared = {
+            "light": {
+                "type": "point", "position": {"x": 0.0, "y": 0.0},
+                "radius": 100.0, "falloff": 1.0, "intensity": 1.0,
+                "gameplay_intensity": 1.0, "enabled": True,
+                "affects_ai": True,
+            },
+            "world_position": {"x": 0.0, "y": 0.0},
+            "affects_ai": True,
+            "casts_wall_shadows": True,
+            "visibility_polygon": [
+                {"x": -20.0, "y": -20.0},
+                {"x": 20.0, "y": -20.0},
+                {"x": 20.0, "y": 20.0},
+                {"x": -20.0, "y": 20.0},
+            ],
+        }
+        self.assertGreater(
+            game.g_graphics.get_prepared_gameplay_light_strength_at_world_point(
+                prepared, {"x": 10.0, "y": 0.0}, {},
+            ),
+            0.0,
+        )
+        self.assertEqual(
+            game.g_graphics.get_prepared_gameplay_light_strength_at_world_point(
+                prepared, {"x": 50.0, "y": 0.0}, {},
+            ),
+            0.0,
+        )
 
 
 class RedheadAttackRangeTests(unittest.TestCase):

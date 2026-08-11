@@ -255,7 +255,11 @@ class EnvironmentEditorDataTests(unittest.TestCase):
             "search_radius_tiles": 4,
             "top_candidate_count": 3,
         }
-        perception_defaults = {"line_of_sight_checks_per_second": 4.0}
+        perception_defaults = {
+            "line_of_sight_checks_per_second": 4.0,
+            "flashlight_notice_duration": 0.1,
+            "flashlight_intensity_threshold": 0.15,
+        }
 
         def edit_number(_ui, widget_id, _label, value, _minimum, _maximum,
                         rect=None):
@@ -286,7 +290,7 @@ class EnvironmentEditorDataTests(unittest.TestCase):
             )
 
         self.assertEqual(entity["movement_settings"]["max_speed"], 52.0)
-        self.assertEqual(inputs.call_count, 19)
+        self.assertEqual(inputs.call_count, 21)
         self.assertEqual(integer_inputs.call_count, 2)
         self.assertEqual(entity["evade_settings"]["search_radius_tiles"], 4)
         self.assertEqual(

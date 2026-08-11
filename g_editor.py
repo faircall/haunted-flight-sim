@@ -1541,15 +1541,19 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
             if not isinstance(perception, dict):
                 perception = {}
                 entity["perception_settings"] = perception
-            setting_name = "line_of_sight_checks_per_second"
-            perception[setting_name], _ = g_ui.ui_number_input_float(
-                ui_state, f"entity_inspector:perception:{setting_name}",
-                "LOS checks / sec",
-                perception.get(
-                    setting_name, perception_defaults.get(setting_name, 4.0),
-                ),
-                0.25, 60.0,
-            )
+            for setting_name, label, minimum, maximum in (
+                    ("line_of_sight_checks_per_second", "LOS checks / sec", 0.25, 60.0),
+                    ("flashlight_notice_duration", "light notice time", 0.0, 5.0),
+                    ("flashlight_intensity_threshold", "light threshold", 0.0, 10.0)):
+                perception[setting_name], _ = g_ui.ui_number_input_float(
+                    ui_state, f"entity_inspector:perception:{setting_name}",
+                    label,
+                    perception.get(
+                        setting_name,
+                        perception_defaults.get(setting_name, minimum),
+                    ),
+                    minimum, maximum,
+                )
 
         if isinstance(evade_defaults, dict):
             g_ui.ui_separator(ui_state, "entity_inspector:evade_separator")

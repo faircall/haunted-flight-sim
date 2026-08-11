@@ -113,6 +113,8 @@ REDHEAD_PERCEPTION_DEFAULTS = {
     # Visibility and direct-chase corridor rays are deliberately decoupled
     # from render/update frequency.
     "line_of_sight_checks_per_second": 4.0,
+    "flashlight_notice_duration": 0.10,
+    "flashlight_intensity_threshold": 0.15,
 }
 
 g_tile_collision_shapes = [
@@ -3075,23 +3077,24 @@ def get_redhead_perception_settings(entity):
     authored = entity.get("perception_settings", {})
     if not isinstance(authored, dict):
         authored = {}
-    raw_rate = authored.get(
-        "line_of_sight_checks_per_second",
-        REDHEAD_PERCEPTION_DEFAULTS["line_of_sight_checks_per_second"],
-    )
-    try:
-        checks_per_second = float(raw_rate)
-    except (TypeError, ValueError, OverflowError):
-        checks_per_second = REDHEAD_PERCEPTION_DEFAULTS[
-            "line_of_sight_checks_per_second"
-        ]
-    if not math.isfinite(checks_per_second):
-        checks_per_second = REDHEAD_PERCEPTION_DEFAULTS[
-            "line_of_sight_checks_per_second"
-        ]
+    def value(name):
+        try:
+            result = float(authored.get(name, REDHEAD_PERCEPTION_DEFAULTS[name]))
+        except (TypeError, ValueError, OverflowError):
+            result = float(REDHEAD_PERCEPTION_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(REDHEAD_PERCEPTION_DEFAULTS[name])
+        return result
+
     return {
         "line_of_sight_checks_per_second": max(
-            0.25, min(60.0, checks_per_second),
+            0.25, min(60.0, value("line_of_sight_checks_per_second")),
+        ),
+        "flashlight_notice_duration": max(
+            0.0, min(5.0, value("flashlight_notice_duration")),
+        ),
+        "flashlight_intensity_threshold": max(
+            0.0, min(10.0, value("flashlight_intensity_threshold")),
         ),
     }
 
@@ -3206,6 +3209,127 @@ def sample_redhead_player_perception(
         bool(cache.get("can_move_directly", False))
         if include_direct_movement else False,
     )
+
+
+def face_redhead_towards_world_position(entity, world_position, tile_map):
+    entity_world = make_pos_abs(
+        entity.get("position", {}),
+        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+    direction = vec2_normalize(vec2_subtract(world_position, entity_world))
+    if vec2_norm(direction) <= 0.000001:
+        return False
+    entity["sight_angle"] = angle_from_vector(direction) % 360.0
+    animation_direction = direction_from_angle(entity["sight_angle"])
+    entity["animation_frame"] = animation_frame_number_from_direction(
+        animation_direction,
+    )
+    return True
+
+
+def queue_redhead_awareness_stimulus(
+        entity, stimulus_type, source_world_position, tile_map, strength=1.0):
+    """Queue one generic awareness event for idle-state consumption.
+
+    Sound can use this same entry point later; state-machine code does not need
+    to care whether the thing that made the redhead turn was light or audio.
+    """
+    if not isinstance(source_world_position, dict):
+        return False
+    source = {
+        "x": float(source_world_position.get("x", 0.0)),
+        "y": float(source_world_position.get("y", 0.0)),
+    }
+    face_redhead_towards_world_position(entity, source, tile_map)
+    entity["pending_awareness_stimulus"] = {
+        "type": str(stimulus_type),
+        "source_world_position": source,
+        "strength": max(0.0, float(strength)),
+    }
+    return True
+
+
+def get_redhead_flashlight_sample_points(entity, tile_map):
+    hurtbox = get_redhead_bullet_hurtbox(entity, tile_map)
+    left = float(hurtbox["x"])
+    top = float(hurtbox["y"])
+    width = float(hurtbox["width"])
+    height = float(hurtbox["height"])
+    center_x = left + width * 0.5
+    center_y = top + height * 0.5
+    return (
+        {"x": center_x, "y": center_y},
+        {"x": center_x, "y": top + height * 0.20},
+        {"x": center_x, "y": top + height * 0.80},
+        {"x": left + width * 0.20, "y": center_y},
+        {"x": left + width * 0.80, "y": center_y},
+    )
+
+
+def update_redhead_flashlight_awareness(
+        entities, player_info, tile_map, lighting_frame, dt):
+    """Accumulate wall-occluded flashlight exposure and queue awareness."""
+    prepared_by_id = (
+        lighting_frame.get("prepared_by_id", {})
+        if isinstance(lighting_frame, dict) else {}
+    )
+    flashlight = prepared_by_id.get("runtime:player_flashlight")
+    collision_grid = (
+        lighting_frame.get("collision_grid")
+        if isinstance(lighting_frame, dict) else None
+    )
+    player_world = make_pos_abs(
+        player_info.get("position", {}),
+        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+
+    for entity in entities.get("brains", {}).values():
+        if entity.get("type") != "red head":
+            continue
+        runtime = entity.setdefault("awareness_runtime", {})
+        if not isinstance(runtime, dict):
+            runtime = {}
+            entity["awareness_runtime"] = runtime
+        if entity.get("current_state", "idle") != "idle":
+            runtime["flashlight_exposure"] = 0.0
+            runtime["flashlight_latched"] = False
+            runtime["last_flashlight_strength"] = 0.0
+            continue
+
+        strength = 0.0
+        if flashlight is not None and collision_grid is not None:
+            strength = max(
+                (
+                    g_graphics.get_prepared_gameplay_light_strength_at_world_point(
+                        flashlight, point, collision_grid,
+                    )
+                    for point in get_redhead_flashlight_sample_points(
+                        entity, tile_map,
+                    )
+                ),
+                default=0.0,
+            )
+        runtime["last_flashlight_strength"] = strength
+        settings = get_redhead_perception_settings(entity)
+        illuminated = (
+            strength > 0.0
+            and strength >= settings["flashlight_intensity_threshold"]
+        )
+        if not illuminated:
+            runtime["flashlight_exposure"] = 0.0
+            runtime["flashlight_latched"] = False
+            continue
+
+        exposure = max(
+            0.0, float(runtime.get("flashlight_exposure", 0.0)),
+        ) + max(0.0, dt)
+        runtime["flashlight_exposure"] = exposure
+        if (exposure >= settings["flashlight_notice_duration"]
+                and not runtime.get("flashlight_latched", False)):
+            queue_redhead_awareness_stimulus(
+                entity, "light", player_world, tile_map, strength,
+            )
+            runtime["flashlight_latched"] = True
 
 
 def get_redhead_evade_settings(entity):
@@ -3381,6 +3505,15 @@ def on_redhead_state_enter(entity, state, entered_from, tile_map, audio_runtime)
 def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     next_state = current_state
     bored_timer = entity.get("bored_timer", 0)
+
+    awareness_stimulus = entity.pop("pending_awareness_stimulus", None)
+    if isinstance(awareness_stimulus, dict):
+        source = awareness_stimulus.get("source_world_position")
+        if isinstance(source, dict):
+            face_redhead_towards_world_position(entity, source, tile_map)
+        entity["last_awareness_stimulus"] = awareness_stimulus
+        entity["bored_timer"] = bored_timer
+        return "noticing"
 
     bored_threshold = 1
     can_see, seen_pos, _can_move = sample_redhead_player_perception(
@@ -5689,6 +5822,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     fire_lights = g_effects.build_fire_runtime_lights(fire_light_emitters, tile_map, time_elapsed) if render_environment_effects else {}
     game_assets["runtime_lights"] = g_effects.replace_fire_runtime_lights(game_assets.get("runtime_lights", {}), fire_lights)
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
+    if editor_mode == "play" and pause_state != "paused":
+        update_redhead_flashlight_awareness(
+            entities, player_info, tile_map, lighting_frame, dt,
+        )
     prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
     sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
     major_entity_light_occluders = g_render_order.build_major_entity_light_occluders(sorted_world_items)

@@ -719,6 +719,32 @@ def prepared_light_reaches_point(prepared_light, point):
 
     return point_in_polygon(point, polygon)
 
+
+def get_prepared_gameplay_light_strength_at_world_point(
+        prepared_light, world_point, collision_grid):
+    """Measure authored AI light using already-prepared wall visibility.
+
+    This mirrors the pure gameplay-light query without launching another DDA
+    ray for every AI receiver. The lighting frame's visibility polygon has
+    already paid for, and cached, the wall-occlusion work.
+    """
+    if not isinstance(prepared_light, dict):
+        return 0.0
+    light = prepared_light.get("light", {})
+    if (not light.get("enabled", True)
+            or not prepared_light.get(
+                "affects_ai", light.get("affects_ai", True))):
+        return 0.0
+    strength = light_visibility.get_unoccluded_light_strength_at_world_point(
+        light, world_point, collision_grid,
+    )
+    if strength <= 0.0 or not prepared_light_reaches_point(
+            prepared_light, world_point):
+        return 0.0
+    return strength * max(
+        0.0, float(light.get("gameplay_intensity", 1.0)),
+    )
+
 def get_light_height(light):
     if "height" in light:
         return max(0.0, float(light["height"]))
