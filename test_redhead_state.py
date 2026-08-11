@@ -101,6 +101,98 @@ class RedheadNoticeStateTests(unittest.TestCase):
         self.assertEqual(self.audio["event_queue"], [])
 
 
+class RedheadPerceptionCadenceTests(unittest.TestCase):
+    def setUp(self):
+        self.tile_map = game.make_tile_map(12, 4, 16, 16)
+        self.entity = make_redhead(tile_x=1)
+        self.player = make_player(tile_x=8)
+
+    def test_perception_settings_are_fresh_and_clamped(self):
+        other = make_redhead()
+        self.entity["perception_settings"][
+            "line_of_sight_checks_per_second"
+        ] = 1000.0
+        self.assertEqual(
+            game.get_redhead_perception_settings(self.entity)[
+                "line_of_sight_checks_per_second"
+            ],
+            60.0,
+        )
+        self.assertEqual(
+            other["perception_settings"][
+                "line_of_sight_checks_per_second"
+            ],
+            4.0,
+        )
+
+    def test_sixty_updates_issue_four_los_and_corridor_samples(self):
+        visible = (True, self.player["position"])
+        with mock.patch.object(
+                game, "alice_can_see_bob_points", return_value=visible,
+        ) as visibility, mock.patch.object(
+                game, "alice_can_move_to_bob", return_value=True,
+        ) as corridor:
+            game.sample_redhead_player_perception(
+                self.entity, self.player, self.tile_map, None, 0.0,
+                include_direct_movement=True, force=True,
+            )
+            visibility.reset_mock()
+            corridor.reset_mock()
+            results = [
+                game.sample_redhead_player_perception(
+                    self.entity, self.player, self.tile_map, None, 1.0 / 60.0,
+                    include_direct_movement=True,
+                )
+                for _frame in range(60)
+            ]
+
+        self.assertEqual(visibility.call_count, 4)
+        self.assertEqual(corridor.call_count, 4)
+        self.assertTrue(all(result[0] and result[2] for result in results))
+        self.assertEqual(
+            self.entity["perception_runtime"]["sample_count"], 5,
+        )
+
+    def test_cached_seen_position_is_an_independent_snapshot(self):
+        with mock.patch.object(
+                game, "alice_can_see_bob_points",
+                return_value=(True, self.player["position"]),
+        ) as visibility:
+            _visible, seen_position, _direct = (
+                game.sample_redhead_player_perception(
+                    self.entity, self.player, self.tile_map, None, 0.01,
+                )
+            )
+            self.player["position"]["tile_x"] = 9
+            _visible, cached_position, _direct = (
+                game.sample_redhead_player_perception(
+                    self.entity, self.player, self.tile_map, None, 0.01,
+                )
+            )
+
+        self.assertEqual(visibility.call_count, 1)
+        self.assertEqual(seen_position["tile_x"], 8)
+        self.assertEqual(cached_position["tile_x"], 8)
+
+    def test_forced_and_geometry_changed_samples_bypass_fresh_cache(self):
+        with mock.patch.object(
+                game, "alice_can_see_bob_points", return_value=(False, None),
+        ) as visibility:
+            game.sample_redhead_player_perception(
+                self.entity, self.player, self.tile_map, None, 0.01,
+            )
+            game.sample_redhead_player_perception(
+                self.entity, self.player, self.tile_map, None, 0.01,
+                force=True,
+            )
+            self.tile_map["geometry_revision"] += 1
+            game.sample_redhead_player_perception(
+                self.entity, self.player, self.tile_map, None, 0.01,
+            )
+
+        self.assertEqual(visibility.call_count, 3)
+
+
 class RedheadAttackRangeTests(unittest.TestCase):
     def setUp(self):
         self.tile_map = game.make_tile_map(12, 4, 16, 16)

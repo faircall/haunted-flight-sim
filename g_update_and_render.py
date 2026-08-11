@@ -109,6 +109,12 @@ REDHEAD_MOVEMENT_DEFAULTS = {
     "evade_speed_multiplier": 1.0,
 }
 
+REDHEAD_PERCEPTION_DEFAULTS = {
+    # Visibility and direct-chase corridor rays are deliberately decoupled
+    # from render/update frequency.
+    "line_of_sight_checks_per_second": 4.0,
+}
+
 g_tile_collision_shapes = [
     "full",
     "triangle_top_left",
@@ -1040,6 +1046,7 @@ def give_entity_stats_from_type(entity, entity_type):
         }
         entity["evade_settings"] = dict(REDHEAD_EVADE_DEFAULTS)
         entity["movement_settings"] = dict(REDHEAD_MOVEMENT_DEFAULTS)
+        entity["perception_settings"] = dict(REDHEAD_PERCEPTION_DEFAULTS)
         attack_windup_duration = 1
     
     
@@ -3063,6 +3070,144 @@ def ensure_redhead_movement_settings(entity):
     return settings
 
 
+def get_redhead_perception_settings(entity):
+    """Return safe authored perception timing without mutating the entity."""
+    authored = entity.get("perception_settings", {})
+    if not isinstance(authored, dict):
+        authored = {}
+    raw_rate = authored.get(
+        "line_of_sight_checks_per_second",
+        REDHEAD_PERCEPTION_DEFAULTS["line_of_sight_checks_per_second"],
+    )
+    try:
+        checks_per_second = float(raw_rate)
+    except (TypeError, ValueError, OverflowError):
+        checks_per_second = REDHEAD_PERCEPTION_DEFAULTS[
+            "line_of_sight_checks_per_second"
+        ]
+    if not math.isfinite(checks_per_second):
+        checks_per_second = REDHEAD_PERCEPTION_DEFAULTS[
+            "line_of_sight_checks_per_second"
+        ]
+    return {
+        "line_of_sight_checks_per_second": max(
+            0.25, min(60.0, checks_per_second),
+        ),
+    }
+
+
+def ensure_redhead_perception_settings(entity):
+    settings = get_redhead_perception_settings(entity)
+    entity["perception_settings"] = settings
+    return settings
+
+
+def _redhead_perception_phase(entity):
+    """Return a stable 0..1 phase used to spread checks between enemies."""
+    identifier = str(entity.get("id", "0"))
+    phase_hash = 2166136261
+    for character in identifier:
+        phase_hash ^= ord(character)
+        phase_hash = (phase_hash * 16777619) & 0xFFFFFFFF
+    # Avalanche adjacent integer-like IDs across the full interval.
+    phase_hash ^= phase_hash >> 16
+    phase_hash = (phase_hash * 0x7FEB352D) & 0xFFFFFFFF
+    phase_hash ^= phase_hash >> 15
+    phase_hash = (phase_hash * 0x846CA68B) & 0xFFFFFFFF
+    phase_hash ^= phase_hash >> 16
+    return phase_hash / 4294967296.0
+
+
+def sample_redhead_player_perception(
+        entity, player_info, tile_map, debug_queue, dt,
+        include_direct_movement=False, force=False):
+    """Return cached LOS data, refreshing expensive rays at the authored rate.
+
+    The direct-movement corridor query shares the same cadence as LOS while in
+    chase. A forced sample is reserved for moments that require a fresh answer,
+    such as the end of the noticing/startle period.
+    """
+    settings = get_redhead_perception_settings(entity)
+    interval = 1.0 / settings["line_of_sight_checks_per_second"]
+    cache = entity.get("perception_runtime")
+    if not isinstance(cache, dict):
+        cache = {}
+        entity["perception_runtime"] = cache
+
+    try:
+        elapsed = float(cache.get("elapsed", 0.0))
+    except (TypeError, ValueError, OverflowError):
+        elapsed = 0.0
+    if not math.isfinite(elapsed):
+        elapsed = 0.0
+    elapsed += max(0.0, dt)
+    geometry_revision = int(tile_map.get("geometry_revision", 0))
+    source_identity = id(tile_map)
+    source_changed = (
+        cache.get("tile_map_identity") != source_identity
+        or int(cache.get("geometry_revision", -1)) != geometry_revision
+    )
+    first_sample = not bool(cache.get("valid", False))
+    sample_due = (
+        force or first_sample or source_changed
+        or elapsed + 0.000001 >= interval
+    )
+
+    if sample_due:
+        can_see, seen_position = alice_can_see_bob_points(
+            entity, player_info, tile_map, debug_queue,
+        )
+        cached_seen_position = (
+            copy_entity_pos(seen_position)
+            if can_see and isinstance(seen_position, dict)
+            else None
+        )
+        cache.update({
+            "valid": True,
+            "can_see": bool(can_see),
+            "seen_position": cached_seen_position,
+            "direct_movement_valid": False,
+            "can_move_directly": False,
+            "tile_map_identity": source_identity,
+            "geometry_revision": geometry_revision,
+            "sample_count": int(cache.get("sample_count", 0)) + 1,
+        })
+        if first_sample and not force:
+            # The initial answer is immediate; subsequent samples are phased so
+            # a crowd does not keep producing one synchronized 250 ms spike.
+            cache["elapsed"] = -interval * _redhead_perception_phase(entity)
+        elif force:
+            cache["elapsed"] = 0.0
+        else:
+            # The epsilon in the due test handles floating-point frame sums;
+            # do not preserve a just-under-interval remainder or it would
+            # trigger a duplicate sample on the following frame.
+            cache["elapsed"] = (
+                elapsed % interval if elapsed >= interval else 0.0
+            )
+    else:
+        cache["elapsed"] = elapsed
+
+    if include_direct_movement and not cache.get(
+            "direct_movement_valid", False):
+        cache["can_move_directly"] = bool(
+            cache.get("can_see", False)
+            and alice_can_move_to_bob(
+                entity, player_info, tile_map, debug_queue,
+            )
+        )
+        cache["direct_movement_valid"] = True
+
+    seen_position = cache.get("seen_position")
+    return (
+        bool(cache.get("can_see", False)),
+        copy_entity_pos(seen_position)
+        if isinstance(seen_position, dict) else None,
+        bool(cache.get("can_move_directly", False))
+        if include_direct_movement else False,
+    )
+
+
 def get_redhead_evade_settings(entity):
     authored = entity.get("evade_settings", {})
     if not isinstance(authored, dict):
@@ -3238,7 +3383,9 @@ def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue
     bored_timer = entity.get("bored_timer", 0)
 
     bored_threshold = 1
-    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
+    can_see, seen_pos, _can_move = sample_redhead_player_perception(
+        entity, player_info, tile_map, debug_queue, dt,
+    )
         
     if can_see:
         next_state = "noticing"
@@ -3266,8 +3413,8 @@ def noticing_redhead_state(entity, current_state, player_info, tile_map,
     notice_duration = max(0.0, float(entity.get("notice_duration", 1.0)))
     if notice_timer < notice_duration:
         return current_state
-    can_see, seen_pos = alice_can_see_bob_points(
-        entity, player_info, tile_map, debug_queue,
+    can_see, seen_pos, _can_move = sample_redhead_player_perception(
+        entity, player_info, tile_map, debug_queue, dt, force=True,
     )
     entity["notice_timer"] = 0.0
     if can_see and prepare_redhead_pursuit_path(entity, seen_pos, tile_map):
@@ -3554,7 +3701,9 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, audi
     player_pos = player_info.get("position",{}) # top left
     next_state = current_state
     attack_substate = get_or_set(entity, "attack_substate", "windup")
-    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
+    can_see, seen_pos, _can_move = sample_redhead_player_perception(
+        entity, player_info, tile_map, debug_queue, dt,
+    )
     if can_see:
         # on some interval we should also update the path to the player here...I think
         entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
@@ -4104,8 +4253,8 @@ def clear_redhead_evade_navigation(entity):
 def evade_redhead_state(entity, current_state, player_info, tile_map,
                          debug_queue, dt):
     settings = get_redhead_evade_settings(entity)
-    can_see, seen_pos = alice_can_see_bob_points(
-        entity, player_info, tile_map, debug_queue,
+    can_see, seen_pos, _can_move = sample_redhead_player_perception(
+        entity, player_info, tile_map, debug_queue, dt,
     )
     if can_see:
         entity["last_seen_player_pos"] = copy_entity_pos(
@@ -4236,13 +4385,10 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     # TODO do that here
     
     next_state = current_state
-    # TODO these likely don't need to be checked every single frame
-    # the better move would likely be to use a manager that can orchestrate
-    # these (so that we don't get a whole ton on one frame)
-    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
-    can_move = False
-    if can_see:
-        can_move = alice_can_move_to_bob(entity, player_info, tile_map, debug_queue)
+    can_see, seen_pos, can_move = sample_redhead_player_perception(
+        entity, player_info, tile_map, debug_queue, dt,
+        include_direct_movement=True,
+    )
     breadcrumb_timer = get_or_set(entity, "breadcrumb_timer", 0)
     breadcrumb_interval = 3
     knows_of_player = False
@@ -4607,6 +4753,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     for entity_id, entity in entities.get("brains",{}).items():
         if entity.get("type","") == "red head":
             ensure_redhead_movement_settings(entity)
+            ensure_redhead_perception_settings(entity)
             previous_audio_position = make_pos_abs(entity.get("position", {}), tile_width, tile_height)
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
@@ -5671,6 +5818,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         audio_runtime=audio_runtime,
         redhead_movement_defaults=REDHEAD_MOVEMENT_DEFAULTS,
         redhead_evade_defaults=REDHEAD_EVADE_DEFAULTS,
+        redhead_perception_defaults=REDHEAD_PERCEPTION_DEFAULTS,
     )
     if editor_mode == "tile":
         g_editor.draw_tile_edit_controls(ui_state, editor_state, tile_map)

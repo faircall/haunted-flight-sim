@@ -1450,7 +1450,8 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
 
 def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
                                    movement_defaults=None,
-                                   evade_defaults=None):
+                                   evade_defaults=None,
+                                   perception_defaults=None):
     collapse_rect = pr.Rectangle(308, 40, 14, 14)
     if g_ui.ui_button(
             ui_state, "entity_inspector:collapse",
@@ -1528,6 +1529,28 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
                 movement.get(name, fallback), minimum, maximum,
             )
 
+        if isinstance(perception_defaults, dict):
+            g_ui.ui_separator(
+                ui_state, "entity_inspector:perception_separator",
+            )
+            g_ui.ui_label(
+                ui_state, "entity_inspector:perception_label", "Perception",
+                color=g_ui.UI_ACCENT, font_size=8,
+            )
+            perception = entity.setdefault("perception_settings", {})
+            if not isinstance(perception, dict):
+                perception = {}
+                entity["perception_settings"] = perception
+            setting_name = "line_of_sight_checks_per_second"
+            perception[setting_name], _ = g_ui.ui_number_input_float(
+                ui_state, f"entity_inspector:perception:{setting_name}",
+                "LOS checks / sec",
+                perception.get(
+                    setting_name, perception_defaults.get(setting_name, 4.0),
+                ),
+                0.25, 60.0,
+            )
+
         if isinstance(evade_defaults, dict):
             g_ui.ui_separator(ui_state, "entity_inspector:evade_separator")
             g_ui.ui_label(
@@ -1568,7 +1591,7 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
     g_ui.ui_end_panel(ui_state)
 
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None):
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None, redhead_perception_defaults=None):
     if not show_editor:
         return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
@@ -1594,7 +1617,7 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
     if editor_mode == "entity":
         draw_gameplay_entity_inspector(
             ui_state, editor_state, entities, redhead_movement_defaults,
-            redhead_evade_defaults,
+            redhead_evade_defaults, redhead_perception_defaults,
         )
 
     return editor_mode

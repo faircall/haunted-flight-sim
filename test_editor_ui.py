@@ -255,6 +255,7 @@ class EnvironmentEditorDataTests(unittest.TestCase):
             "search_radius_tiles": 4,
             "top_candidate_count": 3,
         }
+        perception_defaults = {"line_of_sight_checks_per_second": 4.0}
 
         def edit_number(_ui, widget_id, _label, value, _minimum, _maximum,
                         rect=None):
@@ -281,12 +282,19 @@ class EnvironmentEditorDataTests(unittest.TestCase):
                 ) as integer_inputs:
             g_editor.draw_gameplay_entity_inspector(
                 {}, state, entities, defaults, evade_defaults,
+                perception_defaults,
             )
 
         self.assertEqual(entity["movement_settings"]["max_speed"], 52.0)
-        self.assertEqual(inputs.call_count, 18)
+        self.assertEqual(inputs.call_count, 19)
         self.assertEqual(integer_inputs.call_count, 2)
         self.assertEqual(entity["evade_settings"]["search_radius_tiles"], 4)
+        self.assertEqual(
+            entity["perception_settings"][
+                "line_of_sight_checks_per_second"
+            ],
+            4.0,
+        )
 
     def test_player_readability_light_has_constrained_capabilities(self):
         player = {"position": {"tile_x": 1, "tile_y": 1, "x": 0.0, "y": 0.0}}
