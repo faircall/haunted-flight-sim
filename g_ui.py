@@ -65,6 +65,16 @@ def ui_end_frame(ui_state):
 def ui_capture_mouse(ui_state):
     ui_state["mouse_captured"] = True
 
+def ui_release_mouse(ui_state, commit_focused=True):
+    """End interactions belonging to UI that is no longer visible."""
+    if commit_focused:
+        ui_queue_focused_numeric_commit(ui_state)
+    ui_state["active_id"] = None
+    ui_state["focused_id"] = None
+    ui_state["open_dropdown_id"] = None
+    ui_state["drag_start"] = None
+    ui_state["mouse_captured"] = False
+
 def ui_point_in_rect(point, rect):
     return rect.x <= point.x <= rect.x + rect.width and rect.y <= point.y <= rect.y + rect.height
 

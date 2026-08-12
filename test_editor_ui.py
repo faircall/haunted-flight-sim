@@ -348,6 +348,51 @@ class ImmediateModeUIHelperTests(unittest.TestCase):
         self.assertEqual(state["pending_numeric_commits"]["number:a"], 10.0)
         self.assertIsNone(state["focused_id"])
 
+    def test_hidden_editor_releases_all_ui_capture_without_hit_testing(self):
+        state = g_ui.make_ui_state()
+        state.update({
+            "active_id": "slider:a",
+            "focused_id": "number:a",
+            "open_dropdown_id": "dropdown:a",
+            "drag_start": {"id": "slider:a", "mouse_x": 20.0},
+            "mouse_captured": True,
+        })
+        state["text_buffers"]["number:a"] = "7.5"
+        state["numeric_edit_metadata"]["number:a"] = {
+            "original_value": 2.0, "integer": False,
+            "minimum": 0.0, "maximum": 10.0,
+        }
+        editor_state = g_editor.make_editor_state()
+        editor_state["drag_kind"] = "direction"
+
+        with mock.patch.object(
+                g_ui, "get_mouse_position",
+                side_effect=AssertionError("hidden UI must not hit-test")):
+            captured = g_editor.capture_editor_ui_regions(
+                state, editor_state, "play", show_editor=False,
+            )
+
+        self.assertFalse(captured)
+        self.assertFalse(state["mouse_captured"])
+        self.assertIsNone(state["active_id"])
+        self.assertIsNone(state["focused_id"])
+        self.assertIsNone(state["open_dropdown_id"])
+        self.assertIsNone(state["drag_start"])
+        self.assertIsNone(editor_state["drag_kind"])
+        self.assertEqual(state["pending_numeric_commits"]["number:a"], 7.5)
+
+    def test_visible_editor_toolbar_still_captures_mouse(self):
+        state = g_ui.make_ui_state()
+        editor_state = g_editor.make_editor_state()
+        with mock.patch.object(
+                g_ui, "get_mouse_position",
+                return_value=g_editor.pr.Vector2(10.0, 10.0)):
+            captured = g_editor.capture_editor_ui_regions(
+                state, editor_state, "play", show_editor=True,
+            )
+        self.assertTrue(captured)
+        self.assertTrue(state["mouse_captured"])
+
 
 if __name__ == "__main__":
     unittest.main()

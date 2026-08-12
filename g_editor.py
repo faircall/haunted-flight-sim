@@ -854,7 +854,15 @@ def update_environment_world(entities, editor_state, ui_state, game_camera, tile
     if pr.is_mouse_button_released(pr.MouseButton.MOUSE_BUTTON_LEFT):
         editor_state["drag_kind"] = None
 
-def capture_editor_ui_regions(ui_state, editor_state, editor_mode):
+def capture_editor_ui_regions(ui_state, editor_state, editor_mode,
+                              show_editor=True):
+    if not show_editor:
+        # Hidden editor controls must not retain focus/capture or an in-progress
+        # world drag. Gameplay uses captured relative mouse input in this state.
+        g_ui.ui_release_mouse(ui_state)
+        editor_state["drag_kind"] = None
+        return False
+
     mouse = g_ui.get_mouse_position()
     toolbar_rect = pr.Rectangle(0, 0, 480, 38)
     inspector_rect = pr.Rectangle(306, 38, 174, 232)
@@ -863,6 +871,7 @@ def capture_editor_ui_regions(ui_state, editor_state, editor_mode):
 
     if g_ui.ui_point_in_rect(mouse, toolbar_rect) or (inspector_visible and g_ui.ui_point_in_rect(mouse, inspector_rect)):
         g_ui.ui_capture_mouse(ui_state)
+    return ui_state.get("mouse_captured", False)
 
 
 def draw_rain_exposure_overlay(editor_state, editor_mode, game_camera, tile_map,

@@ -102,7 +102,7 @@ REDHEAD_EVADE_DEFAULTS = {
 
 REDHEAD_MOVEMENT_DEFAULTS = {
     "max_speed": 70.0,
-    "acceleration": 140.0,
+    "acceleration": 280.0,
     "deceleration": 220.0,
     "reverse_acceleration": 280.0,
     "arrival_radius": 3.0,
@@ -5699,7 +5699,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     editor_state = g_editor.get_or_create_editor_state(game_assets)
     game_assets["rain_debug"] = editor_state.get("rain_debug", {})
     g_ui.ui_begin_frame(ui_state, audio_runtime)
-    g_editor.capture_editor_ui_regions(ui_state, editor_state, editor_mode)
+    g_editor.capture_editor_ui_regions(
+        ui_state, editor_state, editor_mode, show_editor=show_editor,
+    )
 
     if show_options and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(0, 0, 170, 180)):
         g_ui.ui_capture_mouse(ui_state)
