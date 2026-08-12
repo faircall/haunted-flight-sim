@@ -341,11 +341,41 @@ class RedheadAttackRangeTests(unittest.TestCase):
                 self.tile_map, None, None, 0.6,
             )
             self.player["position"]["tile_x"] = 2
+            self.player["position"]["y"] = 0.0
             game.attack_state(
                 self.entity, "angry and attacking", self.player,
                 self.tile_map, None, None, 0.1,
             )
         self.assertEqual(self.entity["attack_out_of_range_timer"], 0.0)
+
+    def test_legacy_engage_distance_is_capped_where_swing_can_hit(self):
+        self.entity["entity_width"] = 16
+        self.entity["entity_height"] = 16
+        self.entity["attack_engage_distance"] = 40.0
+        self.entity["position"] = game.entity_position_for_collision_tile_center(
+            self.entity, 2, 1, self.tile_map,
+        )
+        self.player["entity_width"] = 12
+        self.player["entity_height"] = 12
+        self.player["position"] = {
+            "tile_x": 4, "tile_y": 1, "x": 4.0, "y": 8.0,
+        }
+        audio = g_audio.make_audio_runtime()
+
+        self.assertEqual(game.get_redhead_attack_engage_distance(self.entity), 28.0)
+        with mock.patch.object(
+                game, "sample_redhead_player_perception",
+                return_value=(True, self.player["position"], True)):
+            game.attack_state(
+                self.entity, "angry and attacking", self.player,
+                self.tile_map, None, audio, 0.2,
+            )
+            game.attack_state(
+                self.entity, "angry and attacking", self.player,
+                self.tile_map, None, audio, 0.8,
+            )
+
+        self.assertEqual(self.player["health"], 80)
 
 
 class RedheadEvadeStateTests(unittest.TestCase):

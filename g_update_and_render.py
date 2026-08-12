@@ -71,6 +71,7 @@ MAX_AIM_CURSOR_DISTANCE = 120.0
 AIM_INPUT_VERSION = 2
 DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
 DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION = 4.0
+DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE = 14.0
 
 # Redhead positions are the bottom-right anchor of their 24x24 render frame.
 # Keep the gameplay hurtbox on the visible body rather than on that anchor tile.
@@ -104,9 +105,9 @@ REDHEAD_EVADE_DEFAULTS = {
 
 REDHEAD_MOVEMENT_DEFAULTS = {
     "max_speed": 70.0,
-    "acceleration": 280.0,
-    "deceleration": 280.0,
-    "reverse_acceleration": 560.0,
+    "acceleration": 2000.0,
+    "deceleration": 2000.0,
+    "reverse_acceleration": 4000.0,
     "arrival_radius": 3.0,
     "evade_speed_multiplier": 1.3,
 }
@@ -1042,7 +1043,7 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["attack_timer"] = 0
         entity["attack_cooldown"] = 1
         entity["notice_duration"] = 1.0
-        entity["attack_engage_distance"] = 40.0
+        entity["attack_engage_distance"] = DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE
         entity["attack_exit_delay"] = 1.0
         entity["bullet_hurtbox"] = {
             "offset": dict(DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]),
@@ -2251,6 +2252,32 @@ def get_entity_collision_dimensions(entity):
     return (
         max(0.0, width - radius_reduction * 2.0),
         max(0.0, height - radius_reduction * 2.0),
+    )
+
+
+def get_entity_collision_world_position(entity, tile_map, position=None):
+    collision_position = offset_entity_position_for_collision(
+        position if position is not None else entity.get("position", {}),
+        entity, tile_map,
+    )
+    return make_pos_abs(
+        collision_position,
+        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+
+
+def get_redhead_attack_engage_distance(entity):
+    """Return a threshold that remains inside the authored melee hit reach."""
+    try:
+        authored = float(entity.get(
+            "attack_engage_distance", DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE,
+        ))
+    except (TypeError, ValueError, OverflowError):
+        authored = DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE
+    if not math.isfinite(authored):
+        authored = DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE
+    return min(
+        max(0.0, authored), DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE,
     )
 
 
@@ -4083,18 +4110,14 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, audi
     tile_height = tile_map.get("tile_height", 0)
     # TODO: mismatch here between player position which is offset, turned into abs
     # and entity positions, which are currenty only abs
-    entity_pos = entity.get("position",{})
-
     player_pos_abs = get_abs_pos_from_index(player_pos, tile_map)
-    entity_pos_abs = get_abs_pos_from_index(entity_pos, tile_map)
+    entity_pos_abs = get_entity_collision_world_position(entity, tile_map)
 
     if not can_see and attack_substate != "committed":
         reset_redhead_attack_cycle(entity)
         return "idle"  # A searching state can replace this later.
 
-    attack_engage_distance = max(
-        0.0, float(entity.get("attack_engage_distance", 40.0)),
-    )
+    attack_engage_distance = get_redhead_attack_engage_distance(entity)
     attack_exit_delay = max(0.0, float(entity.get("attack_exit_delay", 1.0)))
     distance_to_player = vec2_distance(entity_pos_abs, player_pos_abs)
     if distance_to_player > attack_engage_distance:
@@ -4745,11 +4768,9 @@ def evade_redhead_state(entity, current_state, player_info, tile_map,
     player_world = make_pos_abs(
         player_info.get("position", {}), tile_width, tile_height,
     )
-    entity_world = make_pos_abs(
-        entity.get("position", {}), tile_width, tile_height,
-    )
-    if vec2_distance(entity_world, player_world) <= max(
-            0.0, float(entity.get("attack_engage_distance", 40.0))):
+    entity_world = get_entity_collision_world_position(entity, tile_map)
+    if vec2_distance(entity_world, player_world) <= (
+            get_redhead_attack_engage_distance(entity)):
         clear_redhead_evade_navigation(entity)
         return "angry and attacking"
     if entity["evade_elapsed"] >= float(entity.get(
@@ -4834,7 +4855,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
 
 
     direct_arrival_radius = (
-        max(0.0, float(entity.get("attack_engage_distance", 40.0)))
+        get_redhead_attack_engage_distance(entity)
         if can_move else None
     )
     new_position = move_entity_towards_target_abs(
@@ -4848,9 +4869,7 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     # entity.get("position",{})["x"] = new_position.get("x", 0)
     # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
-    dest_threshold = max(
-        0.0, float(entity.get("attack_engage_distance", 40.0)),
-    )
+    dest_threshold = get_redhead_attack_engage_distance(entity)
     give_up_threshold = 10
 
     
