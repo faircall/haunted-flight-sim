@@ -290,7 +290,7 @@ class EnvironmentEditorDataTests(unittest.TestCase):
             )
 
         self.assertEqual(entity["movement_settings"]["max_speed"], 52.0)
-        self.assertEqual(inputs.call_count, 21)
+        self.assertEqual(inputs.call_count, 24)
         self.assertEqual(integer_inputs.call_count, 2)
         self.assertEqual(entity["evade_settings"]["search_radius_tiles"], 4)
         self.assertEqual(

@@ -1460,7 +1460,8 @@ def draw_inspector(ui_state, editor_state, entities, lighting_profile, fog_profi
 def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
                                    movement_defaults=None,
                                    evade_defaults=None,
-                                   perception_defaults=None):
+                                   perception_defaults=None,
+                                   flee_defaults=None):
     collapse_rect = pr.Rectangle(308, 40, 14, 14)
     if g_ui.ui_button(
             ui_state, "entity_inspector:collapse",
@@ -1552,8 +1553,10 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
                 entity["perception_settings"] = perception
             for setting_name, label, minimum, maximum in (
                     ("line_of_sight_checks_per_second", "LOS checks / sec", 0.25, 60.0),
+                    ("flashlight_checks_per_second", "light checks / sec", 1.0, 60.0),
                     ("flashlight_notice_duration", "light notice time", 0.0, 5.0),
-                    ("flashlight_intensity_threshold", "light threshold", 0.0, 10.0)):
+                    ("flashlight_intensity_threshold", "light threshold", 0.0, 10.0),
+                    ("light_startle_duration", "light startle", 0.0, 2.0)):
                 perception[setting_name], _ = g_ui.ui_number_input_float(
                     ui_state, f"entity_inspector:perception:{setting_name}",
                     label,
@@ -1580,6 +1583,7 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
                     ("duration_max", "duration max", 0.05, 5.0),
                     ("minimum_lateral_tiles", "minimum lateral", 0.0, 8.0),
                     ("maximum_retreat_tiles", "maximum retreat", 0.0, 4.0),
+                    ("heading_reversal_limit", "heading limit", -1.0, 1.0),
                     ("lateral_score_weight", "lateral weight", 0.0, 10.0),
                     ("aim_clearance_score_weight", "aim clearance", 0.0, 10.0),
                     ("progress_score_weight", "progress weight", 0.0, 10.0),
@@ -1601,10 +1605,48 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
                     minimum, maximum,
                 )
 
+        if isinstance(flee_defaults, dict):
+            g_ui.ui_separator(ui_state, "entity_inspector:flee_separator")
+            g_ui.ui_label(
+                ui_state, "entity_inspector:flee_label", "Flee planning",
+                color=g_ui.UI_ACCENT, font_size=8,
+            )
+            flee = entity.setdefault("flee_settings", {})
+            if not isinstance(flee, dict):
+                flee = {}
+                entity["flee_settings"] = flee
+            for name, label, minimum, maximum in (
+                    ("health_fraction", "health fraction", 0.0, 1.0),
+                    ("ally_arrival_distance", "ally arrival", 0.0, 96.0),
+                    ("speed_multiplier", "speed multiplier", 0.0, 4.0),
+                    ("replan_interval", "replan interval", 0.1, 3.0),
+                    ("waypoint_arrival_radius", "waypoint radius", 0.0, 16.0)):
+                flee[name], _ = g_ui.ui_number_input_float(
+                    ui_state, f"entity_inspector:flee:{name}", label,
+                    flee.get(name, flee_defaults.get(name, minimum)),
+                    minimum, maximum,
+                )
+            flee["ally_search_radius_tiles"], _ = g_ui.ui_number_input_int(
+                ui_state, "entity_inspector:flee:ally_search_radius_tiles",
+                "ally search radius",
+                int(flee.get(
+                    "ally_search_radius_tiles",
+                    flee_defaults.get("ally_search_radius_tiles", 1),
+                )), 1, 32,
+            )
+            flee["local_plan_radius_tiles"], _ = g_ui.ui_number_input_int(
+                ui_state, "entity_inspector:flee:local_plan_radius_tiles",
+                "local plan radius",
+                int(flee.get(
+                    "local_plan_radius_tiles",
+                    flee_defaults.get("local_plan_radius_tiles", 1),
+                )), 1, 16,
+            )
+
     g_ui.ui_end_panel(ui_state)
 
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None, redhead_perception_defaults=None):
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None, redhead_perception_defaults=None, redhead_flee_defaults=None):
     if not show_editor:
         return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
@@ -1631,6 +1673,7 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
         draw_gameplay_entity_inspector(
             ui_state, editor_state, entities, redhead_movement_defaults,
             redhead_evade_defaults, redhead_perception_defaults,
+            redhead_flee_defaults,
         )
 
     return editor_mode

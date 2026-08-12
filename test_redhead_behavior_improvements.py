@@ -1,0 +1,148 @@
+import unittest
+from unittest import mock
+
+import g_audio
+import g_update_and_render as game
+from test_redhead_state import make_player, make_redhead
+
+
+class RedheadBehaviorImprovementTests(unittest.TestCase):
+    def setUp(self):
+        self.tile_map = game.make_tile_map(20, 10, 16, 16)
+        self.player = make_player(12, 5)
+        self.player["id"] = "player"
+        self.redhead = make_redhead(8, 5)
+        self.redhead["id"] = 1
+        self.audio = g_audio.make_audio_runtime()
+
+    def test_light_uses_short_startle_then_commits_to_chase(self):
+        self.redhead["pending_awareness_stimulus"] = {
+            "type": "light",
+            "source_world_position": {"x": 200.0, "y": 88.0},
+            "strength": 0.5,
+        }
+        state = game.idle_redhead_state(
+            self.redhead, "idle", self.player, self.tile_map, None, 0.01,
+        )
+        self.assertEqual(state, "light startle")
+        self.assertEqual(
+            self.redhead["last_seen_player_pos"]["tile_x"],
+            self.player["position"]["tile_x"],
+        )
+
+        self.redhead["current_state"] = state
+        self.redhead["previous_state"] = "idle"
+        with mock.patch.object(
+                game, "prepare_redhead_pursuit_path", return_value=True):
+            state = game.transition_entity_state(
+                self.redhead, state, self.player, self.tile_map, None,
+                self.audio, 0.10,
+            )
+        self.assertEqual(state, "angry chase")
+
+    def test_shot_refreshes_player_memory_and_idle_stagger_resumes_chase(self):
+        bullet = {"velocity": {"x": 100.0, "y": 0.0}}
+        game.apply_bullet_hit_to_redhead(
+            self.redhead, 1, bullet, "idle", self.tile_map, self.audio,
+            player_info=self.player,
+        )
+        self.assertEqual(
+            self.redhead["last_seen_player_pos"]["tile_x"],
+            self.player["position"]["tile_x"],
+        )
+        with mock.patch.object(
+                game, "prepare_redhead_pursuit_path", return_value=True):
+            state = game.stagger_state(
+                self.redhead, "stagger", self.player, self.tile_map, None, 0.10,
+            )
+        self.assertEqual(state, "angry chase")
+
+    def test_low_health_stagger_transitions_to_flee(self):
+        ally = make_redhead(5, 5)
+        ally["id"] = 2
+        entities = {"brains": {1: self.redhead, 2: ally}}
+        self.redhead["health"] = 40
+        game.apply_bullet_hit_to_redhead(
+            self.redhead, 1, {"velocity": {"x": 0.0, "y": 0.0}},
+            "angry chase", self.tile_map, self.audio,
+            player_info=self.player,
+        )
+        state = game.stagger_state(
+            self.redhead, "stagger", self.player, self.tile_map, None, 0.10,
+            {"entities": entities},
+        )
+        self.assertEqual(state, "flee")
+
+    def test_low_health_redhead_alone_resumes_fighting(self):
+        self.redhead["health"] = 20
+        self.redhead.update({
+            "stagger_timer": 0.0,
+            "bullet_hit_magnitude": 0.0,
+            "bullet_normalized": {"x": 0.0, "y": 0.0},
+            "bullet_impulse": {"x": 0.0, "y": 0.0},
+            "previous_state_on_stagger": "angry chase",
+        })
+        entities = {"brains": {1: self.redhead}}
+
+        state = game.stagger_state(
+            self.redhead, "stagger", self.player, self.tile_map, None, 0.10,
+            {"entities": entities},
+        )
+
+        self.assertEqual(state, "angry chase")
+
+    def test_dead_or_distant_redheads_do_not_enable_flee(self):
+        self.redhead["health"] = 20
+        self.redhead["flee_settings"]["ally_search_radius_tiles"] = 4
+        dead_ally = make_redhead(7, 5)
+        dead_ally.update({"id": 2, "health": 0, "current_state": "dead"})
+        distant_ally = make_redhead(15, 5)
+        distant_ally["id"] = 3
+
+        self.assertFalse(game.redhead_should_flee(
+            self.redhead,
+            {"brains": {1: self.redhead, 2: dead_ally, 3: distant_ally}},
+            self.tile_map,
+        ))
+
+    def test_flee_without_a_nearby_living_ally_returns_to_chase(self):
+        self.redhead["current_state"] = "flee"
+        state = game.flee_redhead_state(
+            self.redhead, "flee", self.player, self.tile_map, None,
+            1.0 / 60.0,
+            {"entities": {"brains": {1: self.redhead}}},
+        )
+        self.assertEqual(state, "angry chase")
+
+    def test_flee_plan_targets_a_living_redhead_and_is_locally_bounded(self):
+        ally = make_redhead(3, 5)
+        ally["id"] = 2
+        entities = {"brains": {1: self.redhead, 2: ally}}
+        navigation = game.choose_redhead_flee_navigation(
+            self.redhead, self.player, self.tile_map, entities,
+        )
+        self.assertIsNotNone(navigation)
+        self.assertEqual(navigation["target_ally_id"], 2)
+        self.assertLessEqual(
+            len(navigation["path"]),
+            self.redhead["flee_settings"]["local_plan_radius_tiles"] + 1,
+        )
+
+    def test_flee_planning_budget_defers_a_second_same_frame_search(self):
+        ally = make_redhead(5, 5)
+        ally["id"] = 2
+        context = {
+            "entities": {"brains": {1: self.redhead, 2: ally}},
+            "flee_plans_remaining": 0,
+        }
+        with mock.patch.object(game, "choose_redhead_flee_navigation") as plan:
+            state = game.flee_redhead_state(
+                self.redhead, "flee", self.player, self.tile_map, None,
+                1.0 / 60.0, context,
+            )
+        self.assertEqual(state, "flee")
+        plan.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

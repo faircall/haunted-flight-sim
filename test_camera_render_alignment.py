@@ -60,6 +60,30 @@ class CameraRenderAlignmentTests(unittest.TestCase):
         expected = g_render_order.world_to_screen_pixel(0.0, 0.0, camera)
         self.assertEqual((tile_position.x, tile_position.y), (expected["x"], expected["y"]))
 
+    def test_editor_and_play_cull_tiles_to_same_internal_viewport(self):
+        tile_map = game.make_tile_map(100, 100, 16, 16)
+        for tile in tile_map["tiles"]:
+            tile["index"] = 6  # stone: exercises the textured tile path
+        assets = {
+            "editor_state": {"tile_edit_mode": "appearance"},
+            "textures": {"grey_tile_texture": object()},
+        }
+        camera = SimpleNamespace(x=0.0, y=0.0)
+
+        counts = {}
+        for mode in ("play", "environment"):
+            with mock.patch.object(
+                    game, "draw_masked_tile_texture") as draw_tile:
+                game._render_world_scene_phase(
+                    camera, {}, tile_map, pr.Vector2(-20.0, -20.0),
+                    0, 0, 0, False, assets, False, {}, mode, None,
+                    True, False,
+                )
+            counts[mode] = draw_tile.call_count
+
+        self.assertEqual(counts["environment"], counts["play"])
+        self.assertEqual(counts["play"], 558)
+
     def test_entity_sprite_uses_shared_camera_relative_snap(self):
         camera = SimpleNamespace(x=2.6, y=3.2)
         item = {

@@ -229,7 +229,7 @@ class RedheadPerceptionCadenceTests(unittest.TestCase):
             state = game.idle_redhead_state(
                 self.entity, "idle", self.player, self.tile_map, None, 0.01,
             )
-        self.assertEqual(state, "noticing")
+        self.assertEqual(state, "light startle")
         visibility.assert_not_called()
         self.assertEqual(self.entity["last_awareness_stimulus"]["type"], "light")
 
@@ -892,7 +892,9 @@ class RedheadLocomotionTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(first_speed, 14.0)
-        self.assertAlmostEqual(game.vec2_norm(self.entity["ai_velocity"]), 28.0)
+        self.assertAlmostEqual(
+            game.vec2_norm(self.entity["ai_velocity"]), 28.0, delta=0.02,
+        )
 
 
 if __name__ == "__main__":

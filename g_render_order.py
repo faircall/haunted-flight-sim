@@ -3,6 +3,7 @@ import math
 
 
 SORT_LAYER_ORDER = {"floor": 0, "world": 100, "overlay": 200}
+ENTITY_RENDER_METADATA_VERSION = 1
 
 
 def world_to_screen_pixel(world_x, world_y, game_camera):
@@ -143,6 +144,11 @@ def ensure_entity_render_metadata(entity, entity_type=None):
     render_type = entity_type or get_entity_render_type(entity)
     if str(render_type).lower().replace("_", " ") in {"pistol ammo pickup", "health pickup"}:
         render_type = "pickup"
+    normalized_render_type = str(render_type).lower().replace("_", " ")
+    if (entity.get("_render_metadata_version")
+            == ENTITY_RENDER_METADATA_VERSION
+            and entity.get("_render_metadata_type") == normalized_render_type):
+        return entity
     defaults = make_default_entity_render_metadata(render_type)
     retired_entity_lighting = entity.pop("entity_lighting", None)
 
@@ -164,6 +170,8 @@ def ensure_entity_render_metadata(entity, entity_type=None):
     entity.pop("cinematic_shadow", None)
     entity.setdefault("occludes_player", bool(entity.get("occludes_render_items", False)))
     entity.setdefault("outline_player_when_behind", bool(entity.get("occludes_render_items", False)))
+    entity["_render_metadata_version"] = ENTITY_RENDER_METADATA_VERSION
+    entity["_render_metadata_type"] = normalized_render_type
     return entity
 
 
@@ -190,10 +198,10 @@ def make_world_render_item(kind, source, source_id, object_id, entity, world_pos
     return {
         "kind": kind, "source": source, "source_id": source_id, "id": object_id, "texture": texture, "source_rect": dict(source_rect), "dest_rect": dest,
         "sort_layer": "world", "sort_y": float(base["y"]), "base_world": base, "bounds_world": dict(dest), "visual_height": float(entity.get("visual_height", height)),
-        "light_sample_height": float(entity.get("light_sample_height", entity.get("visual_height", height) * 0.55)), "ground_footprint": copy.deepcopy(entity.get("ground_footprint", {})),
-        "self_shadow": copy.deepcopy(entity.get("self_shadow", {})), "entity_light_occluder": copy.deepcopy(entity.get("entity_light_occluder", {})), "shadow": copy.deepcopy(entity.get("shadow", {})), "render_style": entity.get("render_style", "world"),
-        "outline": copy.deepcopy(entity.get("outline", {})), "occludes_render_items": bool(entity.get("occludes_render_items", False)), "fog_interaction": copy.deepcopy(entity.get("fog_interaction", {"mode": "standard"})),
-        "water_interaction": copy.deepcopy(entity.get("water_interaction", {"mode": "standard"})), "draw_data": copy.deepcopy(draw_data or {})
+        "light_sample_height": float(entity.get("light_sample_height", entity.get("visual_height", height) * 0.55)), "ground_footprint": entity.get("ground_footprint", {}),
+        "self_shadow": entity.get("self_shadow", {}), "entity_light_occluder": entity.get("entity_light_occluder", {}), "shadow": entity.get("shadow", {}), "render_style": entity.get("render_style", "world"),
+        "outline": entity.get("outline", {}), "occludes_render_items": bool(entity.get("occludes_render_items", False)), "fog_interaction": entity.get("fog_interaction", {"mode": "standard"}),
+        "water_interaction": entity.get("water_interaction", {"mode": "standard"}), "draw_data": draw_data or {}
     }
 
 
@@ -208,7 +216,6 @@ def _asset_dimension(game_assets, collection, name, dimension, fallback):
 
 
 def build_player_render_item(player_entity, tile_map, game_assets):
-    ensure_entity_render_metadata(player_entity, "player")
     world_position = position_to_world(player_entity.get("position", {}), tile_map)
     sprite_sheet = game_assets.get("sprite_sheets", {}).get("blue_oxford_texture_sheet", {})
     frame_number = sprite_sheet.get(player_entity.get("animation_frame", 0), 0)
@@ -231,7 +238,6 @@ def build_brain_render_item(object_id, entity, tile_map, game_assets):
     entity_type = get_entity_render_type(entity)
     if entity_type not in {"red head", "buddha"}:
         return None
-    ensure_entity_render_metadata(entity, entity_type)
     world_position = position_to_world(entity.get("position", {}), tile_map)
     if entity_type == "red head":
         sprite_sheet = game_assets.get("sprite_sheets", {}).get("red_head_texture_sheet", {})
@@ -248,7 +254,6 @@ def build_pickup_render_item(object_id, entity, tile_map, game_assets):
     texture_name = texture_names.get(pickup_type)
     if texture_name is None:
         return None
-    ensure_entity_render_metadata(entity, "pickup")
     world_position = position_to_world(entity.get("position", {}), tile_map)
     source_width = _asset_dimension(game_assets, "textures", texture_name, "width", 8.0)
     source_height = _asset_dimension(game_assets, "textures", texture_name, "height", 8.0)
