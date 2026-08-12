@@ -114,6 +114,63 @@ class RedheadBehaviorImprovementTests(unittest.TestCase):
         )
         self.assertEqual(state, "angry chase")
 
+    def test_flee_arrival_holds_near_ally_instead_of_rejoining_chase(self):
+        ally = make_redhead(9, 5)
+        ally["id"] = 2
+        self.redhead.update({
+            "current_state": "flee",
+            "ai_velocity": {"x": -70.0, "y": 0.0},
+            "navigation": {
+                "intent": "flee",
+                "target_ally_id": 2,
+                "path": [
+                    {"tile_x": 8, "tile_y": 5},
+                    {"tile_x": 9, "tile_y": 5},
+                ],
+                "waypoint_index": 1,
+                "geometry_revision": self.tile_map["geometry_revision"],
+                "replan_timer": 0.0,
+            },
+        })
+        context = {"entities": {"brains": {1: self.redhead, 2: ally}}}
+
+        with mock.patch.object(game, "choose_redhead_flee_navigation") as plan:
+            state = game.flee_redhead_state(
+                self.redhead, "flee", self.player, self.tile_map, None,
+                1.0 / 60.0, context,
+            )
+
+        self.assertEqual(state, "flee")
+        self.assertEqual(self.redhead["ai_velocity"], {"x": 0.0, "y": 0.0})
+        self.assertNotIn("navigation", self.redhead)
+        plan.assert_not_called()
+
+    def test_exhausted_flee_path_waits_instead_of_rejoining_chase(self):
+        ally = make_redhead(4, 5)
+        ally["id"] = 2
+        self.redhead.update({
+            "current_state": "flee",
+            "ai_velocity": {"x": -70.0, "y": 0.0},
+            "navigation": {
+                "intent": "flee",
+                "target_ally_id": 2,
+                "path": [{"tile_x": 8, "tile_y": 5}],
+                "waypoint_index": 1,
+                "geometry_revision": self.tile_map["geometry_revision"],
+                "replan_timer": 0.0,
+            },
+        })
+        context = {"entities": {"brains": {1: self.redhead, 2: ally}}}
+
+        state = game.flee_redhead_state(
+            self.redhead, "flee", self.player, self.tile_map, None,
+            1.0 / 60.0, context,
+        )
+
+        self.assertEqual(state, "flee")
+        self.assertEqual(self.redhead["ai_velocity"], {"x": 0.0, "y": 0.0})
+        self.assertNotIn("navigation", self.redhead)
+
     def test_flee_plan_targets_a_living_redhead_and_is_locally_bounded(self):
         ally = make_redhead(3, 5)
         ally["id"] = 2
@@ -142,6 +199,26 @@ class RedheadBehaviorImprovementTests(unittest.TestCase):
             )
         self.assertEqual(state, "flee")
         plan.assert_not_called()
+
+    def test_failed_flee_plan_waits_before_retrying(self):
+        ally = make_redhead(4, 5)
+        ally["id"] = 2
+        entities = {"brains": {1: self.redhead, 2: ally}}
+
+        with mock.patch.object(
+                game, "choose_redhead_flee_navigation", return_value=None) as plan:
+            first_state = game.flee_redhead_state(
+                self.redhead, "flee", self.player, self.tile_map, None,
+                1.0 / 60.0, {"entities": entities},
+            )
+            second_state = game.flee_redhead_state(
+                self.redhead, "flee", self.player, self.tile_map, None,
+                1.0 / 60.0, {"entities": entities},
+            )
+
+        self.assertEqual((first_state, second_state), ("flee", "flee"))
+        self.assertEqual(plan.call_count, 1)
+        self.assertGreater(self.redhead["flee_plan_retry_timer"], 0.0)
 
 
 if __name__ == "__main__":

@@ -153,6 +153,119 @@ class SweptSegmentTests(unittest.TestCase):
         ), {"x": 33, "y": 74})
 
 
+class ActorPassthroughTests(unittest.TestCase):
+    def setUp(self):
+        self.tile_map = game.make_tile_map(12, 8, 16, 16)
+
+    def set_collision_center(self, entity, center_x, center_y):
+        offset = game.get_entity_collision_center_offset(entity)
+        entity["position"] = game.move_position_along_tiles({
+            "tile_x": 0,
+            "tile_y": 0,
+            "x": center_x - offset["x"],
+            "y": center_y - offset["y"],
+        }, 16, 16)
+
+    def collision_center(self, entity):
+        return game.get_entity_collision_world_position(entity, self.tile_map)
+
+    def test_sustained_redhead_block_enables_only_that_pair(self):
+        mover = make_redhead(1)
+        blocker = make_redhead(2)
+        third = make_redhead(3)
+        self.set_collision_center(mover, 64.0, 64.0)
+        self.set_collision_center(blocker, 72.0, 64.0)
+        self.set_collision_center(third, 56.0, 64.0)
+        entities = {"brains": {1: mover, 2: blocker, 3: third}}
+        game.rebuild_actor_collision_index(self.tile_map, None, entities)
+
+        for _frame in range(3):
+            velocity = {"x": 70.0, "y": 0.0}
+            mover["position"] = game.move_entity_with_velocity(
+                mover, velocity, self.tile_map, None, 0.10,
+            )
+        self.assertFalse(game.actor_passthrough_pair_is_active(
+            self.tile_map, mover["id"], blocker["id"],
+        ))
+        velocity = {"x": 70.0, "y": 0.0}
+        mover["position"] = game.move_entity_with_velocity(
+            mover, velocity, self.tile_map, None, 0.10,
+        )
+
+        self.assertTrue(game.actor_passthrough_pair_is_active(
+            self.tile_map, mover["id"], blocker["id"],
+        ))
+        right_candidate = game.move_position_by_velocity(
+            mover["position"], {"x": 1.0, "y": 0.0}, 1.0, 16, 16,
+        )
+        left_candidate = game.move_position_by_velocity(
+            mover["position"], {"x": -1.0, "y": 0.0}, 1.0, 16, 16,
+        )
+        self.assertTrue(game.entity_position_is_legal(
+            right_candidate, mover, self.tile_map,
+        ))
+        self.assertFalse(game.entity_position_is_legal(
+            left_candidate, mover, self.tile_map,
+        ))
+        self.assertFalse(game.actor_passthrough_pair_is_active(
+            self.tile_map, mover["id"], third["id"],
+        ))
+
+    def test_passthrough_clears_after_redheads_cross(self):
+        mover = make_redhead(1)
+        blocker = make_redhead(2)
+        self.set_collision_center(mover, 64.0, 64.0)
+        self.set_collision_center(blocker, 72.0, 64.0)
+        entities = {"brains": {1: mover, 2: blocker}}
+        game.rebuild_actor_collision_index(self.tile_map, None, entities)
+
+        for _frame in range(4):
+            velocity = {"x": 70.0, "y": 0.0}
+            mover["position"] = game.move_entity_with_velocity(
+                mover, velocity, self.tile_map, None, 0.10,
+            )
+        for _frame in range(3):
+            velocity = {"x": 70.0, "y": 0.0}
+            mover["position"] = game.move_entity_with_velocity(
+                mover, velocity, self.tile_map, None, 0.10,
+            )
+
+        self.assertGreater(
+            self.collision_center(mover)["x"],
+            self.collision_center(blocker)["x"],
+        )
+        self.assertFalse(game.actor_passthrough_pair_is_active(
+            self.tile_map, mover["id"], blocker["id"],
+        ))
+        crossed_x = self.collision_center(mover)["x"]
+        reverse_velocity = {"x": -70.0, "y": 0.0}
+        mover["position"] = game.move_entity_with_velocity(
+            mover, reverse_velocity, self.tile_map, None, 0.10,
+        )
+        self.assertAlmostEqual(self.collision_center(mover)["x"], crossed_x)
+
+    def test_redhead_never_earns_passthrough_through_player(self):
+        mover = make_redhead(1)
+        player = game.make_default_player(0.0, 0.0, 0.0)
+        player["id"] = "player"
+        self.set_collision_center(mover, 64.0, 64.0)
+        self.set_collision_center(player, 74.0, 64.0)
+        game.rebuild_actor_collision_index(
+            self.tile_map, player, {"brains": {1: mover}},
+        )
+
+        for _frame in range(6):
+            velocity = {"x": 70.0, "y": 0.0}
+            mover["position"] = game.move_entity_with_velocity(
+                mover, velocity, self.tile_map, None, 0.10,
+            )
+
+        self.assertAlmostEqual(self.collision_center(mover)["x"], 64.0)
+        self.assertFalse(game.actor_passthrough_pair_is_active(
+            self.tile_map, mover["id"], player["id"],
+        ))
+
+
 class BulletUpdateIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.tile_map = game.make_tile_map(12, 8, 16, 16)
@@ -199,6 +312,112 @@ class BulletUpdateIntegrationTests(unittest.TestCase):
             [event["type"] for event in self.audio["event_queue"]],
             ["bullet_wall_impact"],
         )
+
+
+class BulletImpulseTests(unittest.TestCase):
+    def setUp(self):
+        self.tile_map = game.make_tile_map(20, 10, 16, 16)
+        self.audio = g_audio.make_audio_runtime()
+
+    def redhead_at_collision_tile(self, tile_x=6, tile_y=5):
+        entity = make_redhead(tile_x=tile_x, tile_y=tile_y)
+        entity["position"] = game.entity_position_for_collision_tile_center(
+            entity, tile_x, tile_y, self.tile_map,
+        )
+        return entity
+
+    def bullet(self, velocity, **impact_overrides):
+        return game.make_projectile(
+            "player", {"x": 0.0, "y": 0.0}, velocity, 1, "bullet",
+            **impact_overrides,
+        )
+
+    def world_position(self, entity):
+        return game.make_pos_abs(entity["position"], 16, 16)
+
+    def apply_hit(self, entity, bullet, state_before="angry chase", impact_dt=0.0):
+        game.apply_bullet_hit_to_redhead(
+            entity, entity["id"], bullet, state_before, self.tile_map,
+            self.audio, impact_dt=impact_dt,
+        )
+
+    def test_impact_strength_is_independent_from_projectile_travel_speed(self):
+        slow = self.redhead_at_collision_tile(5, 4)
+        fast = self.redhead_at_collision_tile(10, 4)
+
+        self.apply_hit(slow, self.bullet({"x": 100.0, "y": 0.0}))
+        self.apply_hit(fast, self.bullet({"x": 10000.0, "y": 0.0}))
+
+        self.assertAlmostEqual(
+            game.vec2_norm(slow["bullet_impulse"]),
+            game.DEFAULT_BULLET_IMPACT_SPEED,
+        )
+        self.assertAlmostEqual(
+            game.vec2_norm(fast["bullet_impulse"]),
+            game.DEFAULT_BULLET_IMPACT_SPEED,
+        )
+
+    def test_impulse_is_immediate_and_clamped_to_zero(self):
+        entity = self.redhead_at_collision_tile()
+        entity["ai_velocity"] = {"x": -500.0, "y": 20.0}
+        start_x = self.world_position(entity)["x"]
+
+        self.apply_hit(
+            entity, self.bullet({"x": 10000.0, "y": 0.0}), impact_dt=0.05,
+        )
+        immediate_x = self.world_position(entity)["x"]
+        game.advance_redhead_bullet_impulse(entity, self.tile_map, None, 0.05)
+        final_x = self.world_position(entity)["x"]
+
+        self.assertAlmostEqual(immediate_x - start_x, 7.5, places=4)
+        self.assertAlmostEqual(final_x - start_x, 10.0, places=4)
+        self.assertEqual(entity["bullet_impulse"], {"x": 0.0, "y": 0.0})
+        self.assertEqual(entity["ai_velocity"], {"x": 0.0, "y": 0.0})
+
+    def test_repeated_hits_accumulate_but_respect_cap(self):
+        entity = self.redhead_at_collision_tile()
+        bullet = self.bullet({"x": 1000.0, "y": 0.0})
+
+        self.apply_hit(entity, bullet)
+        # The update loop retains the state from before all projectile traces;
+        # current entity state must still make this count as a repeated hit.
+        self.apply_hit(entity, bullet, state_before="angry chase")
+
+        self.assertAlmostEqual(
+            game.vec2_norm(entity["bullet_impulse"]),
+            game.DEFAULT_BULLET_COMBINED_IMPACT_CAP,
+        )
+
+    def test_wall_collision_stops_impulse_without_reversing_it(self):
+        entity = self.redhead_at_collision_tile(1, 5)
+        self.tile_map["tiles"][2 + 5 * 20]["index"] = 3
+        start_x = self.world_position(entity)["x"]
+        self.apply_hit(entity, self.bullet({"x": 1000.0, "y": 0.0}))
+
+        game.advance_redhead_bullet_impulse(entity, self.tile_map, None, 0.10)
+        stopped_x = self.world_position(entity)["x"]
+        game.advance_redhead_bullet_impulse(entity, self.tile_map, None, 0.10)
+
+        self.assertGreaterEqual(stopped_x, start_x)
+        self.assertLessEqual(stopped_x - start_x, 4.01)
+        self.assertAlmostEqual(self.world_position(entity)["x"], stopped_x)
+        self.assertEqual(entity["bullet_impulse"], {"x": 0.0, "y": 0.0})
+
+    def test_dead_redhead_uses_same_impulse_and_keeps_death_pose(self):
+        entity = self.redhead_at_collision_tile()
+        entity["health"] = 20
+        start_x = self.world_position(entity)["x"]
+        self.apply_hit(entity, self.bullet({"x": 1000.0, "y": 0.0}))
+
+        self.assertEqual(entity["current_state"], "dead")
+        game.death_state(
+            entity, "dead", {}, self.tile_map, None,
+            game.DEFAULT_BULLET_IMPACT_DURATION,
+        )
+
+        self.assertAlmostEqual(self.world_position(entity)["x"] - start_x, 10.0)
+        self.assertEqual(entity["animation_frame"], "death_frame_start")
+        self.assertEqual(entity["bullet_impulse"], {"x": 0.0, "y": 0.0})
 
 
 if __name__ == "__main__":

@@ -72,6 +72,14 @@ AIM_INPUT_VERSION = 2
 DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
 DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION = 4.0
 DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE = 28.0
+# Initial knockback speed, decay window, and cap for combined rapid hits.
+# With linear decay, 200 px/s over 0.10 s travels roughly 10 pixels.
+DEFAULT_BULLET_IMPACT_SPEED = 200.0
+DEFAULT_BULLET_IMPACT_DURATION = 0.10
+DEFAULT_BULLET_COMBINED_IMPACT_CAP = 320.0
+DEFAULT_REDHEAD_STAGGER_DURATION = 0.10
+DEFAULT_REDHEAD_ACTOR_BLOCK_DELAY = 0.35
+DEFAULT_REDHEAD_PASSTHROUGH_UNUSED_TIMEOUT = 1.0
 
 # Redhead positions are the bottom-right anchor of their 24x24 render frame.
 # Keep the gameplay hurtbox on the visible body rather than on that anchor tile.
@@ -1033,7 +1041,10 @@ def make_default_camera():
 
 
 
-def make_projectile(responsible, spawn_pos, velocity, id, type):
+def make_projectile(responsible, spawn_pos, velocity, id, type,
+                    impact_speed=DEFAULT_BULLET_IMPACT_SPEED,
+                    impact_duration=DEFAULT_BULLET_IMPACT_DURATION,
+                    combined_impact_cap=DEFAULT_BULLET_COMBINED_IMPACT_CAP):
     current_pos = {"x" : spawn_pos["x"], "y" : spawn_pos["y"]}
     bullet = {"entity_responsible" : "player",
                   "spawn_position" : spawn_pos,
@@ -1041,7 +1052,14 @@ def make_projectile(responsible, spawn_pos, velocity, id, type):
                   "velocity" : velocity,
                   "id" : id,
                   "type" : type,
-                  "timer" : 0
+                  "timer" : 0,
+                  # Gameplay impact is deliberately independent from travel
+                  # speed so hitscan-fast bullets do not launch enemies.
+                  "impact_speed": max(0.0, float(impact_speed)),
+                  "impact_duration": max(0.001, float(impact_duration)),
+                  "combined_impact_cap": max(
+                      0.0, float(combined_impact_cap),
+                  ),
                   }
     return bullet
 
@@ -2777,15 +2795,21 @@ def vec2_move_towards(current, target, max_delta):
 
     return vec2_add(current, movement)
 
-def entity_position_is_legal(position, entity, tile_map, debug_queue=None):
+def entity_position_is_legal(position, entity, tile_map, debug_queue=None,
+                             collision_details=None):
     entity_points = make_entity_collision_points(position, entity, tile_map)
 
     if not is_legal_position_on_tilemap(entity_points, tile_map, debug_queue):
+        if isinstance(collision_details, dict):
+            collision_details["kind"] = "tile"
         return False
 
-    collides_with_entity, _ = collides_within_tile_at_position(
+    collides_with_entity, actor_details = collides_within_tile_at_position(
         position, entity, tile_map, debug_queue,
     )
+    if collides_with_entity and isinstance(collision_details, dict):
+        collision_details.update(actor_details or {})
+        collision_details["kind"] = "actor"
 
     return not collides_with_entity
 
@@ -2853,6 +2877,150 @@ def aabbs_overlap(first, second):
         and first["y"] < second["y"] + second["height"]
         and first["y"] + first["height"] > second["y"]
     )
+
+
+def actor_passthrough_pair_key(first_id, second_id):
+    if first_id == second_id:
+        return None
+    return tuple(sorted(
+        (first_id, second_id),
+        key=lambda value: (type(value).__name__, str(value)),
+    ))
+
+
+def get_actor_passthrough_runtime(tile_map):
+    runtime = tile_map.get("_actor_passthrough_runtime")
+    if not isinstance(runtime, dict):
+        runtime = {}
+        tile_map["_actor_passthrough_runtime"] = runtime
+    if not isinstance(runtime.get("pending"), dict):
+        runtime["pending"] = {}
+    if not isinstance(runtime.get("pairs"), dict):
+        runtime["pairs"] = {}
+    return runtime
+
+
+def actor_passthrough_pair_record(tile_map, first_id, second_id):
+    pair_key = actor_passthrough_pair_key(first_id, second_id)
+    if pair_key is None:
+        return None
+    return get_actor_passthrough_runtime(tile_map)["pairs"].get(pair_key)
+
+
+def actor_passthrough_pair_is_active(tile_map, first_id, second_id):
+    return actor_passthrough_pair_record(
+        tile_map, first_id, second_id,
+    ) is not None
+
+
+def begin_actor_passthrough_pair(entity, blocker_details, tile_map):
+    entity_id = entity.get("id")
+    other_id = blocker_details.get("entity_id")
+    pair_key = actor_passthrough_pair_key(entity_id, other_id)
+    if pair_key is None:
+        return
+    boxes = {
+        entity_id: get_entity_collision_box(entity, tile_map),
+        other_id: dict(blocker_details.get("collision_box", {})),
+    }
+    get_actor_passthrough_runtime(tile_map)["pairs"][pair_key] = {
+        "ids": pair_key,
+        "boxes": boxes,
+        "crossing_started": False,
+        "unused_timer": 0.0,
+    }
+
+
+def note_redhead_actor_block(entity, blocker_details, tile_map, dt):
+    runtime = get_actor_passthrough_runtime(tile_map)
+    entity_id = entity.get("id")
+    blocker_id = (
+        blocker_details.get("entity_id")
+        if isinstance(blocker_details, dict) else None
+    )
+    if (entity.get("type") != "red head"
+            or not isinstance(blocker_details, dict)
+            or blocker_details.get("entity_type") != "red head"
+            or entity_id is None or blocker_id is None
+            or blocker_id == entity_id):
+        runtime["pending"].pop(entity_id, None)
+        return
+
+    other_id = blocker_id
+    pending = runtime["pending"].get(entity_id)
+    if not isinstance(pending, dict) or pending.get("other_id") != other_id:
+        pending = {"other_id": other_id, "duration": 0.0}
+        runtime["pending"][entity_id] = pending
+    try:
+        frame_dt = max(0.0, float(dt))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    pending["duration"] = max(
+        0.0, float(pending.get("duration", 0.0)),
+    ) + frame_dt
+    if pending["duration"] >= DEFAULT_REDHEAD_ACTOR_BLOCK_DELAY:
+        begin_actor_passthrough_pair(entity, blocker_details, tile_map)
+        runtime["pending"].pop(entity_id, None)
+
+
+def clear_redhead_actor_block(entity, tile_map):
+    get_actor_passthrough_runtime(tile_map)["pending"].pop(
+        entity.get("id"), None,
+    )
+
+
+def mark_actor_passthrough_crossing(tile_map, first_id, second_id):
+    pair = actor_passthrough_pair_record(tile_map, first_id, second_id)
+    if pair is not None:
+        pair["crossing_started"] = True
+        pair["unused_timer"] = 0.0
+
+
+def update_actor_passthrough_box(tile_map, entity_id, collision_box):
+    runtime = get_actor_passthrough_runtime(tile_map)
+    for pair_key, pair in list(runtime["pairs"].items()):
+        if entity_id not in pair.get("ids", ()):
+            continue
+        if collision_box is None:
+            runtime["pairs"].pop(pair_key, None)
+            continue
+        pair.setdefault("boxes", {})[entity_id] = dict(collision_box)
+        first_id, second_id = pair["ids"]
+        first_box = pair["boxes"].get(first_id)
+        second_box = pair["boxes"].get(second_id)
+        if (pair.get("crossing_started")
+                and isinstance(first_box, dict)
+                and isinstance(second_box, dict)
+                and not aabbs_overlap(first_box, second_box)):
+            runtime["pairs"].pop(pair_key, None)
+
+
+def update_actor_passthrough_runtime(tile_map, live_redhead_ids, dt):
+    runtime = get_actor_passthrough_runtime(tile_map)
+    live_ids = set(live_redhead_ids)
+    for entity_id in list(runtime["pending"]):
+        pending = runtime["pending"].get(entity_id, {})
+        if (entity_id not in live_ids
+                or pending.get("other_id") not in live_ids):
+            runtime["pending"].pop(entity_id, None)
+    try:
+        frame_dt = max(0.0, float(dt))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    for pair_key, pair in list(runtime["pairs"].items()):
+        if any(entity_id not in live_ids for entity_id in pair.get("ids", ())):
+            runtime["pairs"].pop(pair_key, None)
+            continue
+        if not pair.get("crossing_started"):
+            pair["unused_timer"] = max(
+                0.0, float(pair.get("unused_timer", 0.0)),
+            ) + frame_dt
+            if pair["unused_timer"] >= DEFAULT_REDHEAD_PASSTHROUGH_UNUSED_TIMEOUT:
+                runtime["pairs"].pop(pair_key, None)
 
 
 def make_entity_collision_record(entity, tile_map, position=None):
@@ -2929,7 +3097,19 @@ def collides_within_tile_at_position(new_entity_pos, entity, tile_map,
                 other_entity_record, other_entity_id, tile_map,
             )
             if aabbs_overlap(moving_box, other_box):
-                return (True, other_entity_record)
+                if actor_passthrough_pair_is_active(
+                        tile_map, entity_id, other_entity_id):
+                    mark_actor_passthrough_crossing(
+                        tile_map, entity_id, other_entity_id,
+                    )
+                    continue
+                return (True, {
+                    "entity_id": other_entity_id,
+                    "entity_type": other_entity_record.get(
+                        "entity_type", "",
+                    ),
+                    "collision_box": other_box,
+                })
 
     return False, None
 
@@ -3014,6 +3194,7 @@ def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map,
     new_x = new_index_position["tile_x"]
     new_y = new_index_position["tile_y"]
     if tile_not_in_bounds(new_x, new_y, tile_map):
+        update_actor_passthrough_box(tile_map, entity_id, None)
         return
 
     new_tile_index = get_flat_tile_index(
@@ -3024,10 +3205,15 @@ def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map,
     )
     if remove_only:
         new_entities.pop(entity_id, None)
+        update_actor_passthrough_box(tile_map, entity_id, None)
         return
-    new_entities[entity_id] = (
+    collision_record = (
         make_entity_collision_record(entity, tile_map, new_entity_pos)
         if entity is not None else copy_position_dict(new_entity_pos)
+    )
+    new_entities[entity_id] = collision_record
+    update_actor_passthrough_box(
+        tile_map, entity_id, collision_record.get("collision_box"),
     )
 
 
@@ -3056,6 +3242,10 @@ def rebuild_actor_collision_index(tile_map, player_info, entities):
         tile_map["tiles"][tile_index].setdefault("current_entities", {})[
             actor.get("id")
         ] = make_entity_collision_record(actor, tile_map, position)
+        update_actor_passthrough_box(
+            tile_map, actor.get("id"),
+            get_entity_collision_box(actor, tile_map, position),
+        )
 
 
 def actor_collision_index_signature(tile_map, player_info, entities):
@@ -3225,6 +3415,20 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
         "x": new_entity_velocity["x"],
         "y": new_entity_velocity["y"],
     }
+    actor_blockers = {}
+
+    def remember_actor_block(collision_details, blocked_weight):
+        if (not isinstance(collision_details, dict)
+                or collision_details.get("kind") != "actor"):
+            return
+        blocker_id = collision_details.get("entity_id")
+        if blocker_id is None:
+            return
+        current = actor_blockers.get(blocker_id)
+        if current is None or blocked_weight > current[0]:
+            actor_blockers[blocker_id] = (
+                blocked_weight, dict(collision_details),
+            )
 
     start_points = make_entity_collision_points(start_pos, entity, tile_map)
 
@@ -3257,9 +3461,12 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
 
         x_candidate = move_position_by_velocity(new_entity_position, x_velocity, dt, tile_width, tile_height)
 
-        if entity_position_is_legal(x_candidate, entity, tile_map, debug_queue):
+        x_collision = {}
+        if entity_position_is_legal(
+                x_candidate, entity, tile_map, debug_queue, x_collision):
             new_entity_position = x_candidate
         else:
+            remember_actor_block(x_collision, abs(resolved_velocity["x"]))
             resolved_velocity["x"] = 0
         
         y_velocity = {
@@ -3269,10 +3476,21 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
 
         y_candidate = move_position_by_velocity(new_entity_position, y_velocity, dt, tile_width, tile_height)
 
-        if entity_position_is_legal(y_candidate, entity, tile_map, debug_queue):
+        y_collision = {}
+        if entity_position_is_legal(
+                y_candidate, entity, tile_map, debug_queue, y_collision):
             new_entity_position = y_candidate
         else:
+            remember_actor_block(y_collision, abs(resolved_velocity["y"]))
             resolved_velocity["y"] = 0
+
+    if actor_blockers:
+        _weight, blocker_details = max(
+            actor_blockers.values(), key=lambda item: item[0],
+        )
+        note_redhead_actor_block(entity, blocker_details, tile_map, dt)
+    else:
+        clear_redhead_actor_block(entity, tile_map)
 
     
     # Last-resort invariant check    
@@ -3908,6 +4126,7 @@ def on_redhead_state_enter(entity, state, entered_from, tile_map, audio_runtime)
     elif state == "flee":
         clear_redhead_evade_navigation(entity)
         clear_redhead_flee_navigation(entity)
+        entity["flee_plan_retry_timer"] = 0.0
     elif state == "angry chase" and entity.pop("pursuit_bark_pending", False):
         queue_gameplay_audio(
             audio_runtime, "redhead_pursuit_hiss", source_id, "enemy",
@@ -4158,114 +4377,124 @@ def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
             collides = True        
     return collides
 
-def death_state(entity, current_state, player_info, tile_map, debug_queue, dt):
-    get_or_set(entity, "death_timer", 0)
-    entity["death_timer"] += dt
+def advance_redhead_bullet_impulse(entity, tile_map, debug_queue, dt):
+    """Apply collision-safe knockback while decaying speed toward zero."""
+    try:
+        frame_dt = max(0.0, float(dt))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt) or frame_dt <= 0.0:
+        return entity.get("position", {})
 
-    next_state = current_state
-
-    bullet_decel = 10
-    bullet_magnitude = entity["bullet_hit_magnitude"] 
-    bullet_normalized = entity["bullet_normalized"] 
-
-    if bullet_magnitude > 0:
-        bullet_magnitude -= bullet_decel
-
-
-    stop_epsilon = 20
-    if bullet_magnitude < stop_epsilon:
-        bullet_magnitude = 0
-
-    entity["bullet_hit_magnitude"] = bullet_magnitude
-    
-    motion_scalar = 0.1
-
-    # we could actually just reduce the magnitude over time
-
-    bullet_friction_force = vec2_scale(bullet_normalized, -1.0* bullet_magnitude * motion_scalar)
-
-    
-
-    
-
-    velocity = vec2_scale(bullet_normalized, bullet_magnitude * 0.07)
-
-    
-
-
-    if entity["death_timer"] < 0.15:    
-        new_entity_velocity = vec2_scale(velocity, dt)
-    else:
-        new_entity_velocity = {"x" : 0, "y" : 0} # but maybe can be set for shooting dead bodies
-
-
-    
-
-    entity_points = make_entity_collision_points(
-        entity["position"], entity, tile_map,
+    impulse = entity.get("bullet_impulse", {})
+    if not isinstance(impulse, dict):
+        impulse = {}
+    current_speed = vec2_norm(impulse)
+    duration = max(
+        0.001, float(entity.get(
+            "bullet_impact_duration", DEFAULT_BULLET_IMPACT_DURATION,
+        )),
     )
+    elapsed = max(0.0, float(entity.get("bullet_impact_elapsed", 0.0)))
+    active_dt = min(frame_dt, max(0.0, duration - elapsed))
+    if current_speed <= 0.000001 or active_dt <= 0.0:
+        entity["bullet_impulse"] = {"x": 0.0, "y": 0.0}
+        entity["bullet_impact_elapsed"] = min(duration, elapsed + frame_dt)
+        return entity.get("position", {})
 
-    entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
+    deceleration = max(
+        0.0, float(entity.get(
+            "bullet_impact_deceleration", current_speed / duration,
+        )),
+    )
+    collision_width, collision_height = get_entity_collision_dimensions(entity)
+    maximum_step_distance = max(1.0, min(
+        float(tile_map.get("tile_width", 16)),
+        float(tile_map.get("tile_height", 16)),
+        collision_width if collision_width > 0.0 else math.inf,
+        collision_height if collision_height > 0.0 else math.inf,
+    ) * 0.45)
+    step_count = max(
+        1, min(16, int(math.ceil(
+            current_speed * active_dt / maximum_step_distance,
+        ))),
+    )
+    step_dt = active_dt / step_count
 
-    
+    preserved_animation_frame = (
+        entity.get("animation_frame")
+        if entity.get("current_state") == "dead" else None
+    )
+    for _step in range(step_count):
+        current_speed = vec2_norm(impulse)
+        if current_speed <= 0.000001:
+            impulse = {"x": 0.0, "y": 0.0}
+            break
+        direction = vec2_scale(impulse, 1.0 / current_speed)
+        next_speed = max(0.0, current_speed - deceleration * step_dt)
+        average_speed = (current_speed + next_speed) * 0.5
+        movement_velocity = vec2_scale(direction, average_speed)
+        entity["position"] = move_entity_with_velocity(
+            entity, movement_velocity, tile_map, debug_queue, step_dt,
+        )
 
-    if entity_collisions.get("x", False):
-        new_entity_velocity['x'] = 0
-        # new_entity_velocity = vec2_normalize(new_entity_velocity)
-        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
-        # new_entity_position["x"] = entity.get("position",{}).get("x",0)    
-        # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
-    if entity_collisions.get("y", False):
-        new_entity_velocity['y'] = 0
-        # new_entity_velocity = vec2_normalize(new_entity_velocity)
-        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
+        # Collision resolution mutates movement_velocity. Carry its surviving
+        # direction forward, but retain the scalar decay calculated above.
+        resolved_speed = vec2_norm(movement_velocity)
+        if resolved_speed <= 0.000001 or next_speed <= 0.000001:
+            impulse = {"x": 0.0, "y": 0.0}
+        else:
+            surviving_fraction = min(1.0, resolved_speed / average_speed)
+            impulse = vec2_scale(
+                vec2_scale(movement_velocity, 1.0 / resolved_speed),
+                next_speed * surviving_fraction,
+            )
+
+    # Movement updates directional locomotion frames. A corpse must retain its
+    # death pose while it is displaced by the same impact solver.
+    if preserved_animation_frame is not None:
+        entity["animation_frame"] = preserved_animation_frame
+
+    elapsed += active_dt
+    if elapsed + 0.000001 >= duration:
+        impulse = {"x": 0.0, "y": 0.0}
+    entity["bullet_impulse"] = impulse
+    entity["bullet_impact_elapsed"] = min(duration, elapsed)
+    return entity.get("position", {})
 
 
-    new_pos = vec2_add_just(entity["position"], new_entity_velocity)
-    new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
+def death_state(entity, current_state, player_info, tile_map, debug_queue, dt):
+    entity["death_timer"] = max(
+        0.0, float(entity.get("death_timer", 0.0)),
+    ) + max(0.0, dt)
+    advance_redhead_bullet_impulse(entity, tile_map, debug_queue, dt)
+    # Corpses move against walls during impact but do not remain dynamic actor
+    # blockers once their position has been resolved.
     update_tile_manager(
-        entity["position"], new_entity_pos, entity["id"], tile_map,
+        entity["position"], entity["position"], entity["id"], tile_map,
         debug_queue, True, entity=entity,
     )
-    # TODO
-    # need to check for collisions still...!
-
-    entity["position"] = new_entity_pos
-
-    
-        
-
-    return next_state
-
+    return current_state
 def stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt,
                   behavior_context=None):
     entity["stagger_timer"] += dt
-    
-    
+
+
     next_state = current_state
+    advance_redhead_bullet_impulse(entity, tile_map, debug_queue, dt)
 
-    bullet_magnitude = entity["bullet_hit_magnitude"] 
-    bullet_normalized = entity["bullet_normalized"] 
-
-    # I think this isn't working very well
-    # what 
-    motion_scalar = 0.8
-
-    bullet_friction_force = vec2_scale(bullet_normalized, -1.0* bullet_magnitude * motion_scalar)
-
-    velocity = get_or_set(entity, "bullet_impulse", {"x" : 0, "y" : 0})
-
-    velocity = vec2_add(velocity, vec2_scale(bullet_friction_force, dt))
-
-    entity["bullet_impulse"] = velocity
-
-    new_entity_pos = move_entity_with_velocity(entity, velocity, tile_map, debug_queue, dt)
-
-    
-    entity["position"] = new_entity_pos
-
-    if entity["stagger_timer"] >= 0.1:
-        entity["velocity"] = {"x" : 0, "y" : 0}
+    stagger_duration = max(
+        0.0,
+        float(entity.get(
+            "stagger_duration", DEFAULT_REDHEAD_STAGGER_DURATION,
+        )),
+        float(entity.get(
+            "bullet_impact_duration", DEFAULT_BULLET_IMPACT_DURATION,
+        )),
+    )
+    if entity["stagger_timer"] >= stagger_duration:
+        entity["bullet_impulse"] = {"x": 0.0, "y": 0.0}
+        entity["ai_velocity"] = {"x": 0.0, "y": 0.0}
         entities = (
             behavior_context.get("entities", {})
             if isinstance(behavior_context, dict) else {}
@@ -4929,6 +5158,11 @@ def clear_redhead_flee_navigation(entity):
         entity.pop("navigation", None)
 
 
+def hold_redhead_near_flee_ally(entity):
+    """Stop locomotion while a wounded redhead shelters with an ally."""
+    entity["ai_velocity"] = {"x": 0.0, "y": 0.0}
+
+
 def get_redhead_flee_allies(entity, entities, tile_map, radius_tiles):
     tile_scale = max(
         1.0, (float(tile_map.get("tile_width", 16))
@@ -5060,10 +5294,28 @@ def flee_redhead_state(entity, current_state, player_info, tile_map,
         behavior_context.get("entities", {})
         if isinstance(behavior_context, dict) else {}
     )
-    if not redhead_has_live_ally_nearby(entity, entities, tile_map):
+    nearby_allies = get_redhead_flee_allies(
+        entity, entities, tile_map, settings["ally_search_radius_tiles"],
+    )
+    if not nearby_allies:
         clear_redhead_flee_navigation(entity)
+        entity["flee_plan_retry_timer"] = 0.0
         return "angry chase"
+
+    # Arrival is the successful end of the retreat, not a cue to immediately
+    # charge the player again. Stay in flee and idle beside any living ally;
+    # if that ally moves away, normal flee planning will follow it.
+    if nearby_allies[0][0] <= settings["ally_arrival_distance"]:
+        clear_redhead_flee_navigation(entity)
+        hold_redhead_near_flee_ally(entity)
+        return current_state
+
     navigation = entity.get("navigation", {})
+    retry_timer = max(
+        0.0, float(entity.get("flee_plan_retry_timer", 0.0))
+        - max(0.0, dt),
+    )
+    entity["flee_plan_retry_timer"] = retry_timer
     navigation_valid = (
         isinstance(navigation, dict)
         and navigation.get("intent") == "flee"
@@ -5086,6 +5338,9 @@ def flee_redhead_state(entity, current_state, player_info, tile_map,
             navigation_valid = False
 
     if not navigation_valid:
+        if retry_timer > 0.0:
+            hold_redhead_near_flee_ally(entity)
+            return current_state
         if isinstance(behavior_context, dict):
             remaining_plans = int(
                 behavior_context.get("flee_plans_remaining", 1),
@@ -5098,23 +5353,17 @@ def flee_redhead_state(entity, current_state, player_info, tile_map,
         )
         if navigation is None:
             clear_redhead_flee_navigation(entity)
-            return "angry chase"
+            entity["flee_plan_retry_timer"] = settings["replan_interval"]
+            hold_redhead_near_flee_ally(entity)
+            return current_state
+        entity["flee_plan_retry_timer"] = 0.0
         entity["navigation"] = navigation
-
-    target_id = navigation.get("target_ally_id")
-    target = entities.get("brains", {}).get(target_id)
-    if isinstance(target, dict):
-        if vec2_distance(
-                get_entity_collision_world_position(entity, tile_map),
-                get_entity_collision_world_position(target, tile_map),
-        ) <= settings["ally_arrival_distance"]:
-            clear_redhead_flee_navigation(entity)
-            return "angry chase"
 
     waypoint, waypoint_target = get_redhead_flee_waypoint(entity, tile_map)
     if waypoint is None:
         clear_redhead_flee_navigation(entity)
-        return "angry chase"
+        hold_redhead_near_flee_ally(entity)
+        return current_state
     entity["position"] = move_entity_towards_target_abs(
         entity, waypoint_target, tile_map, debug_queue, dt,
         arrival_radius=settings["waypoint_arrival_radius"],
@@ -5463,8 +5712,10 @@ def transition_entity_state(entity, current_state, player_info, tile_map,
 
 def apply_bullet_hit_to_redhead(entity, entity_id, bullet, state_before_update,
                                 tile_map, audio_runtime, effects_runtime=None,
-                                debug_queue=None, player_info=None):
+                                debug_queue=None, player_info=None,
+                                impact_dt=0.0):
     was_dead = entity.get("current_state") == "dead"
+    was_staggering = entity.get("current_state") == "stagger"
     if was_dead:
         entity["death_timer"] = 0.0
     else:
@@ -5479,18 +5730,48 @@ def apply_bullet_hit_to_redhead(entity, entity_id, bullet, state_before_update,
         entity["breadcrumb_timer"] = 0.0
 
     bullet_velocity = bullet.get("velocity", {})
-    bullet_magnitude = vec2_norm(bullet_velocity)
     bullet_normalized = vec2_normalize(bullet_velocity)
-    entity["bullet_hit_magnitude"] = bullet_magnitude
-    entity["bullet_normalized"] = bullet_normalized
-    entity["bullet_impulse"] = vec2_scale(
-        bullet_normalized, bullet_magnitude * 0.2,
+    try:
+        impact_speed = max(0.0, float(bullet.get(
+            "impact_speed", DEFAULT_BULLET_IMPACT_SPEED,
+        )))
+        impact_duration = max(0.001, float(bullet.get(
+            "impact_duration", DEFAULT_BULLET_IMPACT_DURATION,
+        )))
+        impact_cap = max(0.0, float(bullet.get(
+            "combined_impact_cap", DEFAULT_BULLET_COMBINED_IMPACT_CAP,
+        )))
+    except (TypeError, ValueError, OverflowError):
+        impact_speed = DEFAULT_BULLET_IMPACT_SPEED
+        impact_duration = DEFAULT_BULLET_IMPACT_DURATION
+        impact_cap = DEFAULT_BULLET_COMBINED_IMPACT_CAP
+    incoming_impulse = vec2_scale(bullet_normalized, impact_speed)
+    existing_impulse = entity.get("bullet_impulse", {})
+    if not isinstance(existing_impulse, dict) or not (
+            was_dead or was_staggering or state_before_update == "stagger"):
+        existing_impulse = {"x": 0.0, "y": 0.0}
+    combined_impulse = vec2_add(existing_impulse, incoming_impulse)
+    combined_speed = vec2_norm(combined_impulse)
+    if impact_cap > 0.0 and combined_speed > impact_cap:
+        combined_impulse = vec2_scale(
+            combined_impulse, impact_cap / combined_speed,
+        )
+        combined_speed = impact_cap
+    entity["bullet_impulse"] = combined_impulse
+    entity["bullet_impact_duration"] = impact_duration
+    entity["bullet_impact_deceleration"] = (
+        combined_speed / impact_duration if impact_duration > 0.0 else 0.0
     )
+    entity["bullet_impact_elapsed"] = 0.0
+    # Knockback owns movement briefly; stale chase momentum should not resume
+    # immediately after the hit response.
+    entity["ai_velocity"] = {"x": 0.0, "y": 0.0}
     entity["health"] = entity.get("health", 0) - 20
     world_position = make_pos_abs(
         entity.get("position", {}),
         tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
     )
+    impact_position = copy_entity_pos(entity.get("position", {}))
     if entity["health"] > 0:
         blood_amount, blood_duration = 5, 0.3
         queue_gameplay_audio(
@@ -5516,13 +5797,13 @@ def apply_bullet_hit_to_redhead(entity, entity_id, bullet, state_before_update,
     if effects_runtime is not None:
         g_effects.spawn_blood_spatter(
             effects_runtime, blood_amount, blood_duration, bullet_velocity,
-            entity.get("position", {}), tile_map,
+            impact_position, tile_map,
         )
     if debug_queue is not None:
         debug_queue.append({
             "type": "circle",
             "drawing_function": draw_debug_circle,
-            "pos": entity.get("position"),
+            "pos": impact_position,
             "font_size": 16,
             "radius": 60,
             "color": "BLUE",
@@ -5532,6 +5813,20 @@ def apply_bullet_hit_to_redhead(entity, entity_id, bullet, state_before_update,
             "debug_modes": ["damage"],
         })
 
+    immediate_dt = max(0.0, min(float(impact_dt), impact_duration))
+    if immediate_dt > 0.0:
+        advance_redhead_bullet_impulse(
+            entity, tile_map, debug_queue, immediate_dt,
+        )
+        if was_dead or entity.get("current_state") == "dead":
+            update_tile_manager(
+                entity["position"], entity["position"], entity["id"],
+                tile_map, debug_queue, True, entity=entity,
+            )
+            entity["death_timer"] = immediate_dt
+        else:
+            entity["stagger_timer"] = immediate_dt
+
 
 def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt,
                     audio_runtime, audio_profile, debug_queue=None, effects_runtime=None):
@@ -5539,8 +5834,16 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     tile_width = tile_map["tile_width"]
     if editor_mode != "play":
         return
-    
+
     player_pos = player_info.get("position",{}) # top left
+    live_redhead_ids = {
+        entity_id
+        for entity_id, actor in entities.get("brains", {}).items()
+        if (isinstance(actor, dict) and actor.get("type") == "red head"
+            and actor.get("current_state") != "dead"
+            and float(actor.get("health", 0.0)) > 0.0)
+    }
+    update_actor_passthrough_runtime(tile_map, live_redhead_ids, dt)
 
     deletions = []
 
@@ -5727,6 +6030,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 ),
                 tile_map, audio_runtime, effects_runtime, debug_queue,
                 player_info,
+                impact_dt=dt * max(
+                    0.0, 1.0 - float(enemy_hit.get("fraction", 1.0)),
+                ),
             )
             deletions.append({
                 "subdict": "projectiles", "id": projectile["id"],
