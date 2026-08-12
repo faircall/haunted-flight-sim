@@ -69,6 +69,8 @@ DEFAULT_MOUSE_AIM_SENSITIVITY = 1.0
 DEFAULT_AIM_CURSOR_DISTANCE = 72.0
 MAX_AIM_CURSOR_DISTANCE = 120.0
 AIM_INPUT_VERSION = 2
+DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
+DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION = 4.0
 
 # Redhead positions are the bottom-right anchor of their 24x24 render frame.
 # Keep the gameplay hurtbox on the visible body rather than on that anchor tile.
@@ -103,10 +105,10 @@ REDHEAD_EVADE_DEFAULTS = {
 REDHEAD_MOVEMENT_DEFAULTS = {
     "max_speed": 70.0,
     "acceleration": 280.0,
-    "deceleration": 220.0,
-    "reverse_acceleration": 280.0,
+    "deceleration": 280.0,
+    "reverse_acceleration": 560.0,
     "arrival_radius": 3.0,
-    "evade_speed_multiplier": 1.0,
+    "evade_speed_multiplier": 1.3,
 }
 
 REDHEAD_PERCEPTION_DEFAULTS = {
@@ -1046,6 +1048,12 @@ def give_entity_stats_from_type(entity, entity_type):
             "offset": dict(DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]),
             "size": dict(DEFAULT_REDHEAD_BULLET_HURTBOX["size"]),
         }
+        entity["collision_center_offset"] = dict(
+            DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET
+        )
+        entity["collision_radius_reduction"] = (
+            DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION
+        )
         entity["evade_settings"] = dict(REDHEAD_EVADE_DEFAULTS)
         entity["movement_settings"] = dict(REDHEAD_MOVEMENT_DEFAULTS)
         entity["perception_settings"] = dict(REDHEAD_PERCEPTION_DEFAULTS)
@@ -2186,6 +2194,125 @@ def get_redhead_bullet_hurtbox(entity, tile_map):
     }
 
 
+def make_redhead_hurtbox_debug_item(entity, tile_map):
+    """Describe the exact gameplay bullet hurtbox for debug rendering."""
+    hurtbox = get_redhead_bullet_hurtbox(entity, tile_map)
+    return {
+        "type": "rectangle_outline",
+        "drawing_function": draw_debug_rect_outline,
+        "x": hurtbox["x"], "y": hurtbox["y"],
+        "width": hurtbox["width"], "height": hurtbox["height"],
+        "color": "YELLOW", "z_sort": 0,
+        "debug_modes": ["collisions"],
+    }
+
+
+def get_entity_collision_center_offset(entity):
+    authored = entity.get("collision_center_offset")
+    if not isinstance(authored, dict):
+        authored = (
+            DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET
+            if entity.get("type") == "red head" else {"x": 0.0, "y": 0.0}
+        )
+    try:
+        return {
+            "x": float(authored.get("x", 0.0)),
+            "y": float(authored.get("y", 0.0)),
+        }
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return {"x": 0.0, "y": 0.0}
+
+
+def offset_entity_position_for_collision(position, entity, tile_map):
+    offset = get_entity_collision_center_offset(entity)
+    result = new_pos_from_old(position)
+    result["x"] += offset["x"]
+    result["y"] += offset["y"]
+    return move_position_along_tiles(
+        result, tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+
+
+def get_entity_collision_dimensions(entity):
+    width = max(0.0, float(entity.get("entity_width", 0.0)))
+    height = max(0.0, float(entity.get("entity_height", 0.0)))
+    if entity.get("type") != "red head":
+        return width, height
+    try:
+        radius_reduction = float(entity.get(
+            "collision_radius_reduction",
+            DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION,
+        ))
+    except (TypeError, ValueError, OverflowError):
+        radius_reduction = DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION
+    if not math.isfinite(radius_reduction):
+        radius_reduction = DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION
+    radius_reduction = max(0.0, radius_reduction)
+    return (
+        max(0.0, width - radius_reduction * 2.0),
+        max(0.0, height - radius_reduction * 2.0),
+    )
+
+
+def get_entity_collision_box(entity, tile_map, position=None):
+    """Return the AABB used by wall and dynamic-entity collision."""
+    collision_position = offset_entity_position_for_collision(
+        position if position is not None else entity.get("position", {}),
+        entity, tile_map,
+    )
+    center = make_pos_abs(
+        collision_position,
+        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+    width, height = get_entity_collision_dimensions(entity)
+    return {
+        "x": center["x"] - width * 0.5,
+        "y": center["y"] - height * 0.5,
+        "width": width,
+        "height": height,
+    }
+
+
+def make_entity_collision_points(position, entity, tile_map):
+    collision_position = offset_entity_position_for_collision(
+        position, entity, tile_map,
+    )
+    width, height = get_entity_collision_dimensions(entity)
+    return make_player_points(
+        collision_position, width, height,
+        tile_map["tile_width"], tile_map["tile_height"],
+    )
+
+
+def get_redhead_collision_box(entity, tile_map):
+    return get_entity_collision_box(entity, tile_map)
+
+
+def make_redhead_collision_debug_item(entity, tile_map):
+    collision_box = get_entity_collision_box(entity, tile_map)
+    return {
+        "type": "rectangle_outline",
+        "drawing_function": draw_debug_rect_outline,
+        "x": collision_box["x"], "y": collision_box["y"],
+        "width": collision_box["width"], "height": collision_box["height"],
+        "color": "GREEN", "z_sort": 0,
+        "debug_modes": ["player_debug"],
+    }
+
+
+def make_player_collision_debug_item(entity, tile_map):
+    """Describe the player's authoritative movement collision AABB."""
+    collision_box = get_entity_collision_box(entity, tile_map)
+    return {
+        "type": "rectangle_outline",
+        "drawing_function": draw_debug_rect_outline,
+        "x": collision_box["x"], "y": collision_box["y"],
+        "width": collision_box["width"], "height": collision_box["height"],
+        "color": "BLUE", "z_sort": 0,
+        "debug_modes": ["player_debug"],
+    }
+
+
 def build_redhead_bullet_targets(brains, tile_map):
     targets = []
     for entity_id, entity in (brains or {}).items():
@@ -2325,7 +2452,12 @@ def get_current_ai_waypoint_target_abs(entity, tile_map, arrival_epsilon=8.0):
     path = entity.get("path_to_player", [])
 
     if not path:
-        return (None, make_pos_abs(entity["position"], tile_map["tile_width"], tile_map["tile_height"]))
+        collision_position = offset_entity_position_for_collision(
+            entity["position"], entity, tile_map,
+        )
+        return (None, make_pos_abs(
+            collision_position, tile_map["tile_width"], tile_map["tile_height"],
+        ))
 
     path_index = entity.get("path_to_player_current_index", 0)
 
@@ -2341,7 +2473,12 @@ def get_current_ai_waypoint_target_abs(entity, tile_map, arrival_epsilon=8.0):
         tile_target_offset = {"x": tile_map["tile_width"] / 2, "y": tile_map["tile_height"] / 2}
         entity["current_tile_target_offset"] = (tile_target_offset)
 
-    reached_waypoint = tiles_close(entity["position"], waypoint, tile_target_offset, arrival_epsilon)
+    collision_position = offset_entity_position_for_collision(
+        entity["position"], entity, tile_map,
+    )
+    reached_waypoint = tiles_close(
+        collision_position, waypoint, tile_target_offset, arrival_epsilon,
+    )
 
     if reached_waypoint and path_index < len(path):
         path_index += 1
@@ -2579,14 +2716,14 @@ def vec2_move_towards(current, target, max_delta):
     return vec2_add(current, movement)
 
 def entity_position_is_legal(position, entity, tile_map, debug_queue=None):
-    entity_points = make_player_points(position, entity["entity_width"], entity["entity_height"], tile_map["tile_width"], tile_map["tile_height"])
+    entity_points = make_entity_collision_points(position, entity, tile_map)
 
     if not is_legal_position_on_tilemap(entity_points, tile_map, debug_queue):
         return False
 
-    moving_radius = max(entity["entity_width"], entity["entity_height"]) / 2
-
-    collides_with_entity, _ = (collides_within_tile_at_position(position, entity["id"], tile_map, debug_queue, moving_radius=moving_radius, other_radius=8.0))
+    collides_with_entity, _ = collides_within_tile_at_position(
+        position, entity, tile_map, debug_queue,
+    )
 
     return not collides_with_entity
 
@@ -2647,14 +2784,67 @@ def collides_within_tile(new_entity_pos, entity_id, tile_map, debug_queue = None
                 return True
     return False
 
-def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue=None, moving_radius=8.0, other_radius=8.0):
-    tile_x = new_entity_pos["tile_x"]
-    tile_y = new_entity_pos["tile_y"]
+def aabbs_overlap(first, second):
+    return (
+        first["x"] < second["x"] + second["width"]
+        and first["x"] + first["width"] > second["x"]
+        and first["y"] < second["y"] + second["height"]
+        and first["y"] + first["height"] > second["y"]
+    )
+
+
+def make_entity_collision_record(entity, tile_map, position=None):
+    position = position if position is not None else entity.get("position", {})
+    record = copy_position_dict(position)
+    record["entity_type"] = entity.get("type", "player" if entity.get("id") == "player" else "")
+    record["entity_width"] = float(entity.get("entity_width", 0.0))
+    record["entity_height"] = float(entity.get("entity_height", 0.0))
+    record["collision_center_offset"] = get_entity_collision_center_offset(entity)
+    record["collision_box"] = get_entity_collision_box(
+        entity, tile_map, position=position,
+    )
+    return record
+
+
+def collision_box_from_record(record, other_entity_id, tile_map):
+    collision_box = record.get("collision_box")
+    if isinstance(collision_box, dict):
+        return collision_box
+    # Compatibility for stale/saved spatial-index records. The index is
+    # rebuilt with complete records at the start of the next gameplay frame.
+    fallback = {
+        "id": other_entity_id,
+        "type": record.get("entity_type", ""),
+        "position": record,
+        "entity_width": record.get(
+            "entity_width", 12.0 if other_entity_id == "player" else 16.0,
+        ),
+        "entity_height": record.get(
+            "entity_height", 12.0 if other_entity_id == "player" else 16.0,
+        ),
+    }
+    if isinstance(record.get("collision_center_offset"), dict):
+        fallback["collision_center_offset"] = record["collision_center_offset"]
+    elif other_entity_id != "player":
+        fallback["type"] = "red head"
+    return get_entity_collision_box(fallback, tile_map)
+
+
+def collides_within_tile_at_position(new_entity_pos, entity, tile_map,
+                                     debug_queue=None):
+    collision_position = offset_entity_position_for_collision(
+        new_entity_pos, entity, tile_map,
+    )
+    tile_x = collision_position["tile_x"]
+    tile_y = collision_position["tile_y"]
 
     if tile_not_in_bounds(tile_x, tile_y, tile_map):
         return True, None
 
-    new_entity_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_pos)
+    entity_id = entity.get("id")
+    moving_box = get_entity_collision_box(
+        entity, tile_map, position=new_entity_pos,
+    )
 
     tile_index = get_flat_tile_index(tile_x, tile_y, tile_map, debug_queue)
 
@@ -2667,19 +2857,17 @@ def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_
 
         tiles_to_check.append(tile_map["tiles"][neighbour_index])
 
-    combined_radius = moving_radius + other_radius
-
     for tile in tiles_to_check:
-        for (other_entity_id, other_entity_position) in tile.get("current_entities", {}).items():
+        for (other_entity_id, other_entity_record) in tile.get("current_entities", {}).items():
 
             if other_entity_id == entity_id:
                 continue
 
-            other_position_abs = tile_and_offset_to_absolute(tile_map, other_entity_position)
-            
-
-            if vec2_distance(new_entity_pos_abs, other_position_abs) < combined_radius:
-                return (True, other_entity_position)
+            other_box = collision_box_from_record(
+                other_entity_record, other_entity_id, tile_map,
+            )
+            if aabbs_overlap(moving_box, other_box):
+                return (True, other_entity_record)
 
     return False, None
 
@@ -2740,30 +2928,72 @@ def point_in_circle(point, circle):
     return (point["x"] - circle["x"]) ** 2 + (point["y"] - circle["y"]) ** 2  <= circle["radius"]**2
 
 
-def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, debug_queue = None, remove_only = False):    
-    old_tile_index = get_flat_tile_index(old_entity_pos["tile_x"], old_entity_pos["tile_y"], tile_map, debug_queue)
-    old_tile = tile_map["tiles"][old_tile_index]
-    if "current_entities" not in old_tile:        
-        old_tile["current_entities"] = {}
-    else:
-        if entity_id in old_tile["current_entities"]:
-            del old_tile["current_entities"][entity_id]
+def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map,
+                        debug_queue=None, remove_only=False, entity=None):
+    old_index_position = (
+        offset_entity_position_for_collision(old_entity_pos, entity, tile_map)
+        if entity is not None else old_entity_pos
+    )
+    new_index_position = (
+        offset_entity_position_for_collision(new_entity_pos, entity, tile_map)
+        if entity is not None else new_entity_pos
+    )
+    old_x = old_index_position["tile_x"]
+    old_y = old_index_position["tile_y"]
+    if not tile_not_in_bounds(old_x, old_y, tile_map):
+        old_tile_index = get_flat_tile_index(
+            old_x, old_y, tile_map, debug_queue,
+        )
+        old_entities = tile_map["tiles"][old_tile_index].get(
+            "current_entities", {},
+        )
+        old_entities.pop(entity_id, None)
 
-    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
-    new_tile = tile_map["tiles"][new_tile_index]
+    new_x = new_index_position["tile_x"]
+    new_y = new_index_position["tile_y"]
+    if tile_not_in_bounds(new_x, new_y, tile_map):
+        return
 
-    if "current_entities" not in new_tile:
-        pass # technically this would be fine? though we should add it
-        new_tile["current_entities"] = {}
+    new_tile_index = get_flat_tile_index(
+        new_x, new_y, tile_map, debug_queue,
+    )
+    new_entities = tile_map["tiles"][new_tile_index].setdefault(
+        "current_entities", {},
+    )
+    if remove_only:
+        new_entities.pop(entity_id, None)
+        return
+    new_entities[entity_id] = (
+        make_entity_collision_record(entity, tile_map, new_entity_pos)
+        if entity is not None else copy_position_dict(new_entity_pos)
+    )
 
-    if not remove_only:    
-        new_tile["current_entities"][entity_id] = {"tile_x" : new_entity_pos["tile_x"],
-                                                    "tile_y" : new_entity_pos["tile_y"],                                                    
-                                                    "x" : new_entity_pos["x"], 
-                                                    "y" : new_entity_pos["y"]}
-    else:
-        if entity_id in new_tile["current_entities"]:
-            del new_tile["current_entities"][entity_id]
+
+def rebuild_actor_collision_index(tile_map, player_info, entities):
+    """Rebuild derived actor AABBs so stationary and loaded actors collide."""
+    for tile in tile_map.get("tiles", []):
+        tile.pop("current_entities", None)
+    actors = []
+    if isinstance(player_info, dict):
+        actors.append(player_info)
+    for actor in (entities or {}).get("brains", {}).values():
+        if (isinstance(actor, dict) and actor.get("type") == "red head"
+                and actor.get("current_state") != "dead"):
+            actors.append(actor)
+    for actor in actors:
+        position = actor.get("position", {})
+        index_position = offset_entity_position_for_collision(
+            position, actor, tile_map,
+        )
+        if tile_not_in_bounds(
+                index_position["tile_x"], index_position["tile_y"], tile_map):
+            continue
+        tile_index = get_flat_tile_index(
+            index_position["tile_x"], index_position["tile_y"], tile_map,
+        )
+        tile_map["tiles"][tile_index].setdefault("current_entities", {})[
+            actor.get("id")
+        ] = make_entity_collision_record(actor, tile_map, position)
 
     
 def vec2_rotate_by(vec, amount): #in degrees
@@ -2861,8 +3091,11 @@ def move_entity_towards_target_abs(entity, target_position, tile_map,
         except (TypeError, ValueError, OverflowError):
             arrival_radius = settings["arrival_radius"]
 
+    collision_position = offset_entity_position_for_collision(
+        entity["position"], entity, tile_map,
+    )
     entity_position_abs = make_pos_abs(
-        entity["position"], tile_width, tile_height,
+        collision_position, tile_width, tile_height,
     )
     vector_to_target = vec2_subtract(target_position, entity_position_abs)
     distance_to_target = vec2_norm(vector_to_target)
@@ -2914,13 +3147,7 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
         "y": new_entity_velocity["y"],
     }
 
-    start_points = make_player_points(
-        start_pos,
-        entity["entity_width"],
-        entity["entity_height"],
-        tile_width,
-        tile_height,
-    )
+    start_points = make_entity_collision_points(start_pos, entity, tile_map)
 
     initial_collisions = check_collisions_on_tilemap(entity.get("id"), start_points, resolved_velocity, tile_map, dt, debug_queue)
 
@@ -2971,7 +3198,9 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     
     # Last-resort invariant check    
 
-    final_points = make_player_points(new_entity_position, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
+    final_points = make_entity_collision_points(
+        new_entity_position, entity, tile_map,
+    )
 
     if not is_legal_position_on_tilemap(final_points, tile_map, debug_queue):
         print("doing super safe fallback rejection!")
@@ -2988,7 +3217,10 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
     new_entity_velocity["x"] = resolved_velocity["x"]
     new_entity_velocity["y"] = resolved_velocity["y"]
 
-    update_tile_manager(entity["old_tile"], new_entity_position, entity["id"], tile_map)
+    update_tile_manager(
+        entity["old_tile"], new_entity_position, entity["id"], tile_map,
+        entity=entity,
+    )
 
     entity["current_speed"] = vec2_norm(resolved_velocity)
 
@@ -3433,7 +3665,9 @@ def prepare_redhead_pursuit_path(entity, seen_pos, tile_map):
     map_height = int(tile_map.get("map_height", 0))
     target_x = int(seen_pos.get("tile_x", -1))
     target_y = int(seen_pos.get("tile_y", -1))
-    entity_pos = entity.get("position", {})
+    entity_pos = offset_entity_position_for_collision(
+        entity.get("position", {}), entity, tile_map,
+    )
     start_x = int(entity_pos.get("tile_x", -1))
     start_y = int(entity_pos.get("tile_y", -1))
     if (target_x < 0 or target_y < 0 or start_x < 0 or start_y < 0
@@ -3764,7 +3998,9 @@ def death_state(entity, current_state, player_info, tile_map, debug_queue, dt):
 
     
 
-    entity_points = make_player_points(entity["position"], entity["entity_width"], entity["entity_height"], tile_map.get("tile_width"), tile_map.get("tile_height"))
+    entity_points = make_entity_collision_points(
+        entity["position"], entity, tile_map,
+    )
 
     entity_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
 
@@ -3784,7 +4020,10 @@ def death_state(entity, current_state, player_info, tile_map, debug_queue, dt):
 
     new_pos = vec2_add_just(entity["position"], new_entity_velocity)
     new_entity_pos = move_position_along_tiles(new_pos, tile_map.get("tile_width"), tile_map.get("tile_height"))
-    update_tile_manager(entity["position"], new_entity_pos, entity["id"], tile_map, debug_queue, True)
+    update_tile_manager(
+        entity["position"], new_entity_pos, entity["id"], tile_map,
+        debug_queue, True, entity=entity,
+    )
     # TODO
     # need to check for collisions still...!
 
@@ -4031,7 +4270,10 @@ def get_redhead_chase_target_abs(entity, player_info, tile_map, can_move):
     last_seen = entity.get("last_seen_player_pos")
     if isinstance(last_seen, dict):
         return make_pos_abs(last_seen, tile_width, tile_height)
-    return make_pos_abs(entity.get("position", {}), tile_width, tile_height)
+    collision_position = offset_entity_position_for_collision(
+        entity.get("position", {}), entity, tile_map,
+    )
+    return make_pos_abs(collision_position, tile_width, tile_height)
 
 
 def tactical_tile_center_position(tile_x, tile_y, tile_map):
@@ -4041,6 +4283,17 @@ def tactical_tile_center_position(tile_x, tile_y, tile_map):
         "x": tile_map.get("tile_width", 16) * 0.5,
         "y": tile_map.get("tile_height", 16) * 0.5,
     }
+
+
+def entity_position_for_collision_tile_center(entity, tile_x, tile_y, tile_map):
+    """Return the render-anchor position whose collision center is on a tile."""
+    offset = get_entity_collision_center_offset(entity)
+    return move_position_along_tiles({
+        "tile_x": int(tile_x),
+        "tile_y": int(tile_y),
+        "x": tile_map.get("tile_width", 16) * 0.5 - offset["x"],
+        "y": tile_map.get("tile_height", 16) * 0.5 - offset["y"],
+    }, tile_map.get("tile_width", 16), tile_map.get("tile_height", 16))
 
 
 def redhead_can_occupy_tactical_tile(entity, tile_x, tile_y, tile_map):
@@ -4053,27 +4306,29 @@ def redhead_can_occupy_tactical_tile(entity, tile_x, tile_y, tile_map):
         return False
     tile_width = max(1.0, float(tile_map.get("tile_width", 16)))
     tile_height = max(1.0, float(tile_map.get("tile_height", 16)))
-    centre_x = (tile_x + 0.5) * tile_width
-    centre_y = (tile_y + 0.5) * tile_height
-    half_width = max(0.0, float(entity.get("entity_width", 0.0))) * 0.5
-    half_height = max(0.0, float(entity.get("entity_height", 0.0))) * 0.5
+    candidate_position = entity_position_for_collision_tile_center(
+        entity, tile_x, tile_y, tile_map,
+    )
+    collision_box = get_entity_collision_box(
+        entity, tile_map, position=candidate_position,
+    )
     map_pixel_width = tile_map.get("map_width", 0) * tile_width
     map_pixel_height = tile_map.get("map_height", 0) * tile_height
-    if (centre_x - half_width < 0.0 or centre_y - half_height < 0.0
-            or centre_x + half_width >= map_pixel_width
-            or centre_y + half_height >= map_pixel_height):
+    if (collision_box["x"] < 0.0 or collision_box["y"] < 0.0
+            or collision_box["x"] + collision_box["width"] >= map_pixel_width
+            or collision_box["y"] + collision_box["height"] >= map_pixel_height):
         return False
-    footprint = make_player_points(
-        tactical_tile_center_position(tile_x, tile_y, tile_map),
-        entity["entity_width"], entity["entity_height"],
-        tile_width, tile_height,
+    footprint = make_entity_collision_points(
+        candidate_position, entity, tile_map,
     )
     return is_legal_position_on_tilemap(footprint, tile_map)
 
 
 def build_redhead_tactical_reachability(entity, tile_map, radius_tiles):
     """Perform one bounded local search and retain paths to every result."""
-    start = entity.get("position", {})
+    start = offset_entity_position_for_collision(
+        entity.get("position", {}), entity, tile_map,
+    )
     start_key = (
         int(start.get("tile_x", -1)), int(start.get("tile_y", -1)),
     )
@@ -4164,8 +4419,11 @@ def make_redhead_evade_scoring_context(entity, player_info, chase_target,
     tile_width = max(1.0, float(tile_map.get("tile_width", 16)))
     tile_height = max(1.0, float(tile_map.get("tile_height", 16)))
     tile_scale = max(1.0, (tile_width + tile_height) * 0.5)
+    collision_position = offset_entity_position_for_collision(
+        entity.get("position", {}), entity, tile_map,
+    )
     entity_world = make_pos_abs(
-        entity.get("position", {}), tile_width, tile_height,
+        collision_position, tile_width, tile_height,
     )
     player_world = make_pos_abs(
         player_info.get("position", {}), tile_width, tile_height,
@@ -4298,8 +4556,8 @@ def choose_redhead_evade_navigation(entity, player_info, chase_target,
         return None
     top_candidates = []
     for candidate in candidates:
-        candidate_position = tactical_tile_center_position(
-            candidate["tile_x"], candidate["tile_y"], tile_map,
+        candidate_position = entity_position_for_collision_tile_center(
+            entity, candidate["tile_x"], candidate["tile_y"], tile_map,
         )
         if entity_position_is_legal(candidate_position, entity, tile_map):
             top_candidates.append(candidate)
@@ -4355,8 +4613,11 @@ def get_redhead_evade_waypoint(entity, tile_map, arrival_epsilon=6.0):
         "x": tile_map.get("tile_width", 16) * 0.5,
         "y": tile_map.get("tile_height", 16) * 0.5,
     }
+    collision_position = offset_entity_position_for_collision(
+        entity.get("position", {}), entity, tile_map,
+    )
     while waypoint_index < len(path) and tiles_close(
-            entity.get("position", {}), path[waypoint_index], tile_offset,
+            collision_position, path[waypoint_index], tile_offset,
             arrival_epsilon):
         waypoint_index += 1
     navigation["waypoint_index"] = waypoint_index
@@ -4596,7 +4857,10 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
 
     
 
-    if vec2_distance(get_abs_pos_from_index(new_position, tile_map), get_abs_pos_from_index(player_pos, tile_map)) <= dest_threshold:                        
+    new_collision_position = offset_entity_position_for_collision(
+        new_position, entity, tile_map,
+    )
+    if vec2_distance(get_abs_pos_from_index(new_collision_position, tile_map), get_abs_pos_from_index(player_pos, tile_map)) <= dest_threshold:
         next_state = "angry and attacking"
 
     
@@ -4616,7 +4880,10 @@ def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue,
     
     if knows_of_player and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]) and not can_move:
         target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
-        start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
+        collision_position = offset_entity_position_for_collision(
+            entity["position"], entity, tile_map,
+        )
+        start_tile_from_tile_map = tile_map.get("tiles")[collision_position.get("tile_y")*tile_map.get("map_width") + collision_position.get("tile_x")]
         path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
         entity["path_to_player"] = path_to_player
         entity["path_to_player_current_index"] = min(1, len(path_to_player) -1)
@@ -4920,15 +5187,12 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 priority=0.75, gait="walk",
             )
             if debug_queue is not None:
-                hurtbox = get_redhead_bullet_hurtbox(entity, tile_map)
-                debug_queue.append({
-                    "type": "rectangle",
-                    "drawing_function": draw_debug_rect,
-                    "x": hurtbox["x"], "y": hurtbox["y"],
-                    "width": hurtbox["width"], "height": hurtbox["height"],
-                    "color": "YELLOW", "z_sort": 0,
-                    "debug_modes": ["collisions"],
-                })
+                debug_queue.append(
+                    make_redhead_hurtbox_debug_item(entity, tile_map)
+                )
+                debug_queue.append(
+                    make_redhead_collision_debug_item(entity, tile_map)
+                )
                 debug_item = {
                     "type" : "text",
                     "drawing_function" : draw_debug_text,
@@ -5139,6 +5403,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
     spawn_pos = vec2_add_any(player_pos_center, aim_heading)
 
     if debug_queue is not None:
+        debug_queue.append(make_player_collision_debug_item(entity, tile_map))
         debug_item = {
                     "type" : "circle",
                     "drawing_function" : draw_debug_circle,
@@ -5373,6 +5638,17 @@ def draw_debug_rect(debug_item, camera):
     draw_y = int(y - camera_y)
 
     pr.draw_rectangle(draw_x, draw_y, width, height, color)
+
+
+def draw_debug_rect_outline(debug_item, camera):
+    width = debug_item.get("width", 0)
+    height = debug_item.get("height", 0)
+    color = color_map(debug_item.get("color", "PINK"))
+    draw_x = int(debug_item.get("x", 0) - camera.position.x)
+    draw_y = int(debug_item.get("y", 0) - camera.position.y)
+    pr.draw_rectangle_lines(
+        draw_x, draw_y, int(round(width)), int(round(height)), color,
+    )
 
 def draw_debug_line(debug_item, camera):
     color = color_map(debug_item.get("color", "PINK"))
@@ -5671,6 +5947,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     g_editor.migrate_environment_data(entities)
     g_effects.discard_legacy_particle_systems(entities)
+    rebuild_actor_collision_index(tile_map, player_info, entities)
     wind_profile = main_arena.get("wind_profile") or g_effects.make_wind_profile()
     rain_profile = g_effects.normalize_rain_profile(main_arena.get("rain_profile") or g_effects.make_rain_profile())
     if game_assets.get("effects_entities_identity") != id(entities):

@@ -63,6 +63,63 @@ class SweptSegmentTests(unittest.TestCase):
         self.assertIsNotNone(hit)
         self.assertEqual(hit["entity_id"], entity["id"])
 
+    def test_redhead_collision_debug_item_uses_movement_box_in_player_view(self):
+        tile_map = game.make_tile_map(10, 10, 16, 16)
+        entity = make_redhead(tile_x=4, tile_y=4, x=2.0, y=2.0)
+        item = game.make_redhead_collision_debug_item(entity, tile_map)
+        self.assertEqual(
+            {key: item[key] for key in ("x", "y", "width", "height")},
+            game.get_redhead_collision_box(entity, tile_map),
+        )
+        self.assertEqual(game.get_redhead_collision_box(entity, tile_map), {
+            "x": 50.0, "y": 54.0, "width": 8.0, "height": 8.0,
+        })
+        self.assertIs(item["drawing_function"], game.draw_debug_rect_outline)
+        self.assertIn("player_debug", item["debug_modes"])
+
+    def test_redhead_bullet_hurtbox_remains_in_collision_debug_view(self):
+        tile_map = game.make_tile_map(10, 10, 16, 16)
+        entity = make_redhead(tile_x=4, tile_y=4, x=2.0, y=2.0)
+        item = game.make_redhead_hurtbox_debug_item(entity, tile_map)
+        self.assertIn("collisions", item["debug_modes"])
+        self.assertNotIn("player_debug", item["debug_modes"])
+
+    def test_actor_aabb_collision_slides_along_redhead_edge(self):
+        tile_map = game.make_tile_map(10, 10, 16, 16)
+        player = game.make_default_player(2.0, 2.0, 0.0)
+        player["position"].update({"tile_x": 3, "tile_y": 3})
+        redhead = make_redhead(tile_x=4, tile_y=4, x=8.0, y=4.0)
+        entities = {"brains": {redhead["id"]: redhead}}
+        game.rebuild_actor_collision_index(tile_map, player, entities)
+
+        velocity = {"x": 10.0, "y": 10.0}
+        result = game.move_entity_with_velocity(
+            player, velocity, tile_map, None, 0.1,
+        )
+        world = game.make_pos_abs(result, 16, 16)
+
+        # The diagonal is blocked, but X remains tangent to the top edge.
+        self.assertAlmostEqual(world["x"], 51.0)
+        self.assertAlmostEqual(world["y"], 50.0)
+        self.assertEqual(velocity, {"x": 10.0, "y": 0})
+
+    def test_collision_index_carries_each_actors_real_aabb(self):
+        tile_map = game.make_tile_map(10, 10, 16, 16)
+        player = game.make_default_player(8.0, 8.0, 0.0)
+        player["position"].update({"tile_x": 2, "tile_y": 2})
+        redhead = make_redhead(tile_x=4, tile_y=4, x=8.0, y=8.0)
+        game.rebuild_actor_collision_index(
+            tile_map, player, {"brains": {redhead["id"]: redhead}},
+        )
+        records = [
+            record
+            for tile in tile_map["tiles"]
+            for record in tile.get("current_entities", {}).values()
+        ]
+        boxes = {record["entity_type"]: record["collision_box"] for record in records}
+        self.assertEqual((boxes["player"]["width"], boxes["player"]["height"]), (12.0, 12.0))
+        self.assertEqual((boxes["red head"]["width"], boxes["red head"]["height"]), (8.0, 8.0))
+
     def test_nearest_redhead_wins_and_wall_fraction_limits_candidates(self):
         tile_map = game.make_tile_map(12, 6, 16, 16)
         near = make_redhead(1, tile_x=3, tile_y=3, x=8.0, y=8.0)

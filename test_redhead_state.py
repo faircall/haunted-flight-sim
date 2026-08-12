@@ -486,7 +486,7 @@ class RedheadEvadeStateTests(unittest.TestCase):
         self.assertIsNotNone(navigation)
         self.assertEqual(navigation["intent"], "evade")
         self.assertGreaterEqual(len(navigation["path"]), 2)
-        self.assertEqual(navigation["path"][0], {"tile_x": 5, "tile_y": 2})
+        self.assertEqual(navigation["path"][0], {"tile_x": 4, "tile_y": 2})
         self.assertGreaterEqual(
             navigation["score_components"]["lateral_tiles"],
             self.entity["evade_settings"]["minimum_lateral_tiles"],
@@ -498,17 +498,27 @@ class RedheadEvadeStateTests(unittest.TestCase):
         global_pathfinder.assert_not_called()
 
     def test_tactical_reachability_rejects_walls_and_map_edge_footprints(self):
-        wall = self.tile_map["tiles"][2 * 16 + 4]
+        wall = self.tile_map["tiles"][2 * 16 + 5]
         wall["index"] = 3
 
         reachability = game.build_redhead_tactical_reachability(
             self.entity, self.tile_map, 4,
         )
 
-        self.assertNotIn((4, 2), reachability["cost"])
-        self.assertFalse(any(
-            tile_y in {0, 5} for _tile_x, tile_y in reachability["cost"]
+        self.assertNotIn((5, 2), reachability["cost"])
+        self.assertTrue(any(
+            tile_y == 0 for _tile_x, tile_y in reachability["cost"]
         ))
+        map_height = self.tile_map["map_height"] * self.tile_map["tile_height"]
+        for tile_x, tile_y in reachability["cost"]:
+            box = game.get_entity_collision_box(
+                self.entity, self.tile_map,
+                game.entity_position_for_collision_tile_center(
+                    self.entity, tile_x, tile_y, self.tile_map,
+                ),
+            )
+            self.assertGreaterEqual(box["y"], 0.0)
+            self.assertLess(box["y"] + box["height"], map_height)
 
     def test_candidate_cover_component_is_an_explicit_scoring_hook(self):
         target = game.make_pos_abs(self.player["position"], 16, 16)
@@ -548,9 +558,9 @@ class RedheadEvadeStateTests(unittest.TestCase):
         self.assertEqual(waypoint, {"tile_x": 4, "tile_y": 3})
         self.assertEqual(target, {"x": 72.0, "y": 56.0})
 
-        self.entity["position"] = {
-            "tile_x": 4, "tile_y": 3, "x": 8.0, "y": 8.0,
-        }
+        self.entity["position"] = game.entity_position_for_collision_tile_center(
+            self.entity, 4, 3, self.tile_map,
+        )
         waypoint, _ = game.get_redhead_evade_waypoint(
             self.entity, self.tile_map,
         )
@@ -773,7 +783,12 @@ class RedheadLocomotionTests(unittest.TestCase):
         self.assertAlmostEqual(self.entity["ai_velocity"]["x"], 42.0)
 
     def test_target_adapter_uses_braking_distance_near_arrival_radius(self):
-        origin = game.make_pos_abs(self.entity["position"], 16, 16)
+        origin = game.make_pos_abs(
+            game.offset_entity_position_for_collision(
+                self.entity["position"], self.entity, self.tile_map,
+            ),
+            16, 16,
+        )
         target = {"x": origin["x"] + 4.0, "y": origin["y"]}
 
         with mock.patch.object(
@@ -789,6 +804,49 @@ class RedheadLocomotionTests(unittest.TestCase):
             (2.0 * 220.0 * 1.0) ** 0.5,
         )
         self.assertEqual(move.call_args.args[1], {"x": 1.0, "y": 0.0})
+
+    def test_pursuit_waypoints_route_collision_center_around_wall(self):
+        tile_map = game.make_tile_map(10, 8, 16, 16)
+        for tile_y in range(1, 6):
+            tile_map["tiles"][tile_y * 10 + 4]["index"] = 3
+        self.entity["entity_width"] = 16
+        self.entity["entity_height"] = 16
+        self.entity["position"] = game.entity_position_for_collision_tile_center(
+            self.entity, 2, 3, tile_map,
+        )
+        start = tile_map["tiles"][3 * 10 + 2]
+        target = tile_map["tiles"][3 * 10 + 6]
+        self.entity["path_to_player"] = game.reconstruct_path(
+            game.a_star_path(start, target, tile_map), target, start,
+        )
+        self.entity["path_to_player_current_index"] = 0
+        game.rebuild_actor_collision_index(
+            tile_map, None, {"brains": {self.entity["id"]: self.entity}},
+        )
+
+        for _frame in range(300):
+            _waypoint, waypoint_target = game.get_current_ai_waypoint_target_abs(
+                self.entity, tile_map, arrival_epsilon=4.0,
+            )
+            self.entity["position"] = game.move_entity_towards_target_abs(
+                self.entity, waypoint_target, tile_map, None, 0.02,
+                arrival_radius=1.0,
+            )
+            if (self.entity["path_to_player_current_index"]
+                    >= len(self.entity["path_to_player"])):
+                break
+
+        collision_position = game.offset_entity_position_for_collision(
+            self.entity["position"], self.entity, tile_map,
+        )
+        self.assertEqual(
+            self.entity["path_to_player_current_index"],
+            len(self.entity["path_to_player"]),
+        )
+        self.assertEqual(
+            (collision_position["tile_x"], collision_position["tile_y"]),
+            (6, 3),
+        )
 
     def test_chase_and_evade_adapters_share_persistent_velocity(self):
         target = {"x": 300.0, "y": 56.0}

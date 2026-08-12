@@ -89,6 +89,20 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertAlmostEqual(cursor.y, 175.0)
         self.assertAlmostEqual(player["aim_heading"], 90.0)
 
+    def test_player_collision_debug_item_uses_movement_box(self):
+        player = game.make_default_player(3.0, 5.0, 0.0)
+        player["position"].update({"tile_x": 10, "tile_y": 8})
+        tile_map = {"tile_width": 16, "tile_height": 16}
+        item = game.make_player_collision_debug_item(player, tile_map)
+        self.assertEqual({
+            key: item[key] for key in ("x", "y", "width", "height")
+        }, {
+            "x": 157.0, "y": 127.0, "width": 12.0, "height": 12.0,
+        })
+        self.assertEqual(item["color"], "BLUE")
+        self.assertIn("player_debug", item["debug_modes"])
+        self.assertIs(item["drawing_function"], game.draw_debug_rect_outline)
+
     def test_interaction_no_longer_aims_at_absolute_mouse_position(self):
         source = inspect.getsource(game.update_player_interaction)
         self.assertIn("pr.get_mouse_delta()", source)
