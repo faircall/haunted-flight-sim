@@ -146,6 +146,18 @@ REDHEAD_PERCEPTION_DEFAULTS = {
     "ally_alert_radius_tiles": 5.0,
 }
 
+REDHEAD_HEARING_DEFAULTS = {
+    # AI audibility is authored independently from playback gain/muting.
+    "gunshot_radius_tiles": 18.0,
+    "walk_footstep_radius_tiles": 7.0,
+    "run_footstep_radius_tiles": 10.0,
+    "walk_footstep_contribution": 0.40,
+    "run_footstep_contribution": 0.65,
+    "startle_threshold": 1.0,
+    "chase_threshold": 2.5,
+    "silence_reset_seconds": 10.0,
+}
+
 g_tile_collision_shapes = [
     "full",
     "triangle_top_left",
@@ -1092,6 +1104,13 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["has_fled"] = False
         entity["movement_settings"] = dict(REDHEAD_MOVEMENT_DEFAULTS)
         entity["perception_settings"] = dict(REDHEAD_PERCEPTION_DEFAULTS)
+        entity["hearing_settings"] = dict(REDHEAD_HEARING_DEFAULTS)
+        entity["sound_awareness"] = {
+            "accumulator": 0.0,
+            "silence_timer": 0.0,
+            "startle_triggered": False,
+            "chase_triggered": False,
+        }
         attack_windup_duration = 1
     
     
@@ -3647,6 +3666,55 @@ def ensure_redhead_perception_settings(entity):
     return settings
 
 
+def get_redhead_hearing_settings(entity):
+    """Return safe, independently authored AI hearing values."""
+    authored = entity.get("hearing_settings", {})
+    if not isinstance(authored, dict):
+        authored = {}
+
+    def value(name):
+        try:
+            result = float(authored.get(name, REDHEAD_HEARING_DEFAULTS[name]))
+        except (TypeError, ValueError, OverflowError):
+            result = float(REDHEAD_HEARING_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(REDHEAD_HEARING_DEFAULTS[name])
+        return result
+
+    startle_threshold = max(0.0, value("startle_threshold"))
+    chase_threshold = max(
+        startle_threshold, value("chase_threshold"),
+    )
+    return {
+        "gunshot_radius_tiles": max(
+            0.0, min(64.0, value("gunshot_radius_tiles")),
+        ),
+        "walk_footstep_radius_tiles": max(
+            0.0, min(32.0, value("walk_footstep_radius_tiles")),
+        ),
+        "run_footstep_radius_tiles": max(
+            0.0, min(32.0, value("run_footstep_radius_tiles")),
+        ),
+        "walk_footstep_contribution": max(
+            0.0, min(10.0, value("walk_footstep_contribution")),
+        ),
+        "run_footstep_contribution": max(
+            0.0, min(10.0, value("run_footstep_contribution")),
+        ),
+        "startle_threshold": startle_threshold,
+        "chase_threshold": chase_threshold,
+        "silence_reset_seconds": max(
+            0.0, min(120.0, value("silence_reset_seconds")),
+        ),
+    }
+
+
+def ensure_redhead_hearing_settings(entity):
+    settings = get_redhead_hearing_settings(entity)
+    entity["hearing_settings"] = settings
+    return settings
+
+
 def _redhead_perception_phase(entity):
     """Return a stable 0..1 phase used to spread checks between enemies."""
     identifier = str(entity.get("id", "0"))
@@ -3789,6 +3857,255 @@ def queue_redhead_awareness_stimulus(
         "strength": max(0.0, float(strength)),
     }
     return True
+
+
+def get_redhead_sound_awareness(entity):
+    state = entity.get("sound_awareness")
+    if not isinstance(state, dict):
+        state = {}
+        entity["sound_awareness"] = state
+    try:
+        accumulator = max(0.0, float(state.get("accumulator", 0.0)))
+        silence_timer = max(0.0, float(state.get("silence_timer", 0.0)))
+    except (TypeError, ValueError, OverflowError):
+        accumulator = 0.0
+        silence_timer = 0.0
+    if not math.isfinite(accumulator):
+        accumulator = 0.0
+    if not math.isfinite(silence_timer):
+        silence_timer = 0.0
+    state.update({
+        "accumulator": accumulator,
+        "silence_timer": silence_timer,
+        "startle_triggered": bool(state.get("startle_triggered", False)),
+        "chase_triggered": bool(state.get("chase_triggered", False)),
+    })
+    return state
+
+
+def reset_redhead_sound_awareness(entity):
+    state = get_redhead_sound_awareness(entity)
+    state.update({
+        "accumulator": 0.0,
+        "silence_timer": 0.0,
+        "startle_triggered": False,
+        "chase_triggered": False,
+    })
+    return state
+
+
+def propagate_ai_sound_distances(source_world_position, tile_map,
+                                 radius_tiles):
+    """Return bounded four-connected sound distances; solid tiles block."""
+    if not isinstance(source_world_position, dict):
+        return {}
+    map_width = int(tile_map.get("map_width", 0))
+    map_height = int(tile_map.get("map_height", 0))
+    tile_width = max(1.0, float(tile_map.get("tile_width", 16)))
+    tile_height = max(1.0, float(tile_map.get("tile_height", 16)))
+    radius = max(0, int(math.ceil(max(0.0, float(radius_tiles)))))
+    source_x = int(math.floor(
+        float(source_world_position.get("x", 0.0)) / tile_width,
+    ))
+    source_y = int(math.floor(
+        float(source_world_position.get("y", 0.0)) / tile_height,
+    ))
+    if (source_x < 0 or source_y < 0
+            or source_x >= map_width or source_y >= map_height):
+        return {}
+
+    distances = {(source_x, source_y): 0}
+    frontier = [(source_x, source_y)]
+    frontier_index = 0
+    tiles = tile_map.get("tiles", [])
+    while frontier_index < len(frontier):
+        tile_x, tile_y = frontier[frontier_index]
+        frontier_index += 1
+        next_distance = distances[(tile_x, tile_y)] + 1
+        if next_distance > radius:
+            continue
+        for next_x, next_y in (
+                (tile_x - 1, tile_y), (tile_x + 1, tile_y),
+                (tile_x, tile_y - 1), (tile_x, tile_y + 1)):
+            key = (next_x, next_y)
+            if (key in distances or next_x < 0 or next_y < 0
+                    or next_x >= map_width or next_y >= map_height):
+                continue
+            tile_index = next_y * map_width + next_x
+            if tile_index >= len(tiles) or tile_is_collidable(
+                    tiles[tile_index], tile_map):
+                continue
+            distances[key] = next_distance
+            frontier.append(key)
+    return distances
+
+
+def coalesce_player_ai_sound_events(events, tile_map):
+    """Group same-frame player sounds that share a source tile and profile."""
+    tile_width = max(1.0, float(tile_map.get("tile_width", 16)))
+    tile_height = max(1.0, float(tile_map.get("tile_height", 16)))
+    grouped = {}
+    for event in events or ():
+        if (not isinstance(event, dict)
+                or event.get("source_kind") != "player"
+                or str(event.get("source_id", "")) != "player"
+                or event.get("type") not in {"gunshot", "footstep"}
+                or not isinstance(event.get("world_position"), dict)):
+            continue
+        world_position = event["world_position"]
+        event_type = event["type"]
+        gait = (
+            str(event.get("data", {}).get("gait", "walk"))
+            if event_type == "footstep" else ""
+        )
+        tile_x = int(math.floor(
+            float(world_position.get("x", 0.0)) / tile_width,
+        ))
+        tile_y = int(math.floor(
+            float(world_position.get("y", 0.0)) / tile_height,
+        ))
+        key = (event_type, gait, tile_x, tile_y)
+        group = grouped.setdefault(key, {
+            "type": event_type,
+            "gait": gait,
+            "world_position": {
+                "x": float(world_position.get("x", 0.0)),
+                "y": float(world_position.get("y", 0.0)),
+            },
+            "count": 0,
+        })
+        group["count"] += 1
+        group["world_position"] = {
+            "x": float(world_position.get("x", 0.0)),
+            "y": float(world_position.get("y", 0.0)),
+        }
+    return list(grouped.values())
+
+
+def queue_redhead_sound_chase(entity, source_world_position, tile_map,
+                               from_cumulative_startle=False):
+    existing = entity.get("pending_player_sound_chase")
+    if (isinstance(existing, dict)
+            and not existing.get("from_cumulative_startle", False)
+            and from_cumulative_startle):
+        # An immediate sound is the stronger request. Do not let a footstep
+        # group later in the same frame downgrade it to cumulative behavior.
+        return False
+    source_position = get_tile_index_and_offset_from_pos(
+        source_world_position, tile_map,
+    )
+    entity["last_heard_player_pos"] = copy_entity_pos(source_position)
+    entity["pending_player_sound_chase"] = {
+        "position": copy_entity_pos(source_position),
+        "from_cumulative_startle": bool(from_cumulative_startle),
+    }
+    return True
+
+
+def update_redhead_sound_awareness(entities, tile_map, audio_events, dt):
+    """Propagate this frame's player sounds and update per-enemy alertness."""
+    brains = entities.get("brains", {}) if isinstance(entities, dict) else {}
+    listeners = []
+    for entity_id, entity in brains.items():
+        if (not isinstance(entity, dict) or entity.get("type") != "red head"
+                or entity.get("current_state") == "dead"
+                or float(entity.get("health", 0.0)) <= 0.0):
+            continue
+        listeners.append((entity_id, entity, get_redhead_hearing_settings(entity)))
+
+    groups = coalesce_player_ai_sound_events(audio_events, tile_map)
+    cumulative_heard = set()
+    stats = {"sound_groups": len(groups), "floods": 0, "visited_tiles": 0}
+    for group in groups:
+        is_gunshot = group["type"] == "gunshot"
+        gait = "run" if group.get("gait") == "run" else "walk"
+        radius_key = (
+            "gunshot_radius_tiles" if is_gunshot
+            else f"{gait}_footstep_radius_tiles"
+        )
+        maximum_radius = max(
+            (settings[radius_key] for _id, _entity, settings in listeners),
+            default=0.0,
+        )
+        if maximum_radius <= 0.0:
+            continue
+        distances = propagate_ai_sound_distances(
+            group["world_position"], tile_map, maximum_radius,
+        )
+        stats["floods"] += 1
+        stats["visited_tiles"] += len(distances)
+        for entity_id, entity, settings in listeners:
+            current_state = entity.get("current_state", "idle")
+            if current_state in {"angry chase", "angry and attacking", "evade"}:
+                continue
+            collision_position = offset_entity_position_for_collision(
+                entity.get("position", {}), entity, tile_map,
+            )
+            distance = distances.get((
+                int(collision_position.get("tile_x", -1)),
+                int(collision_position.get("tile_y", -1)),
+            ))
+            radius = settings[radius_key]
+            if distance is None or distance > radius:
+                continue
+            audibility = max(0.0, 1.0 - distance / (radius + 1.0))
+            if audibility <= 0.0:
+                continue
+            if is_gunshot:
+                reset_redhead_sound_awareness(entity)
+                queue_redhead_sound_chase(
+                    entity, group["world_position"], tile_map,
+                    from_cumulative_startle=False,
+                )
+                continue
+
+            cumulative_heard.add(entity_id)
+            state = get_redhead_sound_awareness(entity)
+            state["silence_timer"] = 0.0
+            contribution = (
+                settings[f"{gait}_footstep_contribution"]
+                * max(1, int(group.get("count", 1))) * audibility
+            )
+            state["accumulator"] += contribution
+            source_position = get_tile_index_and_offset_from_pos(
+                group["world_position"], tile_map,
+            )
+            entity["last_heard_player_pos"] = copy_entity_pos(source_position)
+            if (not state["startle_triggered"]
+                    and state["accumulator"] >= settings["startle_threshold"]):
+                state["startle_triggered"] = True
+                if (current_state == "idle"
+                        and not isinstance(
+                            entity.get("pending_awareness_stimulus"), dict,
+                        )):
+                    queue_redhead_awareness_stimulus(
+                        entity, "sound", group["world_position"], tile_map,
+                        strength=audibility,
+                    )
+            if (not state["chase_triggered"]
+                    and state["accumulator"] >= settings["chase_threshold"]):
+                state["chase_triggered"] = True
+                queue_redhead_sound_chase(
+                    entity, group["world_position"], tile_map,
+                    from_cumulative_startle=state["startle_triggered"],
+                )
+
+    try:
+        frame_dt = max(0.0, float(dt))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    for entity_id, entity, settings in listeners:
+        if entity_id in cumulative_heard:
+            continue
+        state = get_redhead_sound_awareness(entity)
+        if state["accumulator"] <= 0.0 and not state["startle_triggered"]:
+            continue
+        state["silence_timer"] += frame_dt
+        if state["silence_timer"] + 0.000001 >= settings["silence_reset_seconds"]:
+            reset_redhead_sound_awareness(entity)
+    return stats
 
 
 def get_redhead_flashlight_sample_points(entity, tile_map):
@@ -5703,6 +6020,50 @@ def apply_force(entity, force):
     pass
     
 
+def consume_redhead_pending_sound_chase(entity, current_state, tile_map):
+    """Resolve a heard-player chase request at the normal AI update boundary."""
+    pending = entity.get("pending_player_sound_chase")
+    if not isinstance(pending, dict):
+        return None, False
+    heard_position = pending.get("position")
+    if not isinstance(heard_position, dict):
+        entity.pop("pending_player_sound_chase", None)
+        return None, False
+    entity["last_heard_player_pos"] = copy_entity_pos(heard_position)
+    entity["last_seen_player_pos"] = copy_entity_pos(heard_position)
+    entity["breadcrumb_timer"] = 0.0
+    if current_state == "dead":
+        entity.pop("pending_player_sound_chase", None)
+        return None, False
+    if current_state in {"flee", "stagger"}:
+        # Physical survival reactions finish first; the chase request remains
+        # queued and is consumed after their next state transition.
+        return None, False
+    if current_state in {"angry chase", "angry and attacking", "evade"}:
+        entity.pop("pending_player_sound_chase", None)
+        return None, False
+
+    from_cumulative = bool(pending.get("from_cumulative_startle", False))
+    entity.pop("pending_player_sound_chase", None)
+    if prepare_redhead_pursuit_path(entity, heard_position, tile_map):
+        entity.pop("pending_awareness_stimulus", None)
+        entity["pursuit_bark_pending"] = True
+        return "angry chase", from_cumulative
+
+    # Propagation and pathfinding use the same wall topology, so this is an
+    # unusual footprint/path failure. Preserve a visible reaction rather than
+    # retrying an expensive path search every frame.
+    if current_state == "idle":
+        heard_world = make_pos_abs(
+            heard_position,
+            tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+        )
+        queue_redhead_awareness_stimulus(
+            entity, "sound", heard_world, tile_map,
+        )
+    return None, False
+
+
 def transition_entity_state(entity, current_state, player_info, tile_map,
                             debug_queue, audio_runtime, dt,
                             behavior_context=None):
@@ -5726,10 +6087,17 @@ def transition_entity_state(entity, current_state, player_info, tile_map,
         )
     
     next_state = current_state
+    forced_state, sound_startle_committed = (
+        consume_redhead_pending_sound_chase(
+            entity, current_state, tile_map,
+        )
+    )
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)    
 
-    if current_state == "idle":
+    if forced_state is not None:
+        next_state = forced_state
+    elif current_state == "idle":
         next_state = idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt)
     elif current_state == "noticing":
         next_state = noticing_redhead_state(
@@ -5766,7 +6134,8 @@ def transition_entity_state(entity, current_state, player_info, tile_map,
         #     pass
         # else:
         #     next_state = "idle"
-    if (current_state in ("noticing", "light startle")
+    if ((current_state in ("noticing", "light startle")
+            or sound_startle_committed)
             and next_state == "angry chase"):
         nearby_entities = (
             behavior_context.get("entities", {})
@@ -6031,6 +6400,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         if entity.get("type","") == "red head":
             ensure_redhead_movement_settings(entity)
             ensure_redhead_perception_settings(entity)
+            ensure_redhead_hearing_settings(entity)
             previous_audio_position = make_pos_abs(entity.get("position", {}), tile_width, tile_height)
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
@@ -6948,6 +7318,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             aim_input_enabled=aim_controls_active and not g_mouse_is_ui_captured,
             mouse_delta=aim_mouse_delta,
         )
+        if pause_state != "paused":
+            update_redhead_sound_awareness(
+                entities, tile_map,
+                audio_runtime.get("event_queue", []), dt,
+            )
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
