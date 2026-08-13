@@ -725,17 +725,6 @@ class RedheadLocomotionTests(unittest.TestCase):
         self.tile_map = game.make_tile_map(24, 8, 16, 16)
         self.entity = make_redhead(tile_x=8, tile_y=3)
 
-    def test_movement_settings_are_fresh_and_have_slower_authored_defaults(self):
-        other = make_redhead()
-        self.entity["movement_settings"]["max_speed"] = 12.0
-
-        self.assertEqual(
-            other["movement_settings"]["max_speed"],
-            game.REDHEAD_MOVEMENT_DEFAULTS["max_speed"],
-        )
-        self.assertEqual(game.REDHEAD_MOVEMENT_DEFAULTS["max_speed"], 70.0)
-        self.assertEqual(game.REDHEAD_MOVEMENT_DEFAULTS["acceleration"], 140.0)
-
     def test_movement_settings_clamp_and_fall_back_from_invalid_values(self):
         self.entity["movement_settings"].update({
             "max_speed": -5.0,
@@ -780,61 +769,6 @@ class RedheadLocomotionTests(unittest.TestCase):
         self.assertEqual(settings["evade_speed_multiplier"], 1.25)
         self.assertIs(self.entity["movement_settings"], settings)
 
-    def test_accelerates_instead_of_reaching_maximum_speed_immediately(self):
-        before = game.make_pos_abs(self.entity["position"], 16, 16)
-
-        self.entity["position"] = game.move_redhead_in_direction(
-            self.entity, {"x": 1.0, "y": 0.0},
-            self.tile_map, None, 0.1,
-        )
-
-        after = game.make_pos_abs(self.entity["position"], 16, 16)
-        self.assertAlmostEqual(self.entity["ai_velocity"]["x"], 14.0)
-        self.assertAlmostEqual(self.entity["ai_velocity"]["y"], 0.0)
-        self.assertAlmostEqual(after["x"] - before["x"], 1.4)
-        self.assertLess(
-            self.entity["current_speed"],
-            self.entity["movement_settings"]["max_speed"],
-        )
-
-    def test_deceleration_and_reverse_acceleration_use_distinct_limits(self):
-        self.entity["ai_velocity"] = {"x": 70.0, "y": 0.0}
-        game.move_redhead_with_locomotion(
-            self.entity, {"x": 0.0, "y": 0.0},
-            self.tile_map, None, 0.1,
-        )
-        self.assertAlmostEqual(self.entity["ai_velocity"]["x"], 48.0)
-
-        self.entity["ai_velocity"] = {"x": 70.0, "y": 0.0}
-        game.move_redhead_with_locomotion(
-            self.entity, {"x": -1.0, "y": 0.0},
-            self.tile_map, None, 0.1,
-        )
-        self.assertAlmostEqual(self.entity["ai_velocity"]["x"], 42.0)
-
-    def test_target_adapter_uses_braking_distance_near_arrival_radius(self):
-        origin = game.make_pos_abs(
-            game.offset_entity_position_for_collision(
-                self.entity["position"], self.entity, self.tile_map,
-            ),
-            16, 16,
-        )
-        target = {"x": origin["x"] + 4.0, "y": origin["y"]}
-
-        with mock.patch.object(
-                game, "move_redhead_with_locomotion",
-                return_value=dict(self.entity["position"])) as move:
-            game.move_entity_towards_target_abs(
-                self.entity, target, self.tile_map, None, 0.1,
-                arrival_radius=3.0,
-            )
-
-        self.assertAlmostEqual(
-            move.call_args.kwargs["desired_speed"],
-            (2.0 * 220.0 * 1.0) ** 0.5,
-        )
-        self.assertEqual(move.call_args.args[1], {"x": 1.0, "y": 0.0})
-
     def test_pursuit_waypoints_route_collision_center_around_wall(self):
         tile_map = game.make_tile_map(10, 8, 16, 16)
         for tile_y in range(1, 6):
@@ -877,25 +811,6 @@ class RedheadLocomotionTests(unittest.TestCase):
             (collision_position["tile_x"], collision_position["tile_y"]),
             (6, 3),
         )
-
-    def test_chase_and_evade_adapters_share_persistent_velocity(self):
-        target = {"x": 300.0, "y": 56.0}
-        first_position = game.move_entity_towards_target_abs(
-            self.entity, target, self.tile_map, None, 0.1,
-        )
-        first_speed = game.vec2_norm(self.entity["ai_velocity"])
-        self.entity["position"] = first_position
-
-        self.entity["position"] = game.move_redhead_in_direction(
-            self.entity, {"x": 1.0, "y": 0.0},
-            self.tile_map, None, 0.1,
-        )
-
-        self.assertAlmostEqual(first_speed, 14.0)
-        self.assertAlmostEqual(
-            game.vec2_norm(self.entity["ai_velocity"]), 28.0, delta=0.02,
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

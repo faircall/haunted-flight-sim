@@ -141,6 +141,9 @@ REDHEAD_PERCEPTION_DEFAULTS = {
     "flashlight_notice_duration": 0.10,
     "flashlight_intensity_threshold": 0.15,
     "light_startle_duration": 0.10,
+    # A committed chase can startle idle allies within this unobstructed
+    # radius. This is deliberately radial; walls, rather than facing, gate it.
+    "ally_alert_radius_tiles": 5.0,
 }
 
 g_tile_collision_shapes = [
@@ -1086,6 +1089,7 @@ def give_entity_stats_from_type(entity, entity_type):
         )
         entity["evade_settings"] = dict(REDHEAD_EVADE_DEFAULTS)
         entity["flee_settings"] = dict(REDHEAD_FLEE_DEFAULTS)
+        entity["has_fled"] = False
         entity["movement_settings"] = dict(REDHEAD_MOVEMENT_DEFAULTS)
         entity["perception_settings"] = dict(REDHEAD_PERCEPTION_DEFAULTS)
         attack_windup_duration = 1
@@ -3631,6 +3635,9 @@ def get_redhead_perception_settings(entity):
         "light_startle_duration": max(
             0.0, min(2.0, value("light_startle_duration")),
         ),
+        "ally_alert_radius_tiles": max(
+            0.0, min(16.0, value("ally_alert_radius_tiles")),
+        ),
     }
 
 
@@ -3986,6 +3993,8 @@ def redhead_has_live_ally_nearby(entity, entities, tile_map):
 
 
 def redhead_should_flee(entity, entities=None, tile_map=None):
+    if bool(entity.get("has_fled", False)):
+        return False
     settings = get_redhead_flee_settings(entity)
     maximum_health = max(
         1.0, float(entity.get("max_health", 60.0)),
@@ -3996,6 +4005,55 @@ def redhead_should_flee(entity, entities=None, tile_map=None):
     return low_health and redhead_has_live_ally_nearby(
         entity, entities, tile_map,
     )
+
+
+def alert_visible_redhead_allies(entity, entities, tile_map,
+                                  debug_queue=None):
+    """Startle nearby idle allies after this redhead commits to pursuit."""
+    if not isinstance(entities, dict) or not isinstance(tile_map, dict):
+        return 0
+    settings = get_redhead_perception_settings(entity)
+    tile_scale = max(
+        1.0, (float(tile_map.get("tile_width", 16))
+              + float(tile_map.get("tile_height", 16))) * 0.5,
+    )
+    alert_radius = settings["ally_alert_radius_tiles"] * tile_scale
+    if alert_radius <= 0.0:
+        return 0
+    source_position = offset_entity_position_for_collision(
+        entity.get("position", {}), entity, tile_map,
+    )
+    source_world = make_pos_abs(
+        source_position,
+        tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+    )
+    alerted = 0
+    for ally in entities.get("brains", {}).values():
+        if (not isinstance(ally, dict) or ally is entity
+                or ally.get("type") != "red head"
+                or ally.get("current_state") != "idle"
+                or float(ally.get("health", 0.0)) <= 0.0
+                or isinstance(
+                    ally.get("pending_awareness_stimulus"), dict,
+                )):
+            continue
+        ally_position = offset_entity_position_for_collision(
+            ally.get("position", {}), ally, tile_map,
+        )
+        ally_world = make_pos_abs(
+            ally_position,
+            tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
+        )
+        if vec2_distance(source_world, ally_world) > alert_radius:
+            continue
+        if not alice_can_raycast_to_bob(
+                alert_radius, source_position, ally_position,
+                tile_map, debug_queue):
+            continue
+        if queue_redhead_awareness_stimulus(
+                ally, "ally_alert", source_world, tile_map):
+            alerted += 1
+    return alerted
 
 
 def player_is_aiming_near_redhead(player_info, entity, tile_map):
@@ -4124,6 +4182,9 @@ def on_redhead_state_enter(entity, state, entered_from, tile_map, audio_runtime)
             world_position, priority=1.0,
         )
     elif state == "flee":
+        # Flee is a one-shot survival reaction. Once entered, subsequent
+        # low-health staggers resume combat rather than restarting retreat.
+        entity["has_fled"] = True
         clear_redhead_evade_navigation(entity)
         clear_redhead_flee_navigation(entity)
         entity["flee_plan_retry_timer"] = 0.0
@@ -5289,6 +5350,9 @@ def get_redhead_flee_waypoint(entity, tile_map):
 
 def flee_redhead_state(entity, current_state, player_info, tile_map,
                         debug_queue, dt, behavior_context=None):
+    # Also cover old/saved entities that were already in flee when loaded and
+    # therefore do not receive a fresh state-entry callback.
+    entity["has_fled"] = True
     settings = get_redhead_flee_settings(entity)
     entities = (
         behavior_context.get("entities", {})
@@ -5302,13 +5366,14 @@ def flee_redhead_state(entity, current_state, player_info, tile_map,
         entity["flee_plan_retry_timer"] = 0.0
         return "angry chase"
 
-    # Arrival is the successful end of the retreat, not a cue to immediately
-    # charge the player again. Stay in flee and idle beside any living ally;
-    # if that ally moves away, normal flee planning will follow it.
+    # Arrival completes the one-shot retreat. Idle perception is then free to
+    # notice the player and begin a new chase, but the flee gate stays spent.
     if nearby_allies[0][0] <= settings["ally_arrival_distance"]:
         clear_redhead_flee_navigation(entity)
+        entity["flee_plan_retry_timer"] = 0.0
         hold_redhead_near_flee_ally(entity)
-        return current_state
+        entity.pop("perception_runtime", None)
+        return "idle"
 
     navigation = entity.get("navigation", {})
     retry_timer = max(
@@ -5694,13 +5759,22 @@ def transition_entity_state(entity, current_state, player_info, tile_map,
         )
     elif current_state == "dead":        
         next_state = death_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
-    elif current_state == "angry and attacking":        
+    elif current_state == "angry and attacking":
         next_state = attack_state(entity, current_state, player_info, tile_map, debug_queue, audio_runtime, dt)
         # if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
         #     # keep try attacking if close enough
         #     pass
         # else:
-        #     next_state = "idle"            
+        #     next_state = "idle"
+    if (current_state in ("noticing", "light startle")
+            and next_state == "angry chase"):
+        nearby_entities = (
+            behavior_context.get("entities", {})
+            if isinstance(behavior_context, dict) else {}
+        )
+        alert_visible_redhead_allies(
+            entity, nearby_entities, tile_map, debug_queue,
+        )
     entity["previous_state"] = current_state
     entity["entered_new_state"] = False
 
