@@ -19,6 +19,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
             player["aim_cursor_offset"],
             {"x": game.DEFAULT_AIM_CURSOR_DISTANCE, "y": 0.0},
         )
+        self.assertFalse(player["aiming"])
 
     def test_legacy_aim_vector_migrates_to_heading(self):
         player = {"aim_direction": {"x": 0.0, "y": 20.0}}
@@ -88,6 +89,21 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertAlmostEqual(cursor.x, 143.0)
         self.assertAlmostEqual(cursor.y, 175.0)
         self.assertAlmostEqual(player["aim_heading"], 90.0)
+
+    def test_cursor_outline_only_draws_while_aiming(self):
+        player = game.make_default_player(0, 0, 0)
+        tile_map = {"tile_width": 16, "tile_height": 16}
+        camera = pr.Vector3(0.0, 0.0, 0.0)
+        with mock.patch.object(game.pr, "draw_circle_lines") as outline, \
+                mock.patch.object(game.pr, "draw_circle") as center:
+            game.draw_player_aim_cursor(player, tile_map, camera)
+            outline.assert_not_called()
+            center.assert_called_once()
+
+            player["aiming"] = True
+            game.draw_player_aim_cursor(player, tile_map, camera)
+            outline.assert_called_once()
+            self.assertEqual(center.call_count, 2)
 
     def test_player_collision_debug_item_uses_movement_box(self):
         player = game.make_default_player(3.0, 5.0, 0.0)

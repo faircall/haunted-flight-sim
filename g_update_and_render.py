@@ -1244,6 +1244,7 @@ def make_default_player(x,y,z):
     player["aim_heading"] = DEFAULT_AIM_HEADING_DEGREES
     player["aim_direction"] = {"x": 1.0, "y": 0.0}
     player["aim_cursor_offset"] = {"x": DEFAULT_AIM_CURSOR_DISTANCE, "y": 0.0}
+    player["aiming"] = False
     player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
     player["aim_input_version"] = AIM_INPUT_VERSION
 
@@ -4732,6 +4733,17 @@ def get_player_aim_cursor_screen_position(player, tile_map, game_camera):
     )
 
 
+def draw_player_aim_cursor(player, tile_map, game_camera):
+    aim_cursor = get_player_aim_cursor_screen_position(
+        player, tile_map, game_camera,
+    )
+    cursor_x = int(round(aim_cursor.x))
+    cursor_y = int(round(aim_cursor.y))
+    if player.get("aiming", False):
+        pr.draw_circle_lines(cursor_x, cursor_y, 3.0, pr.WHITE)
+    pr.draw_circle(cursor_x, cursor_y, 1.0, pr.WHITE)
+
+
 def update_play_mouse_capture(game_assets, should_capture):
     """Use unbounded relative mouse input during unobstructed play."""
     should_capture = bool(should_capture)
@@ -6549,10 +6561,13 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt,
 
     player_speed_max = 35.0
 
-    
+    aiming = entity.get("aiming", False)
     running = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT)
     if running:
         player_speed_max = 65.0
+
+    if aiming:
+        player_speed_max = 20.0
 
     player_accel = 1500.0
     player_reverse_accel = 3000.0
@@ -6637,6 +6652,10 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
     player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"], tile_height * player_pos["tile_y"] + player_pos["y"])    
 
     arm_length = 20
+    
+    aiming = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT)
+
+    entity["aiming"] = aiming
 
     if mouse_delta is None:
         mouse_delta = pr.get_mouse_delta()
@@ -6740,7 +6759,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
             entity["reload_state"] = "reloading"
 
 
-    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured:
+    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured and aiming:
         
         current_ammo = entity["ammo"][current_gun]
         if entity.get("reload_state","") == "reloading":
@@ -7585,11 +7604,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         pr.draw_text("PAUSED", 220, 130, 12, pr.WHITE)
 
     if editor_mode == "play" and player_info is not None and tile_map is not None:
-        aim_cursor = get_player_aim_cursor_screen_position(player_info, tile_map, camera_3d.position)
-        cursor_x = int(round(aim_cursor.x))
-        cursor_y = int(round(aim_cursor.y))
-        pr.draw_circle_lines(cursor_x, cursor_y, 3.0, pr.WHITE)
-        pr.draw_circle(cursor_x, cursor_y, 1.0, pr.WHITE)
+        draw_player_aim_cursor(player_info, tile_map, camera_3d.position)
     if editor_mode != "play" or not game_assets.get("play_mouse_captured", False):
         mp = g_ui.get_mouse_position()
         pr.draw_circle(int(mp.x), int(mp.y), 4 if editor_mode != "play" else 1, pr.WHITE)

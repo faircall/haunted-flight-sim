@@ -1,6 +1,7 @@
 import unittest
 import inspect
 
+import g_graphics
 import g_render_order
 import g_update_and_render
 
@@ -65,6 +66,27 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(player_item["source_rect"]["x"], 64.0)
         self.assertEqual(red_item["dest_rect"]["x"], 12.0)
         self.assertEqual(red_item["source_rect"]["x"], 72.0)
+
+    def test_player_weapon_visibility_tracks_aiming_state(self):
+        player = {
+            "id": "player",
+            "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+            "animation_frame": "right_frame_start",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "aiming": False,
+        }
+        lowered = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+        self.assertFalse(lowered["draw_data"]["aiming"])
+        self.assertFalse(g_graphics._player_weapon_is_visible(lowered))
+
+        player["aiming"] = True
+        raised = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+        self.assertTrue(raised["draw_data"]["aiming"])
+        self.assertTrue(g_graphics._player_weapon_is_visible(raised))
 
     def test_player_occluder_requires_later_sort_and_overlap(self):
         player = {"source": "player", "sort_y": 20.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}}

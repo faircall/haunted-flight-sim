@@ -228,7 +228,14 @@ def build_player_render_item(player_entity, tile_map, game_assets):
         pistol_position = {"x": gun_position["x"] + aim["x"] * 4.0, "y": gun_position["y"] + aim["y"] * 4.0}
         pistol_texture = "pistol_texture_flipped"
         pistol_angle += 180.0
-    draw_data = {"center_world": dict(world_position), "gun_world": gun_position, "pistol_world": pistol_position, "pistol_texture": pistol_texture, "pistol_angle": pistol_angle}
+    draw_data = {
+        "center_world": dict(world_position),
+        "gun_world": gun_position,
+        "pistol_world": pistol_position,
+        "pistol_texture": pistol_texture,
+        "pistol_angle": pistol_angle,
+        "aiming": bool(player_entity.get("aiming", False)),
+    }
     render_item = make_world_render_item("entity", "player", "player", player_entity.get("id", "player"), player_entity, world_position, 32.0, 32.0, make_texture_reference("sprite_sheets", "blue_oxford_texture_sheet", "sheet"), {"x": float(frame_number) * 32.0, "y": 0.0, "width": 32.0, "height": 32.0}, draw_data)
     render_item["screen_snap"] = "relative_motion"
     return render_item

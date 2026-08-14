@@ -1665,8 +1665,15 @@ def _draw_render_item_main_shape(render_item, texture, game_camera):
         pr.Vector2(0, 0), 0, pr.WHITE
     )
 
+def _player_weapon_is_visible(render_item):
+    return (
+        render_item.get("source") == "player"
+        and bool(render_item.get("draw_data", {}).get("aiming", False))
+    )
+
+
 def _get_player_pistol_part(render_item, game_camera, game_assets):
-    if render_item.get("source") != "player":
+    if not _player_weapon_is_visible(render_item):
         return None
     draw_data = render_item.get("draw_data", {})
     texture = game_assets.get("textures", {}).get(draw_data.get("pistol_texture", "pistol_texture"))
@@ -1754,7 +1761,7 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
             texture = resolve_render_item_texture(item, game_assets)
             if texture is not None:
                 _draw_render_item_main_shape(item, texture, game_camera)
-                if item.get("source") == "player":
+                if _player_weapon_is_visible(item):
                     draw_data = item.get("draw_data", {})
                     center = draw_data.get("center_world", {})
                     gun = draw_data.get("gun_world", {})
@@ -1853,7 +1860,7 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
         pistol_part = _get_player_pistol_part(item, game_camera, game_assets)
         pr.begin_texture_mode(albedo_target)
         _draw_render_item_main_shape(item, texture, game_camera)
-        if item.get("source") == "player":
+        if _player_weapon_is_visible(item):
             draw_data = item.get("draw_data", {})
             center = draw_data.get("center_world", {})
             gun = draw_data.get("gun_world", {})
