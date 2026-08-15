@@ -269,6 +269,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
         })
         self.assertEqual(item["color"], "BLUE")
         self.assertIn("player_debug", item["debug_modes"])
+        self.assertIn("dumb entities", item["debug_modes"])
         self.assertIs(item["drawing_function"], game.draw_debug_rect_outline)
 
     def test_interaction_no_longer_aims_at_absolute_mouse_position(self):

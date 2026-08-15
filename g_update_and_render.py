@@ -85,7 +85,7 @@ PLAYER_AIM_ACCURACY_DEFAULTS = {
     "turn_acceleration_full_bloom": 4000.0,
     "turn_speed_filter_seconds": 0.04,
     "bloom_expand_seconds": 0.075,
-    "bloom_motion_recovery": 0.15,
+    "bloom_motion_recovery": 0.50,
     "bloom_shot_recovery": 0.45,
     "bloom_unholster_recovery": 0.30,
     "recoil_bloom_per_shot": 0.95,
@@ -123,6 +123,10 @@ DEFAULT_REDHEAD_PASSTHROUGH_UNUSED_TIMEOUT = 1.0
 # Redhead positions are the bottom-right anchor of their 24x24 render frame.
 # Keep the gameplay hurtbox on the visible body rather than on that anchor tile.
 DEFAULT_REDHEAD_BULLET_HURTBOX = {
+    "offset": {"x": -18.0, "y": -19.0},
+    "size": {"x": 12.0, "y": 17.0},
+}
+LEGACY_DEFAULT_REDHEAD_BULLET_HURTBOX = {
     "offset": {"x": -20.0, "y": -22.0},
     "size": {"x": 16.0, "y": 22.0},
 }
@@ -1062,7 +1066,8 @@ def transition_debug_state(current):
         "pathfinding" : "collisions",
         "collisions" : "line_of_sight",
         "line_of_sight" : "slow_bullets",
-        "slow_bullets" : "clear",
+        "slow_bullets" : "dumb entities",
+        "dumb entities" : "clear",
     }
     return state_transitions.get(current)
 
@@ -1128,10 +1133,6 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["notice_duration"] = 1.0
         entity["attack_engage_distance"] = DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE
         entity["attack_exit_delay"] = 1.0
-        entity["bullet_hurtbox"] = {
-            "offset": dict(DEFAULT_REDHEAD_BULLET_HURTBOX["offset"]),
-            "size": dict(DEFAULT_REDHEAD_BULLET_HURTBOX["size"]),
-        }
         entity["collision_center_offset"] = dict(
             DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET
         )
@@ -2303,7 +2304,20 @@ def get_redhead_bullet_hurtbox(entity, tile_map):
         entity.get("position", {}),
         tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
     )
-    authored = entity.get("bullet_hurtbox", {})
+    authored = entity.get("bullet_hurtbox_overrides")
+    if not isinstance(authored, dict):
+        # Older redheads copied the then-current defaults into persistent
+        # state. Retire that representation so code tuning hot reloads for
+        # already-spawned and saved entities, while preserving true custom
+        # boxes as explicit overrides.
+        legacy_authored = entity.pop("bullet_hurtbox", None)
+        if (isinstance(legacy_authored, dict)
+                and legacy_authored != LEGACY_DEFAULT_REDHEAD_BULLET_HURTBOX
+                and legacy_authored != DEFAULT_REDHEAD_BULLET_HURTBOX):
+            authored = legacy_authored
+            entity["bullet_hurtbox_overrides"] = authored
+        else:
+            authored = {}
     if not isinstance(authored, dict):
         authored = {}
     offset = authored.get("offset", DEFAULT_REDHEAD_BULLET_HURTBOX["offset"])
@@ -2339,7 +2353,7 @@ def make_redhead_hurtbox_debug_item(entity, tile_map):
         "x": hurtbox["x"], "y": hurtbox["y"],
         "width": hurtbox["width"], "height": hurtbox["height"],
         "color": "YELLOW", "z_sort": 0,
-        "debug_modes": ["collisions"],
+        "debug_modes": ["collisions", "dumb entities"],
     }
 
 
@@ -2462,7 +2476,7 @@ def make_redhead_collision_debug_item(entity, tile_map):
         "x": collision_box["x"], "y": collision_box["y"],
         "width": collision_box["width"], "height": collision_box["height"],
         "color": "GREEN", "z_sort": 0,
-        "debug_modes": ["player_debug"],
+        "debug_modes": ["player_debug", "dumb entities"],
     }
 
 
@@ -2475,7 +2489,7 @@ def make_player_collision_debug_item(entity, tile_map):
         "x": collision_box["x"], "y": collision_box["y"],
         "width": collision_box["width"], "height": collision_box["height"],
         "color": "BLUE", "z_sort": 0,
-        "debug_modes": ["player_debug"],
+        "debug_modes": ["player_debug", "dumb entities"],
     }
 
 
@@ -6965,11 +6979,13 @@ def apply_bullet_hit_to_redhead(entity, entity_id, bullet, state_before_update,
 
 
 def update_entities(entities, tile_map, player_info, editor_mode, collision_mode, dt,
-                    audio_runtime, audio_profile, debug_queue=None, effects_runtime=None):
+                    audio_runtime, audio_profile, debug_queue=None,
+                    effects_runtime=None, debug_state="clear"):
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     if editor_mode != "play":
         return
+    dumb_entities = debug_state == "dumb entities"
 
     player_pos = player_info.get("position",{}) # top left
     live_redhead_ids = {
@@ -7106,11 +7122,19 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
             current_state = get_or_set(entity, "current_state", "idle")
             redhead_states_before_update[entity_id] = current_state
-            # there's a lot of logic happening in these states!
-            next_state = transition_entity_state(
-                entity, current_state, player_info, tile_map, debug_queue,
-                audio_runtime, dt, behavior_context,
-            )
+            if dumb_entities:
+                # Freeze both authored locomotion and any residual knockback.
+                # Damage processing still runs below, after projectile sweeps.
+                entity["ai_velocity"] = {"x": 0.0, "y": 0.0}
+                entity["bullet_impulse"] = {"x": 0.0, "y": 0.0}
+                entity["bullet_impact_elapsed"] = 0.0
+                next_state = current_state
+            else:
+                # there's a lot of logic happening in these states!
+                next_state = transition_entity_state(
+                    entity, current_state, player_info, tile_map, debug_queue,
+                    audio_runtime, dt, behavior_context,
+                )
             # next_state = "idle"
             # update_tile_manager(entity["old_tile"], entity["position"], entity["id"], tile_map)
             entity["current_state"] = next_state
@@ -7120,12 +7144,13 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             # contributes collision-resolved distance without a synthetic step.
             step_state = entity.setdefault("audio_step_state", {})
             step_state.setdefault("previous_world_position", previous_audio_position)
-            g_audio.update_actor_footstep_travel(
-                entity, current_audio_position,
-                enemy_stride,
-                f"enemy:{entity_id}", "enemy", audio_runtime,
-                priority=0.75, gait="walk",
-            )
+            if not dumb_entities:
+                g_audio.update_actor_footstep_travel(
+                    entity, current_audio_position,
+                    enemy_stride,
+                    f"enemy:{entity_id}", "enemy", audio_runtime,
+                    priority=0.75, gait="walk",
+                )
             if debug_queue is not None:
                 debug_queue.append(
                     make_redhead_hurtbox_debug_item(entity, tile_map)
@@ -7167,10 +7192,21 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 ),
                 tile_map, audio_runtime, effects_runtime, debug_queue,
                 player_info,
-                impact_dt=dt * max(
+                impact_dt=(0.0 if dumb_entities else dt * max(
                     0.0, 1.0 - float(enemy_hit.get("fraction", 1.0)),
-                ),
+                )),
             )
+            if dumb_entities:
+                hit_entity = enemy_hit["entity"]
+                hit_entity["ai_velocity"] = {"x": 0.0, "y": 0.0}
+                hit_entity["bullet_impulse"] = {"x": 0.0, "y": 0.0}
+                hit_entity["bullet_impact_elapsed"] = 0.0
+                if float(hit_entity.get("health", 0.0)) > 0.0:
+                    # Preserve the frozen state rather than leaving a living
+                    # target permanently caught in stagger while AI is gated.
+                    hit_entity["current_state"] = redhead_states_before_update.get(
+                        enemy_hit["entity_id"], "idle",
+                    )
             deletions.append({
                 "subdict": "projectiles", "id": projectile["id"],
             })
@@ -8030,6 +8066,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             collision_mode=collision_mode, dt=dt, tile_map=tile_map,
             audio_runtime=audio_runtime, audio_profile=audio_profile,
             debug_queue=debug_queue, effects_runtime=effects_runtime,
+            debug_state=debug_state,
         )
     
     if ui_state.get("focused_id") is None and editor_state.get("drag_kind") is None:
@@ -8045,7 +8082,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             aim_input_enabled=aim_controls_active and not g_mouse_is_ui_captured,
             mouse_delta=aim_mouse_delta,
         )
-        if pause_state != "paused":
+        if pause_state != "paused" and debug_state != "dumb entities":
             update_redhead_sound_awareness(
                 entities, tile_map,
                 audio_runtime.get("event_queue", []), dt,
@@ -8089,7 +8126,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     fire_lights = g_effects.build_fire_runtime_lights(fire_light_emitters, tile_map, time_elapsed) if render_environment_effects else {}
     game_assets["runtime_lights"] = g_effects.replace_fire_runtime_lights(game_assets.get("runtime_lights", {}), fire_lights)
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
-    if editor_mode == "play" and pause_state != "paused":
+    if (editor_mode == "play" and pause_state != "paused"
+            and debug_state != "dumb entities"):
         update_redhead_flashlight_awareness(
             entities, player_info, tile_map, lighting_frame, dt,
         )

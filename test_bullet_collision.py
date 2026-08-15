@@ -53,7 +53,7 @@ class SweptSegmentTests(unittest.TestCase):
         entity = make_redhead(tile_x=4, tile_y=4, x=2.0, y=2.0)
         hurtbox = game.get_redhead_bullet_hurtbox(entity, tile_map)
         self.assertEqual(hurtbox, {
-            "x": 46.0, "y": 44.0, "width": 16.0, "height": 22.0,
+            "x": 48.0, "y": 47.0, "width": 12.0, "height": 17.0,
         })
         # This diagonal crosses the visible body without entering anchor tile 4,4.
         hit = game.find_first_redhead_bullet_hit(
@@ -62,6 +62,19 @@ class SweptSegmentTests(unittest.TestCase):
         )
         self.assertIsNotNone(hit)
         self.assertEqual(hit["entity_id"], entity["id"])
+
+    def test_legacy_copied_hurtbox_does_not_pin_old_dimensions(self):
+        tile_map = game.make_tile_map(10, 10, 16, 16)
+        entity = make_redhead(tile_x=4, tile_y=4, x=2.0, y=2.0)
+        entity["bullet_hurtbox"] = {
+            "offset": {"x": -20.0, "y": -22.0},
+            "size": {"x": 16.0, "y": 22.0},
+        }
+
+        self.assertEqual(game.get_redhead_bullet_hurtbox(entity, tile_map), {
+            "x": 48.0, "y": 47.0, "width": 12.0, "height": 17.0,
+        })
+        self.assertNotIn("bullet_hurtbox", entity)
 
     def test_redhead_collision_debug_item_uses_movement_box_in_player_view(self):
         tile_map = game.make_tile_map(10, 10, 16, 16)
@@ -76,12 +89,14 @@ class SweptSegmentTests(unittest.TestCase):
         })
         self.assertIs(item["drawing_function"], game.draw_debug_rect_outline)
         self.assertIn("player_debug", item["debug_modes"])
+        self.assertIn("dumb entities", item["debug_modes"])
 
     def test_redhead_bullet_hurtbox_remains_in_collision_debug_view(self):
         tile_map = game.make_tile_map(10, 10, 16, 16)
         entity = make_redhead(tile_x=4, tile_y=4, x=2.0, y=2.0)
         item = game.make_redhead_hurtbox_debug_item(entity, tile_map)
         self.assertIn("collisions", item["debug_modes"])
+        self.assertIn("dumb entities", item["debug_modes"])
         self.assertNotIn("player_debug", item["debug_modes"])
 
     def test_actor_aabb_collision_slides_along_redhead_edge(self):
@@ -312,6 +327,40 @@ class BulletUpdateIntegrationTests(unittest.TestCase):
             [event["type"] for event in self.audio["event_queue"]],
             ["bullet_wall_impact"],
         )
+
+    def test_dumb_entities_freezes_ai_but_keeps_bullet_damage(self):
+        original_position = dict(self.redhead["position"])
+        self.redhead["ai_velocity"] = {"x": 50.0, "y": -20.0}
+        bullet = game.make_projectile(
+            "player", {"x": 20.0, "y": 100.0},
+            {"x": 8000.0, "y": -8000.0}, 0, "bullet",
+        )
+        self.entities["projectiles"][0] = bullet
+
+        with mock.patch.object(game, "transition_entity_state") as transition, \
+                mock.patch.object(
+                    g_audio, "update_actor_footstep_travel",
+                ) as footsteps:
+            game.update_entities(
+                self.entities, self.tile_map, make_player(),
+                "play", "regular", 0.01, self.audio,
+                g_audio.make_audio_profile(), debug_state="dumb entities",
+            )
+
+        transition.assert_not_called()
+        footsteps.assert_not_called()
+        self.assertEqual(self.redhead["position"], original_position)
+        self.assertEqual(self.redhead["health"], 40)
+        self.assertEqual(self.redhead["current_state"], "idle")
+        self.assertEqual(self.redhead["ai_velocity"], {"x": 0.0, "y": 0.0})
+        self.assertEqual(self.redhead["bullet_impulse"], {"x": 0.0, "y": 0.0})
+        self.assertEqual(self.entities["projectiles"], {})
+
+    def test_dumb_entities_is_in_debug_mode_cycle(self):
+        self.assertEqual(
+            game.transition_debug_state("slow_bullets"), "dumb entities",
+        )
+        self.assertEqual(game.transition_debug_state("dumb entities"), "clear")
 
 
 class BulletImpulseTests(unittest.TestCase):
