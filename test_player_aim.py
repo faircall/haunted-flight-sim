@@ -415,6 +415,24 @@ class PlayerAimHeadingTests(unittest.TestCase):
             player["aim_accuracy"]["shot_instability"], 0.95,
         )
 
+    def test_visual_recoil_has_independent_kick_and_return_settings(self):
+        player = game.make_default_player(0, 0, 0)
+        player["weapon_visual_recoil_overrides"] = {
+            "kick_degrees": 20.0,
+            "return_seconds": 0.4,
+        }
+
+        self.assertEqual(game.apply_player_weapon_visual_recoil(player), 20.0)
+        self.assertEqual(player["weapon_visual_recoil"]["amount"], 1.0)
+        self.assertEqual(player["aim_accuracy"]["shot_instability"], 0.0)
+
+        game.update_player_weapon_visual_recoil(player, 0.1)
+        self.assertAlmostEqual(player["weapon_visual_recoil"]["amount"], 0.75)
+        self.assertAlmostEqual(
+            player["weapon_visual_recoil"]["rotation_degrees"], 11.25,
+        )
+        self.assertEqual(player["aim_accuracy"]["shot_instability"], 0.0)
+
     def test_fast_turn_blooms_more_than_slow_turn_and_then_recovers(self):
         slow = game.make_default_player(0, 0, 0)
         game.apply_player_aim_turn(slow, 0.2)

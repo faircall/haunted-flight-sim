@@ -280,10 +280,21 @@ def build_player_render_item(player_entity, tile_map, game_assets):
     pistol_distance = 4.0
     pistol_texture = "pistol_texture"
     pistol_angle = math.degrees(math.atan2(aim["y"], aim["x"]))
+    visual_recoil = player_entity.get("weapon_visual_recoil", {})
+    try:
+        recoil_degrees = max(
+            0.0, float(visual_recoil.get("rotation_degrees", 0.0)),
+        )
+    except (TypeError, ValueError, OverflowError):
+        recoil_degrees = 0.0
+    if not math.isfinite(recoil_degrees):
+        recoil_degrees = 0.0
     if aim["x"] < 0.0:
         pistol_distance = 8.0
         pistol_texture = "pistol_texture_flipped"
-        pistol_angle += 180.0
+        pistol_angle += 180.0 + recoil_degrees
+    else:
+        pistol_angle -= recoil_degrees
     pistol_position = player_weapon_bezier_world_position(
         world_position, aim, pistol_distance, transition_progress,
     )
@@ -293,6 +304,7 @@ def build_player_render_item(player_entity, tile_map, game_assets):
         "pistol_world": pistol_position,
         "pistol_texture": pistol_texture,
         "pistol_angle": pistol_angle,
+        "pistol_recoil_degrees": recoil_degrees,
         "aiming": bool(player_entity.get("aiming", False)),
         "weapon_transition_progress": transition_progress,
         "weapon_transition_phase": transition.get("phase", "holstered"),

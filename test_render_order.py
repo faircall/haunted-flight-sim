@@ -147,6 +147,39 @@ class RenderOrderTests(unittest.TestCase):
             holstering["draw_data"]["pistol_world"],
         )
 
+    def test_visual_recoil_rotates_pistol_without_translating_it(self):
+        player = {
+            "id": "player",
+            "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+            "animation_frame": "right_frame_start",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "aiming": True,
+            "weapon_transition": {
+                "progress": 1.0, "target": 1.0, "phase": "unholstered",
+            },
+            "weapon_visual_recoil": {
+                "amount": 1.0, "rotation_degrees": 14.0,
+            },
+        }
+        kicked = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+        player["weapon_visual_recoil"]["rotation_degrees"] = 0.0
+        resting = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+
+        self.assertEqual(
+            kicked["draw_data"]["pistol_world"],
+            resting["draw_data"]["pistol_world"],
+        )
+        self.assertEqual(
+            kicked["draw_data"]["gun_world"],
+            resting["draw_data"]["gun_world"],
+        )
+        self.assertEqual(kicked["draw_data"]["pistol_angle"], -14.0)
+        self.assertEqual(resting["draw_data"]["pistol_angle"], 0.0)
+
     def test_player_occluder_requires_later_sort_and_overlap(self):
         player = {"source": "player", "sort_y": 20.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}}
         behind = {"source": "buddha", "sort_y": 10.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}, "occludes_player": True, "outline_player_when_behind": True}

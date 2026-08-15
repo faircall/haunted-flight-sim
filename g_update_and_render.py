@@ -94,6 +94,10 @@ PLAYER_AIM_ACCURACY_DEFAULTS = {
     "motion_maximum_spread_degrees": 6.0,
     "transition_maximum_spread_degrees": 10.0,
 }
+PLAYER_WEAPON_VISUAL_RECOIL_DEFAULTS = {
+    "kick_degrees": 14.0,
+    "return_seconds": 0.12,
+}
 DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
 DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION = 4.0
 DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE = 28.0
@@ -1282,6 +1286,10 @@ def make_default_player(x,y,z):
         "filtered_angular_speed": 0.0,
         "previous_angular_speed": 0.0,
         "previous_heading": DEFAULT_AIM_HEADING_DEGREES,
+    }
+    player["weapon_visual_recoil"] = {
+        "amount": 0.0,
+        "rotation_degrees": 0.0,
     }
     player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
     player["aim_input_version"] = AIM_INPUT_VERSION
@@ -5070,6 +5078,76 @@ def apply_player_shot_recoil_bloom(player):
     return state["shot_instability"]
 
 
+def get_player_weapon_visual_recoil_settings(player):
+    authored = player.get("weapon_visual_recoil_overrides", {})
+    if not isinstance(authored, dict):
+        authored = {}
+
+    def value(name):
+        try:
+            result = float(authored.get(
+                name, PLAYER_WEAPON_VISUAL_RECOIL_DEFAULTS[name],
+            ))
+        except (TypeError, ValueError, OverflowError):
+            result = float(PLAYER_WEAPON_VISUAL_RECOIL_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(PLAYER_WEAPON_VISUAL_RECOIL_DEFAULTS[name])
+        return result
+
+    return {
+        "kick_degrees": max(0.0, value("kick_degrees")),
+        "return_seconds": max(0.001, value("return_seconds")),
+    }
+
+
+def ensure_player_weapon_visual_recoil_state(player):
+    state = player.get("weapon_visual_recoil")
+    if not isinstance(state, dict):
+        state = {}
+        player["weapon_visual_recoil"] = state
+    try:
+        amount = float(state.get("amount", 0.0))
+    except (TypeError, ValueError, OverflowError):
+        amount = 0.0
+    if not math.isfinite(amount):
+        amount = 0.0
+    amount = max(0.0, min(1.0, amount))
+    settings = get_player_weapon_visual_recoil_settings(player)
+    state.update({
+        "amount": amount,
+        # A quadratic return snaps away from the peak and eases into rest.
+        "rotation_degrees": settings["kick_degrees"] * amount * amount,
+    })
+    return state
+
+
+def update_player_weapon_visual_recoil(player, dt):
+    state = ensure_player_weapon_visual_recoil_state(player)
+    settings = get_player_weapon_visual_recoil_settings(player)
+    try:
+        frame_dt = max(0.0, min(0.1, float(dt)))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    state["amount"] = max(
+        0.0, state["amount"] - frame_dt / settings["return_seconds"],
+    )
+    state["rotation_degrees"] = (
+        settings["kick_degrees"] * state["amount"] * state["amount"]
+    )
+    return state
+
+
+def apply_player_weapon_visual_recoil(player):
+    state = ensure_player_weapon_visual_recoil_state(player)
+    state["amount"] = 1.0
+    state["rotation_degrees"] = get_player_weapon_visual_recoil_settings(
+        player,
+    )["kick_degrees"]
+    return state["rotation_degrees"]
+
+
 def sample_player_shot_direction(player, aim_direction, rng=None):
     maximum_deviation = get_player_maximum_shot_deviation(player)
     if maximum_deviation <= 0.000001:
@@ -7112,6 +7190,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
     else:
         aim_heading_normal = ensure_player_aim_state(entity)
     update_player_aim_accuracy(entity, aim_requested, dt)
+    update_player_weapon_visual_recoil(entity, dt)
     weapon_can_fire = player_weapon_can_fire(entity, aim_requested)
     entity["weapon_can_fire"] = weapon_can_fire
     transition_progress = ensure_player_weapon_transition_state(entity)[
@@ -7248,6 +7327,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
                 vec2_scale(shot_direction, bullet_speed), bullet_id, "bullet",
             )
             apply_player_shot_recoil_bloom(entity)
+            apply_player_weapon_visual_recoil(entity)
             
             gunshot_timer = 0.07
             queue_gameplay_audio(
