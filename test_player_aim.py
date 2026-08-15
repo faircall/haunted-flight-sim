@@ -341,24 +341,39 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertEqual(len(projectiles), 1)
         self.assertIsNotNone(fired_player["muzzle_flash"]["light"])
 
-    def test_transition_bloom_falls_smoothly_to_zero(self):
+    def test_unholster_bloom_recovers_independently_from_animation(self):
         player = game.make_default_player(0, 0, 0)
-        player["weapon_transition"].update({"target": 1.0})
-        player["weapon_transition"]["progress"] = 0.0
+        player["aim_accuracy_overrides"] = {
+            "bloom_unholster_recovery": 0.4,
+        }
+        player["weapon_transition"].update({
+            "progress": 1.0, "target": 1.0, "phase": "unholstered",
+        })
         self.assertEqual(game.get_player_transition_instability(player), 1.0)
-        player["weapon_transition"]["progress"] = 0.5
+
+        game.update_player_aim_accuracy(player, True, 0.1)
+        self.assertEqual(player["weapon_transition"]["progress"], 1.0)
         self.assertAlmostEqual(
-            game.get_player_transition_instability(player), 0.5,
+            player["aim_accuracy"]["unholster_instability"], 0.75,
         )
-        player["weapon_transition"]["progress"] = 1.0
+        self.assertGreater(game.get_player_transition_instability(player), 0.0)
+
+        for _ in range(3):
+            game.update_player_aim_accuracy(player, True, 0.1)
         self.assertEqual(game.get_player_transition_instability(player), 0.0)
+
+        game.update_player_aim_accuracy(player, False, 0.01)
+        self.assertEqual(game.get_player_transition_instability(player), 1.0)
 
     def test_motion_and_transition_instability_combine_without_simple_clamp(self):
         player = game.make_default_player(0, 0, 0)
         player["weapon_transition"].update({
             "progress": 0.5, "target": 1.0,
         })
-        player["aim_accuracy"]["motion_instability"] = 0.5
+        player["aim_accuracy"].update({
+            "motion_instability": 0.5,
+            "unholster_instability": 0.5,
+        })
         self.assertAlmostEqual(
             game.get_player_total_aim_instability(player), 0.75,
         )
@@ -368,12 +383,18 @@ class PlayerAimHeadingTests(unittest.TestCase):
         player["weapon_transition"].update({
             "progress": 0.0, "target": 1.0,
         })
-        player["aim_accuracy"]["motion_instability"] = 0.0
+        player["aim_accuracy"].update({
+            "motion_instability": 0.0,
+            "unholster_instability": 1.0,
+        })
         self.assertEqual(game.get_player_accuracy_reticle_radius(player), 12.0)
         self.assertEqual(game.get_player_maximum_shot_deviation(player), 10.0)
 
         player["weapon_transition"]["progress"] = 1.0
-        player["aim_accuracy"]["motion_instability"] = 1.0
+        player["aim_accuracy"].update({
+            "motion_instability": 1.0,
+            "unholster_instability": 0.0,
+        })
         self.assertEqual(game.get_player_accuracy_reticle_radius(player), 8.0)
         self.assertEqual(game.get_player_maximum_shot_deviation(player), 6.0)
 
@@ -382,6 +403,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
         player["weapon_transition"].update({
             "progress": 1.0, "target": 1.0, "phase": "unholstered",
         })
+        player["aim_accuracy"]["unholster_instability"] = 0.0
         recoil = game.get_player_aim_accuracy_settings(player)[
             "recoil_bloom_per_shot"
         ]
@@ -493,6 +515,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
         player["weapon_transition"].update({
             "progress": 1.0, "target": 1.0, "phase": "unholstered",
         })
+        player["aim_accuracy"]["unholster_instability"] = 0.0
         random_source = mock.Mock()
         exact = game.sample_player_shot_direction(
             player, {"x": 1.0, "y": 0.0}, random_source,
@@ -500,7 +523,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertEqual(exact, {"x": 1.0, "y": 0.0})
         random_source.triangular.assert_not_called()
 
-        player["weapon_transition"]["progress"] = 0.0
+        player["aim_accuracy"]["unholster_instability"] = 1.0
         random_source.triangular.return_value = 6.0
         spread = game.sample_player_shot_direction(
             player, {"x": 1.0, "y": 0.0}, random_source,

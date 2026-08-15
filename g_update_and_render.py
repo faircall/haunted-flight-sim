@@ -87,6 +87,7 @@ PLAYER_AIM_ACCURACY_DEFAULTS = {
     "bloom_expand_seconds": 0.075,
     "bloom_motion_recovery": 0.15,
     "bloom_shot_recovery": 0.60,
+    "bloom_unholster_recovery": 0.30,
     "recoil_bloom_per_shot": 0.35,
     "minimum_reticle_radius": 3.0,
     "motion_maximum_reticle_radius": 8.0,
@@ -100,7 +101,7 @@ PLAYER_WEAPON_VISUAL_RECOIL_DEFAULTS = {
 }
 PLAYER_MUZZLE_FLASH_DEFAULTS = {
     "duration_seconds": 0.07,
-    "radius": 72.0,
+    "radius": 150.0,
     "intensity": 2.4,
     "falloff": 1.35,
     "fade_exponent": 1.5,
@@ -1292,6 +1293,7 @@ def make_default_player(x,y,z):
     player["aim_accuracy"] = {
         "motion_instability": 0.0,
         "shot_instability": 0.0,
+        "unholster_instability": 1.0,
         "filtered_angular_speed": 0.0,
         "previous_angular_speed": 0.0,
         "previous_heading": DEFAULT_AIM_HEADING_DEGREES,
@@ -4881,6 +4883,9 @@ def get_player_aim_accuracy_settings(player):
         "bloom_shot_recovery": max(
             0.001, value("bloom_shot_recovery"),
         ),
+        "bloom_unholster_recovery": max(
+            0.001, value("bloom_unholster_recovery"),
+        ),
         "recoil_bloom_per_shot": max(
             0.0, min(1.0, value("recoil_bloom_per_shot")),
         ),
@@ -4934,12 +4939,24 @@ def ensure_player_aim_accuracy_state(player):
         )) % 360.0
     except (TypeError, ValueError, OverflowError):
         previous_heading = float(player.get("aim_heading", 0.0)) % 360.0
+    transition = player.get("weapon_transition", {})
+    try:
+        transition_progress = max(
+            0.0, min(1.0, float(transition.get("progress", 0.0))),
+        )
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        transition_progress = 0.0
+    unholster_fallback = 1.0 - smoothstep_unit(transition_progress)
     state.update({
         "motion_instability": min(
             1.0, finite_nonnegative("motion_instability"),
         ),
         "shot_instability": min(
             1.0, finite_nonnegative("shot_instability"),
+        ),
+        "unholster_instability": min(
+            1.0,
+            finite_nonnegative("unholster_instability", unholster_fallback),
         ),
         "filtered_angular_speed": finite_nonnegative(
             "filtered_angular_speed",
@@ -5023,12 +5040,24 @@ def update_player_aim_accuracy(player, aim_requested, dt):
         state["shot_instability"]
         - frame_dt / settings["bloom_shot_recovery"],
     )
+    if aim_requested:
+        state["unholster_instability"] = max(
+            0.0,
+            state["unholster_instability"]
+            - frame_dt / settings["bloom_unholster_recovery"],
+        )
+    else:
+        # Prime the full penalty while holstered so every new draw starts
+        # bloomed, independently of how quickly the animation plays.
+        state["unholster_instability"] = 1.0
     return state
 
 
 def get_player_transition_instability(player):
-    progress = ensure_player_weapon_transition_state(player)["progress"]
-    return 1.0 - smoothstep_unit(progress)
+    unholster = ensure_player_aim_accuracy_state(player)[
+        "unholster_instability"
+    ]
+    return smoothstep_unit(unholster)
 
 
 def get_player_dynamic_aim_instability(player):
