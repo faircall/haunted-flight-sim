@@ -22,6 +22,12 @@ class FakeSound:
         self.is_playing = False
         self.at_end = False
         self.start_count = 0
+        self.seek_frames = []
+        self.length = (
+            11411 if str(path).endswith("holster.wav")
+            and not str(path).endswith("unholster.wav")
+            else 16594 if str(path).endswith("unholster.wav") else 0
+        )
         self.closed = False
         FakeSound.instances.append(self)
 
@@ -35,6 +41,7 @@ class FakeSound:
 
     def seek(self, frame):
         self.at_end = False
+        self.seek_frames.append(frame)
 
     def close(self):
         self.stop()
@@ -664,6 +671,84 @@ class AuthoredSoundEmitterTests(unittest.TestCase):
 
 
 class VoiceAndLifecycleTests(unittest.TestCase):
+    def test_weapon_transition_replaces_opposite_voice_and_seeks(self):
+        FakeSound.instances = []
+        runtime = g_audio.make_audio_runtime(object())
+        profile = g_audio.make_audio_profile()
+        tile_map = make_map()
+        with mock.patch.object(g_audio.cma, "Sound", FakeSound):
+            g_audio.queue_audio_event(runtime, {
+                "type": "weapon_unholster", "source_id": "player",
+                "source_kind": "player",
+                "world_position": {"x": 0.0, "y": 0.0},
+                "data": {"instance_key": "player:pistol_transition"},
+            })
+            g_audio.update_audio(
+                runtime, runtime["engine"], 0.01, listener(), tile_map,
+                {}, {}, {}, profile,
+            )
+            unholster = runtime["active_voices"][0]
+            self.assertIn("unholster.wav", unholster["path"])
+
+            g_audio.queue_audio_event(runtime, {
+                "type": "sound_instance_stop", "source_id": "player",
+                "source_kind": "player",
+                "data": {"instance_key": "player:pistol_transition"},
+            })
+            g_audio.queue_audio_event(runtime, {
+                "type": "weapon_holster", "source_id": "player",
+                "source_kind": "player",
+                "world_position": {"x": 0.0, "y": 0.0},
+                "data": {
+                    "instance_key": "player:pistol_transition",
+                    "start_fraction": 0.5,
+                },
+            })
+            stats = g_audio.update_audio(
+                runtime, runtime["engine"], 0.01, listener(), tile_map,
+                {}, {}, {}, profile,
+            )
+
+        self.assertFalse(unholster["active"])
+        self.assertEqual(len(runtime["active_voices"]), 1)
+        holster = runtime["active_voices"][0]
+        self.assertIn("holster.wav", holster["path"])
+        self.assertEqual(holster["seek_frame"], round(11411 * 0.5))
+        self.assertEqual(holster["sound"].seek_frames[-1], round(11411 * 0.5))
+        self.assertEqual(stats["accepted_events"], 2)
+
+    def test_spammed_weapon_transition_starts_never_overlap(self):
+        FakeSound.instances = []
+        runtime = g_audio.make_audio_runtime(object())
+        profile = g_audio.make_audio_profile()
+        tile_map = make_map()
+        with mock.patch.object(g_audio.cma, "Sound", FakeSound):
+            for event_type in (
+                    "weapon_unholster", "weapon_holster",
+                    "weapon_unholster", "weapon_holster"):
+                g_audio.queue_audio_event(runtime, {
+                    "type": event_type, "source_id": "player",
+                    "source_kind": "player",
+                    "world_position": {"x": 0.0, "y": 0.0},
+                    "data": {
+                        "instance_key": "player:pistol_transition",
+                        "start_fraction": 0.25,
+                    },
+                })
+                g_audio.update_audio(
+                    runtime, runtime["engine"], 0.01, listener(), tile_map,
+                    {}, {}, {}, profile,
+                )
+                active = [
+                    voice for voice in runtime["active_voices"]
+                    if voice.get("instance_key") == "player:pistol_transition"
+                ]
+                self.assertEqual(len(active), 1)
+
+        self.assertEqual(
+            runtime["active_voices"][0]["event_type"], "weapon_holster",
+        )
+
     def test_low_priority_voice_can_be_stolen(self):
         active = [{"priority": 0.1, "estimated_gain": 0.05, "started_at": 0.0,
                    "event_type": "footstep", "source_kind": "enemy", "looping": False}]

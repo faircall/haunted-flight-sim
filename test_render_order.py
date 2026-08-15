@@ -88,6 +88,65 @@ class RenderOrderTests(unittest.TestCase):
         self.assertTrue(raised["draw_data"]["aiming"])
         self.assertTrue(g_graphics._player_weapon_is_visible(raised))
 
+        player["aiming"] = False
+        player["weapon_transition"] = {
+            "progress": 0.5, "target": 0.0, "phase": "holstering",
+        }
+        holstering = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+        self.assertTrue(g_graphics._player_weapon_is_visible(holstering))
+
+    def test_player_weapon_bezier_preserves_endpoints_and_adds_arc(self):
+        center = {"x": 10.0, "y": 20.0}
+        aim = {"x": 1.0, "y": 0.0}
+        tucked = g_render_order.player_weapon_bezier_world_position(
+            center, aim, 4.0, 0.0,
+        )
+        halfway = g_render_order.player_weapon_bezier_world_position(
+            center, aim, 4.0, 0.5,
+        )
+        extended = g_render_order.player_weapon_bezier_world_position(
+            center, aim, 4.0, 1.0,
+        )
+
+        self.assertEqual(tucked, center)
+        self.assertEqual(extended, {"x": 14.0, "y": 20.0})
+        self.assertGreater(halfway["x"], center["x"])
+        self.assertLess(halfway["x"], extended["x"])
+        self.assertGreater(halfway["y"], center["y"])
+
+    def test_weapon_path_is_continuous_when_transition_reverses(self):
+        player = {
+            "id": "player",
+            "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+            "animation_frame": "right_frame_start",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "aiming": True,
+            "weapon_transition": {
+                "progress": 0.4, "target": 1.0, "phase": "unholstering",
+            },
+        }
+        drawing = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+        player["aiming"] = False
+        player["weapon_transition"].update({
+            "target": 0.0, "phase": "holstering",
+        })
+        holstering = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+
+        self.assertEqual(
+            drawing["draw_data"]["gun_world"],
+            holstering["draw_data"]["gun_world"],
+        )
+        self.assertEqual(
+            drawing["draw_data"]["pistol_world"],
+            holstering["draw_data"]["pistol_world"],
+        )
+
     def test_player_occluder_requires_later_sort_and_overlap(self):
         player = {"source": "player", "sort_y": 20.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}}
         behind = {"source": "buddha", "sort_y": 10.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}, "occludes_player": True, "outline_player_when_behind": True}

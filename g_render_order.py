@@ -4,6 +4,13 @@ import math
 
 SORT_LAYER_ORDER = {"floor": 0, "world": 100, "overlay": 200}
 ENTITY_RENDER_METADATA_VERSION = 1
+PLAYER_WEAPON_BEZIER_DEFAULTS = {
+    # Local-space values: X is along the aim direction and Y is perpendicular.
+    "control_1_radial_fraction": 0.99,
+    "control_1_perpendicular": 1.5,
+    "control_2_radial_fraction": 0.99,
+    "control_2_perpendicular": 1.0,
+}
 
 
 def world_to_screen_pixel(world_x, world_y, game_camera):
@@ -215,19 +222,71 @@ def _asset_dimension(game_assets, collection, name, dimension, fallback):
         return float(fallback)
 
 
+def cubic_bezier_scalar(start, control_1, control_2, end, progress):
+    t = max(0.0, min(1.0, float(progress)))
+    inverse = 1.0 - t
+    return (
+        inverse * inverse * inverse * float(start)
+        + 3.0 * inverse * inverse * t * float(control_1)
+        + 3.0 * inverse * t * t * float(control_2)
+        + t * t * t * float(end)
+    )
+
+
+def player_weapon_bezier_world_position(center, aim, end_distance, progress,
+                                         settings=None):
+    settings = settings or PLAYER_WEAPON_BEZIER_DEFAULTS
+    end_distance = float(end_distance)
+    radial = cubic_bezier_scalar(
+        0.0,
+        end_distance * float(settings["control_1_radial_fraction"]),
+        end_distance * float(settings["control_2_radial_fraction"]),
+        end_distance,
+        progress,
+    )
+    perpendicular_offset = cubic_bezier_scalar(
+        0.0,
+        float(settings["control_1_perpendicular"]),
+        float(settings["control_2_perpendicular"]),
+        0.0,
+        progress,
+    )
+    perpendicular = {"x": -aim["y"], "y": aim["x"]}
+    return {
+        "x": center["x"] + aim["x"] * radial
+             + perpendicular["x"] * perpendicular_offset,
+        "y": center["y"] + aim["y"] * radial
+             + perpendicular["y"] * perpendicular_offset,
+    }
+
+
 def build_player_render_item(player_entity, tile_map, game_assets):
     world_position = position_to_world(player_entity.get("position", {}), tile_map)
     sprite_sheet = game_assets.get("sprite_sheets", {}).get("blue_oxford_texture_sheet", {})
     frame_number = sprite_sheet.get(player_entity.get("animation_frame", 0), 0)
     aim = normalize_vector(player_entity.get("aim_direction", {"x": 0.0, "y": 0.0})) or {"x": 0.0, "y": 0.0}
-    gun_position = {"x": world_position["x"] + aim["x"] * 4.0, "y": world_position["y"] + aim["y"] * 4.0}
-    pistol_position = dict(gun_position)
+    transition = player_entity.get("weapon_transition", {})
+    try:
+        transition_progress = max(
+            0.0, min(1.0, float(transition.get(
+                "progress", 1.0 if player_entity.get("aiming", False) else 0.0,
+            ))),
+        )
+    except (TypeError, ValueError, OverflowError):
+        transition_progress = 0.0
+    gun_position = player_weapon_bezier_world_position(
+        world_position, aim, 4.0, transition_progress,
+    )
+    pistol_distance = 4.0
     pistol_texture = "pistol_texture"
     pistol_angle = math.degrees(math.atan2(aim["y"], aim["x"]))
     if aim["x"] < 0.0:
-        pistol_position = {"x": gun_position["x"] + aim["x"] * 4.0, "y": gun_position["y"] + aim["y"] * 4.0}
+        pistol_distance = 8.0
         pistol_texture = "pistol_texture_flipped"
         pistol_angle += 180.0
+    pistol_position = player_weapon_bezier_world_position(
+        world_position, aim, pistol_distance, transition_progress,
+    )
     draw_data = {
         "center_world": dict(world_position),
         "gun_world": gun_position,
@@ -235,6 +294,9 @@ def build_player_render_item(player_entity, tile_map, game_assets):
         "pistol_texture": pistol_texture,
         "pistol_angle": pistol_angle,
         "aiming": bool(player_entity.get("aiming", False)),
+        "weapon_transition_progress": transition_progress,
+        "weapon_transition_phase": transition.get("phase", "holstered"),
+        "weapon_visible": transition_progress > 0.000001,
     }
     render_item = make_world_render_item("entity", "player", "player", player_entity.get("id", "player"), player_entity, world_position, 32.0, 32.0, make_texture_reference("sprite_sheets", "blue_oxford_texture_sheet", "sheet"), {"x": float(frame_number) * 32.0, "y": 0.0, "width": 32.0, "height": 32.0}, draw_data)
     render_item["screen_snap"] = "relative_motion"

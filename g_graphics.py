@@ -1668,7 +1668,7 @@ def _draw_render_item_main_shape(render_item, texture, game_camera):
 def _player_weapon_is_visible(render_item):
     return (
         render_item.get("source") == "player"
-        and bool(render_item.get("draw_data", {}).get("aiming", False))
+        and bool(render_item.get("draw_data", {}).get("weapon_visible", False))
     )
 
 

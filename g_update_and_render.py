@@ -69,6 +69,14 @@ DEFAULT_MOUSE_AIM_SENSITIVITY = 1.0
 DEFAULT_AIM_CURSOR_DISTANCE = 72.0
 MAX_AIM_CURSOR_DISTANCE = 120.0
 AIM_INPUT_VERSION = 2
+PLAYER_WEAPON_TRANSITION_INSTANCE_KEY = "player:pistol_transition"
+PLAYER_WEAPON_TRANSITION_DEFAULTS = {
+    # Match the authored clips initially; animation timing remains independently
+    # tweakable without changing the normalized state model.
+    "unholster_duration": 0.376281179138322,
+    "holster_duration": 0.25875283446712016,
+    "minimum_reverse_sound_seconds": 0.07,
+}
 DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
 DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION = 4.0
 DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE = 28.0
@@ -1245,6 +1253,14 @@ def make_default_player(x,y,z):
     player["aim_direction"] = {"x": 1.0, "y": 0.0}
     player["aim_cursor_offset"] = {"x": DEFAULT_AIM_CURSOR_DISTANCE, "y": 0.0}
     player["aiming"] = False
+    player["weapon_transition_settings"] = dict(
+        PLAYER_WEAPON_TRANSITION_DEFAULTS,
+    )
+    player["weapon_transition"] = {
+        "progress": 0.0,
+        "target": 0.0,
+        "phase": "holstered",
+    }
     player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
     player["aim_input_version"] = AIM_INPUT_VERSION
 
@@ -4733,6 +4749,120 @@ def get_player_aim_cursor_screen_position(player, tile_map, game_camera):
     )
 
 
+def get_player_weapon_transition_settings(player):
+    authored = player.get("weapon_transition_settings", {})
+    if not isinstance(authored, dict):
+        authored = {}
+
+    def value(name):
+        try:
+            result = float(authored.get(
+                name, PLAYER_WEAPON_TRANSITION_DEFAULTS[name],
+            ))
+        except (TypeError, ValueError, OverflowError):
+            result = float(PLAYER_WEAPON_TRANSITION_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(PLAYER_WEAPON_TRANSITION_DEFAULTS[name])
+        return result
+
+    return {
+        "unholster_duration": max(0.01, value("unholster_duration")),
+        "holster_duration": max(0.01, value("holster_duration")),
+        "minimum_reverse_sound_seconds": max(
+            0.0, value("minimum_reverse_sound_seconds"),
+        ),
+    }
+
+
+def player_weapon_transition_phase(progress, target):
+    if progress <= 0.000001 and target <= 0.0:
+        return "holstered"
+    if progress >= 0.999999 and target >= 1.0:
+        return "unholstered"
+    return "unholstering" if target >= 1.0 else "holstering"
+
+
+def ensure_player_weapon_transition_state(player):
+    settings = get_player_weapon_transition_settings(player)
+    player["weapon_transition_settings"] = settings
+    state = player.get("weapon_transition")
+    if not isinstance(state, dict):
+        initial = 1.0 if player.get("aiming", False) else 0.0
+        state = {"progress": initial, "target": initial}
+        player["weapon_transition"] = state
+    try:
+        progress = max(0.0, min(1.0, float(state.get("progress", 0.0))))
+        target = 1.0 if float(state.get("target", progress)) >= 0.5 else 0.0
+    except (TypeError, ValueError, OverflowError):
+        progress = 0.0
+        target = 0.0
+    state.update({
+        "progress": progress,
+        "target": target,
+        "phase": player_weapon_transition_phase(progress, target),
+    })
+    return state
+
+
+def update_player_weapon_transition(player, aim_requested, dt, audio_runtime,
+                                    world_position):
+    """Move the pistol between normalized endpoints and manage reversal audio."""
+    state = ensure_player_weapon_transition_state(player)
+    settings = player["weapon_transition_settings"]
+    progress = state["progress"]
+    target = 1.0 if aim_requested else 0.0
+    previous_target = state["target"]
+
+    if target != previous_target:
+        state["target"] = target
+        queue_gameplay_audio(
+            audio_runtime, "sound_instance_stop", "player", "player",
+            world_position, priority=2.0,
+            data={"instance_key": PLAYER_WEAPON_TRANSITION_INSTANCE_KEY},
+        )
+        if target >= 1.0:
+            event_type = "weapon_unholster"
+            start_fraction = progress
+            remaining_seconds = (
+                (1.0 - progress) * settings["unholster_duration"]
+            )
+        else:
+            event_type = "weapon_holster"
+            start_fraction = 1.0 - progress
+            remaining_seconds = progress * settings["holster_duration"]
+        if (remaining_seconds + 0.000001
+                >= settings["minimum_reverse_sound_seconds"]):
+            queue_gameplay_audio(
+                audio_runtime, event_type, "player", "player",
+                world_position, priority=1.6,
+                data={
+                    "instance_key": PLAYER_WEAPON_TRANSITION_INSTANCE_KEY,
+                    "start_fraction": start_fraction,
+                },
+            )
+
+    try:
+        frame_dt = max(0.0, float(dt))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    if target > progress:
+        progress = min(
+            target, progress + frame_dt / settings["unholster_duration"],
+        )
+    elif target < progress:
+        progress = max(
+            target, progress - frame_dt / settings["holster_duration"],
+        )
+    state.update({
+        "progress": progress,
+        "target": target,
+        "phase": player_weapon_transition_phase(progress, target),
+    })
+    return state
+
+
 def draw_player_aim_cursor(player, tile_map, game_camera):
     aim_cursor = get_player_aim_cursor_screen_position(
         player, tile_map, game_camera,
@@ -6652,10 +6782,14 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
     player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"], tile_height * player_pos["tile_y"] + player_pos["y"])    
 
     arm_length = 20
-    
+
+    ensure_player_weapon_transition_state(entity)
     aiming = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT)
 
     entity["aiming"] = aiming
+    update_player_weapon_transition(
+        entity, aiming, dt, audio_runtime, player_pos_center,
+    )
 
     if mouse_delta is None:
         mouse_delta = pr.get_mouse_delta()

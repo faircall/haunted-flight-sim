@@ -6,6 +6,7 @@ from unittest import mock
 
 import pyray as pr
 
+import g_audio
 import g_update_and_render as game
 
 
@@ -20,6 +21,82 @@ class PlayerAimHeadingTests(unittest.TestCase):
             {"x": game.DEFAULT_AIM_CURSOR_DISTANCE, "y": 0.0},
         )
         self.assertFalse(player["aiming"])
+        self.assertEqual(player["weapon_transition"], {
+            "progress": 0.0,
+            "target": 0.0,
+            "phase": "holstered",
+        })
+
+    def test_weapon_transition_reaches_both_normalized_endpoints(self):
+        player = game.make_default_player(0, 0, 0)
+        runtime = g_audio.make_audio_runtime()
+        settings = player["weapon_transition_settings"]
+
+        state = game.update_player_weapon_transition(
+            player, True, settings["unholster_duration"] * 0.5,
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertAlmostEqual(state["progress"], 0.5)
+        self.assertEqual(state["phase"], "unholstering")
+        self.assertEqual(
+            [event["type"] for event in runtime["event_queue"]],
+            ["sound_instance_stop", "weapon_unholster"],
+        )
+
+        runtime["event_queue"].clear()
+        state = game.update_player_weapon_transition(
+            player, True, settings["unholster_duration"] * 0.5,
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertEqual(state["progress"], 1.0)
+        self.assertEqual(state["phase"], "unholstered")
+        self.assertEqual(runtime["event_queue"], [])
+
+        state = game.update_player_weapon_transition(
+            player, False, settings["holster_duration"],
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertEqual(state["progress"], 0.0)
+        self.assertEqual(state["phase"], "holstered")
+
+    def test_brief_aim_release_stops_unholster_without_holster_tail(self):
+        player = game.make_default_player(0, 0, 0)
+        runtime = g_audio.make_audio_runtime()
+        game.update_player_weapon_transition(
+            player, True, 0.02, runtime, {"x": 0.0, "y": 0.0},
+        )
+        runtime["event_queue"].clear()
+
+        game.update_player_weapon_transition(
+            player, False, 0.01, runtime, {"x": 0.0, "y": 0.0},
+        )
+
+        self.assertEqual(
+            [event["type"] for event in runtime["event_queue"]],
+            ["sound_instance_stop"],
+        )
+
+    def test_meaningful_reversal_seeks_into_opposite_sound(self):
+        player = game.make_default_player(0, 0, 0)
+        runtime = g_audio.make_audio_runtime()
+        duration = player["weapon_transition_settings"]["unholster_duration"]
+        game.update_player_weapon_transition(
+            player, True, duration * 0.5, runtime,
+            {"x": 0.0, "y": 0.0},
+        )
+        runtime["event_queue"].clear()
+
+        game.update_player_weapon_transition(
+            player, False, 0.0, runtime, {"x": 0.0, "y": 0.0},
+        )
+
+        self.assertEqual(
+            [event["type"] for event in runtime["event_queue"]],
+            ["sound_instance_stop", "weapon_holster"],
+        )
+        self.assertAlmostEqual(
+            runtime["event_queue"][1]["data"]["start_fraction"], 0.5,
+        )
 
     def test_legacy_aim_vector_migrates_to_heading(self):
         player = {"aim_direction": {"x": 0.0, "y": 20.0}}

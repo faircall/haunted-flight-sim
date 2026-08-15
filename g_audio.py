@@ -35,12 +35,14 @@ SOUND_EMITTER_FAMILIES = tuple(SOUND_EMITTER_ASSETS)
 FOOTSTEP_OVERLAYS = ("none", "puddle")
 SUPPORTED_EVENT_TYPES = {
     "footstep", "gunshot", "reload_start", "reload_stop", "weapon_empty",
+    "weapon_unholster", "weapon_holster", "sound_instance_stop",
     "bullet_wall_impact", "melee_whoosh", "stagger_impact", "death_impact",
     "pickup_ammo", "pickup_health", "ui_hover", "fire_crackle",
     "redhead_startle", "redhead_pursuit_hiss", "redhead_evade",
     "ambience_incidental",
     "sound_emitter_cadence",
 }
+CONTROL_EVENT_TYPES = {"reload_stop", "sound_instance_stop"}
 OUTDOOR_ENVIRONMENTS = {"open_exterior", "covered_exterior"}
 INTERIOR_ENVIRONMENTS = {
     "small_interior", "medium_interior", "large_interior", "stone_hall",
@@ -316,6 +318,14 @@ def make_audio_manifest():
             "pistol_mechanical": _family(optional=True, base_gain=0.25, voice_count=4, bus="weapons"),
             "pistol_reload": _family(fallback="sounds/pistol_reload.wav", base_gain=0.75,
                                       voice_count=2, bus="weapons"),
+            "pistol_unholster": _family(
+                fallback="sounds/unholster.wav", base_gain=0.75,
+                voice_count=1, bus="weapons",
+            ),
+            "pistol_holster": _family(
+                fallback="sounds/holster.wav", base_gain=0.75,
+                voice_count=1, bus="weapons",
+            ),
             "pistol_empty": _family(fallback="sounds/pistol_empty.wav", base_gain=0.5,
                                      pitch_variation=0.01, voice_count=3, bus="weapons"),
             "small_room_tail": _family(optional=True, base_gain=0.35, voice_count=3, bus="weapons"),
@@ -1244,12 +1254,27 @@ def _play_family_layer(runtime, family, event, listener, context, profile, layer
         sound.pan = _clamp(pan, -1.0, 1.0)
         sound.looping = False
         sound.stop()
-        sound.seek(0)
+        try:
+            sample_frames = max(0, int(getattr(sound, "length", 0)))
+        except (TypeError, ValueError, OverflowError):
+            sample_frames = 0
+        start_fraction = _clamp(
+            event.get("data", {}).get("start_fraction", 0.0), 0.0, 1.0,
+        )
+        seek_frame = 0
+        if sample_frames > 0:
+            seek_frame = min(
+                sample_frames - 1,
+                int(round(start_fraction * sample_frames)),
+            )
+        sound.seek(seek_frame)
         sound.start()
     except Exception:
         voice["active"] = False
         return None
     runtime.setdefault("active_voices", []).append(voice)
+    voice["start_fraction"] = start_fraction
+    voice["seek_frame"] = seek_frame
     runtime["stats"]["requested_treatment"] = {
         "low_pass_hz": context.get("low_pass_hz"),
         "wet_send": context.get("wet_send"),
@@ -1361,17 +1386,22 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
         listener.get("world_position", {}), tile_map,
     )
     audible = estimate_event_audibility(event, listener, context, profile)
-    if event.get("type") != "reload_stop" and audible < AUDIBILITY_EPSILON:
+    if event.get("type") not in CONTROL_EVENT_TYPES and audible < AUDIBILITY_EPSILON:
         _discard(runtime["stats"], "inaudible")
         return []
     event_type = event.get("type")
     if event_type == "footstep":
         return _process_footstep(runtime, event, listener, tile_map, entities, profile)
-    if event_type == "reload_stop":
-        _stop_instance(runtime, event.get("data", {}).get("instance_key", "player:pistol_reload"))
+    if event_type in CONTROL_EVENT_TYPES:
+        default_key = "player:pistol_reload" if event_type == "reload_stop" else ""
+        _stop_instance(
+            runtime, event.get("data", {}).get("instance_key", default_key),
+        )
         return []
     family_map = {
         "reload_start": "weapons.pistol_reload", "weapon_empty": "weapons.pistol_empty",
+        "weapon_unholster": "weapons.pistol_unholster",
+        "weapon_holster": "weapons.pistol_holster",
         "bullet_wall_impact": "impacts.bullet_wall", "melee_whoosh": "impacts.melee_whoosh",
         "stagger_impact": "impacts.stagger", "death_impact": "impacts.death",
         "pickup_ammo": "pickups.ammo", "pickup_health": "pickups.health",
@@ -1406,7 +1436,9 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
     family = family_map.get(event_type)
     if family is None:
         return []
-    instance_key = event.get("data", {}).get("instance_key") if event_type == "reload_start" else None
+    instance_key = event.get("data", {}).get("instance_key")
+    if instance_key:
+        _stop_instance(runtime, instance_key)
     voice = _play_family_layer(runtime, family, event, listener, context, profile, 1.0, set(), instance_key)
     return [voice] if voice is not None else []
 
@@ -1675,9 +1707,9 @@ def update_audio(audio_runtime, engine, dt, listener, tile_map, entities,
     accepted = ordinary + accepted_enemy
     for event in accepted:
         voices = _process_event(audio_runtime, event, listener, tile_map, entities or {}, profile)
-        if voices or event.get("type") == "reload_stop":
+        if voices or event.get("type") in CONTROL_EVENT_TYPES:
             stats["accepted_events"] += 1
-        elif event.get("type") not in {"reload_stop"}:
+        elif event.get("type") not in CONTROL_EVENT_TYPES:
             _discard(stats, "missing_asset_family")
     _request_environment_loops(
         audio_runtime, listener, tile_map, entities or {}, rain_profile or {},
