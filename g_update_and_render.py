@@ -98,6 +98,15 @@ PLAYER_WEAPON_VISUAL_RECOIL_DEFAULTS = {
     "kick_degrees": 14.0,
     "return_seconds": 0.12,
 }
+PLAYER_MUZZLE_FLASH_DEFAULTS = {
+    "duration_seconds": 0.07,
+    "radius": 72.0,
+    "intensity": 2.4,
+    "falloff": 1.35,
+    "fade_exponent": 1.5,
+    "height": 18.0,
+    "color": [1.0, 0.66, 0.28],
+}
 DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
 DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION = 4.0
 DEFAULT_REDHEAD_ATTACK_ENGAGE_DISTANCE = 28.0
@@ -1290,6 +1299,11 @@ def make_default_player(x,y,z):
     player["weapon_visual_recoil"] = {
         "amount": 0.0,
         "rotation_degrees": 0.0,
+    }
+    player["muzzle_flash"] = {
+        "amount": 0.0,
+        "position": {"x": 0.0, "y": 0.0},
+        "light": None,
     }
     player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
     player["aim_input_version"] = AIM_INPUT_VERSION
@@ -5148,6 +5162,131 @@ def apply_player_weapon_visual_recoil(player):
     return state["rotation_degrees"]
 
 
+def get_player_muzzle_flash_settings(player):
+    authored = player.get("muzzle_flash_overrides", {})
+    if not isinstance(authored, dict):
+        authored = {}
+
+    def value(name):
+        try:
+            result = float(authored.get(name, PLAYER_MUZZLE_FLASH_DEFAULTS[name]))
+        except (TypeError, ValueError, OverflowError):
+            result = float(PLAYER_MUZZLE_FLASH_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(PLAYER_MUZZLE_FLASH_DEFAULTS[name])
+        return result
+
+    authored_color = authored.get("color", PLAYER_MUZZLE_FLASH_DEFAULTS["color"])
+    if not isinstance(authored_color, (list, tuple)):
+        authored_color = PLAYER_MUZZLE_FLASH_DEFAULTS["color"]
+    color = []
+    for index, fallback in enumerate(PLAYER_MUZZLE_FLASH_DEFAULTS["color"]):
+        try:
+            channel = float(authored_color[index])
+        except (IndexError, TypeError, ValueError, OverflowError):
+            channel = fallback
+        color.append(max(0.0, min(4.0, channel if math.isfinite(channel) else fallback)))
+
+    return {
+        "duration_seconds": max(0.001, value("duration_seconds")),
+        "radius": max(1.0, value("radius")),
+        "intensity": max(0.0, value("intensity")),
+        "falloff": max(0.01, value("falloff")),
+        "fade_exponent": max(0.01, value("fade_exponent")),
+        "height": max(0.0, value("height")),
+        "color": color,
+    }
+
+
+def ensure_player_muzzle_flash_state(player):
+    state = player.get("muzzle_flash")
+    if not isinstance(state, dict):
+        state = {}
+        player["muzzle_flash"] = state
+    try:
+        amount = float(state.get("amount", 0.0))
+    except (TypeError, ValueError, OverflowError):
+        amount = 0.0
+    if not math.isfinite(amount):
+        amount = 0.0
+    position = state.get("position", {})
+    if not isinstance(position, dict):
+        position = {}
+    try:
+        position = {
+            "x": float(position.get("x", 0.0)),
+            "y": float(position.get("y", 0.0)),
+        }
+    except (TypeError, ValueError, OverflowError):
+        position = {"x": 0.0, "y": 0.0}
+    if not math.isfinite(position["x"]) or not math.isfinite(position["y"]):
+        position = {"x": 0.0, "y": 0.0}
+    state.update({
+        "amount": max(0.0, min(1.0, amount)),
+        "position": position,
+    })
+    return state
+
+
+def refresh_player_muzzle_flash_light(player):
+    state = ensure_player_muzzle_flash_state(player)
+    settings = get_player_muzzle_flash_settings(player)
+    fade = state["amount"] ** settings["fade_exponent"]
+    if fade <= 0.000001 or settings["intensity"] <= 0.0:
+        state["light"] = None
+        return state
+    state["light"] = {
+        "type": "point",
+        "position": dict(state["position"]),
+        "color": list(settings["color"]),
+        "radius": settings["radius"],
+        "intensity": settings["intensity"] * fade,
+        "falloff": settings["falloff"],
+        "casts_shadows": True,
+        "casts_wall_shadows": True,
+        "casts_cinematic_shadows": False,
+        "affects_scene": True,
+        "affects_world": True,
+        "affects_entities": True,
+        "affects_fog": True,
+        "affects_ai": False,
+        "gameplay_intensity": 0.0,
+        "mobility": "dynamic",
+        "render_style": "world",
+        "owner_id": "player",
+        "height": settings["height"],
+        "shadow_bias": 0.25,
+        "enabled": True,
+    }
+    return state
+
+
+def update_player_muzzle_flash(player, dt):
+    state = ensure_player_muzzle_flash_state(player)
+    settings = get_player_muzzle_flash_settings(player)
+    try:
+        frame_dt = max(0.0, min(0.1, float(dt)))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    state["amount"] = max(
+        0.0, state["amount"] - frame_dt / settings["duration_seconds"],
+    )
+    return refresh_player_muzzle_flash_light(player)
+
+
+def trigger_player_muzzle_flash(player, world_position):
+    state = ensure_player_muzzle_flash_state(player)
+    state["amount"] = 1.0
+    state["position"] = {
+        "x": float(world_position["x"]),
+        "y": float(world_position["y"]),
+    }
+    refresh_player_muzzle_flash_light(player)
+    return state["light"]
+
+
 def sample_player_shot_direction(player, aim_direction, rng=None):
     maximum_deviation = get_player_maximum_shot_deviation(player)
     if maximum_deviation <= 0.000001:
@@ -7191,6 +7330,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
         aim_heading_normal = ensure_player_aim_state(entity)
     update_player_aim_accuracy(entity, aim_requested, dt)
     update_player_weapon_visual_recoil(entity, dt)
+    update_player_muzzle_flash(entity, dt)
     weapon_can_fire = player_weapon_can_fire(entity, aim_requested)
     entity["weapon_can_fire"] = weapon_can_fire
     transition_progress = ensure_player_weapon_transition_state(entity)[
@@ -7328,6 +7468,7 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
             )
             apply_player_shot_recoil_bloom(entity)
             apply_player_weapon_visual_recoil(entity)
+            trigger_player_muzzle_flash(entity, bullet_pos)
             
             gunshot_timer = 0.07
             queue_gameplay_audio(

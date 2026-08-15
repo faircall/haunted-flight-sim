@@ -330,11 +330,16 @@ class PlayerAimHeadingTests(unittest.TestCase):
                     g_audio.make_audio_runtime(), 0.0, "clear", None,
                     aim_input_enabled=False, mouse_delta=pr.Vector2(0.0, 0.0),
                 )
-            return entities
+            return entities, player
 
-        self.assertNotIn("projectiles", interact_at_progress(minimum * 0.5))
-        projectiles = interact_at_progress(minimum)["projectiles"]
+        blocked_entities, blocked_player = interact_at_progress(minimum * 0.5)
+        self.assertNotIn("projectiles", blocked_entities)
+        self.assertIsNone(blocked_player["muzzle_flash"]["light"])
+
+        fired_entities, fired_player = interact_at_progress(minimum)
+        projectiles = fired_entities["projectiles"]
         self.assertEqual(len(projectiles), 1)
+        self.assertIsNotNone(fired_player["muzzle_flash"]["light"])
 
     def test_transition_bloom_falls_smoothly_to_zero(self):
         player = game.make_default_player(0, 0, 0)
@@ -432,6 +437,40 @@ class PlayerAimHeadingTests(unittest.TestCase):
             player["weapon_visual_recoil"]["rotation_degrees"], 11.25,
         )
         self.assertEqual(player["aim_accuracy"]["shot_instability"], 0.0)
+
+    def test_muzzle_flash_uses_transient_visual_only_light(self):
+        player = game.make_default_player(0, 0, 0)
+        player["muzzle_flash_overrides"] = {
+            "duration_seconds": 0.2,
+            "radius": 80.0,
+            "intensity": 3.0,
+            "fade_exponent": 1.0,
+        }
+
+        light = game.trigger_player_muzzle_flash(
+            player, {"x": 12.0, "y": 34.0},
+        )
+        self.assertEqual(light["position"], {"x": 12.0, "y": 34.0})
+        self.assertEqual(light["radius"], 80.0)
+        self.assertEqual(light["intensity"], 3.0)
+        self.assertFalse(light["affects_ai"])
+        self.assertEqual(light["gameplay_intensity"], 0.0)
+        self.assertEqual(player["aim_accuracy"]["shot_instability"], 0.0)
+        self.assertEqual(player["weapon_visual_recoil"]["amount"], 0.0)
+
+        records = game.g_graphics.collect_light_records(
+            {}, player, game.make_tile_map(4, 4, 16, 16), {},
+        )
+        flash_record = next(
+            record for record in records
+            if record["id"] == "runtime:player_muzzle_flash"
+        )
+        self.assertEqual(flash_record["light"]["intensity"], 3.0)
+
+        game.update_player_muzzle_flash(player, 0.1)
+        self.assertAlmostEqual(player["muzzle_flash"]["light"]["intensity"], 1.5)
+        game.update_player_muzzle_flash(player, 0.1)
+        self.assertIsNone(player["muzzle_flash"]["light"])
 
     def test_fast_turn_blooms_more_than_slow_turn_and_then_recovers(self):
         slow = game.make_default_player(0, 0, 0)

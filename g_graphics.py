@@ -527,6 +527,12 @@ def collect_light_records(entities, player_entity, tile_map, game_assets):
         if isinstance(light, dict):
             records.append({"id": str(light_id), "light": apply_light_capability_defaults(light)})
 
+    muzzle_flash = player_entity.get("muzzle_flash", {}).get("light")
+    if isinstance(muzzle_flash, dict) and muzzle_flash.get("enabled", True):
+        records.append({
+            "id": "runtime:player_muzzle_flash",
+            "light": apply_light_capability_defaults(muzzle_flash),
+        })
     records.append({"id": "runtime:player_flashlight", "light": apply_light_capability_defaults(make_player_flashlight(player_entity, tile_map))})
     records.append({"id": "runtime:player_readability", "light": apply_light_capability_defaults(make_player_pointlight(player_entity, tile_map))})
     return records
