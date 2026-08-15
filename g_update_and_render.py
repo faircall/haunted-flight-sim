@@ -74,8 +74,25 @@ PLAYER_WEAPON_TRANSITION_DEFAULTS = {
     # Match the authored clips initially; animation timing remains independently
     # tweakable without changing the normalized state model.
     "unholster_duration": 0.125,
-    "holster_duration": 0.125,
+    "holster_duration": 0.15,
     "minimum_reverse_sound_seconds": 0.07,
+}
+PLAYER_AIM_ACCURACY_DEFAULTS = {
+    "minimum_fire_progress": 0.08,
+    "turn_speed_deadzone": 35.0,
+    "turn_speed_full_bloom": 360.0,
+    "turn_acceleration_deadzone": 10000.0,
+    "turn_acceleration_full_bloom": 4000.0,
+    "turn_speed_filter_seconds": 0.04,
+    "bloom_expand_seconds": 0.075,
+    "bloom_motion_recovery": 0.15,
+    "bloom_shot_recovery": 0.60,
+    "recoil_bloom_per_shot": 0.35,
+    "minimum_reticle_radius": 3.0,
+    "motion_maximum_reticle_radius": 8.0,
+    "transition_maximum_reticle_radius": 12.0,
+    "motion_maximum_spread_degrees": 6.0,
+    "transition_maximum_spread_degrees": 10.0,
 }
 DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
 DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION = 4.0
@@ -1258,6 +1275,13 @@ def make_default_player(x,y,z):
         "progress": 0.0,
         "target": 0.0,
         "phase": "holstered",
+    }
+    player["aim_accuracy"] = {
+        "motion_instability": 0.0,
+        "shot_instability": 0.0,
+        "filtered_angular_speed": 0.0,
+        "previous_angular_speed": 0.0,
+        "previous_heading": DEFAULT_AIM_HEADING_DEGREES,
     }
     player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
     player["aim_input_version"] = AIM_INPUT_VERSION
@@ -4793,6 +4817,271 @@ def player_weapon_is_ready(player, aim_requested=None):
     )
 
 
+def get_player_aim_accuracy_settings(player):
+    # Like transition timing, accuracy policy stays module-owned for immediate
+    # hot tuning. Persistent data contains only explicit overrides.
+    authored = player.get("aim_accuracy_overrides", {})
+    if not isinstance(authored, dict):
+        authored = {}
+
+    def value(name):
+        try:
+            result = float(authored.get(name, PLAYER_AIM_ACCURACY_DEFAULTS[name]))
+        except (TypeError, ValueError, OverflowError):
+            result = float(PLAYER_AIM_ACCURACY_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(PLAYER_AIM_ACCURACY_DEFAULTS[name])
+        return result
+
+    speed_deadzone = max(0.0, value("turn_speed_deadzone"))
+    acceleration_deadzone = max(0.0, value("turn_acceleration_deadzone"))
+    minimum_radius = max(0.0, value("minimum_reticle_radius"))
+    return {
+        "minimum_fire_progress": max(
+            0.0, min(1.0, value("minimum_fire_progress")),
+        ),
+        "turn_speed_deadzone": speed_deadzone,
+        "turn_speed_full_bloom": max(
+            speed_deadzone + 0.000001, value("turn_speed_full_bloom"),
+        ),
+        "turn_acceleration_deadzone": acceleration_deadzone,
+        "turn_acceleration_full_bloom": max(
+            acceleration_deadzone + 0.000001,
+            value("turn_acceleration_full_bloom"),
+        ),
+        "turn_speed_filter_seconds": max(
+            0.001, value("turn_speed_filter_seconds"),
+        ),
+        "bloom_expand_seconds": max(0.001, value("bloom_expand_seconds")),
+        "bloom_motion_recovery": max(
+            0.001, value("bloom_motion_recovery"),
+        ),
+        "bloom_shot_recovery": max(
+            0.001, value("bloom_shot_recovery"),
+        ),
+        "recoil_bloom_per_shot": max(
+            0.0, min(1.0, value("recoil_bloom_per_shot")),
+        ),
+        "minimum_reticle_radius": minimum_radius,
+        "motion_maximum_reticle_radius": max(
+            minimum_radius, value("motion_maximum_reticle_radius"),
+        ),
+        "transition_maximum_reticle_radius": max(
+            minimum_radius, value("transition_maximum_reticle_radius"),
+        ),
+        "motion_maximum_spread_degrees": max(
+            0.0, value("motion_maximum_spread_degrees"),
+        ),
+        "transition_maximum_spread_degrees": max(
+            0.0, value("transition_maximum_spread_degrees"),
+        ),
+    }
+
+
+def smoothstep_unit(value):
+    value = max(0.0, min(1.0, float(value)))
+    return value * value * (3.0 - 2.0 * value)
+
+
+def smoothstep_range(value, minimum, maximum):
+    if maximum <= minimum:
+        return 1.0 if value >= maximum else 0.0
+    return smoothstep_unit((float(value) - minimum) / (maximum - minimum))
+
+
+def shortest_angle_delta_degrees(current, previous):
+    return (float(current) - float(previous) + 180.0) % 360.0 - 180.0
+
+
+def ensure_player_aim_accuracy_state(player):
+    state = player.get("aim_accuracy")
+    if not isinstance(state, dict):
+        state = {}
+        player["aim_accuracy"] = state
+
+    def finite_nonnegative(name, fallback=0.0):
+        try:
+            result = max(0.0, float(state.get(name, fallback)))
+        except (TypeError, ValueError, OverflowError):
+            result = fallback
+        return result if math.isfinite(result) else fallback
+
+    try:
+        previous_heading = float(state.get(
+            "previous_heading", player.get("aim_heading", 0.0),
+        )) % 360.0
+    except (TypeError, ValueError, OverflowError):
+        previous_heading = float(player.get("aim_heading", 0.0)) % 360.0
+    state.update({
+        "motion_instability": min(
+            1.0, finite_nonnegative("motion_instability"),
+        ),
+        "shot_instability": min(
+            1.0, finite_nonnegative("shot_instability"),
+        ),
+        "filtered_angular_speed": finite_nonnegative(
+            "filtered_angular_speed",
+        ),
+        "previous_angular_speed": finite_nonnegative(
+            "previous_angular_speed",
+        ),
+        "previous_heading": previous_heading,
+    })
+    return state
+
+
+def update_player_aim_accuracy(player, aim_requested, dt):
+    """Update motion bloom from angular speed and positive acceleration."""
+    ensure_player_aim_state(player)
+    state = ensure_player_aim_accuracy_state(player)
+    settings = get_player_aim_accuracy_settings(player)
+    try:
+        frame_dt = max(0.0, min(0.1, float(dt)))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+
+    heading = float(player.get("aim_heading", 0.0)) % 360.0
+    previous_heading = state["previous_heading"]
+    angular_speed = 0.0
+    target_instability = 0.0
+    if frame_dt > 0.0 and aim_requested:
+        angular_speed = abs(shortest_angle_delta_degrees(
+            heading, previous_heading,
+        )) / frame_dt
+        filter_alpha = 1.0 - math.exp(
+            -frame_dt / settings["turn_speed_filter_seconds"],
+        )
+        filtered_speed = state["filtered_angular_speed"] + (
+            angular_speed - state["filtered_angular_speed"]
+        ) * filter_alpha
+        positive_acceleration = max(
+            0.0,
+            (angular_speed - state["previous_angular_speed"]) / frame_dt,
+        )
+        speed_instability = smoothstep_range(
+            filtered_speed,
+            settings["turn_speed_deadzone"],
+            settings["turn_speed_full_bloom"],
+        )
+        acceleration_instability = smoothstep_range(
+            positive_acceleration,
+            settings["turn_acceleration_deadzone"],
+            settings["turn_acceleration_full_bloom"],
+        )
+        target_instability = 1.0 - (
+            (1.0 - speed_instability) * (1.0 - acceleration_instability)
+        )
+        state["filtered_angular_speed"] = filtered_speed
+        state["previous_angular_speed"] = angular_speed
+    else:
+        state["filtered_angular_speed"] = 0.0
+        state["previous_angular_speed"] = 0.0
+
+    instability = state["motion_instability"]
+    duration = (
+        settings["bloom_expand_seconds"]
+        if target_instability > instability
+        else settings["bloom_motion_recovery"]
+    )
+    maximum_change = frame_dt / duration if duration > 0.0 else 1.0
+    if target_instability > instability:
+        instability = min(target_instability, instability + maximum_change)
+    else:
+        instability = max(target_instability, instability - maximum_change)
+    state.update({
+        "motion_instability": max(0.0, min(1.0, instability)),
+        "previous_heading": heading,
+        "angular_speed": angular_speed,
+        "target_instability": target_instability,
+    })
+    state["shot_instability"] = max(
+        0.0,
+        state["shot_instability"]
+        - frame_dt / settings["bloom_shot_recovery"],
+    )
+    return state
+
+
+def get_player_transition_instability(player):
+    progress = ensure_player_weapon_transition_state(player)["progress"]
+    return 1.0 - smoothstep_unit(progress)
+
+
+def get_player_dynamic_aim_instability(player):
+    state = ensure_player_aim_accuracy_state(player)
+    motion = state["motion_instability"]
+    shot = state["shot_instability"]
+    return 1.0 - (1.0 - motion) * (1.0 - shot)
+
+
+def get_player_total_aim_instability(player):
+    dynamic = get_player_dynamic_aim_instability(player)
+    transition = get_player_transition_instability(player)
+    return max(0.0, min(1.0, 1.0 - (1.0 - dynamic) * (1.0 - transition)))
+
+
+def player_weapon_can_fire(player, aim_requested=None):
+    state = ensure_player_weapon_transition_state(player)
+    if aim_requested is None:
+        aim_requested = player.get("aim_requested", player.get("aiming", False))
+    minimum_progress = get_player_aim_accuracy_settings(player)[
+        "minimum_fire_progress"
+    ]
+    return bool(
+        aim_requested
+        and state["target"] >= 1.0
+        and state["progress"] + 0.000001 >= minimum_progress
+    )
+
+
+def get_player_accuracy_reticle_radius(player):
+    settings = get_player_aim_accuracy_settings(player)
+    dynamic = get_player_dynamic_aim_instability(player)
+    transition = get_player_transition_instability(player)
+    minimum = settings["minimum_reticle_radius"]
+    transition_penalty = (
+        settings["transition_maximum_reticle_radius"] - minimum
+    ) * transition
+    dynamic_penalty = (
+        settings["motion_maximum_reticle_radius"] - minimum
+    ) * dynamic * (1.0 - transition)
+    return minimum + transition_penalty + dynamic_penalty
+
+
+def get_player_maximum_shot_deviation(player):
+    settings = get_player_aim_accuracy_settings(player)
+    dynamic = get_player_dynamic_aim_instability(player)
+    transition = get_player_transition_instability(player)
+    return (
+        settings["transition_maximum_spread_degrees"] * transition
+        + settings["motion_maximum_spread_degrees"]
+        * dynamic * (1.0 - transition)
+    )
+
+
+def apply_player_shot_recoil_bloom(player):
+    state = ensure_player_aim_accuracy_state(player)
+    recoil = get_player_aim_accuracy_settings(player)["recoil_bloom_per_shot"]
+    state["shot_instability"] = min(
+        1.0, state["shot_instability"] + recoil,
+    )
+    return state["shot_instability"]
+
+
+def sample_player_shot_direction(player, aim_direction, rng=None):
+    maximum_deviation = get_player_maximum_shot_deviation(player)
+    if maximum_deviation <= 0.000001:
+        return dict(aim_direction)
+    random_source = rng or random
+    deviation = random_source.triangular(
+        -maximum_deviation, maximum_deviation, 0.0,
+    )
+    shot_angle = aim_heading_from_direction(aim_direction) + deviation
+    return aim_direction_from_heading(shot_angle)
+
+
 def ensure_player_weapon_transition_state(player):
     settings = get_player_weapon_transition_settings(player)
     # Retire the old copied-default representation. Keeping it would pin live
@@ -4882,8 +5171,11 @@ def draw_player_aim_cursor(player, tile_map, game_camera):
     )
     cursor_x = int(round(aim_cursor.x))
     cursor_y = int(round(aim_cursor.y))
-    if player.get("aiming", False):
-        pr.draw_circle_lines(cursor_x, cursor_y, 3.0, pr.WHITE)
+    if player_weapon_can_fire(player):
+        pr.draw_circle_lines(
+            cursor_x, cursor_y,
+            get_player_accuracy_reticle_radius(player), pr.WHITE,
+        )
     pr.draw_circle(cursor_x, cursor_y, 1.0, pr.WHITE)
 
 
@@ -6804,8 +7096,9 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
     update_player_weapon_transition(
         entity, aim_requested, dt, audio_runtime, player_pos_center,
     )
-    aiming = player_weapon_is_ready(entity, aim_requested)
-    entity["aiming"] = aiming
+    # Aiming intent slows movement immediately; readiness and firing use their
+    # own transition-aware gates below.
+    entity["aiming"] = aim_requested
 
     if mouse_delta is None:
         mouse_delta = pr.get_mouse_delta()
@@ -6818,9 +7111,16 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
         )
     else:
         aim_heading_normal = ensure_player_aim_state(entity)
-    aim_heading = vec2_scale(aim_heading_normal, arm_length)
-
-    spawn_pos = vec2_add_any(player_pos_center, aim_heading)
+    update_player_aim_accuracy(entity, aim_requested, dt)
+    weapon_can_fire = player_weapon_can_fire(entity, aim_requested)
+    entity["weapon_can_fire"] = weapon_can_fire
+    transition_progress = ensure_player_weapon_transition_state(entity)[
+        "progress"
+    ]
+    spawn_pos = g_render_order.player_weapon_bezier_world_position(
+        {"x": player_pos_center.x, "y": player_pos_center.y},
+        aim_heading_normal, arm_length, transition_progress,
+    )
 
     if debug_queue is not None:
         debug_queue.append(make_player_collision_debug_item(entity, tile_map))
@@ -6909,7 +7209,8 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
             entity["reload_state"] = "reloading"
 
 
-    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured and aiming:
+    if (pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT)
+            and not g_mouse_is_ui_captured and weapon_can_fire):
         
         current_ammo = entity["ammo"][current_gun]
         if entity.get("reload_state","") == "reloading":
@@ -6939,7 +7240,14 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
             if "projectiles" not in entities:
                 entities["projectiles"] = {}
             bullet_id = allocate_projectile_id(entities["projectiles"])
-            bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
+            shot_direction = sample_player_shot_direction(
+                entity, aim_heading_normal,
+            )
+            bullet = make_projectile(
+                "player", bullet_pos,
+                vec2_scale(shot_direction, bullet_speed), bullet_id, "bullet",
+            )
+            apply_player_shot_recoil_bloom(entity)
             
             gunshot_timer = 0.07
             queue_gameplay_audio(

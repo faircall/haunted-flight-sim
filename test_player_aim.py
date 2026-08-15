@@ -233,7 +233,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertAlmostEqual(cursor.y, 175.0)
         self.assertAlmostEqual(player["aim_heading"], 90.0)
 
-    def test_cursor_outline_only_draws_while_aiming(self):
+    def test_cursor_outline_only_draws_once_quick_draw_can_fire(self):
         player = game.make_default_player(0, 0, 0)
         tile_map = {"tile_width": 16, "tile_height": 16}
         camera = pr.Vector3(0.0, 0.0, 0.0)
@@ -243,9 +243,18 @@ class PlayerAimHeadingTests(unittest.TestCase):
             outline.assert_not_called()
             center.assert_called_once()
 
+            player["aim_requested"] = True
             player["aiming"] = True
+            player["weapon_transition"].update({
+                "progress": game.PLAYER_AIM_ACCURACY_DEFAULTS[
+                    "minimum_fire_progress"
+                ],
+                "target": 1.0,
+                "phase": "unholstering",
+            })
             game.draw_player_aim_cursor(player, tile_map, camera)
             outline.assert_called_once()
+            self.assertGreater(outline.call_args.args[2], 3.0)
             self.assertEqual(center.call_count, 2)
 
     def test_player_collision_debug_item_uses_movement_box(self):
@@ -268,7 +277,181 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertIn("mouse_delta.y", source)
         self.assertNotIn("g_ui.get_mouse_position()", source)
         self.assertNotIn("vec2_subtract(mouse", source)
-        self.assertIn("player_weapon_is_ready", source)
+        self.assertIn("player_weapon_can_fire", source)
+        self.assertIn("player_weapon_bezier_world_position", source)
+        self.assertIn("sample_player_shot_direction", source)
+        self.assertLess(
+            source.index("sample_player_shot_direction"),
+            source.index("apply_player_shot_recoil_bloom"),
+        )
+
+    def test_quick_draw_can_fire_before_weapon_is_fully_ready(self):
+        player = game.make_default_player(0, 0, 0)
+        player["aim_requested"] = True
+        minimum = game.get_player_aim_accuracy_settings(player)[
+            "minimum_fire_progress"
+        ]
+        player["weapon_transition"].update({
+            "progress": minimum * 0.5,
+            "target": 1.0,
+            "phase": "unholstering",
+        })
+        self.assertFalse(game.player_weapon_can_fire(player))
+
+        player["weapon_transition"]["progress"] = minimum
+        self.assertTrue(game.player_weapon_can_fire(player))
+        self.assertFalse(game.player_weapon_is_ready(player))
+
+    def test_interaction_spawns_quick_draw_shot_at_minimum_progress(self):
+        tile_map = game.make_tile_map(8, 8, 16, 16)
+        minimum = game.PLAYER_AIM_ACCURACY_DEFAULTS[
+            "minimum_fire_progress"
+        ]
+
+        def interact_at_progress(progress):
+            player = game.make_default_player(8.0, 8.0, 0.0)
+            player["weapon_transition"].update({
+                "progress": progress,
+                "target": 1.0,
+                "phase": "unholstering",
+            })
+            entities = {}
+            with mock.patch.object(
+                    game.pr, "is_mouse_button_down", return_value=True), \
+                    mock.patch.object(
+                        game.pr, "is_mouse_button_pressed", return_value=True,
+                    ), \
+                    mock.patch.object(
+                        game.pr, "is_key_pressed", return_value=False,
+                    ), \
+                    mock.patch.object(game.pr, "draw_text"):
+                game.update_player_interaction(
+                    tile_map, player, pr.Vector3(0.0, 0.0, 0.0), entities,
+                    g_audio.make_audio_runtime(), 0.0, "clear", None,
+                    aim_input_enabled=False, mouse_delta=pr.Vector2(0.0, 0.0),
+                )
+            return entities
+
+        self.assertNotIn("projectiles", interact_at_progress(minimum * 0.5))
+        projectiles = interact_at_progress(minimum)["projectiles"]
+        self.assertEqual(len(projectiles), 1)
+
+    def test_transition_bloom_falls_smoothly_to_zero(self):
+        player = game.make_default_player(0, 0, 0)
+        player["weapon_transition"].update({"target": 1.0})
+        player["weapon_transition"]["progress"] = 0.0
+        self.assertEqual(game.get_player_transition_instability(player), 1.0)
+        player["weapon_transition"]["progress"] = 0.5
+        self.assertAlmostEqual(
+            game.get_player_transition_instability(player), 0.5,
+        )
+        player["weapon_transition"]["progress"] = 1.0
+        self.assertEqual(game.get_player_transition_instability(player), 0.0)
+
+    def test_motion_and_transition_instability_combine_without_simple_clamp(self):
+        player = game.make_default_player(0, 0, 0)
+        player["weapon_transition"].update({
+            "progress": 0.5, "target": 1.0,
+        })
+        player["aim_accuracy"]["motion_instability"] = 0.5
+        self.assertAlmostEqual(
+            game.get_player_total_aim_instability(player), 0.75,
+        )
+
+    def test_transition_and_motion_have_independent_visual_and_spread_caps(self):
+        player = game.make_default_player(0, 0, 0)
+        player["weapon_transition"].update({
+            "progress": 0.0, "target": 1.0,
+        })
+        player["aim_accuracy"]["motion_instability"] = 0.0
+        self.assertEqual(game.get_player_accuracy_reticle_radius(player), 12.0)
+        self.assertEqual(game.get_player_maximum_shot_deviation(player), 10.0)
+
+        player["weapon_transition"]["progress"] = 1.0
+        player["aim_accuracy"]["motion_instability"] = 1.0
+        self.assertEqual(game.get_player_accuracy_reticle_radius(player), 8.0)
+        self.assertEqual(game.get_player_maximum_shot_deviation(player), 6.0)
+
+    def test_shot_recoil_adds_bloom_for_followup_shots_and_caps(self):
+        player = game.make_default_player(0, 0, 0)
+        player["weapon_transition"].update({
+            "progress": 1.0, "target": 1.0, "phase": "unholstered",
+        })
+        recoil = game.get_player_aim_accuracy_settings(player)[
+            "recoil_bloom_per_shot"
+        ]
+
+        first = game.apply_player_shot_recoil_bloom(player)
+        self.assertEqual(first, recoil)
+        self.assertGreater(game.get_player_accuracy_reticle_radius(player), 3.0)
+        self.assertGreater(game.get_player_maximum_shot_deviation(player), 0.0)
+
+        for _ in range(10):
+            game.apply_player_shot_recoil_bloom(player)
+        self.assertEqual(player["aim_accuracy"]["shot_instability"], 1.0)
+        self.assertEqual(game.get_player_accuracy_reticle_radius(player), 8.0)
+        self.assertEqual(game.get_player_maximum_shot_deviation(player), 6.0)
+
+    def test_shot_and_motion_bloom_recover_independently(self):
+        player = game.make_default_player(0, 0, 0)
+        player["weapon_transition"].update({
+            "progress": 1.0, "target": 1.0, "phase": "unholstered",
+        })
+        player["aim_accuracy"].update({
+            "motion_instability": 1.0,
+            "shot_instability": 1.0,
+        })
+        player["aim_accuracy_overrides"] = {
+            "bloom_motion_recovery": 1.0,
+            "bloom_shot_recovery": 2.0,
+        }
+
+        game.update_player_aim_accuracy(player, False, 0.1)
+
+        self.assertAlmostEqual(
+            player["aim_accuracy"]["motion_instability"], 0.9,
+        )
+        self.assertAlmostEqual(
+            player["aim_accuracy"]["shot_instability"], 0.95,
+        )
+
+    def test_fast_turn_blooms_more_than_slow_turn_and_then_recovers(self):
+        slow = game.make_default_player(0, 0, 0)
+        game.apply_player_aim_turn(slow, 0.2)
+        game.update_player_aim_accuracy(slow, True, 1.0 / 60.0)
+
+        fast = game.make_default_player(0, 0, 0)
+        game.apply_player_aim_turn(fast, 20.0)
+        game.update_player_aim_accuracy(fast, True, 1.0 / 60.0)
+        bloomed = fast["aim_accuracy"]["motion_instability"]
+
+        self.assertGreater(
+            bloomed, slow["aim_accuracy"]["motion_instability"],
+        )
+        game.update_player_aim_accuracy(fast, True, 0.16)
+        self.assertLess(fast["aim_accuracy"]["motion_instability"], bloomed)
+
+    def test_perfect_accuracy_is_exact_and_bloomed_spread_is_bounded(self):
+        player = game.make_default_player(0, 0, 0)
+        player["weapon_transition"].update({
+            "progress": 1.0, "target": 1.0, "phase": "unholstered",
+        })
+        random_source = mock.Mock()
+        exact = game.sample_player_shot_direction(
+            player, {"x": 1.0, "y": 0.0}, random_source,
+        )
+        self.assertEqual(exact, {"x": 1.0, "y": 0.0})
+        random_source.triangular.assert_not_called()
+
+        player["weapon_transition"]["progress"] = 0.0
+        random_source.triangular.return_value = 6.0
+        spread = game.sample_player_shot_direction(
+            player, {"x": 1.0, "y": 0.0}, random_source,
+        )
+        random_source.triangular.assert_called_once_with(-10.0, 10.0, 0.0)
+        self.assertAlmostEqual(
+            game.aim_heading_from_direction(spread), 6.0,
+        )
 
     def test_relative_mouse_capture_transitions_once_and_suppresses_jump(self):
         assets = {}
