@@ -285,6 +285,10 @@ class PlayerAimHeadingTests(unittest.TestCase):
             source.index("sample_player_shot_direction"),
             source.index("apply_player_shot_recoil_bloom"),
         )
+        self.assertLess(
+            source.index("roll_player_headshot_qualification"),
+            source.index("apply_player_shot_recoil_bloom"),
+        )
 
     def test_quick_draw_can_fire_before_weapon_is_fully_ready(self):
         player = game.make_default_player(0, 0, 0)
@@ -398,6 +402,57 @@ class PlayerAimHeadingTests(unittest.TestCase):
         })
         self.assertEqual(game.get_player_accuracy_reticle_radius(player), 8.0)
         self.assertEqual(game.get_player_maximum_shot_deviation(player), 6.0)
+
+    def test_headshot_qualification_uses_reticle_box_and_pre_shot_bloom(self):
+        tile_map = game.make_tile_map(10, 10, 16, 16)
+        player = game.make_default_player(0, 0, 0)
+        target = {
+            "id": 7,
+            "type": "red head",
+            "position": {"tile_x": 4, "tile_y": 4, "x": 2.0, "y": 2.0},
+            "current_state": "idle",
+        }
+        game.give_entity_stats_from_type(target, "red head")
+        headshot_box = game.get_redhead_headshot_box(target, tile_map)
+        player["aim_cursor_offset"] = {
+            "x": headshot_box["x"] + headshot_box["width"] * 0.5,
+            "y": headshot_box["y"] + headshot_box["height"] * 0.5,
+        }
+        player["aim_accuracy"].update({
+            "motion_instability": 0.0,
+            "shot_instability": 0.0,
+            "unholster_instability": 0.0,
+        })
+        rng = mock.Mock()
+
+        perfect = game.roll_player_headshot_qualification(
+            player, {target["id"]: target}, tile_map, rng,
+        )
+        self.assertTrue(perfect["qualified"])
+        self.assertEqual(perfect["target_id"], target["id"])
+        self.assertEqual(perfect["chance"], 1.0)
+        rng.random.assert_not_called()
+
+        player["aim_accuracy"]["shot_instability"] = 0.5
+        rng.random.return_value = 0.49
+        bloomed_success = game.roll_player_headshot_qualification(
+            player, {target["id"]: target}, tile_map, rng,
+        )
+        self.assertAlmostEqual(bloomed_success["chance"], 0.5)
+        self.assertTrue(bloomed_success["qualified"])
+
+        rng.random.return_value = 0.51
+        bloomed_failure = game.roll_player_headshot_qualification(
+            player, {target["id"]: target}, tile_map, rng,
+        )
+        self.assertFalse(bloomed_failure["qualified"])
+        self.assertIsNone(bloomed_failure["target_id"])
+
+        player["aim_cursor_offset"]["y"] = headshot_box["y"] - 0.01
+        outside = game.roll_player_headshot_qualification(
+            player, {target["id"]: target}, tile_map, rng,
+        )
+        self.assertIsNone(outside["candidate_id"])
 
     def test_shot_recoil_adds_bloom_for_followup_shots_and_caps(self):
         player = game.make_default_player(0, 0, 0)

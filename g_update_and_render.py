@@ -95,6 +95,11 @@ PLAYER_AIM_ACCURACY_DEFAULTS = {
     "motion_maximum_spread_degrees": 6.0,
     "transition_maximum_spread_degrees": 10.0,
 }
+PLAYER_HEADSHOT_DEFAULTS = {
+    "damage_multiplier": 3.0,
+    # 1.0 is linear: 50% total instability means a 50% headshot chance.
+    "chance_exponent": 1.0,
+}
 PLAYER_WEAPON_VISUAL_RECOIL_DEFAULTS = {
     "kick_degrees": 14.0,
     "return_seconds": 0.12,
@@ -126,6 +131,7 @@ DEFAULT_REDHEAD_BULLET_HURTBOX = {
     "offset": {"x": -18.0, "y": -19.0},
     "size": {"x": 12.0, "y": 17.0},
 }
+DEFAULT_BULLET_DAMAGE = 20.0
 LEGACY_DEFAULT_REDHEAD_BULLET_HURTBOX = {
     "offset": {"x": -20.0, "y": -22.0},
     "size": {"x": 16.0, "y": 22.0},
@@ -1112,6 +1118,7 @@ def make_projectile(responsible, spawn_pos, velocity, id, type,
                   "id" : id,
                   "type" : type,
                   "timer" : 0,
+                  "damage": DEFAULT_BULLET_DAMAGE,
                   # Gameplay impact is deliberately independent from travel
                   # speed so hitscan-fast bullets do not launch enemies.
                   "impact_speed": max(0.0, float(impact_speed)),
@@ -2344,6 +2351,18 @@ def get_redhead_bullet_hurtbox(entity, tile_map):
     }
 
 
+def get_redhead_headshot_box(entity, tile_map):
+    """Return the reticle-tested head region inside the body hurtbox."""
+    hurtbox = get_redhead_bullet_hurtbox(entity, tile_map)
+    horizontal_inset = min(1.0, max(0.0, hurtbox["width"] * 0.5))
+    return {
+        "x": hurtbox["x"] + horizontal_inset,
+        "y": hurtbox["y"] + 2.0,
+        "width": max(0.0, hurtbox["width"] - horizontal_inset * 2.0),
+        "height": 6.0,
+    }
+
+
 def make_redhead_hurtbox_debug_item(entity, tile_map):
     """Describe the exact gameplay bullet hurtbox for debug rendering."""
     hurtbox = get_redhead_bullet_hurtbox(entity, tile_map)
@@ -2353,6 +2372,18 @@ def make_redhead_hurtbox_debug_item(entity, tile_map):
         "x": hurtbox["x"], "y": hurtbox["y"],
         "width": hurtbox["width"], "height": hurtbox["height"],
         "color": "YELLOW", "z_sort": 0,
+        "debug_modes": ["collisions", "dumb entities"],
+    }
+
+
+def make_redhead_headshot_debug_item(entity, tile_map):
+    headshot_box = get_redhead_headshot_box(entity, tile_map)
+    return {
+        "type": "rectangle_outline",
+        "drawing_function": draw_debug_rect_outline,
+        "x": headshot_box["x"], "y": headshot_box["y"],
+        "width": headshot_box["width"], "height": headshot_box["height"],
+        "color": "RED", "z_sort": -1,
         "debug_modes": ["collisions", "dumb entities"],
     }
 
@@ -4796,16 +4827,24 @@ def scale_mouse_delta_to_internal(mouse_delta_x, mouse_delta_y, screen_width, sc
     }
 
 
-def get_player_aim_cursor_screen_position(player, tile_map, game_camera):
+def get_player_aim_cursor_world_position(player, tile_map):
     ensure_player_aim_state(player)
     cursor = player["aim_cursor_offset"]
     world_position = make_pos_abs(
         player.get("position", {}), tile_map.get("tile_width", 16),
         tile_map.get("tile_height", 16),
     )
+    return {
+        "x": world_position["x"] + cursor["x"],
+        "y": world_position["y"] + cursor["y"],
+    }
+
+
+def get_player_aim_cursor_screen_position(player, tile_map, game_camera):
+    cursor_world = get_player_aim_cursor_world_position(player, tile_map)
     return pr.Vector2(
-        world_position["x"] - game_camera.x + cursor["x"],
-        world_position["y"] - game_camera.y + cursor["y"],
+        cursor_world["x"] - game_camera.x,
+        cursor_world["y"] - game_camera.y,
     )
 
 
@@ -5085,6 +5124,86 @@ def get_player_total_aim_instability(player):
     dynamic = get_player_dynamic_aim_instability(player)
     transition = get_player_transition_instability(player)
     return max(0.0, min(1.0, 1.0 - (1.0 - dynamic) * (1.0 - transition)))
+
+
+def get_player_headshot_settings(player):
+    authored = player.get("headshot_overrides", {})
+    if not isinstance(authored, dict):
+        authored = {}
+
+    def value(name):
+        try:
+            result = float(authored.get(name, PLAYER_HEADSHOT_DEFAULTS[name]))
+        except (TypeError, ValueError, OverflowError):
+            result = float(PLAYER_HEADSHOT_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(PLAYER_HEADSHOT_DEFAULTS[name])
+        return result
+
+    return {
+        "damage_multiplier": max(1.0, value("damage_multiplier")),
+        "chance_exponent": max(0.01, value("chance_exponent")),
+    }
+
+
+def find_player_headshot_target(player, brains, tile_map):
+    """Find the nearest living head box containing the reticle at fire time."""
+    reticle = get_player_aim_cursor_world_position(player, tile_map)
+    player_world = make_pos_abs(
+        player.get("position", {}), tile_map.get("tile_width", 16),
+        tile_map.get("tile_height", 16),
+    )
+    candidates = []
+    for entity_id, entity in (brains or {}).items():
+        if (not isinstance(entity, dict) or entity.get("type") != "red head"
+                or entity.get("current_state") == "dead"
+                or float(entity.get("health", 0.0)) <= 0.0):
+            continue
+        headshot_box = get_redhead_headshot_box(entity, tile_map)
+        if not (
+                headshot_box["x"] <= reticle["x"]
+                <= headshot_box["x"] + headshot_box["width"]
+                and headshot_box["y"] <= reticle["y"]
+                <= headshot_box["y"] + headshot_box["height"]):
+            continue
+        center_x = headshot_box["x"] + headshot_box["width"] * 0.5
+        center_y = headshot_box["y"] + headshot_box["height"] * 0.5
+        player_distance_sq = (
+            (center_x - player_world["x"]) ** 2
+            + (center_y - player_world["y"]) ** 2
+        )
+        candidates.append((player_distance_sq, str(entity_id), entity_id))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def roll_player_headshot_qualification(player, brains, tile_map, rng=None):
+    """Resolve reticle targeting and bloom chance before recoil is applied."""
+    target_id = find_player_headshot_target(player, brains, tile_map)
+    if target_id is None:
+        return {
+            "candidate_id": None, "target_id": None,
+            "chance": 0.0, "roll": None, "qualified": False,
+        }
+    settings = get_player_headshot_settings(player)
+    stability = 1.0 - get_player_total_aim_instability(player)
+    chance = max(0.0, min(1.0, stability ** settings["chance_exponent"]))
+    roll = None
+    if chance >= 1.0:
+        qualified = True
+    elif chance <= 0.0:
+        qualified = False
+    else:
+        roll = (rng or random).random()
+        qualified = roll < chance
+    return {
+        "candidate_id": target_id,
+        "target_id": target_id if qualified else None,
+        "chance": chance,
+        "roll": roll,
+        "qualified": qualified,
+    }
 
 
 def player_weapon_can_fire(player, aim_requested=None):
@@ -6916,7 +7035,22 @@ def apply_bullet_hit_to_redhead(entity, entity_id, bullet, state_before_update,
     # Knockback owns movement briefly; stale chase momentum should not resume
     # immediately after the hit response.
     entity["ai_velocity"] = {"x": 0.0, "y": 0.0}
-    entity["health"] = entity.get("health", 0) - 20
+    try:
+        base_damage = max(0.0, float(bullet.get(
+            "damage", DEFAULT_BULLET_DAMAGE,
+        )))
+        headshot_multiplier = max(1.0, float(bullet.get(
+            "headshot_damage_multiplier",
+            PLAYER_HEADSHOT_DEFAULTS["damage_multiplier"],
+        )))
+    except (TypeError, ValueError, OverflowError):
+        base_damage = DEFAULT_BULLET_DAMAGE
+        headshot_multiplier = PLAYER_HEADSHOT_DEFAULTS["damage_multiplier"]
+    is_headshot = bullet.get("headshot_target_id") == entity_id
+    damage = base_damage * (headshot_multiplier if is_headshot else 1.0)
+    entity["last_hit_was_headshot"] = is_headshot
+    entity["last_damage_received"] = damage
+    entity["health"] = entity.get("health", 0) - damage
     world_position = make_pos_abs(
         entity.get("position", {}),
         tile_map.get("tile_width", 16), tile_map.get("tile_height", 16),
@@ -7154,6 +7288,9 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             if debug_queue is not None:
                 debug_queue.append(
                     make_redhead_hurtbox_debug_item(entity, tile_map)
+                )
+                debug_queue.append(
+                    make_redhead_headshot_debug_item(entity, tile_map)
                 )
                 debug_queue.append(
                     make_redhead_collision_debug_item(entity, tile_map)
@@ -7524,6 +7661,9 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
             if "projectiles" not in entities:
                 entities["projectiles"] = {}
             bullet_id = allocate_projectile_id(entities["projectiles"])
+            headshot = roll_player_headshot_qualification(
+                entity, entities.get("brains", {}), tile_map,
+            )
             shot_direction = sample_player_shot_direction(
                 entity, aim_heading_normal,
             )
@@ -7531,6 +7671,15 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
                 "player", bullet_pos,
                 vec2_scale(shot_direction, bullet_speed), bullet_id, "bullet",
             )
+            bullet.update({
+                "headshot_candidate_id": headshot["candidate_id"],
+                "headshot_target_id": headshot["target_id"],
+                "headshot_chance": headshot["chance"],
+                "headshot_roll": headshot["roll"],
+                "headshot_damage_multiplier": get_player_headshot_settings(
+                    entity,
+                )["damage_multiplier"],
+            })
             apply_player_shot_recoil_bloom(entity)
             apply_player_weapon_visual_recoil(entity)
             trigger_player_muzzle_flash(entity, bullet_pos)

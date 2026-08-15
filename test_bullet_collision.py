@@ -76,6 +76,17 @@ class SweptSegmentTests(unittest.TestCase):
         })
         self.assertNotIn("bullet_hurtbox", entity)
 
+    def test_headshot_box_is_inset_inside_projectile_hurtbox(self):
+        tile_map = game.make_tile_map(10, 10, 16, 16)
+        entity = make_redhead(tile_x=4, tile_y=4, x=2.0, y=2.0)
+
+        self.assertEqual(game.get_redhead_headshot_box(entity, tile_map), {
+            "x": 49.0, "y": 49.0, "width": 10.0, "height": 6.0,
+        })
+        debug_item = game.make_redhead_headshot_debug_item(entity, tile_map)
+        self.assertEqual(debug_item["color"], "RED")
+        self.assertIn("dumb entities", debug_item["debug_modes"])
+
     def test_redhead_collision_debug_item_uses_movement_box_in_player_view(self):
         tile_map = game.make_tile_map(10, 10, 16, 16)
         entity = make_redhead(tile_x=4, tile_y=4, x=2.0, y=2.0)
@@ -405,6 +416,25 @@ class BulletImpulseTests(unittest.TestCase):
             game.vec2_norm(fast["bullet_impulse"]),
             game.DEFAULT_BULLET_IMPACT_SPEED,
         )
+
+    def test_qualified_headshot_doubles_damage_only_for_its_target(self):
+        headshot_target = self.redhead_at_collision_tile(5, 4)
+        other_target = self.redhead_at_collision_tile(10, 4)
+        other_target["id"] = 2
+        bullet = self.bullet({"x": 1000.0, "y": 0.0})
+        bullet.update({
+            "headshot_target_id": headshot_target["id"],
+            "headshot_damage_multiplier": 2.0,
+        })
+
+        self.apply_hit(headshot_target, bullet)
+        self.apply_hit(other_target, bullet)
+
+        self.assertEqual(headshot_target["health"], 20.0)
+        self.assertTrue(headshot_target["last_hit_was_headshot"])
+        self.assertEqual(headshot_target["last_damage_received"], 40.0)
+        self.assertEqual(other_target["health"], 40.0)
+        self.assertFalse(other_target["last_hit_was_headshot"])
 
     def test_impulse_is_immediate_and_clamped_to_zero(self):
         entity = self.redhead_at_collision_tile()
