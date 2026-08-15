@@ -73,8 +73,8 @@ PLAYER_WEAPON_TRANSITION_INSTANCE_KEY = "player:pistol_transition"
 PLAYER_WEAPON_TRANSITION_DEFAULTS = {
     # Match the authored clips initially; animation timing remains independently
     # tweakable without changing the normalized state model.
-    "unholster_duration": 0.376281179138322,
-    "holster_duration": 0.25875283446712016,
+    "unholster_duration": 0.125,
+    "holster_duration": 0.125,
     "minimum_reverse_sound_seconds": 0.07,
 }
 DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
@@ -1252,10 +1252,8 @@ def make_default_player(x,y,z):
     player["aim_heading"] = DEFAULT_AIM_HEADING_DEGREES
     player["aim_direction"] = {"x": 1.0, "y": 0.0}
     player["aim_cursor_offset"] = {"x": DEFAULT_AIM_CURSOR_DISTANCE, "y": 0.0}
+    player["aim_requested"] = False
     player["aiming"] = False
-    player["weapon_transition_settings"] = dict(
-        PLAYER_WEAPON_TRANSITION_DEFAULTS,
-    )
     player["weapon_transition"] = {
         "progress": 0.0,
         "target": 0.0,
@@ -4750,7 +4748,9 @@ def get_player_aim_cursor_screen_position(player, tile_map, game_camera):
 
 
 def get_player_weapon_transition_settings(player):
-    authored = player.get("weapon_transition_settings", {})
+    # Defaults stay module-owned so code hot reloads immediately affect live
+    # players. Only explicitly authored overrides belong in persistent state.
+    authored = player.get("weapon_transition_overrides", {})
     if not isinstance(authored, dict):
         authored = {}
 
@@ -4782,9 +4782,22 @@ def player_weapon_transition_phase(progress, target):
     return "unholstering" if target >= 1.0 else "holstering"
 
 
+def player_weapon_is_ready(player, aim_requested=None):
+    state = ensure_player_weapon_transition_state(player)
+    if aim_requested is None:
+        aim_requested = player.get("aim_requested", player.get("aiming", False))
+    return bool(
+        aim_requested
+        and state["target"] >= 1.0
+        and state["progress"] >= 0.999999
+    )
+
+
 def ensure_player_weapon_transition_state(player):
     settings = get_player_weapon_transition_settings(player)
-    player["weapon_transition_settings"] = settings
+    # Retire the old copied-default representation. Keeping it would pin live
+    # players to whichever values existed when they were constructed.
+    player.pop("weapon_transition_settings", None)
     state = player.get("weapon_transition")
     if not isinstance(state, dict):
         initial = 1.0 if player.get("aiming", False) else 0.0
@@ -4808,7 +4821,7 @@ def update_player_weapon_transition(player, aim_requested, dt, audio_runtime,
                                     world_position):
     """Move the pistol between normalized endpoints and manage reversal audio."""
     state = ensure_player_weapon_transition_state(player)
-    settings = player["weapon_transition_settings"]
+    settings = get_player_weapon_transition_settings(player)
     progress = state["progress"]
     target = 1.0 if aim_requested else 0.0
     previous_target = state["target"]
@@ -6784,12 +6797,15 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
     arm_length = 20
 
     ensure_player_weapon_transition_state(entity)
-    aiming = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT)
-
-    entity["aiming"] = aiming
-    update_player_weapon_transition(
-        entity, aiming, dt, audio_runtime, player_pos_center,
+    aim_requested = pr.is_mouse_button_down(
+        pr.MouseButton.MOUSE_BUTTON_RIGHT,
     )
+    entity["aim_requested"] = aim_requested
+    update_player_weapon_transition(
+        entity, aim_requested, dt, audio_runtime, player_pos_center,
+    )
+    aiming = player_weapon_is_ready(entity, aim_requested)
+    entity["aiming"] = aiming
 
     if mouse_delta is None:
         mouse_delta = pr.get_mouse_delta()

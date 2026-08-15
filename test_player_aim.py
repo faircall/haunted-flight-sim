@@ -20,17 +20,55 @@ class PlayerAimHeadingTests(unittest.TestCase):
             player["aim_cursor_offset"],
             {"x": game.DEFAULT_AIM_CURSOR_DISTANCE, "y": 0.0},
         )
+        self.assertFalse(player["aim_requested"])
         self.assertFalse(player["aiming"])
         self.assertEqual(player["weapon_transition"], {
             "progress": 0.0,
             "target": 0.0,
             "phase": "holstered",
         })
+        self.assertNotIn("weapon_transition_settings", player)
+
+    def test_live_transition_defaults_are_not_pinned_to_player_state(self):
+        player = game.make_default_player(0, 0, 0)
+        with mock.patch.dict(
+                game.PLAYER_WEAPON_TRANSITION_DEFAULTS,
+                {"unholster_duration": 0.91}):
+            self.assertEqual(
+                game.get_player_weapon_transition_settings(player)[
+                    "unholster_duration"
+                ],
+                0.91,
+            )
+
+        player["weapon_transition_overrides"] = {"holster_duration": 0.44}
+        with mock.patch.dict(
+                game.PLAYER_WEAPON_TRANSITION_DEFAULTS,
+                {"unholster_duration": 0.82}):
+            settings = game.get_player_weapon_transition_settings(player)
+        self.assertEqual(settings["unholster_duration"], 0.82)
+        self.assertEqual(settings["holster_duration"], 0.44)
+
+    def test_legacy_copied_transition_settings_are_retired(self):
+        player = game.make_default_player(0, 0, 0)
+        player["weapon_transition_settings"] = {
+            "unholster_duration": 99.0,
+        }
+
+        game.ensure_player_weapon_transition_state(player)
+
+        self.assertNotIn("weapon_transition_settings", player)
+        self.assertEqual(
+            game.get_player_weapon_transition_settings(player)[
+                "unholster_duration"
+            ],
+            game.PLAYER_WEAPON_TRANSITION_DEFAULTS["unholster_duration"],
+        )
 
     def test_weapon_transition_reaches_both_normalized_endpoints(self):
         player = game.make_default_player(0, 0, 0)
         runtime = g_audio.make_audio_runtime()
-        settings = player["weapon_transition_settings"]
+        settings = game.get_player_weapon_transition_settings(player)
 
         state = game.update_player_weapon_transition(
             player, True, settings["unholster_duration"] * 0.5,
@@ -59,6 +97,32 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertEqual(state["progress"], 0.0)
         self.assertEqual(state["phase"], "holstered")
 
+    def test_aim_mode_is_not_ready_until_unholster_finishes(self):
+        player = game.make_default_player(0, 0, 0)
+        runtime = g_audio.make_audio_runtime()
+        duration = game.get_player_weapon_transition_settings(player)[
+            "unholster_duration"
+        ]
+        player["aim_requested"] = True
+
+        game.update_player_weapon_transition(
+            player, True, duration * 0.5, runtime,
+            {"x": 0.0, "y": 0.0},
+        )
+        self.assertFalse(game.player_weapon_is_ready(player))
+
+        game.update_player_weapon_transition(
+            player, True, duration * 0.5, runtime,
+            {"x": 0.0, "y": 0.0},
+        )
+        self.assertTrue(game.player_weapon_is_ready(player))
+
+        player["aim_requested"] = False
+        game.update_player_weapon_transition(
+            player, False, 0.0, runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertFalse(game.player_weapon_is_ready(player))
+
     def test_brief_aim_release_stops_unholster_without_holster_tail(self):
         player = game.make_default_player(0, 0, 0)
         runtime = g_audio.make_audio_runtime()
@@ -79,7 +143,9 @@ class PlayerAimHeadingTests(unittest.TestCase):
     def test_meaningful_reversal_seeks_into_opposite_sound(self):
         player = game.make_default_player(0, 0, 0)
         runtime = g_audio.make_audio_runtime()
-        duration = player["weapon_transition_settings"]["unholster_duration"]
+        duration = game.get_player_weapon_transition_settings(player)[
+            "unholster_duration"
+        ]
         game.update_player_weapon_transition(
             player, True, duration * 0.5, runtime,
             {"x": 0.0, "y": 0.0},
@@ -202,6 +268,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertIn("mouse_delta.y", source)
         self.assertNotIn("g_ui.get_mouse_position()", source)
         self.assertNotIn("vec2_subtract(mouse", source)
+        self.assertIn("player_weapon_is_ready", source)
 
     def test_relative_mouse_capture_transitions_once_and_suppresses_jump(self):
         assets = {}
