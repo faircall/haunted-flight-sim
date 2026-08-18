@@ -975,6 +975,16 @@ def update_actor_footstep_travel(actor, current_world_position, stride_distance,
                                  priority=1.0, gait="walk"):
     """Accumulate collision-resolved travel and return newly crossed step events."""
     state = actor.setdefault("audio_step_state", {})
+    stride = max(1.0, float(stride_distance))
+    previous_stride = max(1.0, float(state.get("stride_distance", stride)))
+    if abs(previous_stride - stride) > 0.000001:
+        # Preserve progress through the current step when changing gait. This
+        # keeps the procedural pose continuous across walk/run transitions.
+        state["distance"] = (
+            max(0.0, float(state.get("distance", 0.0)))
+            * stride / previous_stride
+        )
+    state["stride_distance"] = stride
     current = {"x": float(current_world_position.get("x", 0.0)),
                "y": float(current_world_position.get("y", 0.0))}
     previous = state.get("previous_world_position")
@@ -986,7 +996,6 @@ def update_actor_footstep_travel(actor, current_world_position, stride_distance,
     travelled = math.hypot(current["x"] - float(previous.get("x", current["x"])),
                            current["y"] - float(previous.get("y", current["y"])))
     accumulated = max(0.0, float(state.get("distance", 0.0))) + travelled
-    stride = max(1.0, float(stride_distance))
     events = []
     while accumulated >= stride and len(events) < 3:
         accumulated -= stride

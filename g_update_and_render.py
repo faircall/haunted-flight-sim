@@ -1315,6 +1315,11 @@ def make_default_player(x,y,z):
         "position": {"x": 0.0, "y": 0.0},
         "light": None,
     }
+    player["procedural_gait"] = {
+        "phase": 0.0,
+        "blend": 0.0,
+        "speed": 0.0,
+    }
     player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
     player["aim_input_version"] = AIM_INPUT_VERSION
 
@@ -1649,6 +1654,21 @@ def unload_shaders(shaders):
 
 
 
+PLAYER_CUTOUT_TEXTURE_PATHS = {
+    "player_cutout_head_right": "art/split_player/player_head_right.png",
+    "player_cutout_torso_right": "art/split_player/player_torso_right.png",
+    "player_cutout_upper_leg_right": "art/split_player/player_upper_leg_right.png",
+    "player_cutout_lower_leg_right": "art/split_player/player_lower_leg_right.png",
+}
+
+
+def ensure_player_cutout_textures(textures):
+    for name, path in PLAYER_CUTOUT_TEXTURE_PATHS.items():
+        if name not in textures and os.path.isfile(path):
+            textures[name] = pr.load_texture(path)
+    return textures
+
+
 def load_textures():
     result = {}    
     # we could make this easier to use if we monitored the files in the directory once
@@ -1660,6 +1680,7 @@ def load_textures():
     result["wall_texture"] = pr.load_texture("art/WallDarkChunky16x.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
+    ensure_player_cutout_textures(result)
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_16x.png")
     result["orange_tile_texture"] = pr.load_texture("art/orange_tile_16x.png")
 
@@ -7471,6 +7492,26 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt,
     entity["player_velocity"] = player_velocity
     old_world = make_pos_abs(entity.get("position", {}), tile_map["tile_width"], tile_map["tile_height"])
     new_world = make_pos_abs(new_pos, tile_map["tile_width"], tile_map["tile_height"])
+    gait_state = entity.setdefault("procedural_gait", {
+        "phase": 0.0, "blend": 0.0, "speed": 0.0,
+    })
+    travelled = math.hypot(
+        float(new_world["x"]) - float(old_world["x"]),
+        float(new_world["y"]) - float(old_world["y"]),
+    )
+    gait_settings = g_render_order.PLAYER_CUTOUT_RIG_DEFAULTS
+    actual_speed = travelled / max(0.000001, float(dt))
+    target_blend = max(0.0, min(1.0, actual_speed / max(1.0, player_speed_max)))
+    current_blend = float(gait_state.get("blend", 0.0))
+    blend_step = max(
+        0.0, float(gait_settings["movement_blend_response"]) * float(dt),
+    )
+    if current_blend < target_blend:
+        current_blend = min(target_blend, current_blend + blend_step)
+    else:
+        current_blend = max(target_blend, current_blend - blend_step)
+    gait_state["blend"] = current_blend
+    gait_state["speed"] = actual_speed
     step_state = entity.setdefault("audio_step_state", {})
     step_state.setdefault("previous_world_position", old_world)
     profile = g_audio.normalize_audio_profile(audio_profile)
@@ -7478,6 +7519,11 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt,
     g_audio.update_actor_footstep_travel(
         entity, new_world, stride, "player", "player", audio_runtime,
         priority=1.5, gait="run" if running else "walk",
+    )
+    # The sound accumulator is the gait clock: one queued sound advances half
+    # of the complete two-leg cycle. Pose and audio therefore cannot drift.
+    gait_state["phase"] = g_render_order.player_cutout_gait_phase_from_step_state(
+        entity.get("audio_step_state", {}), stride,
     )
 
     return new_pos
@@ -8059,8 +8105,13 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     audio_runtime["muted"] = bool(g_mute)
     textures = game_assets.get("textures")
     if not textures:
-        textures = load_textures()        
+        textures = load_textures()
         game_assets["textures"] = textures
+    else:
+        # Module hot reload can introduce the cutout rig while a live texture
+        # cache already exists. Fill only missing entries so no restart is
+        # needed and existing GPU resources are not reloaded every frame.
+        ensure_player_cutout_textures(textures)
 
     sprite_sheets = game_assets.get("sprite_sheets")
     if not sprite_sheets:

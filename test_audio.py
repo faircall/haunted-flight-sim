@@ -362,6 +362,22 @@ class FootstepTravelAndArbitrationTests(unittest.TestCase):
         self.assertEqual(len(g_audio.update_actor_footstep_travel(
             run, {"x": 15.0, "y": 0.0}, 20.0, "p", "player")), 0)
 
+    def test_stride_change_preserves_fractional_step_progress(self):
+        actor = {}
+        g_audio.update_actor_footstep_travel(
+            actor, {"x": 0.0, "y": 0.0}, 10.0, "p", "player",
+        )
+        g_audio.update_actor_footstep_travel(
+            actor, {"x": 5.0, "y": 0.0}, 10.0, "p", "player",
+        )
+        g_audio.update_actor_footstep_travel(
+            actor, {"x": 5.0, "y": 0.0}, 20.0, "p", "player",
+        )
+        self.assertAlmostEqual(actor["audio_step_state"]["distance"], 10.0)
+        self.assertAlmostEqual(
+            actor["audio_step_state"]["stride_distance"], 20.0,
+        )
+
     def test_nearest_enemy_step_wins_and_rejections_are_not_queued(self):
         runtime = g_audio.make_audio_runtime()
         runtime["time"] = 1.0

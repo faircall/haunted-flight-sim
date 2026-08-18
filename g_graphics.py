@@ -1651,7 +1651,64 @@ def _make_per_light_render_item(render_item, light_record, mode_override=None):
     }
     return result
 
-def _draw_render_item_main_shape(render_item, texture, game_camera):
+def _color_from_components(components):
+    values = list(components or [255, 255, 255, 255])
+    while len(values) < 4:
+        values.append(255)
+    return pr.Color(*[
+        max(0, min(255, int(round(float(value))))) for value in values[:4]
+    ])
+
+
+def _draw_player_cutout_rig(render_item, game_camera, game_assets):
+    parts = render_item.get("draw_data", {}).get("cutout_rig_parts", [])
+    if not parts or game_assets is None:
+        return False
+    textures = game_assets.get("textures", {})
+    resolved = [(part, textures.get(part.get("texture"))) for part in parts]
+    if any(texture is None for _part, texture in resolved):
+        return False
+
+    destination = render_item["dest_rect"]
+    snap = (
+        g_render_order.moving_world_to_screen_pixel
+        if render_item.get("screen_snap") == "relative_motion"
+        else g_render_order.world_to_screen_pixel
+    )
+    top_left = snap(destination["x"], destination["y"], game_camera)
+    for part, part_texture in resolved:
+        pivot = part.get("pivot_local", {})
+        origin = part.get("origin", {})
+        source_width = float(part_texture.width)
+        source_x = 0.0
+        if part.get("flip_x", False):
+            source_x = source_width
+            source_width = -source_width
+        pr.draw_texture_pro(
+            part_texture,
+            pr.Rectangle(
+                source_x, 0.0, source_width, float(part_texture.height),
+            ),
+            pr.Rectangle(
+                float(top_left["x"]) + float(pivot.get("x", 0.0)),
+                float(top_left["y"]) + float(pivot.get("y", 0.0)),
+                float(part_texture.width), float(part_texture.height),
+            ),
+            pr.Vector2(
+                float(origin.get("x", 0.0)),
+                float(origin.get("y", 0.0)),
+            ),
+            float(part.get("rotation", 0.0)),
+            _color_from_components(part.get("tint")),
+        )
+    return True
+
+
+def _draw_render_item_main_shape(render_item, texture, game_camera,
+                                 game_assets=None):
+    if (render_item.get("source") == "player"
+            and _draw_player_cutout_rig(render_item, game_camera, game_assets)):
+        return
     source = render_item["source_rect"]
     destination = render_item["dest_rect"]
     # Static world items snap world and camera independently to stay registered
@@ -1766,7 +1823,9 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
         for item in render_items:
             texture = resolve_render_item_texture(item, game_assets)
             if texture is not None:
-                _draw_render_item_main_shape(item, texture, game_camera)
+                _draw_render_item_main_shape(
+                    item, texture, game_camera, game_assets,
+                )
                 if _player_weapon_is_visible(item):
                     draw_data = item.get("draw_data", {})
                     center = draw_data.get("center_world", {})
@@ -1826,7 +1885,9 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
             if texture is None:
                 continue
             light_record = next((record for record in item.get("self_shadow_summary", {}).get("per_light", []) if record.get("light_id") == light_id), None)
-            main_shape = lambda current=item, current_texture=texture: _draw_render_item_main_shape(current, current_texture, game_camera)
+            main_shape = lambda current=item, current_texture=texture: _draw_render_item_main_shape(
+                current, current_texture, game_camera, game_assets,
+            )
             pr.begin_texture_mode(light_layer_target)
             _reset_entity_direct_shape(shader_info, item, texture, main_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
             pr.end_texture_mode()
@@ -1865,7 +1926,7 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
             continue
         pistol_part = _get_player_pistol_part(item, game_camera, game_assets)
         pr.begin_texture_mode(albedo_target)
-        _draw_render_item_main_shape(item, texture, game_camera)
+        _draw_render_item_main_shape(item, texture, game_camera, game_assets)
         if _player_weapon_is_visible(item):
             draw_data = item.get("draw_data", {})
             center = draw_data.get("center_world", {})
@@ -3213,29 +3274,19 @@ def draw_render_item_occlusion_outline(scene, render_item, game_camera, game_ass
     outline_shader = game_assets.get("shaders", {}).get("render_item_outline")
     if outline_shader is None:
         return
-    texture_reference = render_item.get("texture", {})
-    asset = game_assets.get(texture_reference.get("collection", ""), {}).get(texture_reference.get("name"))
-    texture = asset.get(texture_reference.get("field")) if isinstance(asset, dict) and texture_reference.get("field") is not None else asset
+    texture = resolve_render_item_texture(render_item, game_assets)
     if texture is None:
         return
     width = scene.texture.width
     height = scene.texture.height
     mask_target = get_or_create_render_target(game_assets, "render_item_outline_mask", width, height)
-    source_data = render_item["source_rect"]
-    dest_data = render_item["dest_rect"]
-    sprite_source = pr.Rectangle(source_data["x"], source_data["y"], source_data["width"], source_data["height"])
-    screen_position = g_render_order.world_to_screen_pixel(
-        dest_data["x"], dest_data["y"], game_camera,
-    )
-    sprite_destination = pr.Rectangle(
-        screen_position["x"], screen_position["y"],
-        dest_data["width"], dest_data["height"],
-    )
     full_source = pr.Rectangle(0, 0, width, -height)
     full_destination = pr.Rectangle(0, 0, width, height)
     pr.begin_texture_mode(mask_target)
     pr.clear_background(pr.BLANK)
-    pr.draw_texture_pro(texture, sprite_source, sprite_destination, pr.Vector2(0, 0), 0, pr.WHITE)
+    _draw_render_item_main_shape(
+        render_item, texture, game_camera, game_assets,
+    )
     pr.end_texture_mode()
     shader = outline_shader["shader"]
     outline = render_item.get("outline", {})

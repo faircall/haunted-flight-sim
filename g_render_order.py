@@ -12,6 +12,34 @@ PLAYER_WEAPON_BEZIER_DEFAULTS = {
     "control_2_perpendicular": 1.0,
 }
 
+# First-pass cutout rig tuning. These values deliberately live in the
+# reloadable render module so the animation can be tuned while the game runs.
+# All pivots are in the shared 32x32 player-asset coordinate space.
+PLAYER_CUTOUT_RIG_DEFAULTS = {
+    "enabled": True,
+    # Footstep distance comes from the audio profile. This offset chooses the
+    # visual pose at each queued footfall; 90 degrees is maximum leg separation
+    # with the planting leg straight and the passing leg bent.
+    "footfall_phase_degrees": 90.0,
+    "movement_blend_response": 14.0,
+    "upper_leg_swing_degrees": 24.0,
+    "lower_leg_bend_degrees": 34.0,
+    "body_bob_pixels": 0.75,
+    "torso_sway_degrees": 1.5,
+    "canvas_size": 32.0,
+    "hip": {"x": 16.0, "y": 22.0},
+    "knee": {"x": 16.0, "y": 26.0},
+    "neck": {"x": 16.0, "y": 10.0},
+    "far_leg_tint": [190, 190, 205, 255],
+}
+
+PLAYER_CUTOUT_TEXTURES = {
+    "head": "player_cutout_head_right",
+    "torso": "player_cutout_torso_right",
+    "upper_leg": "player_cutout_upper_leg_right",
+    "lower_leg": "player_cutout_lower_leg_right",
+}
+
 
 def world_to_screen_pixel(world_x, world_y, game_camera):
     """Snap world and camera independently so stationary sprites stay registered."""
@@ -260,6 +288,143 @@ def player_weapon_bezier_world_position(center, aim, end_distance, progress,
     }
 
 
+def _rotate_rig_vector(x, y, angle_degrees):
+    angle = math.radians(float(angle_degrees))
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    return {
+        "x": float(x) * cosine - float(y) * sine,
+        "y": float(x) * sine + float(y) * cosine,
+    }
+
+
+def _make_player_cutout_part(texture_name, source_pivot, target_pivot,
+                              rotation, facing_left=False, tint=None):
+    canvas_size = float(PLAYER_CUTOUT_RIG_DEFAULTS["canvas_size"])
+    target_x = float(target_pivot["x"])
+    origin_x = float(source_pivot["x"])
+    if facing_left:
+        target_x = canvas_size - target_x
+        origin_x = canvas_size - origin_x
+        rotation = -float(rotation)
+    return {
+        "texture": texture_name,
+        "pivot_local": {"x": target_x, "y": float(target_pivot["y"])},
+        "origin": {"x": origin_x, "y": float(source_pivot["y"])},
+        "rotation": float(rotation),
+        "flip_x": bool(facing_left),
+        "tint": list(tint or [255, 255, 255, 255]),
+    }
+
+
+def player_cutout_gait_phase_from_step_state(step_state, stride_distance):
+    """Map the shared footstep clock to a two-foot procedural gait cycle."""
+    step_state = step_state if isinstance(step_state, dict) else {}
+    stride = max(1.0, float(stride_distance))
+    distance = max(0.0, float(step_state.get("distance", 0.0)))
+    stride_index = int(step_state.get("stride_index", 0))
+    half_cycle_progress = min(1.0, distance / stride)
+    return (stride_index * math.pi + half_cycle_progress * math.pi) % math.tau
+
+
+def build_player_cutout_rig_parts(player_entity):
+    """Build one composite side-view pose from the aligned cutout textures."""
+    settings = PLAYER_CUTOUT_RIG_DEFAULTS
+    if not settings.get("enabled", True):
+        return []
+    direction = player_entity.get("animation_direction")
+    if direction is None:
+        frame_name = str(player_entity.get("animation_frame", ""))
+        direction = next(
+            (name for name in ("left", "right") if frame_name.startswith(name)),
+            None,
+        )
+    if direction not in {"left", "right"}:
+        return []
+
+    gait = player_entity.get("procedural_gait", {})
+    try:
+        phase = (
+            float(gait.get("phase", 0.0))
+            + math.radians(float(settings["footfall_phase_degrees"]))
+        ) % math.tau
+        blend = max(0.0, min(1.0, float(gait.get("blend", 0.0))))
+    except (TypeError, ValueError, OverflowError):
+        phase = 0.0
+        blend = 0.0
+    if not math.isfinite(phase):
+        phase = 0.0
+    if not math.isfinite(blend):
+        blend = 0.0
+
+    hip = settings["hip"]
+    knee = settings["knee"]
+    neck = settings["neck"]
+    upper_length = {
+        "x": float(knee["x"]) - float(hip["x"]),
+        "y": float(knee["y"]) - float(hip["y"]),
+    }
+    bob = -abs(math.sin(phase)) * float(settings["body_bob_pixels"]) * blend
+    torso_angle = -math.sin(phase) * float(settings["torso_sway_degrees"]) * blend
+    body_hip = {"x": float(hip["x"]), "y": float(hip["y"]) + bob}
+    neck_from_hip = _rotate_rig_vector(
+        float(neck["x"]) - float(hip["x"]),
+        float(neck["y"]) - float(hip["y"]),
+        torso_angle,
+    )
+    body_neck = {
+        "x": body_hip["x"] + neck_from_hip["x"],
+        "y": body_hip["y"] + neck_from_hip["y"],
+    }
+    facing_left = direction == "left"
+
+    leg_parts = []
+    for is_far, leg_phase in ((True, phase + math.pi), (False, phase)):
+        upper_angle = (
+            math.sin(leg_phase)
+            * float(settings["upper_leg_swing_degrees"])
+            * blend
+        )
+        knee_bend = (
+            max(0.0, -math.sin(leg_phase))
+            * float(settings["lower_leg_bend_degrees"])
+            * blend
+        )
+        lower_angle = upper_angle + knee_bend
+        knee_offset = _rotate_rig_vector(
+            upper_length["x"], upper_length["y"], upper_angle,
+        )
+        target_knee = {
+            "x": body_hip["x"] + knee_offset["x"],
+            "y": body_hip["y"] + knee_offset["y"],
+        }
+        tint = settings["far_leg_tint"] if is_far else None
+        leg_parts.append((
+            _make_player_cutout_part(
+                PLAYER_CUTOUT_TEXTURES["lower_leg"], knee, target_knee,
+                lower_angle, facing_left, tint,
+            ),
+            _make_player_cutout_part(
+                PLAYER_CUTOUT_TEXTURES["upper_leg"], hip, body_hip,
+                upper_angle, facing_left, tint,
+            ),
+        ))
+
+    torso = _make_player_cutout_part(
+        PLAYER_CUTOUT_TEXTURES["torso"], hip, body_hip, torso_angle,
+        facing_left,
+    )
+    # Keeping the head level makes the torso movement readable without making
+    # the character's view look mechanically tied to every step.
+    head = _make_player_cutout_part(
+        PLAYER_CUTOUT_TEXTURES["head"], neck, body_neck, 0.0,
+        facing_left,
+    )
+    far_lower, far_upper = leg_parts[0]
+    near_lower, near_upper = leg_parts[1]
+    return [far_lower, far_upper, torso, near_lower, near_upper, head]
+
+
 def build_player_render_item(player_entity, tile_map, game_assets):
     world_position = position_to_world(player_entity.get("position", {}), tile_map)
     sprite_sheet = game_assets.get("sprite_sheets", {}).get("blue_oxford_texture_sheet", {})
@@ -274,8 +439,18 @@ def build_player_render_item(player_entity, tile_map, game_assets):
         )
     except (TypeError, ValueError, OverflowError):
         transition_progress = 0.0
+    cutout_parts = build_player_cutout_rig_parts(player_entity)
+    body_bob = 0.0
+    if cutout_parts:
+        body_bob = float(cutout_parts[2]["pivot_local"]["y"]) - float(
+            PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["y"]
+        )
+    weapon_center = {
+        "x": float(world_position["x"]),
+        "y": float(world_position["y"]) + body_bob,
+    }
     gun_position = player_weapon_bezier_world_position(
-        world_position, aim, 4.0, transition_progress,
+        weapon_center, aim, 4.0, transition_progress,
     )
     pistol_distance = 4.0
     pistol_texture = "pistol_texture"
@@ -296,10 +471,10 @@ def build_player_render_item(player_entity, tile_map, game_assets):
     else:
         pistol_angle -= recoil_degrees
     pistol_position = player_weapon_bezier_world_position(
-        world_position, aim, pistol_distance, transition_progress,
+        weapon_center, aim, pistol_distance, transition_progress,
     )
     draw_data = {
-        "center_world": dict(world_position),
+        "center_world": weapon_center,
         "gun_world": gun_position,
         "pistol_world": pistol_position,
         "pistol_texture": pistol_texture,
@@ -309,6 +484,7 @@ def build_player_render_item(player_entity, tile_map, game_assets):
         "weapon_transition_progress": transition_progress,
         "weapon_transition_phase": transition.get("phase", "holstered"),
         "weapon_visible": transition_progress > 0.000001,
+        "cutout_rig_parts": cutout_parts,
     }
     render_item = make_world_render_item("entity", "player", "player", player_entity.get("id", "player"), player_entity, world_position, 32.0, 32.0, make_texture_reference("sprite_sheets", "blue_oxford_texture_sheet", "sheet"), {"x": float(frame_number) * 32.0, "y": 0.0, "width": 32.0, "height": 32.0}, draw_data)
     render_item["screen_snap"] = "relative_motion"
