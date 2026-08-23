@@ -23,7 +23,12 @@ PLAYER_CUTOUT_RIG_DEFAULTS = {
     "movement_blend_response": 14.0,
     "profile_blend_response": 10.0,
     "canvas_size": 32.0,
+    # The torso keeps the original bind hip while each leg gets its own
+    # attachment. The far attachment sits one pixel toward the back and one
+    # pixel higher in the right-facing source pose; X mirrors when facing left.
     "hip": {"x": 16.0, "y": 22.0},
+    "near_hip": {"x": 16.0, "y": 22.0},
+    "far_hip": {"x": 15.0, "y": 21.0},
     "knee": {"x": 16.0, "y": 26.0},
     "neck": {"x": 16.0, "y": 10.0},
     "far_leg_tint": [190, 190, 205, 255],
@@ -32,37 +37,54 @@ PLAYER_CUTOUT_RIG_DEFAULTS = {
 
 # Four equally spaced poses make up each complete two-step cycle. Numeric
 # values are smoothstepped between poses and wrap from pose 3 back to pose 0.
-# The far leg samples the same profile half a cycle later, so these are the
-# poses for one leg rather than duplicated near/far data.
+# Near and far limbs are authored independently on the same timeline. This
+# keeps alternating contacts while preventing both sides from retracing the
+# same silhouette with only a tint and half-cycle offset to distinguish them.
 PLAYER_CUTOUT_GAIT_PROFILES = {
     "walk": [
         # Contact, passing, opposite contact, recovery.
-        {"upper_leg_degrees": 24.0, "knee_bend_degrees": 0.0,
-         "upper_arm_degrees": -15.0, "elbow_bend_degrees": 18.0,
+        {"near_upper_leg_degrees": 24.0, "near_knee_bend_degrees": 0.0,
+         "far_upper_leg_degrees": -18.0, "far_knee_bend_degrees": 12.0,
+         "near_upper_arm_degrees": -15.0, "near_elbow_bend_degrees": 18.0,
+         "far_upper_arm_degrees": 12.0, "far_elbow_bend_degrees": 24.0,
          "body_y_pixels": 0.0, "torso_degrees": 0.5},
-        {"upper_leg_degrees": 0.0, "knee_bend_degrees": 22.0,
-         "upper_arm_degrees": -4.0, "elbow_bend_degrees": 24.0,
+        {"near_upper_leg_degrees": 0.0, "near_knee_bend_degrees": 22.0,
+         "far_upper_leg_degrees": -8.0, "far_knee_bend_degrees": 30.0,
+         "near_upper_arm_degrees": -4.0, "near_elbow_bend_degrees": 24.0,
+         "far_upper_arm_degrees": 8.0, "far_elbow_bend_degrees": 32.0,
          "body_y_pixels": -0.75, "torso_degrees": -1.0},
-        {"upper_leg_degrees": -24.0, "knee_bend_degrees": 6.0,
-         "upper_arm_degrees": 15.0, "elbow_bend_degrees": 18.0,
+        {"near_upper_leg_degrees": -24.0, "near_knee_bend_degrees": 6.0,
+         "far_upper_leg_degrees": 20.0, "far_knee_bend_degrees": 4.0,
+         "near_upper_arm_degrees": 15.0, "near_elbow_bend_degrees": 18.0,
+         "far_upper_arm_degrees": -11.0, "far_elbow_bend_degrees": 20.0,
          "body_y_pixels": 0.0, "torso_degrees": 0.5},
-        {"upper_leg_degrees": 0.0, "knee_bend_degrees": 34.0,
-         "upper_arm_degrees": 4.0, "elbow_bend_degrees": 28.0,
+        {"near_upper_leg_degrees": 0.0, "near_knee_bend_degrees": 34.0,
+         "far_upper_leg_degrees": 7.0, "far_knee_bend_degrees": 24.0,
+         "near_upper_arm_degrees": 4.0, "near_elbow_bend_degrees": 28.0,
+         "far_upper_arm_degrees": -6.0, "far_elbow_bend_degrees": 28.0,
          "body_y_pixels": -0.75, "torso_degrees": 1.5},
     ],
     "run": [
         # Contact, recoil/passing, opposite contact, flight/recovery.
-        {"upper_leg_degrees": 65.0, "knee_bend_degrees": 60.0,
-         "upper_arm_degrees": -38.0, "elbow_bend_degrees": 48.0,
+        {"near_upper_leg_degrees": 65.0, "near_knee_bend_degrees": 60.0,
+         "far_upper_leg_degrees": -26.0, "far_knee_bend_degrees": 24.0,
+         "near_upper_arm_degrees": -38.0, "near_elbow_bend_degrees": 90.0,
+         "far_upper_arm_degrees": 42.0, "far_elbow_bend_degrees": 42.0,
          "body_y_pixels": 0.0, "torso_degrees": 1.0},
-        {"upper_leg_degrees": -4.0, "knee_bend_degrees": 58.0,
-         "upper_arm_degrees": -8.0, "elbow_bend_degrees": 60.0,
+        {"near_upper_leg_degrees": -4.0, "near_knee_bend_degrees": 58.0,
+         "far_upper_leg_degrees": 12.0, "far_knee_bend_degrees": 52.0,
+         "near_upper_arm_degrees": -16.0, "near_elbow_bend_degrees": 60.0,
+         "far_upper_arm_degrees": 24.0, "far_elbow_bend_degrees": 48.0,
          "body_y_pixels": -1.75, "torso_degrees": 1.5},
-        {"upper_leg_degrees": -32.0, "knee_bend_degrees": 18.0,
-         "upper_arm_degrees": 34.0, "elbow_bend_degrees": 38.0,
+        {"near_upper_leg_degrees": -32.0, "near_knee_bend_degrees": 18.0,
+         "far_upper_leg_degrees": 52.0, "far_knee_bend_degrees": 48.0,
+         "near_upper_arm_degrees": 60.0, "near_elbow_bend_degrees": 38.0,
+         "far_upper_arm_degrees": -30.0, "far_elbow_bend_degrees": 72.0,
          "body_y_pixels": 0.0, "torso_degrees": 1.0},
-        {"upper_leg_degrees": 6.0, "knee_bend_degrees": 64.0,
-         "upper_arm_degrees": 8.0, "elbow_bend_degrees": 64.0,
+        {"near_upper_leg_degrees": 6.0, "near_knee_bend_degrees": 64.0,
+         "far_upper_leg_degrees": -10.0, "far_knee_bend_degrees": 54.0,
+         "near_upper_arm_degrees": 8.0, "near_elbow_bend_degrees": 64.0,
+         "far_upper_arm_degrees": -14.0, "far_elbow_bend_degrees": 56.0,
          "body_y_pixels": -1.75, "torso_degrees": 2.0},
     ],
 }
@@ -88,8 +110,10 @@ PLAYER_CUTOUT_ARM_DEFAULTS = {
         "elbow": {"x": 15.5, "y": 14.0},
         "hand": {"x": 15.5, "y": 17.5},
     },
-    # This is the independently tunable torso attachment point.
+    # Independently tunable torso attachment points. The existing shoulder is
+    # retained as the near-arm position so previous tuning remains valid.
     "shoulder": {"x": 15.5, "y": 12.0},
+    "far_shoulder": {"x": 14.5, "y": 11.0},
     "aim_reach": 6.5,
     "gun_grip": {"x": 0.0, "y": 2.0},
     "gun_source_size": 4.0,
@@ -484,8 +508,10 @@ def _player_weapon_transition_progress(player_entity):
     return progress if math.isfinite(progress) else 0.0
 
 
-def _player_arm_shoulder(body_hip, torso_angle):
-    attachment = PLAYER_CUTOUT_ARM_DEFAULTS["shoulder"]
+def _player_arm_shoulder(body_hip, torso_angle, is_far=False):
+    attachment = PLAYER_CUTOUT_ARM_DEFAULTS[
+        "far_shoulder" if is_far else "shoulder"
+    ]
     hip = PLAYER_CUTOUT_RIG_DEFAULTS["hip"]
     shoulder_from_hip = _rotate_rig_vector(
         float(attachment["x"]) - float(hip["x"]),
@@ -516,13 +542,14 @@ def _build_player_locomotion_arm_pose(arm_phase, run_blend, movement_blend,
     }
     gait_pose = _blended_player_cutout_gait_pose(arm_phase, run_blend)
     swing_scale = max(0.0, float(motion_scale)) * float(movement_blend)
+    side = "far" if is_far else "near"
     upper_angle = torso_angle + float(
-        gait_pose.get("upper_arm_degrees", 0.0)
+        gait_pose.get(f"{side}_upper_arm_degrees", 0.0)
     ) * swing_scale
     lower_angle = upper_angle - float(
-        gait_pose.get("elbow_bend_degrees", 0.0)
+        gait_pose.get(f"{side}_elbow_bend_degrees", 0.0)
     ) * swing_scale
-    shoulder = _player_arm_shoulder(body_hip, torso_angle)
+    shoulder = _player_arm_shoulder(body_hip, torso_angle, is_far)
     elbow_offset = _rotate_rig_vector(
         upper_bind["x"], upper_bind["y"], upper_angle,
     )
@@ -546,7 +573,6 @@ def _build_player_locomotion_arm_pose(arm_phase, run_blend, movement_blend,
         PLAYER_CUTOUT_TEXTURES["lower_arm"], source_elbow, elbow,
         lower_angle, facing_left, tint,
     )
-    side = "far" if is_far else "near"
     upper_part.update({"rig_side": side, "rig_joint": "upper_arm"})
     lower_part.update({"rig_side": side, "rig_joint": "lower_arm"})
     return {
@@ -764,17 +790,31 @@ def build_player_cutout_rig_parts(player_entity):
     facing_left = direction == "left"
 
     leg_parts = []
-    for is_far, leg_phase in ((True, phase + math.pi), (False, phase)):
-        leg_pose = _blended_player_cutout_gait_pose(leg_phase, run_blend)
-        upper_angle = float(leg_pose.get("upper_leg_degrees", 0.0)) * blend
-        knee_bend = float(leg_pose.get("knee_bend_degrees", 0.0)) * blend
+    for is_far in (True, False):
+        side = "far" if is_far else "near"
+        attachment = settings[f"{side}_hip"]
+        hip_offset = _rotate_rig_vector(
+            float(attachment["x"]) - float(hip["x"]),
+            float(attachment["y"]) - float(hip["y"]),
+            torso_angle,
+        )
+        target_hip = {
+            "x": body_hip["x"] + hip_offset["x"],
+            "y": body_hip["y"] + hip_offset["y"],
+        }
+        upper_angle = float(
+            body_pose.get(f"{side}_upper_leg_degrees", 0.0)
+        ) * blend
+        knee_bend = float(
+            body_pose.get(f"{side}_knee_bend_degrees", 0.0)
+        ) * blend
         lower_angle = upper_angle + knee_bend
         knee_offset = _rotate_rig_vector(
             upper_length["x"], upper_length["y"], upper_angle,
         )
         target_knee = {
-            "x": body_hip["x"] + knee_offset["x"],
-            "y": body_hip["y"] + knee_offset["y"],
+            "x": target_hip["x"] + knee_offset["x"],
+            "y": target_hip["y"] + knee_offset["y"],
         }
         tint = settings["far_leg_tint"] if is_far else None
         lower_part = _make_player_cutout_part(
@@ -782,10 +822,9 @@ def build_player_cutout_rig_parts(player_entity):
                 lower_angle, facing_left, tint,
             )
         upper_part = _make_player_cutout_part(
-                PLAYER_CUTOUT_TEXTURES["upper_leg"], hip, body_hip,
+                PLAYER_CUTOUT_TEXTURES["upper_leg"], hip, target_hip,
                 upper_angle, facing_left, tint,
             )
-        side = "far" if is_far else "near"
         lower_part.update({"rig_side": side, "rig_joint": "lower_leg"})
         upper_part.update({"rig_side": side, "rig_joint": "upper_leg"})
         leg_parts.append((lower_part, upper_part))
@@ -805,7 +844,7 @@ def build_player_cutout_rig_parts(player_entity):
         1.0 - float(PLAYER_CUTOUT_ARM_DEFAULTS["far_arm_aim_motion_scale"])
     )
     far_arm = _build_player_locomotion_arm_pose(
-        phase + math.pi, run_blend, blend, body_hip, torso_angle,
+        phase, run_blend, blend, body_hip, torso_angle,
         facing_left, is_far=True, motion_scale=far_motion_scale,
     )
     near_arm = _build_player_locomotion_arm_pose(

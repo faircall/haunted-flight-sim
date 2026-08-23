@@ -151,6 +151,40 @@ class RenderOrderTests(unittest.TestCase):
             part["texture"] for part in parts
         ])
 
+    def test_near_and_far_limbs_use_independent_poses_and_shared_art(self):
+        player = {
+            "id": "player",
+            "animation_direction": "right",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 0.0,
+            },
+        }
+        parts = g_render_order.build_player_cutout_rig_parts(player)
+        pose = g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["walk"][0]
+        near_arm = self.rig_part(parts, "upper_arm", "near")
+        far_arm = self.rig_part(parts, "upper_arm", "far")
+        near_leg = self.rig_part(parts, "upper_leg", "near")
+        far_leg = self.rig_part(parts, "upper_leg", "far")
+
+        self.assertEqual(near_arm["texture"], far_arm["texture"])
+        self.assertEqual(near_leg["texture"], far_leg["texture"])
+        self.assertNotEqual(near_arm["pivot_local"], far_arm["pivot_local"])
+        self.assertNotEqual(near_leg["pivot_local"], far_leg["pivot_local"])
+        self.assertAlmostEqual(
+            near_arm["rotation"],
+            pose["torso_degrees"] + pose["near_upper_arm_degrees"],
+        )
+        self.assertAlmostEqual(
+            far_arm["rotation"],
+            pose["torso_degrees"] + pose["far_upper_arm_degrees"],
+        )
+        self.assertAlmostEqual(
+            near_leg["rotation"], pose["near_upper_leg_degrees"],
+        )
+        self.assertAlmostEqual(
+            far_leg["rotation"], pose["far_upper_leg_degrees"],
+        )
+
     def test_walk_arms_counter_swing_and_use_authored_elbow_bend(self):
         player = {
             "id": "player",
@@ -165,12 +199,12 @@ class RenderOrderTests(unittest.TestCase):
         near_lower_arm = self.rig_part(parts, "lower_arm", "near")
         near_upper_leg = self.rig_part(parts, "upper_leg", "near")
         expected_upper = (
-            profile["torso_degrees"] + profile["upper_arm_degrees"]
+            profile["torso_degrees"] + profile["near_upper_arm_degrees"]
         )
         self.assertAlmostEqual(near_upper_arm["rotation"], expected_upper)
         self.assertAlmostEqual(
             near_lower_arm["rotation"] - near_upper_arm["rotation"],
-            -profile["elbow_bend_degrees"],
+            -profile["near_elbow_bend_degrees"],
         )
         self.assertLess(
             (near_upper_arm["rotation"] - profile["torso_degrees"])
@@ -214,7 +248,7 @@ class RenderOrderTests(unittest.TestCase):
         self.assertAlmostEqual(
             near_arm["rotation"],
             run_profile[0]["torso_degrees"]
-            + run_profile[0]["upper_arm_degrees"],
+            + run_profile[0]["near_upper_arm_degrees"],
         )
 
         player.update({
@@ -228,7 +262,7 @@ class RenderOrderTests(unittest.TestCase):
         self.assertAlmostEqual(
             far_arm["rotation"],
             run_profile[0]["torso_degrees"]
-            + run_profile[2]["upper_arm_degrees"]
+            + run_profile[0]["far_upper_arm_degrees"]
             * g_render_order.PLAYER_CUTOUT_ARM_DEFAULTS[
                 "far_arm_aim_motion_scale"
             ],
@@ -349,11 +383,11 @@ class RenderOrderTests(unittest.TestCase):
         profile = g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["walk"]
         self.assertAlmostEqual(
             self.rig_part(parts, "upper_leg", "far")["rotation"],
-            profile[2]["upper_leg_degrees"],
+            profile[0]["far_upper_leg_degrees"],
         )
         self.assertAlmostEqual(
             self.rig_part(parts, "upper_leg", "near")["rotation"],
-            profile[0]["upper_leg_degrees"],
+            profile[0]["near_upper_leg_degrees"],
         )
 
     def test_four_pose_gait_profile_hits_authored_keyframes(self):
@@ -394,7 +428,7 @@ class RenderOrderTests(unittest.TestCase):
         run_profile = g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["run"]
         self.assertAlmostEqual(
             self.rig_part(parts, "upper_leg", "near")["rotation"],
-            run_profile[0]["upper_leg_degrees"],
+            run_profile[0]["near_upper_leg_degrees"],
         )
         torso = next(
             part for part in parts
