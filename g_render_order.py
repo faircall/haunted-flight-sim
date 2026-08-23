@@ -27,6 +27,7 @@ PLAYER_CUTOUT_RIG_DEFAULTS = {
     "knee": {"x": 16.0, "y": 26.0},
     "neck": {"x": 16.0, "y": 10.0},
     "far_leg_tint": [190, 190, 205, 255],
+    "far_arm_tint": [190, 190, 205, 255],
 }
 
 # Four equally spaced poses make up each complete two-step cycle. Numeric
@@ -37,24 +38,32 @@ PLAYER_CUTOUT_GAIT_PROFILES = {
     "walk": [
         # Contact, passing, opposite contact, recovery.
         {"upper_leg_degrees": 24.0, "knee_bend_degrees": 0.0,
+         "upper_arm_degrees": -15.0, "elbow_bend_degrees": 18.0,
          "body_y_pixels": 0.0, "torso_degrees": 0.5},
         {"upper_leg_degrees": 0.0, "knee_bend_degrees": 22.0,
+         "upper_arm_degrees": -4.0, "elbow_bend_degrees": 24.0,
          "body_y_pixels": -0.75, "torso_degrees": -1.0},
         {"upper_leg_degrees": -24.0, "knee_bend_degrees": 6.0,
+         "upper_arm_degrees": 15.0, "elbow_bend_degrees": 18.0,
          "body_y_pixels": 0.0, "torso_degrees": 0.5},
         {"upper_leg_degrees": 0.0, "knee_bend_degrees": 34.0,
+         "upper_arm_degrees": 4.0, "elbow_bend_degrees": 28.0,
          "body_y_pixels": -0.75, "torso_degrees": 1.5},
     ],
     "run": [
         # Contact, recoil/passing, opposite contact, flight/recovery.
         {"upper_leg_degrees": 65.0, "knee_bend_degrees": 60.0,
-         "body_y_pixels": 0.0, "torso_degrees": 5.0},
+         "upper_arm_degrees": -38.0, "elbow_bend_degrees": 48.0,
+         "body_y_pixels": 0.0, "torso_degrees": 1.0},
         {"upper_leg_degrees": -4.0, "knee_bend_degrees": 58.0,
-         "body_y_pixels": -1.75, "torso_degrees": 6.5},
+         "upper_arm_degrees": -8.0, "elbow_bend_degrees": 60.0,
+         "body_y_pixels": -1.75, "torso_degrees": 1.5},
         {"upper_leg_degrees": -32.0, "knee_bend_degrees": 18.0,
-         "body_y_pixels": 0.0, "torso_degrees": 5.0},
+         "upper_arm_degrees": 34.0, "elbow_bend_degrees": 38.0,
+         "body_y_pixels": 0.0, "torso_degrees": 1.0},
         {"upper_leg_degrees": 6.0, "knee_bend_degrees": 64.0,
-         "body_y_pixels": -1.75, "torso_degrees": 7.0},
+         "upper_arm_degrees": 8.0, "elbow_bend_degrees": 64.0,
+         "body_y_pixels": -1.75, "torso_degrees": 2.0},
     ],
 }
 
@@ -88,6 +97,7 @@ PLAYER_CUTOUT_ARM_DEFAULTS = {
     # the aim line, matching player_aim_reference_right.png.
     "gun_grip_perpendicular_offset": 1.0,
     "ik_bend_side": 1.0,
+    "far_arm_aim_motion_scale": 0.25,
 }
 
 
@@ -463,8 +473,7 @@ def _solve_player_arm_ik(shoulder, target, upper_length, lower_length,
     return elbow, hand
 
 
-def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
-                                       facing_left):
+def _player_weapon_transition_progress(player_entity):
     transition = player_entity.get("weapon_transition", {})
     try:
         progress = max(0.0, min(1.0, float(transition.get(
@@ -472,6 +481,86 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
         ))))
     except (TypeError, ValueError, OverflowError):
         progress = 0.0
+    return progress if math.isfinite(progress) else 0.0
+
+
+def _player_arm_shoulder(body_hip, torso_angle):
+    attachment = PLAYER_CUTOUT_ARM_DEFAULTS["shoulder"]
+    hip = PLAYER_CUTOUT_RIG_DEFAULTS["hip"]
+    shoulder_from_hip = _rotate_rig_vector(
+        float(attachment["x"]) - float(hip["x"]),
+        float(attachment["y"]) - float(hip["y"]),
+        torso_angle,
+    )
+    return {
+        "x": float(body_hip["x"]) + shoulder_from_hip["x"],
+        "y": float(body_hip["y"]) + shoulder_from_hip["y"],
+    }
+
+
+def _build_player_locomotion_arm_pose(arm_phase, run_blend, movement_blend,
+                                       body_hip, torso_angle, facing_left,
+                                       is_far=False, motion_scale=1.0):
+    settings = PLAYER_CUTOUT_ARM_DEFAULTS
+    bind_pose = settings["bind_pose"]
+    source_shoulder = bind_pose["shoulder"]
+    source_elbow = bind_pose["elbow"]
+    source_hand = bind_pose["hand"]
+    upper_bind = {
+        "x": float(source_elbow["x"]) - float(source_shoulder["x"]),
+        "y": float(source_elbow["y"]) - float(source_shoulder["y"]),
+    }
+    lower_bind = {
+        "x": float(source_hand["x"]) - float(source_elbow["x"]),
+        "y": float(source_hand["y"]) - float(source_elbow["y"]),
+    }
+    gait_pose = _blended_player_cutout_gait_pose(arm_phase, run_blend)
+    swing_scale = max(0.0, float(motion_scale)) * float(movement_blend)
+    upper_angle = torso_angle + float(
+        gait_pose.get("upper_arm_degrees", 0.0)
+    ) * swing_scale
+    lower_angle = upper_angle - float(
+        gait_pose.get("elbow_bend_degrees", 0.0)
+    ) * swing_scale
+    shoulder = _player_arm_shoulder(body_hip, torso_angle)
+    elbow_offset = _rotate_rig_vector(
+        upper_bind["x"], upper_bind["y"], upper_angle,
+    )
+    elbow = {
+        "x": shoulder["x"] + elbow_offset["x"],
+        "y": shoulder["y"] + elbow_offset["y"],
+    }
+    hand_offset = _rotate_rig_vector(
+        lower_bind["x"], lower_bind["y"], lower_angle,
+    )
+    hand = {
+        "x": elbow["x"] + hand_offset["x"],
+        "y": elbow["y"] + hand_offset["y"],
+    }
+    tint = PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"] if is_far else None
+    upper_part = _make_player_cutout_part(
+        PLAYER_CUTOUT_TEXTURES["upper_arm"], source_shoulder, shoulder,
+        upper_angle, facing_left, tint,
+    )
+    lower_part = _make_player_cutout_part(
+        PLAYER_CUTOUT_TEXTURES["lower_arm"], source_elbow, elbow,
+        lower_angle, facing_left, tint,
+    )
+    side = "far" if is_far else "near"
+    upper_part.update({"rig_side": side, "rig_joint": "upper_arm"})
+    lower_part.update({"rig_side": side, "rig_joint": "lower_arm"})
+    return {
+        "shoulder": shoulder,
+        "elbow": elbow,
+        "hand": hand,
+        "upper_part": upper_part,
+        "lower_part": lower_part,
+    }
+
+
+def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
+                                       facing_left, locomotion_pose=None):
+    progress = _player_weapon_transition_progress(player_entity)
     if progress <= 0.000001:
         return []
 
@@ -480,16 +569,10 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
     source_shoulder = bind_pose["shoulder"]
     source_elbow = bind_pose["elbow"]
     source_hand = bind_pose["hand"]
-    shoulder_attachment = settings["shoulder"]
-    shoulder_from_hip = _rotate_rig_vector(
-        float(shoulder_attachment["x"]) - float(PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["x"]),
-        float(shoulder_attachment["y"]) - float(PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["y"]),
-        torso_angle,
+    shoulder = (
+        locomotion_pose["shoulder"] if isinstance(locomotion_pose, dict)
+        else _player_arm_shoulder(body_hip, torso_angle)
     )
-    shoulder = {
-        "x": float(body_hip["x"]) + shoulder_from_hip["x"],
-        "y": float(body_hip["y"]) + shoulder_from_hip["y"],
-    }
 
     aim = normalize_vector(player_entity.get("aim_direction", {}))
     if aim is None:
@@ -501,17 +584,28 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
     }
     canonical_aim = normalize_vector(canonical_aim) or {"x": 1.0, "y": 0.0}
 
-    bind_arm = {
-        "x": float(source_hand["x"]) - float(source_shoulder["x"]),
-        "y": float(source_hand["y"]) - float(source_shoulder["y"]),
-    }
-    neutral_arm = _rotate_rig_vector(
-        bind_arm["x"], bind_arm["y"], torso_angle,
-    )
-    neutral_hand = {
-        "x": shoulder["x"] + neutral_arm["x"],
-        "y": shoulder["y"] + neutral_arm["y"],
-    }
+    if isinstance(locomotion_pose, dict):
+        neutral_elbow = locomotion_pose["elbow"]
+        neutral_hand = locomotion_pose["hand"]
+    else:
+        bind_arm = {
+            "x": float(source_hand["x"]) - float(source_shoulder["x"]),
+            "y": float(source_hand["y"]) - float(source_shoulder["y"]),
+        }
+        neutral_arm = _rotate_rig_vector(
+            bind_arm["x"], bind_arm["y"], torso_angle,
+        )
+        neutral_elbow = {
+            "x": shoulder["x"],
+            "y": shoulder["y"] + math.hypot(
+                float(source_elbow["x"]) - float(source_shoulder["x"]),
+                float(source_elbow["y"]) - float(source_shoulder["y"]),
+            ),
+        }
+        neutral_hand = {
+            "x": shoulder["x"] + neutral_arm["x"],
+            "y": shoulder["y"] + neutral_arm["y"],
+        }
     aimed_hand = {
         "x": shoulder["x"] + canonical_aim["x"] * float(settings["aim_reach"]),
         "y": shoulder["y"] + canonical_aim["y"] * float(settings["aim_reach"]),
@@ -530,11 +624,27 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
         "x": float(source_hand["x"]) - float(source_elbow["x"]),
         "y": float(source_hand["y"]) - float(source_elbow["y"]),
     }
+    shoulder_to_hand = {
+        "x": neutral_hand["x"] - shoulder["x"],
+        "y": neutral_hand["y"] - shoulder["y"],
+    }
+    shoulder_to_elbow = {
+        "x": neutral_elbow["x"] - shoulder["x"],
+        "y": neutral_elbow["y"] - shoulder["y"],
+    }
+    bend_cross = (
+        shoulder_to_hand["x"] * shoulder_to_elbow["y"]
+        - shoulder_to_hand["y"] * shoulder_to_elbow["x"]
+    )
+    bend_side = (
+        1.0 if bend_cross > 0.000001 else
+        -1.0 if bend_cross < -0.000001 else settings["ik_bend_side"]
+    )
     elbow, hand = _solve_player_arm_ik(
         shoulder, requested_hand,
         math.hypot(upper_bind["x"], upper_bind["y"]),
         math.hypot(lower_bind["x"], lower_bind["y"]),
-        settings["ik_bend_side"],
+        bend_side,
     )
     upper_angle = _rig_vector_angle_degrees(
         upper_bind,
@@ -545,7 +655,10 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
         {"x": hand["x"] - elbow["x"], "y": hand["y"] - elbow["y"]},
     )
 
-    neutral_direction = normalize_vector(neutral_arm) or {"x": 0.0, "y": 1.0}
+    neutral_direction = normalize_vector({
+        "x": neutral_hand["x"] - neutral_elbow["x"],
+        "y": neutral_hand["y"] - neutral_elbow["y"],
+    }) or {"x": 0.0, "y": 1.0}
     gun_direction = normalize_vector({
         "x": neutral_direction["x"] + (
             canonical_aim["x"] - neutral_direction["x"]
@@ -576,20 +689,22 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
     gun_angle = math.degrees(math.atan2(gun_direction["y"], gun_direction["x"]))
     gun_angle -= recoil_degrees
 
-    return [
-        _make_player_cutout_part(
+    upper_part = _make_player_cutout_part(
             PLAYER_CUTOUT_TEXTURES["upper_arm"], source_shoulder, shoulder,
             upper_angle, facing_left,
-        ),
-        _make_player_cutout_part(
+        )
+    lower_part = _make_player_cutout_part(
             PLAYER_CUTOUT_TEXTURES["lower_arm"], source_elbow, elbow,
             lower_angle, facing_left,
-        ),
-        _make_player_cutout_part(
+        )
+    gun_part = _make_player_cutout_part(
             PLAYER_CUTOUT_TEXTURES["gun"], settings["gun_grip"], gun_grip,
             gun_angle, facing_left, source_canvas_width=settings["gun_source_size"],
-        ),
-    ]
+        )
+    upper_part.update({"rig_side": "near", "rig_joint": "upper_arm"})
+    lower_part.update({"rig_side": "near", "rig_joint": "lower_arm"})
+    gun_part.update({"rig_side": "near", "rig_joint": "gun"})
+    return [upper_part, lower_part, gun_part]
 
 
 def build_player_cutout_rig_parts(player_entity):
@@ -662,16 +777,18 @@ def build_player_cutout_rig_parts(player_entity):
             "y": body_hip["y"] + knee_offset["y"],
         }
         tint = settings["far_leg_tint"] if is_far else None
-        leg_parts.append((
-            _make_player_cutout_part(
+        lower_part = _make_player_cutout_part(
                 PLAYER_CUTOUT_TEXTURES["lower_leg"], knee, target_knee,
                 lower_angle, facing_left, tint,
-            ),
-            _make_player_cutout_part(
+            )
+        upper_part = _make_player_cutout_part(
                 PLAYER_CUTOUT_TEXTURES["upper_leg"], hip, body_hip,
                 upper_angle, facing_left, tint,
-            ),
-        ))
+            )
+        side = "far" if is_far else "near"
+        lower_part.update({"rig_side": side, "rig_joint": "lower_leg"})
+        upper_part.update({"rig_side": side, "rig_joint": "upper_leg"})
+        leg_parts.append((lower_part, upper_part))
 
     torso = _make_player_cutout_part(
         PLAYER_CUTOUT_TEXTURES["torso"], hip, body_hip, torso_angle,
@@ -683,14 +800,30 @@ def build_player_cutout_rig_parts(player_entity):
         PLAYER_CUTOUT_TEXTURES["head"], neck, body_neck, 0.0,
         facing_left,
     )
-    weapon_parts = _build_player_weapon_cutout_parts(
-        player_entity, body_hip, torso_angle, facing_left,
+    weapon_progress = _player_weapon_transition_progress(player_entity)
+    far_motion_scale = 1.0 - weapon_progress * (
+        1.0 - float(PLAYER_CUTOUT_ARM_DEFAULTS["far_arm_aim_motion_scale"])
     )
+    far_arm = _build_player_locomotion_arm_pose(
+        phase + math.pi, run_blend, blend, body_hip, torso_angle,
+        facing_left, is_far=True, motion_scale=far_motion_scale,
+    )
+    near_arm = _build_player_locomotion_arm_pose(
+        phase, run_blend, blend, body_hip, torso_angle,
+        facing_left, is_far=False,
+    )
+    weapon_parts = _build_player_weapon_cutout_parts(
+        player_entity, body_hip, torso_angle, facing_left, near_arm,
+    )
+    near_arm_parts = weapon_parts or [
+        near_arm["upper_part"], near_arm["lower_part"],
+    ]
     far_lower, far_upper = leg_parts[0]
     near_lower, near_upper = leg_parts[1]
     return [
+        far_arm["lower_part"], far_arm["upper_part"],
         far_lower, far_upper, torso, near_lower, near_upper,
-        *weapon_parts, head,
+        *near_arm_parts, head,
     ]
 
 
@@ -711,9 +844,14 @@ def build_player_render_item(player_entity, tile_map, game_assets):
     cutout_parts = build_player_cutout_rig_parts(player_entity)
     body_bob = 0.0
     if cutout_parts:
-        body_bob = float(cutout_parts[2]["pivot_local"]["y"]) - float(
-            PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["y"]
-        )
+        torso_part = next((
+            part for part in cutout_parts
+            if part.get("texture") == PLAYER_CUTOUT_TEXTURES["torso"]
+        ), None)
+        if torso_part is not None:
+            body_bob = float(torso_part["pivot_local"]["y"]) - float(
+                PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["y"]
+            )
     weapon_center = {
         "x": float(world_position["x"]),
         "y": float(world_position["y"]) + body_bob,
