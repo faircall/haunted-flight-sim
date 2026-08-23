@@ -156,10 +156,18 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(parts[6]["texture"], "player_cutout_lower_arm_right")
         self.assertEqual(parts[7]["texture"], "player_cutout_gun_right")
         self.assertTrue(drawing["draw_data"]["weapon_in_cutout_rig"])
-        self.assertAlmostEqual(parts[5]["pivot_local"]["x"], 15.5)
-        self.assertAlmostEqual(parts[5]["pivot_local"]["y"], 11.0)
-        self.assertAlmostEqual(parts[7]["pivot_local"]["x"], 22.0)
-        self.assertAlmostEqual(parts[7]["pivot_local"]["y"], 12.0)
+        arm_settings = g_render_order.PLAYER_CUTOUT_ARM_DEFAULTS
+        shoulder = arm_settings["shoulder"]
+        self.assertAlmostEqual(parts[5]["pivot_local"]["x"], shoulder["x"])
+        self.assertAlmostEqual(parts[5]["pivot_local"]["y"], shoulder["y"])
+        self.assertAlmostEqual(
+            parts[7]["pivot_local"]["x"],
+            shoulder["x"] + arm_settings["aim_reach"],
+        )
+        self.assertAlmostEqual(
+            parts[7]["pivot_local"]["y"],
+            shoulder["y"] + arm_settings["gun_grip_perpendicular_offset"],
+        )
         self.assertAlmostEqual(parts[5]["rotation"], -90.0)
         self.assertAlmostEqual(parts[6]["rotation"], -90.0)
         self.assertAlmostEqual(parts[7]["rotation"], 0.0)

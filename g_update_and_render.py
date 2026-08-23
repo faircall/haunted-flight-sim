@@ -1699,6 +1699,82 @@ def load_textures():
         result["buddha_light_response"] = pr.load_texture("art/buddha_light_response.png")
     return result
 
+
+def _collect_texture_handles(value, handles, seen_ids):
+    if isinstance(value, dict):
+        for child in value.values():
+            _collect_texture_handles(child, handles, seen_ids)
+        return
+    texture_id = getattr(value, "id", 0)
+    if not texture_id or texture_id in seen_ids:
+        return
+    # Texture2D handles have dimensions; this prevents unrelated objects with
+    # an incidental `id` field from being treated as GPU textures.
+    if not hasattr(value, "width") or not hasattr(value, "height"):
+        return
+    seen_ids.add(texture_id)
+    handles.append(value)
+
+
+def unload_image_asset_collections(textures=None, sprite_sheets=None):
+    handles = []
+    seen_ids = set()
+    _collect_texture_handles(textures or {}, handles, seen_ids)
+    _collect_texture_handles(sprite_sheets or {}, handles, seen_ids)
+    for texture in handles:
+        pr.unload_texture(texture)
+    return len(handles)
+
+
+def _find_invalid_texture_handles(value, path="assets"):
+    invalid = []
+    if isinstance(value, dict):
+        for name, child in value.items():
+            invalid.extend(_find_invalid_texture_handles(
+                child, f"{path}.{name}",
+            ))
+        return invalid
+    if not hasattr(value, "id"):
+        return invalid
+    if hasattr(value, "width") and hasattr(value, "height"):
+        if int(getattr(value, "id", 0)) <= 0:
+            invalid.append(path)
+    return invalid
+
+
+def reload_image_assets(game_assets):
+    """Atomically replace authored texture and sprite-sheet collections."""
+    new_textures = None
+    new_sprite_sheets = None
+    try:
+        new_textures = load_textures()
+        new_sprite_sheets = load_sprite_sheets()
+        invalid = _find_invalid_texture_handles(
+            new_textures, "textures",
+        ) + _find_invalid_texture_handles(
+            new_sprite_sheets, "sprite_sheets",
+        )
+        if invalid:
+            raise RuntimeError(
+                f"invalid texture handles: {', '.join(invalid)}"
+            )
+    except Exception:
+        unload_image_asset_collections(new_textures, new_sprite_sheets)
+        raise
+
+    old_textures = game_assets.get("textures")
+    old_sprite_sheets = game_assets.get("sprite_sheets")
+    game_assets["textures"] = new_textures
+    game_assets["sprite_sheets"] = new_sprite_sheets
+    unloaded_count = unload_image_asset_collections(
+        old_textures, old_sprite_sheets,
+    )
+    return {
+        "textures": len(new_textures),
+        "sprite_sheets": len(new_sprite_sheets),
+        "unloaded": unloaded_count,
+    }
+
 def new_pos_from_old(old):
     new_pos = {
         "x" : old.get("x",0),
@@ -7810,12 +7886,13 @@ def in_the_range(x, start, end):
     return x >= start and x <= end
 
 def direction_from_angle(angle):
+    angle = float(angle) % 360.0
     rough_direction = "down"
-    if in_the_range(angle, 150,  185):
-        rough_direction = "right"    
-    elif in_the_range(angle, 45,  149):
+    if in_the_range(angle, 150.0, 185.0):
+        rough_direction = "right"
+    elif 45.0 <= angle < 150.0:
         rough_direction = "up"
-    elif in_the_range(angle, 0, 44) or in_the_range(angle, 320, 360):
+    elif angle < 45.0 or angle >= 355.0:
         rough_direction = "left"
     return rough_direction
 

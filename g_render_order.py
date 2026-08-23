@@ -72,9 +72,15 @@ PLAYER_CUTOUT_TEXTURES = {
 # actual arm textures stay in their clean vertical bind pose; two-bone IK bends
 # that chain while the hand smoothsteps between hanging and fully aimed.
 PLAYER_CUTOUT_ARM_DEFAULTS = {
+    # These describe pixels in the authored vertical source art and normally
+    # should not be tuned with the animation pose.
+    "bind_pose": {
+        "shoulder": {"x": 15.5, "y": 11.0},
+        "elbow": {"x": 15.5, "y": 14.0},
+        "hand": {"x": 15.5, "y": 17.5},
+    },
+    # This is the independently tunable torso attachment point.
     "shoulder": {"x": 15.5, "y": 12.0},
-    "elbow": {"x": 15.5, "y": 14.0},
-    "hand": {"x": 15.5, "y": 17.5},
     "aim_reach": 6.5,
     "gun_grip": {"x": 0.0, "y": 2.0},
     "gun_source_size": 4.0,
@@ -470,12 +476,14 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
         return []
 
     settings = PLAYER_CUTOUT_ARM_DEFAULTS
-    source_shoulder = settings["shoulder"]
-    source_elbow = settings["elbow"]
-    source_hand = settings["hand"]
+    bind_pose = settings["bind_pose"]
+    source_shoulder = bind_pose["shoulder"]
+    source_elbow = bind_pose["elbow"]
+    source_hand = bind_pose["hand"]
+    shoulder_attachment = settings["shoulder"]
     shoulder_from_hip = _rotate_rig_vector(
-        float(source_shoulder["x"]) - float(PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["x"]),
-        float(source_shoulder["y"]) - float(PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["y"]),
+        float(shoulder_attachment["x"]) - float(PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["x"]),
+        float(shoulder_attachment["y"]) - float(PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["y"]),
         torso_angle,
     )
     shoulder = {

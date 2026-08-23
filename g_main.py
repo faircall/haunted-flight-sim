@@ -90,6 +90,52 @@ def get_file_write_time(file_name):
         result = ""
     return result
 
+
+def get_png_asset_snapshot(asset_root="art"):
+    """Return a recursive, high-resolution snapshot of authored PNG assets."""
+    snapshot = {}
+    if not os.path.isdir(asset_root):
+        return snapshot
+    for directory, _subdirectories, file_names in os.walk(asset_root):
+        for file_name in file_names:
+            if not file_name.lower().endswith(".png"):
+                continue
+            path = os.path.normpath(os.path.join(directory, file_name))
+            try:
+                stat = os.stat(path)
+            except OSError:
+                # An editor may briefly replace a file atomically. If it is
+                # still absent at the next poll, deletion will be detected.
+                continue
+            snapshot[path] = (int(stat.st_mtime_ns), int(stat.st_size))
+    return snapshot
+
+
+def changed_snapshot_files(previous_snapshot, current_snapshot):
+    paths = set(previous_snapshot) | set(current_snapshot)
+    return sorted(
+        path for path in paths
+        if previous_snapshot.get(path) != current_snapshot.get(path)
+    )
+
+
+def reload_png_assets_if_needed(asset_snapshot, game_assets):
+    current_snapshot = get_png_asset_snapshot()
+    changed_files = changed_snapshot_files(asset_snapshot, current_snapshot)
+    if not changed_files:
+        return []
+    try:
+        update_and_render_module.reload_image_assets(game_assets)
+    except Exception as error:
+        # Keep the old snapshot so a half-written or temporarily unavailable
+        # asset is retried on the next poll instead of being silently accepted.
+        render_error_message(f"Unable to reload PNG assets: {error}")
+        return []
+    asset_snapshot.clear()
+    asset_snapshot.update(current_snapshot)
+    print(f"reloaded PNG assets after changes to: {', '.join(changed_files)}")
+    return changed_files
+
 def reload_modules_if_needed(module_write_times, game_assets=None):
     reloaded_module_names = set()
 
@@ -227,6 +273,7 @@ def g_main():
 
     module_write_times = {name: get_file_write_time(name + ".py") for name, module in g_reloadable_modules}
     shader_write_times = {file_name: get_file_write_time(file_name) for file_name in g_shader_source_files}
+    png_asset_snapshot = get_png_asset_snapshot()
 
     reload_timer = 0.0
     reload_refresh_interval = 1.0
@@ -256,6 +303,7 @@ def g_main():
             reloaded_module_names = reload_modules_if_needed(module_write_times, game_assets)
             main_arena = refresh_persistent_data_after_module_reloads(main_arena, game_assets, reloaded_module_names)
             reload_shaders_if_needed(shader_write_times, game_assets)
+            reload_png_assets_if_needed(png_asset_snapshot, game_assets)
         # if pr.is_key_released(pr.KeyboardKey.KEY_F5):                                    
         #     main_arena = pmap()
         #     main_arena = main_arena.set("screen_width", g_screen_width)

@@ -11,6 +11,23 @@ import g_update_and_render as game
 
 
 class PlayerAimHeadingTests(unittest.TestCase):
+    def test_left_down_frame_boundary_mirrors_right_down_boundary(self):
+        self.assertEqual(game.direction_from_angle(185.0), "right")
+        self.assertEqual(game.direction_from_angle(185.01), "down")
+        self.assertEqual(game.direction_from_angle(355.0), "left")
+        self.assertEqual(game.direction_from_angle(354.99), "down")
+
+    def test_direction_ranges_have_no_fractional_down_frame_gaps(self):
+        self.assertEqual(game.direction_from_angle(44.5), "left")
+        self.assertEqual(game.direction_from_angle(45.0), "up")
+        self.assertEqual(game.direction_from_angle(149.5), "up")
+        self.assertEqual(game.direction_from_angle(150.0), "right")
+
+    def test_direction_selection_normalizes_wrapped_angles(self):
+        self.assertEqual(game.direction_from_angle(-5.0), "left")
+        self.assertEqual(game.direction_from_angle(360.0), "left")
+        self.assertEqual(game.direction_from_angle(720.0), "left")
+
     def test_default_player_starts_aiming_right(self):
         player = game.make_default_player(0, 0, 0)
         self.assertEqual(player["aim_heading"], 0.0)
