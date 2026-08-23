@@ -44,7 +44,7 @@ PLAYER_CUTOUT_GAIT_PROFILES = {
     "walk": [
         # Contact, passing, opposite contact, recovery.
         {"near_upper_leg_degrees": 24.0, "near_knee_bend_degrees": 0.0,
-         "far_upper_leg_degrees": -18.0, "far_knee_bend_degrees": 12.0,
+         "far_upper_leg_degrees": -26.0, "far_knee_bend_degrees": 0.0,
          "near_upper_arm_degrees": -15.0, "near_elbow_bend_degrees": 18.0,
          "far_upper_arm_degrees": 12.0, "far_elbow_bend_degrees": 24.0,
          "body_y_pixels": 0.0, "torso_degrees": 0.5},
@@ -53,7 +53,7 @@ PLAYER_CUTOUT_GAIT_PROFILES = {
          "near_upper_arm_degrees": -4.0, "near_elbow_bend_degrees": 24.0,
          "far_upper_arm_degrees": 8.0, "far_elbow_bend_degrees": 32.0,
          "body_y_pixels": -0.75, "torso_degrees": -1.0},
-        {"near_upper_leg_degrees": -24.0, "near_knee_bend_degrees": 6.0,
+        {"near_upper_leg_degrees": -24.0, "near_knee_bend_degrees": -6.0,
          "far_upper_leg_degrees": 20.0, "far_knee_bend_degrees": 4.0,
          "near_upper_arm_degrees": 15.0, "near_elbow_bend_degrees": 18.0,
          "far_upper_arm_degrees": -11.0, "far_elbow_bend_degrees": 20.0,
@@ -866,7 +866,24 @@ def build_player_cutout_rig_parts(player_entity):
     ]
 
 
+def entity_with_animation_debug_override(game_assets, collection_name,
+                                         object_id, entity):
+    override = game_assets.get("animation_debug_render_override")
+    if (not isinstance(override, dict)
+            or override.get("collection") != collection_name
+            or override.get("id") != object_id
+            or not isinstance(override.get("fields"), dict)):
+        return entity
+    result = dict(entity)
+    for key, value in override["fields"].items():
+        result[key] = copy.deepcopy(value)
+    return result
+
+
 def build_player_render_item(player_entity, tile_map, game_assets):
+    player_entity = entity_with_animation_debug_override(
+        game_assets, "player", player_entity.get("id", "player"), player_entity,
+    )
     world_position = position_to_world(player_entity.get("position", {}), tile_map)
     sprite_sheet = game_assets.get("sprite_sheets", {}).get("blue_oxford_texture_sheet", {})
     frame_number = sprite_sheet.get(player_entity.get("animation_frame", 0), 0)
@@ -942,6 +959,9 @@ def build_player_render_item(player_entity, tile_map, game_assets):
 
 
 def build_brain_render_item(object_id, entity, tile_map, game_assets):
+    entity = entity_with_animation_debug_override(
+        game_assets, "brains", object_id, entity,
+    )
     entity_type = get_entity_render_type(entity)
     if entity_type not in {"red head", "buddha"}:
         return None

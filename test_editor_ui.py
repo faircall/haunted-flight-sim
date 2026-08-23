@@ -17,6 +17,13 @@ class EnvironmentEditorDataTests(unittest.TestCase):
     def test_editor_defaults_to_place_tool(self):
         self.assertEqual(g_editor.make_editor_state()["tool"], "place")
 
+    def test_animation_editor_mode_has_non_persistent_preview_defaults(self):
+        state = g_editor.make_editor_state()
+        self.assertIn("animation", g_editor.EDITOR_MODES)
+        self.assertEqual(state["animation_debug"]["playback"], "continuous")
+        self.assertEqual(state["animation_debug"]["track"], "walk")
+        self.assertIsNone(state["animation_debug"]["target_key"])
+
     def test_radial_wheel_adjusts_selected_point_light(self):
         entities = {}
         kind, object_id = g_editor.create_environment_object(
@@ -330,6 +337,103 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertTrue(g_editor.delete_selected_gameplay_entity(entities, state))
         self.assertNotIn(7, entities["brains"])
         self.assertIsNone(state["selected_id"])
+
+    def test_animation_selection_includes_player(self):
+        player = {
+            "id": "player",
+            "position": {"tile_x": 4, "tile_y": 4, "x": 0.0, "y": 0.0},
+            "render_anchor_offset": {"x": -16.0, "y": -16.0},
+        }
+        state = g_editor.make_editor_state()
+        selected = g_editor.select_animation_entity_at(
+            {"brains": {}, "pickups": {}}, player, state,
+            {"x": 64.0, "y": 64.0}, self.tile_map,
+        )
+        self.assertEqual(selected, ("player", "player"))
+        self.assertIs(
+            g_editor.get_selected_animation_entity({}, player, state), player,
+        )
+
+    def test_animation_keyframe_preview_does_not_mutate_player(self):
+        player = {
+            "id": "player",
+            "animation_direction": "right",
+            "aiming": True,
+            "procedural_gait": {
+                "phase": 0.37, "blend": 0.2, "run_blend": 0.0,
+            },
+        }
+        original = copy.deepcopy(player)
+        state = g_editor.make_editor_state()
+        state.update({
+            "selected_kind": "animation_entity",
+            "selected_collection": "player",
+            "selected_id": "player",
+        })
+        state["animation_debug"].update({
+            "playback": "keyframe", "track": "run",
+            "facing": "left", "keyframe": 2,
+            "target_key": ("player", "player"),
+        })
+        override = g_editor.update_animation_debug_preview(
+            state, "animation", {}, player, 0.25,
+        )
+        self.assertEqual(player, original)
+        self.assertAlmostEqual(override["fields"]["procedural_gait"]["phase"], math.pi)
+        self.assertEqual(override["fields"]["procedural_gait"]["run_blend"], 1.0)
+        self.assertEqual(override["fields"]["animation_direction"], "left")
+        self.assertFalse(override["fields"]["aiming"])
+
+    def test_animation_continuous_preview_advances_one_cycle_over_duration(self):
+        player = {"id": "player"}
+        state = g_editor.make_editor_state()
+        state.update({
+            "selected_kind": "animation_entity",
+            "selected_collection": "player",
+            "selected_id": "player",
+        })
+        state["animation_debug"].update({
+            "playback": "continuous", "track": "walk",
+            "phase": 0.0, "cycle_seconds": 2.0,
+        })
+        override = g_editor.update_animation_debug_preview(
+            state, "animation", {}, player, 0.5,
+        )
+        self.assertAlmostEqual(override["phase"], math.pi * 0.5)
+        self.assertEqual(override["pose_index"], 1)
+
+    def test_animation_redhead_track_steps_direction_frames(self):
+        redhead = {"id": 7, "type": "red head"}
+        entities = {"brains": {7: redhead}, "pickups": {}}
+        state = g_editor.make_editor_state()
+        state.update({
+            "selected_kind": "animation_entity",
+            "selected_collection": "brains",
+            "selected_id": 7,
+        })
+        state["animation_debug"].update({
+            "playback": "keyframe", "track": "direction poses",
+            "keyframe": 3, "target_key": ("brains", 7),
+        })
+        override = g_editor.update_animation_debug_preview(
+            state, "animation", entities, None, 0.0,
+        )
+        self.assertEqual(
+            override["fields"]["animation_frame"], "left_frame_start",
+        )
+
+    def test_animation_keyframe_step_wraps_and_freezes(self):
+        state = g_editor.make_editor_state()
+        state["animation_debug"].update({
+            "playback": "continuous", "keyframe": 0,
+        })
+        self.assertEqual(
+            g_editor.step_animation_debug_keyframe(state, 4, -1), 3,
+        )
+        self.assertEqual(state["animation_debug"]["playback"], "keyframe")
+        self.assertAlmostEqual(
+            state["animation_debug"]["phase"], math.tau * 0.75,
+        )
 
     def test_gameplay_entity_ids_do_not_overwrite_after_deletion(self):
         collection = {0: {}, 2: {}, "legacy": {}}

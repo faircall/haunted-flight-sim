@@ -804,6 +804,27 @@ def update_gameplay_entity_editor(entities, editor_state, game_camera, mouse_scr
         editor_state["drag_kind"] = None
 
 
+def update_animation_entity_editor(entities, player_entity, editor_state,
+                                   game_camera, mouse_screen, tile_map):
+    if g_mouse_is_ui_captured:
+        return
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
+        editor_state.update({
+            "selected_kind": None, "selected_collection": None,
+            "selected_id": None, "drag_kind": None,
+        })
+        return
+    if not g_ui.interactive_mouse_left_pressed():
+        return
+    mouse_world = {
+        "x": float(mouse_screen.x) + float(game_camera.x),
+        "y": float(mouse_screen.y) + float(game_camera.y),
+    }
+    g_editor.select_animation_entity_at(
+        entities, player_entity, editor_state, mouse_world, tile_map,
+    )
+
+
 def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, ignore, player_entity, mode, debug_queue, draw_tiles, draw_entities):
     # Todo:
     # tiles are tiles,
@@ -827,6 +848,11 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
     if mode == "entity" and draw_tiles:
         update_gameplay_entity_editor(
             entities, editor_state, game_camera, mouse_pos_world, tile_map,
+        )
+    elif mode == "animation" and draw_tiles:
+        update_animation_entity_editor(
+            entities, player_entity, editor_state, game_camera,
+            mouse_pos_world, tile_map,
         )
     
     # Every mode renders into the same internal 480x270 target. The editor used
@@ -1088,7 +1114,8 @@ def transition_editor_state(current):
     state_transitions = {
         "play": "tile",
         "tile": "entity",
-        "entity": "environment",
+        "entity": "animation",
+        "animation": "environment",
         "environment": "play"
     }
     return state_transitions.get(g_editor.migrate_editor_mode(current), "tile")
@@ -1181,7 +1208,7 @@ def update_camera(game_camera, camera_physics, mode, player_pos, dt):
 
     # let's go for a bounded box camera
 
-    free_nav_modes = {"tile", "entity", "environment"}
+    free_nav_modes = {"tile", "entity", "animation", "environment"}
     
     if mode in free_nav_modes:
         if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
@@ -8431,6 +8458,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         update_redhead_flashlight_awareness(
             entities, player_info, tile_map, lighting_frame, dt,
         )
+    game_assets["animation_debug_render_override"] = (
+        g_editor.update_animation_debug_preview(
+            editor_state, editor_mode, entities, player_info, dt,
+        )
+    )
     prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
     sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
     major_entity_light_occluders = g_render_order.build_major_entity_light_occluders(sorted_world_items)
@@ -8553,6 +8585,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         g_editor.draw_gameplay_entity_selection(
             editor_state, entities, camera_3d.position, tile_map,
         )
+    elif editor_mode == "animation":
+        g_editor.draw_animation_entity_selection(
+            editor_state, entities, player_info, camera_3d.position, tile_map,
+        )
     editor_mode = g_editor.draw_editor_overlay(
         ui_state, editor_state, editor_mode, entities, lighting_profile,
         fog_profile, wind_profile, camera_3d.position, tile_map, show_editor,
@@ -8562,6 +8598,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         redhead_evade_defaults=REDHEAD_EVADE_DEFAULTS,
         redhead_perception_defaults=REDHEAD_PERCEPTION_DEFAULTS,
         redhead_flee_defaults=REDHEAD_FLEE_DEFAULTS,
+        player_entity=player_info,
     )
     if editor_mode == "tile":
         g_editor.draw_tile_edit_controls(ui_state, editor_state, tile_map)

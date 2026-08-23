@@ -8,8 +8,9 @@ import g_effects
 import g_render_order
 import g_ui
 
-EDITOR_MODES = ("play", "tile", "entity", "environment")
+EDITOR_MODES = ("play", "tile", "entity", "animation", "environment")
 EDITOR_TOOLS = ("select", "place")
+ANIMATION_DEBUG_PLAYBACK_MODES = ("continuous", "keyframe")
 PLACEMENT_TYPES = ()
 RENDER_STYLES = ("world", "readability")
 MOBILITY_OPTIONS = ("static", "dynamic")
@@ -39,6 +40,15 @@ def make_editor_state():
             "show_world": False,
             "show_acoustic_zones": False,
             "show_contact_overlays": False,
+        },
+        "animation_debug": {
+            "playback": "continuous",
+            "track": "walk",
+            "facing": "right",
+            "keyframe": 0,
+            "phase": 0.0,
+            "cycle_seconds": 1.0,
+            "target_key": None,
         },
         "rain_debug": {
             "show_exposure_overlay": False,
@@ -85,6 +95,8 @@ def get_or_create_editor_state(game_assets):
             editor_state["rain_debug"].setdefault(key, value)
         for key, value in defaults["audio_debug"].items():
             editor_state["audio_debug"].setdefault(key, value)
+        for key, value in defaults["animation_debug"].items():
+            editor_state["animation_debug"].setdefault(key, value)
 
     return editor_state
 
@@ -378,11 +390,12 @@ def gameplay_entity_selection_bounds(entity, tile_map):
     world = tile_position_to_world(entity.get("position", {}), tile_map)
     anchor = entity.get("render_anchor_offset", {})
     default_size = {
+        "player": (32.0, 32.0),
         "buddha": (128.0, 128.0),
         "red head": (24.0, 24.0),
         "pistol_ammo_pickup": (24.0, 24.0),
         "health_pickup": (24.0, 24.0),
-    }.get(entity_type, (
+    }.get("player" if entity.get("id") == "player" else entity_type, (
         max(8.0, float(entity.get("entity_width", 16.0))),
         max(8.0, float(entity.get("entity_height", 16.0))),
     ))
@@ -405,6 +418,214 @@ def get_selected_gameplay_entity(entities, editor_state):
     if collection_name not in GAMEPLAY_ENTITY_COLLECTIONS:
         return None
     return entities.get(collection_name, {}).get(editor_state.get("selected_id"))
+
+
+def iter_animation_debug_entities(entities, player_entity=None):
+    if isinstance(player_entity, dict):
+        yield "player", player_entity.get("id", "player"), player_entity
+    for collection_name in GAMEPLAY_ENTITY_COLLECTIONS:
+        for entity_id, entity in entities.get(collection_name, {}).items():
+            if isinstance(entity, dict):
+                yield collection_name, entity_id, entity
+
+
+def get_selected_animation_entity(entities, player_entity, editor_state):
+    if editor_state.get("selected_kind") != "animation_entity":
+        return None
+    collection_name = editor_state.get("selected_collection")
+    entity_id = editor_state.get("selected_id")
+    if collection_name == "player":
+        if (isinstance(player_entity, dict)
+                and entity_id == player_entity.get("id", "player")):
+            return player_entity
+        return None
+    if collection_name not in GAMEPLAY_ENTITY_COLLECTIONS:
+        return None
+    return entities.get(collection_name, {}).get(entity_id)
+
+
+def select_animation_entity_at(entities, player_entity, editor_state,
+                               world_point, tile_map):
+    previous_collection = editor_state.get("selected_collection")
+    previous_id = editor_state.get("selected_id")
+    candidates = []
+    for collection_name, entity_id, entity in iter_animation_debug_entities(
+            entities, player_entity):
+        bounds = gameplay_entity_selection_bounds(entity, tile_map)
+        if not gameplay_entity_bounds_contains(bounds, world_point):
+            continue
+        centre_x = bounds["x"] + bounds["width"] * 0.5
+        centre_y = bounds["y"] + bounds["height"] * 0.5
+        distance = (
+            (world_point["x"] - centre_x) ** 2
+            + (world_point["y"] - centre_y) ** 2
+        )
+        candidates.append({
+            "sort_key": (
+                0 if (collection_name == previous_collection
+                      and entity_id == previous_id) else 1,
+                bounds["width"] * bounds["height"], distance,
+                collection_name, str(entity_id),
+            ),
+            "collection": collection_name,
+            "id": entity_id,
+        })
+    if not candidates:
+        editor_state.update({
+            "selected_kind": None, "selected_collection": None,
+            "selected_id": None, "drag_kind": None,
+        })
+        return None
+    chosen = min(candidates, key=lambda candidate: candidate["sort_key"])
+    editor_state.update({
+        "selected_kind": "animation_entity",
+        "selected_collection": chosen["collection"],
+        "selected_id": chosen["id"],
+        "drag_kind": None,
+    })
+    return chosen["collection"], chosen["id"]
+
+
+PLAYER_ANIMATION_DEBUG_POSE_NAMES = {
+    "walk": ("contact", "passing", "opposite contact", "recovery"),
+    "run": ("contact", "recoil / passing", "opposite contact", "flight / recovery"),
+}
+
+
+def player_animation_debug_pose_names(profile_name, profile):
+    authored = PLAYER_ANIMATION_DEBUG_POSE_NAMES.get(profile_name, ())
+    if len(authored) == len(profile):
+        return authored
+    return tuple(f"pose {index + 1}" for index in range(len(profile)))
+
+
+def animation_debug_tracks_for_entity(entity, collection_name):
+    if collection_name == "player" or entity.get("id") == "player":
+        return {
+            profile_name: {
+                "kind": "procedural_gait",
+                "pose_names": player_animation_debug_pose_names(
+                    profile_name, profile,
+                ),
+            }
+            for profile_name, profile in
+            g_render_order.PLAYER_CUTOUT_GAIT_PROFILES.items()
+        }
+    if str(entity.get("type", "")) == "red head":
+        return {
+            "direction poses": {
+                "kind": "sprite_frames",
+                "pose_names": ("down", "right", "up", "left"),
+                "frames": (
+                    "down_frame_start", "right_frame_start",
+                    "up_frame_start", "left_frame_start",
+                ),
+            },
+        }
+    return {}
+
+
+def update_animation_debug_preview(editor_state, editor_mode, entities,
+                                   player_entity, dt):
+    if editor_mode != "animation":
+        return None
+    entity = get_selected_animation_entity(
+        entities, player_entity, editor_state,
+    )
+    if entity is None:
+        return None
+    collection_name = editor_state.get("selected_collection")
+    entity_id = editor_state.get("selected_id")
+    tracks = animation_debug_tracks_for_entity(entity, collection_name)
+    if not tracks:
+        return None
+
+    debug = editor_state.setdefault(
+        "animation_debug", make_editor_state()["animation_debug"],
+    )
+    target_key = (collection_name, entity_id)
+    if debug.get("target_key") != target_key:
+        debug["target_key"] = target_key
+        debug["phase"] = 0.0
+        debug["keyframe"] = 0
+    track_name = debug.get("track")
+    if track_name not in tracks:
+        track_name = next(iter(tracks))
+        debug["track"] = track_name
+        debug["phase"] = 0.0
+        debug["keyframe"] = 0
+    track = tracks[track_name]
+    pose_names = tuple(track.get("pose_names", ()))
+    pose_count = max(1, len(pose_names))
+    playback = debug.get("playback", "continuous")
+    if playback not in ANIMATION_DEBUG_PLAYBACK_MODES:
+        playback = "continuous"
+        debug["playback"] = playback
+    try:
+        phase = float(debug.get("phase", 0.0)) % math.tau
+    except (TypeError, ValueError, OverflowError):
+        phase = 0.0
+    if not math.isfinite(phase):
+        phase = 0.0
+    keyframe = int(debug.get("keyframe", 0)) % pose_count
+    if playback == "continuous":
+        try:
+            cycle_seconds = max(
+                0.1, min(10.0, float(debug.get("cycle_seconds", 1.0))),
+            )
+        except (TypeError, ValueError, OverflowError):
+            cycle_seconds = 1.0
+        debug["cycle_seconds"] = cycle_seconds
+        phase = (
+            phase + math.tau * max(0.0, float(dt)) / cycle_seconds
+        ) % math.tau
+        keyframe = int(math.floor(phase / math.tau * pose_count)) % pose_count
+    else:
+        phase = math.tau * keyframe / pose_count
+    debug["phase"] = phase
+    debug["keyframe"] = keyframe
+
+    fields = {}
+    if track.get("kind") == "procedural_gait":
+        facing = debug.get("facing", "right")
+        if facing not in {"left", "right"}:
+            facing = "right"
+            debug["facing"] = facing
+        fields = {
+            "animation_direction": facing,
+            "animation_frame": f"{facing}_frame_start",
+            "procedural_gait": {
+                "phase": phase,
+                "blend": 1.0,
+                "run_blend": 1.0 if track_name == "run" else 0.0,
+                "mode": track_name,
+                "speed": 0.0,
+            },
+            "aim_requested": False,
+            "aiming": False,
+            "weapon_transition": {
+                "progress": 0.0, "target": 0.0, "phase": "holstered",
+            },
+            "weapon_visual_recoil": {
+                "amount": 0.0, "rotation_degrees": 0.0,
+            },
+        }
+    elif track.get("kind") == "sprite_frames":
+        frames = tuple(track.get("frames", ()))
+        if frames:
+            fields["animation_frame"] = frames[keyframe % len(frames)]
+
+    return {
+        "collection": collection_name,
+        "id": entity_id,
+        "track": track_name,
+        "pose_count": pose_count,
+        "pose_index": keyframe,
+        "pose_name": pose_names[keyframe] if pose_names else "pose",
+        "playback": playback,
+        "phase": phase,
+        "fields": fields,
+    }
 
 def select_gameplay_entity_at(entities, editor_state, world_point, tile_map):
     previous_collection = editor_state.get("selected_collection")
@@ -493,6 +714,33 @@ def draw_gameplay_entity_selection(editor_state, entities, game_camera, tile_map
     )
     pr.draw_text(
         f"{entity.get('type', 'entity')} [{editor_state.get('selected_id')}]",
+        int(screen["x"]), int(screen["y"] - 9), 8, color,
+    )
+
+
+def draw_animation_entity_selection(editor_state, entities, player_entity,
+                                    game_camera, tile_map):
+    entity = get_selected_animation_entity(
+        entities, player_entity, editor_state,
+    )
+    if entity is None:
+        return
+    bounds = gameplay_entity_selection_bounds(entity, tile_map)
+    screen = world_to_screen(
+        {"x": bounds["x"], "y": bounds["y"]}, game_camera,
+    )
+    color = pr.Color(100, 225, 255, 235)
+    pr.draw_rectangle_lines_ex(
+        pr.Rectangle(
+            screen["x"], screen["y"], bounds["width"], bounds["height"],
+        ),
+        1.0, color,
+    )
+    label = "player" if entity.get("id") == "player" else entity.get(
+        "type", "entity",
+    )
+    pr.draw_text(
+        f"{label} [{editor_state.get('selected_id')}]",
         int(screen["x"]), int(screen["y"] - 9), 8, color,
     )
 
@@ -974,7 +1222,9 @@ def capture_editor_ui_regions(ui_state, editor_state, editor_mode,
     toolbar_rect = pr.Rectangle(0, 0, 480, 38)
     inspector_rect = pr.Rectangle(306, 38, 174, 232)
 
-    inspector_visible = editor_mode in {"environment", "entity"} and not editor_state.get("inspector_collapsed", False)
+    inspector_visible = editor_mode in {
+        "environment", "entity", "animation",
+    } and not editor_state.get("inspector_collapsed", False)
 
     if g_ui.ui_point_in_rect(mouse, toolbar_rect) or (inspector_visible and g_ui.ui_point_in_rect(mouse, inspector_rect)):
         g_ui.ui_capture_mouse(ui_state)
@@ -1154,7 +1404,14 @@ def update_editor_shortcuts(entities, editor_state, ui_state, tile_map):
 
 def draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map):
     pr.draw_rectangle(0, 0, 480, 38, g_ui.UI_BACKGROUND)
-    editor_mode, _ = g_ui.ui_dropdown(ui_state, "toolbar:mode", "", editor_mode, EDITOR_MODES, pr.Rectangle(2, 2, 78, 16), 4)
+    editor_mode, _ = g_ui.ui_dropdown(ui_state, "toolbar:mode", "", editor_mode, EDITOR_MODES, pr.Rectangle(2, 2, 78, 16), 5)
+    if editor_mode == "animation":
+        g_ui.ui_label(
+            ui_state, "toolbar:animation_hint",
+            "click select  arrows step  space play/freeze",
+            pr.Rectangle(84, 3, 250, 14), g_ui.UI_MUTED, 8,
+        )
+        return editor_mode
     editor_state["tool"], _ = g_ui.ui_dropdown(ui_state, "toolbar:tool", "", editor_state.get("tool", "place"), EDITOR_TOOLS, pr.Rectangle(82, 2, 66, 16), 2)
 
     if editor_mode == "environment":
@@ -1753,7 +2010,143 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
     g_ui.ui_end_panel(ui_state)
 
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None, redhead_perception_defaults=None, redhead_flee_defaults=None):
+def step_animation_debug_keyframe(editor_state, pose_count, amount):
+    debug = editor_state.setdefault(
+        "animation_debug", make_editor_state()["animation_debug"],
+    )
+    count = max(1, int(pose_count))
+    debug["playback"] = "keyframe"
+    debug["keyframe"] = (
+        int(debug.get("keyframe", 0)) + int(amount)
+    ) % count
+    debug["phase"] = math.tau * debug["keyframe"] / count
+    return debug["keyframe"]
+
+
+def update_animation_debug_shortcuts(editor_state, pose_count, ui_state):
+    if (ui_state.get("focused_id") is not None
+            or ui_state.get("open_dropdown_id") is not None):
+        return
+    debug = editor_state.setdefault(
+        "animation_debug", make_editor_state()["animation_debug"],
+    )
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_SPACE):
+        debug["playback"] = (
+            "keyframe" if debug.get("playback") == "continuous"
+            else "continuous"
+        )
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_LEFT):
+        step_animation_debug_keyframe(editor_state, pose_count, -1)
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_RIGHT):
+        step_animation_debug_keyframe(editor_state, pose_count, 1)
+
+
+def draw_animation_debug_inspector(ui_state, editor_state, entities,
+                                   player_entity):
+    collapse_rect = pr.Rectangle(308, 40, 14, 14)
+    if g_ui.ui_button(
+            ui_state, "animation_inspector:collapse",
+            "<" if editor_state.get("inspector_collapsed", False) else ">",
+            collapse_rect):
+        editor_state["inspector_collapsed"] = not editor_state.get(
+            "inspector_collapsed", False,
+        )
+    if editor_state.get("inspector_collapsed", False):
+        return
+
+    panel_rect = pr.Rectangle(324, 38, 156, 232)
+    g_ui.ui_begin_panel(
+        ui_state, "animation_inspector:panel", panel_rect, "Animation",
+    )
+    entity = get_selected_animation_entity(
+        entities, player_entity, editor_state,
+    )
+    if entity is None:
+        g_ui.ui_label(
+            ui_state, "animation_inspector:none",
+            "Click an entity to inspect", color=g_ui.UI_MUTED, font_size=8,
+        )
+        g_ui.ui_end_panel(ui_state)
+        return
+
+    collection_name = editor_state.get("selected_collection")
+    entity_id = editor_state.get("selected_id")
+    entity_name = (
+        "player" if collection_name == "player"
+        else str(entity.get("type", "entity"))
+    )
+    g_ui.ui_label(
+        ui_state, "animation_inspector:selected",
+        f"{entity_name} [{entity_id}]", color=g_ui.UI_ACCENT, font_size=8,
+    )
+    tracks = animation_debug_tracks_for_entity(entity, collection_name)
+    if not tracks:
+        g_ui.ui_label(
+            ui_state, "animation_inspector:unsupported",
+            "No debug animation tracks", color=g_ui.UI_MUTED, font_size=8,
+        )
+        g_ui.ui_end_panel(ui_state)
+        return
+
+    debug = editor_state.setdefault(
+        "animation_debug", make_editor_state()["animation_debug"],
+    )
+    track_name = debug.get("track")
+    if track_name not in tracks:
+        track_name = next(iter(tracks))
+    track_name, track_changed = g_ui.ui_dropdown(
+        ui_state, "animation_inspector:track", "track", track_name,
+        tuple(tracks), max_visible=6,
+    )
+    if track_changed or debug.get("track") != track_name:
+        debug["track"] = track_name
+        debug["phase"] = 0.0
+        debug["keyframe"] = 0
+    track = tracks[track_name]
+    pose_names = tuple(track.get("pose_names", ("pose",)))
+    pose_count = max(1, len(pose_names))
+
+    if collection_name == "player":
+        debug["facing"], _ = g_ui.ui_dropdown(
+            ui_state, "animation_inspector:facing", "facing",
+            debug.get("facing", "right"), ("right", "left"),
+            max_visible=2,
+        )
+    debug["playback"], _ = g_ui.ui_dropdown(
+        ui_state, "animation_inspector:playback", "playback",
+        debug.get("playback", "continuous"),
+        ANIMATION_DEBUG_PLAYBACK_MODES, max_visible=2,
+    )
+    debug["cycle_seconds"], _ = g_ui.ui_number_input_float(
+        ui_state, "animation_inspector:cycle_seconds", "cycle seconds",
+        debug.get("cycle_seconds", 1.0), 0.1, 10.0,
+    )
+    keyframe = int(debug.get("keyframe", 0)) % pose_count
+    g_ui.ui_label(
+        ui_state, "animation_inspector:pose",
+        f"pose {keyframe + 1}/{pose_count}: {pose_names[keyframe]}",
+        color=g_ui.UI_TEXT, font_size=8,
+    )
+    if g_ui.ui_button(
+            ui_state, "animation_inspector:previous", "< previous pose"):
+        step_animation_debug_keyframe(editor_state, pose_count, -1)
+    if g_ui.ui_button(
+            ui_state, "animation_inspector:next", "next pose >"):
+        step_animation_debug_keyframe(editor_state, pose_count, 1)
+    update_animation_debug_shortcuts(editor_state, pose_count, ui_state)
+    g_ui.ui_separator(ui_state, "animation_inspector:hint_separator")
+    g_ui.ui_label(
+        ui_state, "animation_inspector:hint1",
+        "Left/Right: step", color=g_ui.UI_MUTED, font_size=8,
+    )
+    g_ui.ui_label(
+        ui_state, "animation_inspector:hint2",
+        "Space: play/freeze", color=g_ui.UI_MUTED, font_size=8,
+    )
+    g_ui.ui_end_panel(ui_state)
+
+
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None, redhead_perception_defaults=None, redhead_flee_defaults=None, player_entity=None):
     if not show_editor:
         return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
@@ -1781,6 +2174,10 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
             ui_state, editor_state, entities, redhead_movement_defaults,
             redhead_evade_defaults, redhead_perception_defaults,
             redhead_flee_defaults,
+        )
+    elif editor_mode == "animation":
+        draw_animation_debug_inspector(
+            ui_state, editor_state, entities, player_entity,
         )
 
     return editor_mode

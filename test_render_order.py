@@ -76,6 +76,46 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(red_item["dest_rect"]["x"], 12.0)
         self.assertEqual(red_item["source_rect"]["x"], 72.0)
 
+    def test_animation_debug_override_is_render_only(self):
+        player = {
+            "id": "player",
+            "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+            "animation_direction": "right",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 0.0, "run_blend": 0.0,
+            },
+        }
+        original = {
+            "animation_direction": player["animation_direction"],
+            "procedural_gait": dict(player["procedural_gait"]),
+        }
+        self.assets["animation_debug_render_override"] = {
+            "collection": "player",
+            "id": "player",
+            "fields": {
+                "animation_direction": "left",
+                "procedural_gait": {
+                    "phase": math.pi, "blend": 1.0,
+                    "run_blend": 1.0, "mode": "run", "speed": 0.0,
+                },
+            },
+        }
+        item = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+        near_leg = self.rig_part(
+            item["draw_data"]["cutout_rig_parts"], "upper_leg", "near",
+        )
+        self.assertEqual(player["animation_direction"], original["animation_direction"])
+        self.assertEqual(player["procedural_gait"], original["procedural_gait"])
+        self.assertTrue(near_leg["flip_x"])
+        self.assertAlmostEqual(
+            near_leg["rotation"],
+            -g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["run"][2][
+                "near_upper_leg_degrees"
+            ],
+        )
+
     def test_player_weapon_visibility_tracks_aiming_state(self):
         player = {
             "id": "player",
