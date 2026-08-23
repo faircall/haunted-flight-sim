@@ -17,15 +17,11 @@ PLAYER_WEAPON_BEZIER_DEFAULTS = {
 # All pivots are in the shared 32x32 player-asset coordinate space.
 PLAYER_CUTOUT_RIG_DEFAULTS = {
     "enabled": True,
-    # Footstep distance comes from the audio profile. This offset chooses the
-    # visual pose at each queued footfall; 90 degrees is maximum leg separation
-    # with the planting leg straight and the passing leg bent.
-    "footfall_phase_degrees": 90.0,
+    # Footstep distance comes from the audio profile. Zero degrees means that
+    # queued footfalls land exactly on keyframes 0 and 2 below.
+    "footfall_phase_degrees": 0.0,
     "movement_blend_response": 14.0,
-    "upper_leg_swing_degrees": 24.0,
-    "lower_leg_bend_degrees": 34.0,
-    "body_bob_pixels": 0.75,
-    "torso_sway_degrees": 1.5,
+    "profile_blend_response": 10.0,
     "canvas_size": 32.0,
     "hip": {"x": 16.0, "y": 22.0},
     "knee": {"x": 16.0, "y": 26.0},
@@ -33,11 +29,59 @@ PLAYER_CUTOUT_RIG_DEFAULTS = {
     "far_leg_tint": [190, 190, 205, 255],
 }
 
+# Four equally spaced poses make up each complete two-step cycle. Numeric
+# values are smoothstepped between poses and wrap from pose 3 back to pose 0.
+# The far leg samples the same profile half a cycle later, so these are the
+# poses for one leg rather than duplicated near/far data.
+PLAYER_CUTOUT_GAIT_PROFILES = {
+    "walk": [
+        # Contact, passing, opposite contact, recovery.
+        {"upper_leg_degrees": 24.0, "knee_bend_degrees": 0.0,
+         "body_y_pixels": 0.0, "torso_degrees": 0.5},
+        {"upper_leg_degrees": 0.0, "knee_bend_degrees": 22.0,
+         "body_y_pixels": -0.75, "torso_degrees": -1.0},
+        {"upper_leg_degrees": -24.0, "knee_bend_degrees": 6.0,
+         "body_y_pixels": 0.0, "torso_degrees": 0.5},
+        {"upper_leg_degrees": 0.0, "knee_bend_degrees": 34.0,
+         "body_y_pixels": -0.75, "torso_degrees": 1.5},
+    ],
+    "run": [
+        # Contact, recoil/passing, opposite contact, flight/recovery.
+        {"upper_leg_degrees": 65.0, "knee_bend_degrees": 60.0,
+         "body_y_pixels": 0.0, "torso_degrees": 5.0},
+        {"upper_leg_degrees": -4.0, "knee_bend_degrees": 58.0,
+         "body_y_pixels": -1.75, "torso_degrees": 6.5},
+        {"upper_leg_degrees": -32.0, "knee_bend_degrees": 18.0,
+         "body_y_pixels": 0.0, "torso_degrees": 5.0},
+        {"upper_leg_degrees": 6.0, "knee_bend_degrees": 64.0,
+         "body_y_pixels": -1.75, "torso_degrees": 7.0},
+    ],
+}
+
 PLAYER_CUTOUT_TEXTURES = {
     "head": "player_cutout_head_right",
     "torso": "player_cutout_torso_right",
     "upper_leg": "player_cutout_upper_leg_right",
     "lower_leg": "player_cutout_lower_leg_right",
+    "upper_arm": "player_cutout_upper_arm_right",
+    "lower_arm": "player_cutout_lower_arm_right",
+    "gun": "player_cutout_gun_right",
+}
+
+# Arm pivots are taken from the authored neutral and aimed references. The
+# actual arm textures stay in their clean vertical bind pose; two-bone IK bends
+# that chain while the hand smoothsteps between hanging and fully aimed.
+PLAYER_CUTOUT_ARM_DEFAULTS = {
+    "shoulder": {"x": 15.5, "y": 12.0},
+    "elbow": {"x": 15.5, "y": 14.0},
+    "hand": {"x": 15.5, "y": 17.5},
+    "aim_reach": 6.5,
+    "gun_grip": {"x": 0.0, "y": 2.0},
+    "gun_source_size": 4.0,
+    # The hand meets the top of the grip; the gun pivot sits one pixel below
+    # the aim line, matching player_aim_reference_right.png.
+    "gun_grip_perpendicular_offset": 1.0,
+    "ik_bend_side": 1.0,
 }
 
 
@@ -299,13 +343,15 @@ def _rotate_rig_vector(x, y, angle_degrees):
 
 
 def _make_player_cutout_part(texture_name, source_pivot, target_pivot,
-                              rotation, facing_left=False, tint=None):
+                              rotation, facing_left=False, tint=None,
+                              source_canvas_width=None):
     canvas_size = float(PLAYER_CUTOUT_RIG_DEFAULTS["canvas_size"])
+    source_canvas_width = float(source_canvas_width or canvas_size)
     target_x = float(target_pivot["x"])
     origin_x = float(source_pivot["x"])
     if facing_left:
         target_x = canvas_size - target_x
-        origin_x = canvas_size - origin_x
+        origin_x = source_canvas_width - origin_x
         rotation = -float(rotation)
     return {
         "texture": texture_name,
@@ -325,6 +371,217 @@ def player_cutout_gait_phase_from_step_state(step_state, stride_distance):
     stride_index = int(step_state.get("stride_index", 0))
     half_cycle_progress = min(1.0, distance / stride)
     return (stride_index * math.pi + half_cycle_progress * math.pi) % math.tau
+
+
+def sample_player_cutout_gait_profile(profile, phase):
+    """Smoothly sample an equally spaced, cyclic gait pose profile."""
+    poses = profile if isinstance(profile, (list, tuple)) else []
+    if not poses:
+        return {}
+    try:
+        normalized_phase = (float(phase) % math.tau) / math.tau
+    except (TypeError, ValueError, OverflowError):
+        normalized_phase = 0.0
+    if not math.isfinite(normalized_phase):
+        normalized_phase = 0.0
+    scaled_phase = normalized_phase * len(poses)
+    pose_index = int(math.floor(scaled_phase)) % len(poses)
+    next_index = (pose_index + 1) % len(poses)
+    amount = scaled_phase - math.floor(scaled_phase)
+    amount = amount * amount * (3.0 - 2.0 * amount)
+    current = poses[pose_index]
+    following = poses[next_index]
+    return {
+        key: float(current.get(key, 0.0)) + (
+            float(following.get(key, current.get(key, 0.0)))
+            - float(current.get(key, 0.0))
+        ) * amount
+        for key in current
+    }
+
+
+def _blended_player_cutout_gait_pose(phase, run_blend):
+    walk = sample_player_cutout_gait_profile(
+        PLAYER_CUTOUT_GAIT_PROFILES["walk"], phase,
+    )
+    run = sample_player_cutout_gait_profile(
+        PLAYER_CUTOUT_GAIT_PROFILES["run"], phase,
+    )
+    amount = max(0.0, min(1.0, float(run_blend)))
+    return {
+        key: float(walk.get(key, 0.0)) + (
+            float(run.get(key, walk.get(key, 0.0)))
+            - float(walk.get(key, 0.0))
+        ) * amount
+        for key in walk
+    }
+
+
+def _rig_vector_angle_degrees(source, target):
+    source_angle = math.atan2(float(source["y"]), float(source["x"]))
+    target_angle = math.atan2(float(target["y"]), float(target["x"]))
+    result = math.degrees(target_angle - source_angle)
+    return (result + 180.0) % 360.0 - 180.0
+
+
+def _solve_player_arm_ik(shoulder, target, upper_length, lower_length,
+                         bend_side=1.0):
+    """Return elbow and reachable hand points for a two-segment arm."""
+    delta_x = float(target["x"]) - float(shoulder["x"])
+    delta_y = float(target["y"]) - float(shoulder["y"])
+    distance = math.hypot(delta_x, delta_y)
+    if distance <= 0.000001:
+        delta_x, delta_y, distance = 0.0, 1.0, 1.0
+    direction_x = delta_x / distance
+    direction_y = delta_y / distance
+    minimum_reach = abs(float(upper_length) - float(lower_length))
+    maximum_reach = float(upper_length) + float(lower_length)
+    reachable_distance = max(minimum_reach, min(maximum_reach, distance))
+    hand = {
+        "x": float(shoulder["x"]) + direction_x * reachable_distance,
+        "y": float(shoulder["y"]) + direction_y * reachable_distance,
+    }
+    along = (
+        float(upper_length) * float(upper_length)
+        - float(lower_length) * float(lower_length)
+        + reachable_distance * reachable_distance
+    ) / max(0.000001, 2.0 * reachable_distance)
+    height_squared = max(
+        0.0, float(upper_length) * float(upper_length) - along * along,
+    )
+    height = math.sqrt(height_squared) * (1.0 if bend_side >= 0.0 else -1.0)
+    elbow = {
+        "x": float(shoulder["x"]) + direction_x * along - direction_y * height,
+        "y": float(shoulder["y"]) + direction_y * along + direction_x * height,
+    }
+    return elbow, hand
+
+
+def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
+                                       facing_left):
+    transition = player_entity.get("weapon_transition", {})
+    try:
+        progress = max(0.0, min(1.0, float(transition.get(
+            "progress", 1.0 if player_entity.get("aiming", False) else 0.0,
+        ))))
+    except (TypeError, ValueError, OverflowError):
+        progress = 0.0
+    if progress <= 0.000001:
+        return []
+
+    settings = PLAYER_CUTOUT_ARM_DEFAULTS
+    source_shoulder = settings["shoulder"]
+    source_elbow = settings["elbow"]
+    source_hand = settings["hand"]
+    shoulder_from_hip = _rotate_rig_vector(
+        float(source_shoulder["x"]) - float(PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["x"]),
+        float(source_shoulder["y"]) - float(PLAYER_CUTOUT_RIG_DEFAULTS["hip"]["y"]),
+        torso_angle,
+    )
+    shoulder = {
+        "x": float(body_hip["x"]) + shoulder_from_hip["x"],
+        "y": float(body_hip["y"]) + shoulder_from_hip["y"],
+    }
+
+    aim = normalize_vector(player_entity.get("aim_direction", {}))
+    if aim is None:
+        aim = {"x": -1.0 if facing_left else 1.0, "y": 0.0}
+    # Solve the right-facing bind pose, then mirror the completed part records.
+    canonical_aim = {
+        "x": -float(aim["x"]) if facing_left else float(aim["x"]),
+        "y": float(aim["y"]),
+    }
+    canonical_aim = normalize_vector(canonical_aim) or {"x": 1.0, "y": 0.0}
+
+    bind_arm = {
+        "x": float(source_hand["x"]) - float(source_shoulder["x"]),
+        "y": float(source_hand["y"]) - float(source_shoulder["y"]),
+    }
+    neutral_arm = _rotate_rig_vector(
+        bind_arm["x"], bind_arm["y"], torso_angle,
+    )
+    neutral_hand = {
+        "x": shoulder["x"] + neutral_arm["x"],
+        "y": shoulder["y"] + neutral_arm["y"],
+    }
+    aimed_hand = {
+        "x": shoulder["x"] + canonical_aim["x"] * float(settings["aim_reach"]),
+        "y": shoulder["y"] + canonical_aim["y"] * float(settings["aim_reach"]),
+    }
+    pose_amount = progress * progress * (3.0 - 2.0 * progress)
+    requested_hand = {
+        "x": neutral_hand["x"] + (aimed_hand["x"] - neutral_hand["x"]) * pose_amount,
+        "y": neutral_hand["y"] + (aimed_hand["y"] - neutral_hand["y"]) * pose_amount,
+    }
+
+    upper_bind = {
+        "x": float(source_elbow["x"]) - float(source_shoulder["x"]),
+        "y": float(source_elbow["y"]) - float(source_shoulder["y"]),
+    }
+    lower_bind = {
+        "x": float(source_hand["x"]) - float(source_elbow["x"]),
+        "y": float(source_hand["y"]) - float(source_elbow["y"]),
+    }
+    elbow, hand = _solve_player_arm_ik(
+        shoulder, requested_hand,
+        math.hypot(upper_bind["x"], upper_bind["y"]),
+        math.hypot(lower_bind["x"], lower_bind["y"]),
+        settings["ik_bend_side"],
+    )
+    upper_angle = _rig_vector_angle_degrees(
+        upper_bind,
+        {"x": elbow["x"] - shoulder["x"], "y": elbow["y"] - shoulder["y"]},
+    )
+    lower_angle = _rig_vector_angle_degrees(
+        lower_bind,
+        {"x": hand["x"] - elbow["x"], "y": hand["y"] - elbow["y"]},
+    )
+
+    neutral_direction = normalize_vector(neutral_arm) or {"x": 0.0, "y": 1.0}
+    gun_direction = normalize_vector({
+        "x": neutral_direction["x"] + (
+            canonical_aim["x"] - neutral_direction["x"]
+        ) * pose_amount,
+        "y": neutral_direction["y"] + (
+            canonical_aim["y"] - neutral_direction["y"]
+        ) * pose_amount,
+    }) or canonical_aim
+    gun_perpendicular = {"x": -gun_direction["y"], "y": gun_direction["x"]}
+    gun_grip = {
+        "x": hand["x"] + gun_perpendicular["x"] * float(
+            settings["gun_grip_perpendicular_offset"]
+        ),
+        "y": hand["y"] + gun_perpendicular["y"] * float(
+            settings["gun_grip_perpendicular_offset"]
+        ),
+    }
+    try:
+        recoil_degrees = max(0.0, float(
+            player_entity.get("weapon_visual_recoil", {}).get(
+                "rotation_degrees", 0.0,
+            )
+        ))
+    except (TypeError, ValueError, OverflowError):
+        recoil_degrees = 0.0
+    if not math.isfinite(recoil_degrees):
+        recoil_degrees = 0.0
+    gun_angle = math.degrees(math.atan2(gun_direction["y"], gun_direction["x"]))
+    gun_angle -= recoil_degrees
+
+    return [
+        _make_player_cutout_part(
+            PLAYER_CUTOUT_TEXTURES["upper_arm"], source_shoulder, shoulder,
+            upper_angle, facing_left,
+        ),
+        _make_player_cutout_part(
+            PLAYER_CUTOUT_TEXTURES["lower_arm"], source_elbow, elbow,
+            lower_angle, facing_left,
+        ),
+        _make_player_cutout_part(
+            PLAYER_CUTOUT_TEXTURES["gun"], settings["gun_grip"], gun_grip,
+            gun_angle, facing_left, source_canvas_width=settings["gun_source_size"],
+        ),
+    ]
 
 
 def build_player_cutout_rig_parts(player_entity):
@@ -349,13 +606,17 @@ def build_player_cutout_rig_parts(player_entity):
             + math.radians(float(settings["footfall_phase_degrees"]))
         ) % math.tau
         blend = max(0.0, min(1.0, float(gait.get("blend", 0.0))))
+        run_blend = max(0.0, min(1.0, float(gait.get("run_blend", 0.0))))
     except (TypeError, ValueError, OverflowError):
         phase = 0.0
         blend = 0.0
+        run_blend = 0.0
     if not math.isfinite(phase):
         phase = 0.0
     if not math.isfinite(blend):
         blend = 0.0
+    if not math.isfinite(run_blend):
+        run_blend = 0.0
 
     hip = settings["hip"]
     knee = settings["knee"]
@@ -364,8 +625,9 @@ def build_player_cutout_rig_parts(player_entity):
         "x": float(knee["x"]) - float(hip["x"]),
         "y": float(knee["y"]) - float(hip["y"]),
     }
-    bob = -abs(math.sin(phase)) * float(settings["body_bob_pixels"]) * blend
-    torso_angle = -math.sin(phase) * float(settings["torso_sway_degrees"]) * blend
+    body_pose = _blended_player_cutout_gait_pose(phase, run_blend)
+    bob = float(body_pose.get("body_y_pixels", 0.0)) * blend
+    torso_angle = float(body_pose.get("torso_degrees", 0.0)) * blend
     body_hip = {"x": float(hip["x"]), "y": float(hip["y"]) + bob}
     neck_from_hip = _rotate_rig_vector(
         float(neck["x"]) - float(hip["x"]),
@@ -380,16 +642,9 @@ def build_player_cutout_rig_parts(player_entity):
 
     leg_parts = []
     for is_far, leg_phase in ((True, phase + math.pi), (False, phase)):
-        upper_angle = (
-            math.sin(leg_phase)
-            * float(settings["upper_leg_swing_degrees"])
-            * blend
-        )
-        knee_bend = (
-            max(0.0, -math.sin(leg_phase))
-            * float(settings["lower_leg_bend_degrees"])
-            * blend
-        )
+        leg_pose = _blended_player_cutout_gait_pose(leg_phase, run_blend)
+        upper_angle = float(leg_pose.get("upper_leg_degrees", 0.0)) * blend
+        knee_bend = float(leg_pose.get("knee_bend_degrees", 0.0)) * blend
         lower_angle = upper_angle + knee_bend
         knee_offset = _rotate_rig_vector(
             upper_length["x"], upper_length["y"], upper_angle,
@@ -420,9 +675,15 @@ def build_player_cutout_rig_parts(player_entity):
         PLAYER_CUTOUT_TEXTURES["head"], neck, body_neck, 0.0,
         facing_left,
     )
+    weapon_parts = _build_player_weapon_cutout_parts(
+        player_entity, body_hip, torso_angle, facing_left,
+    )
     far_lower, far_upper = leg_parts[0]
     near_lower, near_upper = leg_parts[1]
-    return [far_lower, far_upper, torso, near_lower, near_upper, head]
+    return [
+        far_lower, far_upper, torso, near_lower, near_upper,
+        *weapon_parts, head,
+    ]
 
 
 def build_player_render_item(player_entity, tile_map, game_assets):
@@ -485,6 +746,10 @@ def build_player_render_item(player_entity, tile_map, game_assets):
         "weapon_transition_phase": transition.get("phase", "holstered"),
         "weapon_visible": transition_progress > 0.000001,
         "cutout_rig_parts": cutout_parts,
+        "weapon_in_cutout_rig": any(
+            part.get("texture") == PLAYER_CUTOUT_TEXTURES["gun"]
+            for part in cutout_parts
+        ),
     }
     render_item = make_world_render_item("entity", "player", "player", player_entity.get("id", "player"), player_entity, world_position, 32.0, 32.0, make_texture_reference("sprite_sheets", "blue_oxford_texture_sheet", "sheet"), {"x": float(frame_number) * 32.0, "y": 0.0, "width": 32.0, "height": 32.0}, draw_data)
     render_item["screen_snap"] = "relative_motion"

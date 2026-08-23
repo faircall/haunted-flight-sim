@@ -1735,8 +1735,15 @@ def _player_weapon_is_visible(render_item):
     )
 
 
+def _player_weapon_uses_cutout_rig(render_item):
+    return bool(render_item.get("draw_data", {}).get(
+        "weapon_in_cutout_rig", False,
+    ))
+
+
 def _get_player_pistol_part(render_item, game_camera, game_assets):
-    if not _player_weapon_is_visible(render_item):
+    if (not _player_weapon_is_visible(render_item)
+            or _player_weapon_uses_cutout_rig(render_item)):
         return None
     draw_data = render_item.get("draw_data", {})
     texture = game_assets.get("textures", {}).get(draw_data.get("pistol_texture", "pistol_texture"))
@@ -1826,7 +1833,8 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
                 _draw_render_item_main_shape(
                     item, texture, game_camera, game_assets,
                 )
-                if _player_weapon_is_visible(item):
+                if (_player_weapon_is_visible(item)
+                        and not _player_weapon_uses_cutout_rig(item)):
                     draw_data = item.get("draw_data", {})
                     center = draw_data.get("center_world", {})
                     gun = draw_data.get("gun_world", {})
@@ -1927,7 +1935,8 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
         pistol_part = _get_player_pistol_part(item, game_camera, game_assets)
         pr.begin_texture_mode(albedo_target)
         _draw_render_item_main_shape(item, texture, game_camera, game_assets)
-        if _player_weapon_is_visible(item):
+        if (_player_weapon_is_visible(item)
+                and not _player_weapon_uses_cutout_rig(item)):
             draw_data = item.get("draw_data", {})
             center = draw_data.get("center_world", {})
             gun = draw_data.get("gun_world", {})

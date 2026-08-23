@@ -134,6 +134,73 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(parts[-1]["texture"], "player_cutout_head_right")
         self.assertNotEqual(parts[1]["rotation"], parts[4]["rotation"])
 
+    def test_aimed_player_builds_authored_arm_chain_and_native_gun(self):
+        player = {
+            "id": "player",
+            "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+            "animation_direction": "right",
+            "animation_frame": "right_frame_start",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "aiming": True,
+            "weapon_transition": {
+                "progress": 1.0, "target": 1.0, "phase": "unholstered",
+            },
+            "procedural_gait": {"phase": 0.0, "blend": 0.0},
+        }
+        drawing = g_render_order.build_player_render_item(
+            player, self.tile_map, self.assets,
+        )
+        parts = drawing["draw_data"]["cutout_rig_parts"]
+        self.assertEqual(len(parts), 9)
+        self.assertEqual(parts[5]["texture"], "player_cutout_upper_arm_right")
+        self.assertEqual(parts[6]["texture"], "player_cutout_lower_arm_right")
+        self.assertEqual(parts[7]["texture"], "player_cutout_gun_right")
+        self.assertTrue(drawing["draw_data"]["weapon_in_cutout_rig"])
+        self.assertAlmostEqual(parts[5]["pivot_local"]["x"], 15.5)
+        self.assertAlmostEqual(parts[5]["pivot_local"]["y"], 11.0)
+        self.assertAlmostEqual(parts[7]["pivot_local"]["x"], 22.0)
+        self.assertAlmostEqual(parts[7]["pivot_local"]["y"], 12.0)
+        self.assertAlmostEqual(parts[5]["rotation"], -90.0)
+        self.assertAlmostEqual(parts[6]["rotation"], -90.0)
+        self.assertAlmostEqual(parts[7]["rotation"], 0.0)
+
+    def test_arm_chain_bends_during_weapon_transition(self):
+        player = {
+            "id": "player",
+            "animation_direction": "right",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "aiming": True,
+            "weapon_transition": {
+                "progress": 0.5, "target": 1.0, "phase": "unholstering",
+            },
+            "procedural_gait": {"phase": 0.0, "blend": 0.0},
+        }
+        parts = g_render_order.build_player_cutout_rig_parts(player)
+        upper_arm = parts[5]
+        lower_arm = parts[6]
+        self.assertNotAlmostEqual(
+            upper_arm["rotation"], lower_arm["rotation"],
+        )
+
+    def test_cutout_gun_recoil_rotates_at_fixed_grip(self):
+        player = {
+            "id": "player",
+            "animation_direction": "right",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "aiming": True,
+            "weapon_transition": {
+                "progress": 1.0, "target": 1.0, "phase": "unholstered",
+            },
+            "weapon_visual_recoil": {"rotation_degrees": 14.0},
+            "procedural_gait": {"phase": 0.0, "blend": 0.0},
+        }
+        kicked = g_render_order.build_player_cutout_rig_parts(player)[7]
+        player["weapon_visual_recoil"]["rotation_degrees"] = 0.0
+        resting = g_render_order.build_player_cutout_rig_parts(player)[7]
+        self.assertEqual(kicked["pivot_local"], resting["pivot_local"])
+        self.assertEqual(kicked["rotation"], -14.0)
+        self.assertEqual(resting["rotation"], 0.0)
+
     def test_footstep_clock_maps_each_sound_interval_to_half_a_gait_cycle(self):
         stride = 13.0
         self.assertAlmostEqual(
@@ -162,11 +229,56 @@ class RenderOrderTests(unittest.TestCase):
             "procedural_gait": {"phase": 0.0, "blend": 1.0},
         }
         parts = g_render_order.build_player_cutout_rig_parts(player)
-        expected = g_render_order.PLAYER_CUTOUT_RIG_DEFAULTS[
-            "upper_leg_swing_degrees"
+        profile = g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["walk"]
+        self.assertAlmostEqual(
+            parts[1]["rotation"], profile[2]["upper_leg_degrees"],
+        )
+        self.assertAlmostEqual(
+            parts[4]["rotation"], profile[0]["upper_leg_degrees"],
+        )
+
+    def test_four_pose_gait_profile_hits_authored_keyframes(self):
+        profile = g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["walk"]
+        for index, expected in enumerate(profile):
+            sampled = g_render_order.sample_player_cutout_gait_profile(
+                profile, math.tau * index / 4.0,
+            )
+            self.assertEqual(sampled, expected)
+
+    def test_gait_profile_interpolation_is_smoothstep_and_cyclic(self):
+        profile = [
+            {"value": 0.0}, {"value": 8.0},
+            {"value": 0.0}, {"value": -8.0},
         ]
-        self.assertAlmostEqual(parts[1]["rotation"], -expected)
-        self.assertAlmostEqual(parts[4]["rotation"], expected)
+        quarter_segment = g_render_order.sample_player_cutout_gait_profile(
+            profile, math.tau / 16.0,
+        )
+        three_quarter_segment = g_render_order.sample_player_cutout_gait_profile(
+            profile, math.tau * 3.0 / 16.0,
+        )
+        wrapped = g_render_order.sample_player_cutout_gait_profile(
+            profile, math.tau,
+        )
+        self.assertAlmostEqual(quarter_segment["value"], 1.25)
+        self.assertAlmostEqual(three_quarter_segment["value"], 6.75)
+        self.assertEqual(wrapped, profile[0])
+
+    def test_run_profile_can_be_selected_independently_from_walk(self):
+        player = {
+            "id": "player",
+            "animation_direction": "right",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 1.0,
+            },
+        }
+        parts = g_render_order.build_player_cutout_rig_parts(player)
+        run_profile = g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["run"]
+        self.assertAlmostEqual(
+            parts[4]["rotation"], run_profile[0]["upper_leg_degrees"],
+        )
+        self.assertAlmostEqual(
+            parts[2]["rotation"], run_profile[0]["torso_degrees"],
+        )
 
     def test_left_cutout_pose_mirrors_right_pose(self):
         player = {

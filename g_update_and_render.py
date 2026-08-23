@@ -1318,6 +1318,8 @@ def make_default_player(x,y,z):
     player["procedural_gait"] = {
         "phase": 0.0,
         "blend": 0.0,
+        "run_blend": 0.0,
+        "mode": "walk",
         "speed": 0.0,
     }
     player["mouse_aim_sensitivity"] = DEFAULT_MOUSE_AIM_SENSITIVITY
@@ -1659,6 +1661,9 @@ PLAYER_CUTOUT_TEXTURE_PATHS = {
     "player_cutout_torso_right": "art/split_player/player_torso_right.png",
     "player_cutout_upper_leg_right": "art/split_player/player_upper_leg_right.png",
     "player_cutout_lower_leg_right": "art/split_player/player_lower_leg_right.png",
+    "player_cutout_upper_arm_right": "art/split_player/player_upper_arm_right.png",
+    "player_cutout_lower_arm_right": "art/split_player/player_lower_arm_right.png",
+    "player_cutout_gun_right": "art/split_player/player_gun_right.png",
 }
 
 
@@ -7437,7 +7442,7 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt,
     player_speed_max = 35.0
 
     aiming = entity.get("aiming", False)
-    running = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT)
+    running = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT) and not aiming
     if running:
         player_speed_max = 65.0
 
@@ -7493,7 +7498,8 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt,
     old_world = make_pos_abs(entity.get("position", {}), tile_map["tile_width"], tile_map["tile_height"])
     new_world = make_pos_abs(new_pos, tile_map["tile_width"], tile_map["tile_height"])
     gait_state = entity.setdefault("procedural_gait", {
-        "phase": 0.0, "blend": 0.0, "speed": 0.0,
+        "phase": 0.0, "blend": 0.0, "run_blend": 0.0,
+        "mode": "walk", "speed": 0.0,
     })
     travelled = math.hypot(
         float(new_world["x"]) - float(old_world["x"]),
@@ -7511,6 +7517,23 @@ def update_player_position(tile_map, entity, editor_mode, collision_mode, dt,
     else:
         current_blend = max(target_blend, current_blend - blend_step)
     gait_state["blend"] = current_blend
+    target_run_blend = 1.0 if running else 0.0
+    current_run_blend = max(
+        0.0, min(1.0, float(gait_state.get("run_blend", 0.0))),
+    )
+    profile_blend_step = max(
+        0.0, float(gait_settings["profile_blend_response"]) * float(dt),
+    )
+    if current_run_blend < target_run_blend:
+        current_run_blend = min(
+            target_run_blend, current_run_blend + profile_blend_step,
+        )
+    else:
+        current_run_blend = max(
+            target_run_blend, current_run_blend - profile_blend_step,
+        )
+    gait_state["run_blend"] = current_run_blend
+    gait_state["mode"] = "run" if running else "walk"
     gait_state["speed"] = actual_speed
     step_state = entity.setdefault("audio_step_state", {})
     step_state.setdefault("previous_world_position", old_world)
