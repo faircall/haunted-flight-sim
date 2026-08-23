@@ -1,3 +1,4 @@
+import copy
 import math
 import pickle
 import unittest
@@ -12,6 +13,122 @@ import g_ui
 class EnvironmentEditorDataTests(unittest.TestCase):
     def setUp(self):
         self.tile_map = {"tile_width": 16, "tile_height": 16}
+
+    def test_editor_defaults_to_place_tool(self):
+        self.assertEqual(g_editor.make_editor_state()["tool"], "place")
+
+    def test_radial_wheel_adjusts_selected_point_light(self):
+        entities = {}
+        kind, object_id = g_editor.create_environment_object(
+            entities, "point_light",
+            {"tile_x": 1, "tile_y": 2, "x": 3.0, "y": 4.0},
+        )
+        state = g_editor.make_editor_state()
+        state.update({"selected_kind": kind, "selected_id": object_id})
+        light = entities["lights"][object_id]
+
+        self.assertTrue(g_editor.adjust_selected_environment_radius(
+            entities, state, 1.0,
+        ))
+        self.assertEqual(light["radius"], 128.0)
+        self.assertTrue(g_editor.adjust_selected_environment_radius(
+            entities, state, -100.0,
+        ))
+        self.assertEqual(light["radius"], 4.0)
+
+    def test_radial_wheel_adjusts_sound_outer_radius_and_preserves_inner(self):
+        entities = {}
+        kind, object_id = g_editor.create_environment_object(
+            entities, "sound_emitter",
+            {"tile_x": 1, "tile_y": 2, "x": 3.0, "y": 4.0},
+        )
+        state = g_editor.make_editor_state()
+        state.update({"selected_kind": kind, "selected_id": object_id})
+        emitter = entities["sound_emitters"][object_id]
+
+        self.assertTrue(g_editor.adjust_selected_environment_radius(
+            entities, state, 1.0,
+        ))
+        self.assertEqual(emitter["maximum_distance"], 276.0)
+        self.assertTrue(g_editor.adjust_selected_environment_radius(
+            entities, state, -100.0,
+        ))
+        self.assertEqual(
+            emitter["maximum_distance"], emitter["minimum_distance"] + 1.0,
+        )
+
+    def test_radial_wheel_ignores_non_radial_selection(self):
+        entities = {}
+        kind, object_id = g_editor.create_environment_object(
+            entities, "fog_volume",
+            {"tile_x": 1, "tile_y": 2, "x": 3.0, "y": 4.0},
+        )
+        state = g_editor.make_editor_state()
+        state.update({"selected_kind": kind, "selected_id": object_id})
+        before = copy.deepcopy(entities["fog_volumes"][object_id])
+        self.assertFalse(g_editor.adjust_selected_environment_radius(
+            entities, state, 1.0,
+        ))
+        self.assertEqual(entities["fog_volumes"][object_id], before)
+
+    def test_control_wheel_world_input_consumes_and_adjusts_radius(self):
+        entities = {}
+        kind, object_id = g_editor.create_environment_object(
+            entities, "point_light",
+            {"tile_x": 1, "tile_y": 2, "x": 3.0, "y": 4.0},
+        )
+        state = g_editor.make_editor_state()
+        state.update({
+            "tool": "select", "selected_kind": kind,
+            "selected_id": object_id,
+        })
+        ui_state = {"mouse_captured": False, "focused_id": None}
+        camera = g_editor.pr.Vector2(0.0, 0.0)
+
+        with mock.patch.object(
+                g_ui, "get_mouse_position",
+                return_value=g_editor.pr.Vector2(10.0, 10.0)), \
+                mock.patch.object(g_editor.pr, "is_key_pressed", return_value=False), \
+                mock.patch.object(g_editor.pr, "is_mouse_button_pressed", return_value=False), \
+                mock.patch.object(g_editor.pr, "is_key_down", return_value=True), \
+                mock.patch.object(g_editor.pr, "get_mouse_wheel_move", return_value=1.0):
+            g_editor.update_environment_world(
+                entities, state, ui_state, camera, self.tile_map,
+            )
+
+        self.assertEqual(entities["lights"][object_id]["radius"], 128.0)
+        self.assertTrue(ui_state["mouse_captured"])
+
+    def test_place_mode_wheel_adjusts_preview_and_new_point_light(self):
+        entities = {}
+        state = g_editor.make_editor_state()
+        state["placement_type"] = "point_light"
+        self.assertTrue(g_editor.adjust_placement_preview_radius(state, 1.0))
+        self.assertEqual(
+            state["placement_radius_overrides"]["point_light"], 128.0,
+        )
+
+        kind, object_id = g_editor.create_environment_object(
+            entities, "point_light",
+            {"tile_x": 1, "tile_y": 2, "x": 3.0, "y": 4.0},
+        )
+        light = entities["lights"][object_id]
+        g_editor.apply_placement_radius_override(
+            state, "point_light", light,
+        )
+        self.assertEqual(kind, "light")
+        self.assertEqual(light["radius"], 128.0)
+
+    def test_place_radius_overrides_are_independent_per_type(self):
+        state = g_editor.make_editor_state()
+        state["placement_type"] = "point_light"
+        self.assertTrue(g_editor.adjust_placement_preview_radius(state, 1.0))
+        state["placement_type"] = "sound_emitter"
+        self.assertTrue(g_editor.adjust_placement_preview_radius(state, 1.0))
+        self.assertEqual(state["placement_radius_overrides"], {
+            "point_light": 128.0,
+            "sound_emitter": 276.0,
+        })
 
     def test_factories_return_fresh_nested_data(self):
         position = {"tile_x": 1, "tile_y": 2, "x": 3.0, "y": 4.0}

@@ -16,8 +16,9 @@ MOBILITY_OPTIONS = ("static", "dynamic")
 
 def make_editor_state():
     return {
-        "tool": "select",
+        "tool": "place",
         "placement_type": "point_light",
+        "placement_radius_overrides": {},
         "selected_kind": None,
         "selected_collection": None,
         "selected_id": None,
@@ -266,6 +267,89 @@ def get_selected_object(entities, editor_state):
         return None
 
     return entities.get(collection_name, {}).get(selected_id)
+
+def adjust_environment_object_radius(object_value, radial, wheel_amount):
+    try:
+        wheel_amount = float(wheel_amount)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+    if not math.isfinite(wheel_amount) or abs(wheel_amount) <= 0.000001:
+        return False
+
+    if not isinstance(object_value, dict) or not isinstance(radial, dict):
+        return False
+
+    field = radial.get("field")
+    if not isinstance(field, str) or field not in object_value:
+        return False
+    try:
+        current = float(object_value[field])
+        step = max(0.000001, float(radial.get("step", 8.0)))
+        minimum = float(radial.get("minimum", 0.0))
+        maximum = max(minimum, float(radial.get("maximum", 4000.0)))
+        minimum_field = radial.get("minimum_field")
+        if isinstance(minimum_field, str):
+            minimum = max(
+                minimum,
+                float(object_value.get(minimum_field, minimum))
+                + float(radial.get("minimum_gap", 0.0)),
+            )
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+    adjusted = max(minimum, min(maximum, current + wheel_amount * step))
+    if abs(adjusted - current) <= 0.000001:
+        return False
+    object_value[field] = adjusted
+    return True
+
+def adjust_selected_environment_radius(entities, editor_state, wheel_amount):
+    """Adjust the selected object's primary radial extent from editor input."""
+    selected = get_selected_object(entities, editor_state)
+    if selected is None:
+        return False
+    _registry_key, registry_entry = registry_entry_for_object(
+        editor_state.get("selected_kind"), selected,
+    )
+    radial = registry_entry.get("radial_wheel") if registry_entry else None
+    if not adjust_environment_object_radius(selected, radial, wheel_amount):
+        return False
+    if editor_state.get("selected_kind") == "sound_emitter":
+        g_audio.normalize_sound_emitter(selected)
+    return True
+
+def apply_placement_radius_override(editor_state, placement_type, object_value):
+    registry_entry = ENVIRONMENT_OBJECT_REGISTRY.get(placement_type, {})
+    radial = registry_entry.get("radial_wheel")
+    overrides = editor_state.setdefault("placement_radius_overrides", {})
+    if not isinstance(radial, dict) or placement_type not in overrides:
+        return object_value
+    field = radial.get("field")
+    if isinstance(field, str) and field in object_value:
+        object_value[field] = float(overrides[placement_type])
+        if registry_entry.get("selected_kind") == "sound_emitter":
+            g_audio.normalize_sound_emitter(object_value)
+    return object_value
+
+def adjust_placement_preview_radius(editor_state, wheel_amount):
+    placement_type = editor_state.get("placement_type", "point_light")
+    registry_entry = ENVIRONMENT_OBJECT_REGISTRY.get(placement_type, {})
+    radial = registry_entry.get("radial_wheel")
+    if not isinstance(radial, dict):
+        return False
+    preview = registry_entry["factory"]({
+        "tile_x": 0, "tile_y": 0, "x": 0.0, "y": 0.0,
+    })
+    apply_placement_radius_override(editor_state, placement_type, preview)
+    if not adjust_environment_object_radius(preview, radial, wheel_amount):
+        return False
+    if registry_entry.get("selected_kind") == "sound_emitter":
+        g_audio.normalize_sound_emitter(preview)
+    editor_state.setdefault("placement_radius_overrides", {})[
+        placement_type
+    ] = float(preview[radial["field"]])
+    return True
 
 def validate_selection(entities, editor_state):
     if get_selected_object(entities, editor_state) is None:
@@ -793,6 +877,7 @@ def draw_placement_preview(editor_state, game_camera, tile_map):
     world_position = snap_world_position(mouse_world_position(game_camera), editor_state)
     position = world_to_tile_position(world_position, tile_map)
     preview = ENVIRONMENT_OBJECT_REGISTRY[placement_type]["factory"](position)
+    apply_placement_radius_override(editor_state, placement_type, preview)
 
     ENVIRONMENT_OBJECT_REGISTRY[placement_type]["handles"]("new", preview, game_camera, tile_map, True)
 
@@ -818,11 +903,33 @@ def update_environment_world(entities, editor_state, ui_state, game_camera, tile
     if ui_state.get("mouse_captured"):
         return
 
+    control_down = (
+        pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL)
+        or pr.is_key_down(pr.KeyboardKey.KEY_RIGHT_CONTROL)
+    )
+    if control_down and ui_state.get("focused_id") is None:
+        wheel_amount = pr.get_mouse_wheel_move()
+        adjusted = (
+            adjust_placement_preview_radius(editor_state, wheel_amount)
+            if editor_state.get("tool") == "place"
+            else adjust_selected_environment_radius(
+                entities, editor_state, wheel_amount,
+            )
+        )
+        if adjusted:
+            ui_state["mouse_captured"] = True
+            return
+
     if editor_state.get("tool") == "place":
         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
             placement_type = editor_state.get("placement_type", "point_light")
             snapped_world = snap_world_position(mouse_world, editor_state)
             kind, object_id = create_environment_object(entities, placement_type, world_to_tile_position(snapped_world, tile_map))
+            registry_entry = ENVIRONMENT_OBJECT_REGISTRY[placement_type]
+            apply_placement_radius_override(
+                editor_state, placement_type,
+                entities[registry_entry["target_collection"]][object_id],
+            )
             editor_state["selected_kind"] = kind
             editor_state["selected_id"] = object_id
             editor_state["inspector_tab"] = "object"
@@ -1048,7 +1155,7 @@ def update_editor_shortcuts(entities, editor_state, ui_state, tile_map):
 def draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map):
     pr.draw_rectangle(0, 0, 480, 38, g_ui.UI_BACKGROUND)
     editor_mode, _ = g_ui.ui_dropdown(ui_state, "toolbar:mode", "", editor_mode, EDITOR_MODES, pr.Rectangle(2, 2, 78, 16), 4)
-    editor_state["tool"], _ = g_ui.ui_dropdown(ui_state, "toolbar:tool", "", editor_state.get("tool", "select"), EDITOR_TOOLS, pr.Rectangle(82, 2, 66, 16), 2)
+    editor_state["tool"], _ = g_ui.ui_dropdown(ui_state, "toolbar:tool", "", editor_state.get("tool", "place"), EDITOR_TOOLS, pr.Rectangle(82, 2, 66, 16), 2)
 
     if editor_mode == "environment":
         editor_state["placement_type"], _ = g_ui.ui_dropdown(ui_state, "toolbar:placement", "", editor_state.get("placement_type", "point_light"), get_environment_placement_types(), pr.Rectangle(150, 2, 98, 16), 8)
@@ -1064,7 +1171,7 @@ def draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
             delete_selected_environment_object(entities, editor_state)
 
     if pr.is_key_down(pr.KeyboardKey.KEY_H):
-        g_ui.ui_label(ui_state, "toolbar:hint", "Q select  P place  Ctrl+D duplicate  Del delete", pr.Rectangle(4, 22, 310, 12), g_ui.UI_MUTED, 8)
+        g_ui.ui_label(ui_state, "toolbar:hint", "Q select  P place  Ctrl+wheel radius  Ctrl+D duplicate  Del delete", pr.Rectangle(4, 22, 390, 12), g_ui.UI_MUTED, 8)
     return editor_mode
 
 def edit_world_position(ui_state, widget_id, value, tile_map):
@@ -1693,7 +1800,11 @@ ENVIRONMENT_OBJECT_REGISTRY = {
         "hit_priority": 1,
         "handles": draw_light_handles,
         "handle_hit_test": get_drag_handle,
-        "manipulate": apply_environment_drag
+        "manipulate": apply_environment_drag,
+        "radial_wheel": {
+            "field": "radius", "step": 8.0,
+            "minimum": 4.0, "maximum": 2000.0,
+        },
     },
     "spot_light": {
         "target_collection": "lights",
@@ -1709,7 +1820,11 @@ ENVIRONMENT_OBJECT_REGISTRY = {
         "hit_priority": 1,
         "handles": draw_light_handles,
         "handle_hit_test": get_drag_handle,
-        "manipulate": apply_environment_drag
+        "manipulate": apply_environment_drag,
+        "radial_wheel": {
+            "field": "radius", "step": 8.0,
+            "minimum": 4.0, "maximum": 2000.0,
+        },
     },
     "top_down_light": {
         "target_collection": "lights",
@@ -1772,7 +1887,12 @@ ENVIRONMENT_OBJECT_REGISTRY = {
         "inspector": inspect_sound_emitter,
         "hit_test": hit_test_sound_emitter, "hit_priority": 2,
         "handles": draw_sound_emitter_handles,
-        "handle_hit_test": get_drag_handle, "manipulate": apply_environment_drag
+        "handle_hit_test": get_drag_handle, "manipulate": apply_environment_drag,
+        "radial_wheel": {
+            "field": "maximum_distance", "step": 16.0,
+            "minimum": 1.0, "maximum": 4000.0,
+            "minimum_field": "minimum_distance", "minimum_gap": 1.0,
+        },
     },
 }
 
