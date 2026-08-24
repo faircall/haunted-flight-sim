@@ -28,7 +28,7 @@ PLAYER_CUTOUT_RIG_DEFAULTS = {
     # pixel higher in the right-facing source pose; X mirrors when facing left.
     "hip": {"x": 16.0, "y": 22.0},
     "near_hip": {"x": 16.0, "y": 22.0},
-    "far_hip": {"x": 15.0, "y": 21.0},
+    "far_hip": {"x": 15.0, "y": 22.0},
     "knee": {"x": 16.0, "y": 26.0},
     "neck": {"x": 16.0, "y": 10.0},
     "far_leg_tint": [190, 190, 205, 255],
@@ -44,7 +44,7 @@ PLAYER_CUTOUT_GAIT_PROFILES = {
     "walk": [
         # Contact, passing, opposite contact, recovery.
         {"near_upper_leg_degrees": 24.0, "near_knee_bend_degrees": 0.0,
-         "far_upper_leg_degrees": -26.0, "far_knee_bend_degrees": 0.0,
+         "far_upper_leg_degrees": -26.0, "far_knee_bend_degrees": 10.0,
          "near_upper_arm_degrees": -15.0, "near_elbow_bend_degrees": 18.0,
          "far_upper_arm_degrees": 12.0, "far_elbow_bend_degrees": 24.0,
          "body_y_pixels": 0.0, "torso_degrees": 0.5},
@@ -58,7 +58,7 @@ PLAYER_CUTOUT_GAIT_PROFILES = {
          "near_upper_arm_degrees": 15.0, "near_elbow_bend_degrees": 18.0,
          "far_upper_arm_degrees": -11.0, "far_elbow_bend_degrees": 20.0,
          "body_y_pixels": 0.0, "torso_degrees": 0.5},
-        {"near_upper_leg_degrees": 0.0, "near_knee_bend_degrees": 34.0,
+        {"near_upper_leg_degrees": 0.0, "near_knee_bend_degrees": -10.0,
          "far_upper_leg_degrees": 7.0, "far_knee_bend_degrees": 24.0,
          "near_upper_arm_degrees": 4.0, "near_elbow_bend_degrees": 28.0,
          "far_upper_arm_degrees": -6.0, "far_elbow_bend_degrees": 28.0,
@@ -69,7 +69,7 @@ PLAYER_CUTOUT_GAIT_PROFILES = {
         {"near_upper_leg_degrees": 65.0, "near_knee_bend_degrees": 60.0,
          "far_upper_leg_degrees": -26.0, "far_knee_bend_degrees": 24.0,
          "near_upper_arm_degrees": -38.0, "near_elbow_bend_degrees": 90.0,
-         "far_upper_arm_degrees": 42.0, "far_elbow_bend_degrees": 42.0,
+         "far_upper_arm_degrees": 42.0, "far_elbow_bend_degrees": 0.0,
          "body_y_pixels": 0.0, "torso_degrees": 1.0},
         {"near_upper_leg_degrees": -4.0, "near_knee_bend_degrees": 58.0,
          "far_upper_leg_degrees": 12.0, "far_knee_bend_degrees": 52.0,
