@@ -12,11 +12,44 @@ from pyrsistent import m, pmap, v
 
 import cyminiaudio as cma
 
+import g_graphics
+import g_editor
+import g_render_order
+import g_ui
+
 
 
 
 
 from dataclasses import dataclass, field
+
+INV_SQRT_2 = 1.0 / math.sqrt(2.0)
+
+g_tile_shape_normals = {
+    1: {
+        "x": INV_SQRT_2,
+        "y": INV_SQRT_2,
+    },
+    2: {
+        "x": -INV_SQRT_2,
+        "y": INV_SQRT_2,
+    },
+    3: {
+        "x": -INV_SQRT_2,
+        "y": -INV_SQRT_2,
+    },
+    4: {
+        "x": INV_SQRT_2,
+        "y": -INV_SQRT_2,
+    },
+}
+
+g_sound_list_per_frame = []
+
+
+g_last_interacted_ui_id = -1
+g_interacted_ui_last_frame = False
+g_interacted_ui_this_frame = False
 
 g_default_entity_width = 16
 g_default_entity_height = 16
@@ -25,23 +58,40 @@ g_test_see_through_walls = False
 
 g_infinite_ammo = True
 
+g_mute = False
+
+g_editor_sounds = True
+
 g_mouse_is_ui_captured = False
-g_mouse_is_ui_captured_frames = 0
+
+g_tile_collision_shapes = [
+    "full",
+    "triangle_top_left",
+    "triangle_top_right",
+    "triangle_bottom_right",
+    "triangle_bottom_left",
+]
 
 @dataclass(order=True)
 class PriorityQueueEntry:
     priority: float
     tile: dict = field(compare=False)
 
+def mouse_pos_world_from_lowres():
+    internal_width = 480 # TODO move these into params
+    internal_height = 270
+
+    mouse_pos = pr.get_mouse_position()
+
+    norm_pos_x = mouse_pos.x / pr.get_screen_width()
+    norm_pos_y = mouse_pos.y / pr.get_screen_height()
+
+    internal_x = internal_width * norm_pos_x
+    internal_y = internal_height * norm_pos_y
+    return {"x": internal_x, "y" : internal_y}
 
 
-def draw_variable_state(name, state, posx, posy, size, color):
-    on_off = "off"
-    if state:
-        on_off = "on"        
-    message = f"{name} is {on_off}"
-    pr.draw_text(message, posx, posy, size, color)
-    print(message)
+
 
 def get_or_set(arena, variable_name, default_value):
     if variable_name in arena:
@@ -68,6 +118,76 @@ def get_or_invoke_args(arena, variable_name, default_func, args):
 def normalized_sin(t):
     return 0.5 *math.sin(t) + 0.5
 
+def point_inside_tile_shape(shape_index, local_x, local_y, tile_width, tile_height):
+    if shape_index == 0:
+        return True
+
+    u = local_x / tile_width
+    v = local_y / tile_height
+
+    epsilon = 0.000001
+
+    if shape_index == 1:
+        # triangle top left
+        return u + v < 1.0 - epsilon
+
+    if shape_index == 2:
+        # triangle top right
+        return v < u - epsilon
+
+    if shape_index == 3:
+        # triangle bottom right
+        return u + v > 1.0 + epsilon
+
+    if shape_index == 4:
+        # triangle bottom left
+        return v > u + epsilon
+
+    # fail safe
+    return True
+
+def get_tile_shape_collision(position, tile_map):
+    tile_x = position.get("tile_x", 0)
+    tile_y = position.get("tile_y", 0)
+
+    if tile_not_in_bounds(tile_x, tile_y, tile_map):
+        return {
+            "collides": True,
+            "shape_index": 0,
+            "normal": None,
+        }
+
+    tile_index = (tile_y * tile_map["map_width"] + tile_x)
+
+    tile = tile_map["tiles"][tile_index]
+    tile_type = tile_map["tile_types"][tile.get("index", 0)]
+
+    if not tile_type_is_collidable(tile_type.get("type", "")):
+        return {
+            "collides": False,
+            "shape_index": None,
+            "normal": None,
+        }
+
+    shape_index = tile.get("shape_index", 0)
+
+    collides = point_inside_tile_shape(shape_index, position.get("x", 0), position.get("y", 0), tile_map["tile_width"], tile_map["tile_height"])
+
+    normal = g_tile_shape_normals.get(shape_index)
+
+    return {
+        "collides": collides,
+        "shape_index": shape_index,
+        "normal": normal,
+        "tile": tile,
+    }
+
+def position_collides_within_tile_shape(position, tile_map):
+    collision = get_tile_shape_collision(position, tile_map)
+
+    return collision["collides"]
+
+
 def make_tile_map(width, height, tile_width, tile_height):
     # to be able to serialize this we should change the types here
     result = {}
@@ -75,6 +195,7 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["map_height"] = height
     result["tile_width"] = tile_width
     result["tile_height"] = tile_height    
+    result["geometry_revision"] = 0
     result["tile_types"] = [{"type" : "blank_tile", "color" : "BLACK"}, 
                             {"type" : "carpet", "color" : "BLUE"}, 
                             {"type" : "door", "color" : "RED"}, 
@@ -98,40 +219,10 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["tiles"] = tiles
     return result
 
-def draw_screen_boundary_rect(rect, off_color, on_color, button_states, button_id, mouse_pos, dt, mouse_move_speed, max_mouse_speed):
-    if not button_states.get("use_mouse_screen_navigation"):
-        return
+def mark_tile_map_geometry_dirty(tile_map):
+    tile_map["geometry_revision"] = int(tile_map.get("geometry_revision", 0)) + 1
+    return tile_map["geometry_revision"]
 
-    color_to_draw = off_color
-    
-    mouse_collides = False
-    if button_id not in button_states:
-        button_states[button_id] = {}        
-        button_states[button_id]["velocity"] = pr.Vector2(0, 0)
-        button_states[button_id]["state"] = "off"
-    
-    if pr.check_collision_point_rec(mouse_pos, rect):
-        button_states[button_id]["state"] = "on"
-        mouse_collides = True
-        color_to_draw = on_color
-        button_states[button_id]["state"] = "on"
-        if button_id == "upper":
-            button_states[button_id]["velocity"].y -= dt * mouse_move_speed
-        elif button_id == "lower":
-            button_states[button_id]["velocity"].y += dt * mouse_move_speed
-        if button_id == "left":
-            button_states[button_id]["velocity"].x -= dt * mouse_move_speed
-        if button_id == "right":
-            button_states[button_id]["velocity"].x += dt * mouse_move_speed
-        
-        button_states[button_id]["velocity"].x = min(button_states[button_id]["velocity"].x, max_mouse_speed)
-        button_states[button_id]["velocity"].y = min(button_states[button_id]["velocity"].y, max_mouse_speed)
-    else:
-        button_states[button_id]["velocity"].x = 0
-        button_states[button_id]["velocity"].y = 0
-
-    pr.draw_rectangle_rec(rect, color_to_draw)
-    return mouse_collides
 
 
 def color_map(color_enum):
@@ -147,36 +238,54 @@ def color_map(color_enum):
     }
     return lookup.get(color_enum, pr.WHITE)
 
-def draw_tile_texture_from_type(game_assets, tile_type, x, y):
+def draw_tile_texture_from_type(game_assets, tile_type, x, y, shape_index = 0):
+    textures = game_assets.get("textures",{})
+    texture = None    
     if tile_type.get("type") == "wood":                
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), pr.Vector2((x), (y)), 0.0, 2, pr.WHITE)
+        texture = textures["wood_texture"]        
     elif tile_type.get("type") == "wall":                
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+        texture = textures["wall_texture"]        
     elif tile_type.get("type") == "stone":                
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+        texture = textures["grey_tile_texture"]        
     elif tile_type.get("type") == "carpet":  #change to other tile               
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), pr.Vector2((x), (y)), 0.0, 1, pr.WHITE)
+        texture = textures["orange_tile_texture"]
+    if texture is not None:
+        draw_masked_tile_texture(texture, pr.Vector2(x, y), shape_index, game_assets)
+        
     
-def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen):    
+def do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True):
+    initial_seen_count = len(seen)
+
     if (x,y) in seen or x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] == current_tile_selection):
         return
     
     seen[(x,y)] = True
     tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection
-    do_flood_fill(current_tile_selection, x, y+1, tile_map, map_width, seen)    
-    do_flood_fill(current_tile_selection, x, y-1, tile_map, map_width, seen)    
-    do_flood_fill(current_tile_selection, x+1, y, tile_map, map_width, seen)        
-    do_flood_fill(current_tile_selection, x-1, y, tile_map, map_width, seen)    
+    do_flood_fill(current_tile_selection, x, y+1, tile_map, map_width, seen, False)
+    do_flood_fill(current_tile_selection, x, y-1, tile_map, map_width, seen, False)
+    do_flood_fill(current_tile_selection, x+1, y, tile_map, map_width, seen, False)
+    do_flood_fill(current_tile_selection, x-1, y, tile_map, map_width, seen, False)
 
-def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen):    
+    if mark_revision and len(seen) > initial_seen_count:
+        mark_tile_map_geometry_dirty(tile_map)
+
+def do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen, mark_revision=True):
+    initial_seen_count = len(seen)
+
+    if mark_revision and initial == current_tile_selection:
+        return
+
     if x < 0 or y < 0 or x >= map_width or y >= tile_map.get("map_height",0) or (tile_map["tiles"][y*map_width + x]["index"] != initial) or (x,y) in seen:
         return
     seen[(x,y)] = True
     tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection
-    do_flood_fill_replace(initial, current_tile_selection, x, y+1, tile_map, map_width, seen)    
-    do_flood_fill_replace(initial, current_tile_selection, x, y-1, tile_map, map_width, seen)    
-    do_flood_fill_replace(initial, current_tile_selection, x+1, y, tile_map, map_width, seen)        
-    do_flood_fill_replace(initial, current_tile_selection, x-1, y, tile_map, map_width, seen)    
+    do_flood_fill_replace(initial, current_tile_selection, x, y+1, tile_map, map_width, seen, False)
+    do_flood_fill_replace(initial, current_tile_selection, x, y-1, tile_map, map_width, seen, False)
+    do_flood_fill_replace(initial, current_tile_selection, x+1, y, tile_map, map_width, seen, False)
+    do_flood_fill_replace(initial, current_tile_selection, x-1, y, tile_map, map_width, seen, False)
+
+    if mark_revision and len(seen) > initial_seen_count:
+        mark_tile_map_geometry_dirty(tile_map)
 
         
         
@@ -228,7 +337,8 @@ def a_star_path(start_tile, target_tile, tile_map):
 
         if current.get("neighbours") is None:
             print("well damn")
-        for next_tile in current.get("neighbours"):
+        for next_tile in filter_invalid_neighbours(current.get("neighbours"), tile_map):
+        # for next_tile in current.get("neighbours").values():
             # need to deref via the tile map actually
             next_tile_from_map = tile_map.get("tiles")[tile_map.get("map_width")*next_tile.get("tile_y") + next_tile.get("tile_x") ]
             # if next_tile_from_map.get("neighbours") is None:
@@ -246,6 +356,44 @@ def a_star_path(start_tile, target_tile, tile_map):
     # i guess we want the reconstruct function
     return came_from
 
+def filter_invalid_neighbours(current_neighbours, tile_map):
+    # provide a version that 'disallows' diagonal movement 
+    # appropriately (no diagonals if they have tiles on 'sides'
+    result = []
+
+
+    #tileH tileA tileB
+    #tileG tile  tileC
+    #tileF tileE tileD
+
+    # TODO zzz pickup here
+
+    removal_pairs = [
+        ("A", "H"),
+        ("G", "H"),        
+        ("A", "B"),
+        ("C", "B"),
+        ("G", "F"),
+        ("E", "F"),
+        ("C", "D"),
+        ("E", "D")
+    ]
+
+    to_remove = set()
+
+    for pair in removal_pairs:
+        candidate = pair[0]
+        problem_tile = pair[1]
+        if candidate in current_neighbours:
+            tile_type = get_tile_type_from_indices(current_neighbours[candidate]["tile_x"], current_neighbours[candidate]["tile_y"], tile_map)
+            if tile_type_is_collidable(tile_type.get("type","")):
+                to_remove.add(problem_tile)    
+
+    for key, tile in current_neighbours.items():        
+        if key not in to_remove:
+            result.append(tile)
+    return result
+    
 def reconstruct_path(came_from, target, origin):
     next = target
     result = []
@@ -259,13 +407,33 @@ def reconstruct_path(came_from, target, origin):
 
 
     
+
+def tile_not_in_bounds(tile_x, tile_y, tile_map):
+    return (tile_x < 0 or tile_y < 0 or tile_x >= tile_map["map_width"] or tile_y >= tile_map["map_height"])
+
+def tile_in_bounds(tile_x, tile_y, tile_map):
+    return not tile_not_in_bounds(tile_x, tile_y, tile_map)
+
+def draw_masked_tile_texture(texture, render_pos, shape_index, game_assets, scale=1.0):
+    tile_mask = game_assets["shaders"]["tile_mask"]
+    shader = tile_mask["shader"]
+    shape_index_location = tile_mask["shape_index_location"]
+
+    shape_index_ptr = pr.ffi.new("int *", shape_index)
+
+    pr.set_shader_value(shader, shape_index_location, shape_index_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_INT)
+
+    pr.begin_shader_mode(shader)
+    pr.draw_texture_ex(texture, render_pos, 0.0, scale, pr.WHITE)
+    pr.end_shader_mode()
     
 
-
-def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, game_assets, ignore, player_entity, mode, debug_queue):
+def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, draw_tiles, draw_entities):
     # Todo:
     # tiles are tiles,
     # items are items, they can sit on top of tiles
+    game_camera_x = (game_camera.x)
+    game_camera_y = (game_camera.y)
     player_pos = player_entity.get("position",{})
     if ignore:
         return
@@ -276,61 +444,82 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
     
+    internal_res_x = 1920
+    internal_res_y = 1080
 
-    visible_tiles_across = int(1920 / tile_width)
-    visible_tiles_down = int(1080 / tile_width)
-
-    mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera.x)/tile_width), int((mouse_pos_world.y + game_camera.y)/tile_height))
-
-    mouse_tile_pos_offset_x = (mouse_pos_world.x + game_camera.x) - mouse_tile_pos.x*tile_width
-    mouse_tile_pos_offset_y = (mouse_pos_world.y + game_camera.y) - mouse_tile_pos.y*tile_height
+    if mode == "play":
+        internal_res_x = 480
+        internal_res_y = 270
 
 
+    visible_tiles_across = int(internal_res_x / tile_width)
+    visible_tiles_down = int(internal_res_y / tile_height)
 
-    top_left_pos = pr.Vector2(int(game_camera.x/tile_width), int(game_camera.y/tile_height))    
+    mouse_tile_pos = pr.Vector2(int((mouse_pos_world.x + game_camera_x)/tile_width), int((mouse_pos_world.y + game_camera_y)/tile_height))
+
+    mouse_tile_pos_offset_x = (mouse_pos_world.x + game_camera_x) - mouse_tile_pos.x*tile_width
+    mouse_tile_pos_offset_y = (mouse_pos_world.y + game_camera_y) - mouse_tile_pos.y*tile_height
+
+
+
+    top_left_pos = pr.Vector2(int(game_camera_x/tile_width), int(game_camera_y/tile_height))    
     
     # let's try be slightly quicker about this!
     # we could think about where the camera *is*
     # and just draw the ones around that..?    
 
-    tile_select_modes = {"editing", "entity_placing"}
+    tile_select_modes = {"tile", "entity", "environment"}
+    tile_rows = range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)) if draw_tiles else ()
 
-    for y in range(int(top_left_pos.y), int(top_left_pos.y + visible_tiles_down+2)):
+    for y in tile_rows:
         for x in range(int(top_left_pos.x), int(top_left_pos.x + visible_tiles_across+1)):
+
+            if x < 0 or x >= map_width or y < 0 or y >= map_height:
+                continue
 
             index = min(y*map_width + x, len(tile_map["tiles"])-1)
             tile_to_draw = tile_map["tiles"][index]
             is_highlight = False
             tile_index = tile_to_draw.get("index",0)
+            shape_index = tile_to_draw.get("shape_index",0)
+            shape_to_draw = g_tile_collision_shapes[shape_index]
             color_to_draw = tile_map["tile_types"][tile_index].get("color")
             tile_color = color_map(color_to_draw)
             
             tile_type = tile_map["tile_types"][tile_index]
 
-            if mode == "editing":
+            if mode in tile_select_modes and x == mouse_tile_pos.x and y == mouse_tile_pos.y:
+                is_highlight = True
+
+            if mode == "tile":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
-                    is_highlight = True
+                    
                     # if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
                     #     # do a flood fill
                     #     seen = {}
                     #     do_flood_fill(current_tile_selection, x, y, tile_map, map_width, seen)
 
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                         # do a flood fill
                         # get the initial tile
                         initial = tile_map["tiles"][y*map_width + x]["index"]
                         seen = {}
-                        do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen)
+                        if initial != current_tile_selection:
+                            do_flood_fill_replace(initial, current_tile_selection, x, y, tile_map, map_width, seen)
 
-                    if interactive_mouse_left_down():
-                        tile_map["tiles"][y*map_width + x]["index"] = current_tile_selection                    
+                    if g_ui.interactive_mouse_left_down():
+                        edited_tile = tile_map["tiles"][y*map_width + x]
+                        if edited_tile.get("index", 0) != current_tile_selection or edited_tile.get("shape_index", 0) != current_shape_selection:
+                            edited_tile["index"] = current_tile_selection
+                            edited_tile["shape_index"] = current_shape_selection
+                            mark_tile_map_geometry_dirty(tile_map)
                             
-                pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+                pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
-            if mode == "entity_placing":
+            if mode == "entity":
                 if x == mouse_tile_pos.x and y == mouse_tile_pos.y:
-                    is_highlight = True
-                    if interactive_mouse_left_pressed():
+                    
+                    if g_ui.interactive_mouse_left_pressed():
                         new_entity = {}
                         entity_types = game_assets.get("entity_types", [])
                         if current_entity_selection < len(entity_types):
@@ -363,26 +552,26 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                             new_entity["id"] = id                            
                             entities["pickups"][id] = new_entity
 
-                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
+                    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                         latest_id = max(len(entities) - 1,0)
                         if latest_id in entities:
                             del entities[latest_id]
 
                     
                             
-                pr.draw_rectangle(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, tile_color)
+                pr.draw_rectangle(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, tile_color)
 
-            render_pos = pr.Vector2((x*tile_width - game_camera.x), (y*tile_height - game_camera.y))
+            render_pos = pr.Vector2((x*tile_width - game_camera_x), (y*tile_height - game_camera_y))
             if tile_type.get("type") == "wood":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wood_texture"), render_pos, 0.0, 2, pr.WHITE)
-            elif tile_type.get("type") == "wall":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("wall_texture"), render_pos, 0.0, 1, pr.WHITE)
+                draw_masked_tile_texture(game_assets.get("textures",{}).get("wood_texture"), render_pos, shape_index, game_assets)
+            elif tile_type.get("type") == "wall":                                                
+                draw_masked_tile_texture(game_assets.get("textures",{}).get("wall_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "stone":                
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
+                draw_masked_tile_texture(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "carpet":  #change to other tile               
-                pr.draw_texture_ex(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, 0.0, 1, pr.WHITE)
+                draw_masked_tile_texture(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, shape_index, game_assets)
             if is_highlight:
-                pr.draw_rectangle_lines(int(x*tile_width - game_camera.x), int(y*tile_height - game_camera.y), tile_width, tile_height, pr.WHITE)
+                pr.draw_rectangle_lines(int(x*tile_width - game_camera_x), int(y*tile_height - game_camera_y), tile_width, tile_height, pr.WHITE)
 
             if "decals" in tile_to_draw:
                 for decal in tile_to_draw["decals"]:
@@ -392,47 +581,8 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
                         pr.draw_circle(int(render_pos_x), int(render_pos_y), decal.get("size",5), pr.RED)
 
 
-    # draw the player also
-
-    # make this a draw entity function
-    player_render_pos = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16)    
-
-    player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
-    
-    if "aim_direction" not in player_entity:
-        player_entity["aim_direction"] = {"x" : 0, "y" : 0}
-    gun_pos = vec2_add_any(player_render_pos_center, player_entity.get("aim_direction", {"x" : 0, "y" : 0}))
-    if player_entity.get("aim_direction", {"x" : 0, "y" : 0}).get("x") < 0:
-        updated_gun_pos = vec2_add(vec2_scale(vec2_normalize(player_entity.get("aim_direction")), 8), gun_pos)        
-        gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
-    else:
-        gun_pos = pr.Vector2(gun_pos["x"], gun_pos["y"])
-
-    gun_angle = angle_from_vector(player_entity.get("aim_direction")) - 180 # some bs here
-
-    #pr.draw_texture_ex(game_assets.get("textures",{}).get("blue_oxford_texture"), player_render_pos, 0.0, 2, pr.WHITE)    
-
-    oxford_frame_key =  player_entity.get("animation_frame", 0)   
-    oxford_frame_number = game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get(oxford_frame_key, 0)
-    oxford_dest_rect = pr.Rectangle(int(player_render_pos.x), int(player_render_pos.y), 32*2, 32*2) # these 32s are in the thing actually
-    oxford_source_rect = pr.Rectangle(oxford_frame_number*32, 0, 32, 32) # these 32s are in the thing actually
-    pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("blue_oxford_texture_sheet",{}).get("sheet"), oxford_source_rect, oxford_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
-    pr.draw_line(int(player_render_pos_center.x), int(player_render_pos_center.y), int(gun_pos.x), int(gun_pos.y), pr.WHITE)
-    
-    
-    if player_entity.get("aim_direction").get("x") < 0:
-        # zzz super slight bug here where it's drawing at the start and not accounting for the flip
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture_flipped"), updated_gun_pos, gun_angle + 180, 1, pr.WHITE)    
-    else:
-        pr.draw_texture_ex(game_assets.get("textures",{}).get("pistol_texture"), gun_pos, gun_angle, 1, pr.WHITE)    
-
-    # HERE also draw reload status I think
-    
-
-    # and a dot at his center for debug purposes
-    # entity_width_that_i_am_using = 16
-    # entity_height_that_i_am_using = 16
-    # pr.draw_circle(int(player_pos["x"] + entity_width_that_i_am_using  - game_camera.x), int(player_pos["y"] + entity_height_that_i_am_using - game_camera.y), 5, pr.RED)
+    if not draw_entities:
+        return
 
     if "projectiles" not in entities:
         entities["projectiles"] = {}
@@ -447,117 +597,164 @@ def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, cur
         if key == "taken":
             continue
         for particle in particle_system["particles"]:
-            render_pos_x = tile_width * particle.get("position",{}).get("tile_x",0) + particle.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * particle.get("position",{}).get("tile_y",0) + particle.get("position",{}).get("y",0) - game_camera.y
+            render_pos_x = tile_width * particle.get("position",{}).get("tile_x",0) + particle.get("position",{}).get("x",0) - game_camera_x
+            render_pos_y = tile_height * particle.get("position",{}).get("tile_y",0) + particle.get("position",{}).get("y",0) - game_camera_y
             pr.draw_circle(int(render_pos_x), int(render_pos_y), particle.get("size",5), pr.RED)
     
 
     for entity in entities["projectiles"].values():        
         if entity.get("type","") == "bullet":
-            render_x = entity["position"]["x"] - game_camera.x
-            render_y = entity["position"]["y"] - game_camera.y
-            pr.draw_rectangle(int(render_x), int(render_y), 4, 4, pr.BROWN)            
+            render_x = entity["position"]["x"] - game_camera_x
+            render_y = entity["position"]["y"] - game_camera_y
+            pr.draw_rectangle(int(render_x), int(render_y), 1, 1, pr.BROWN)            
     for entity in entities["pickups"].values():        
         if entity.get("type","") == "pistol_ammo_pickup":
             texture_scale = 3
             texture_to_use = game_assets.get("textures",{}).get("pistol_ammo_pickup_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y
             texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
             texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
         elif entity.get("type","") == "health_pickup":
             texture_scale = 3
             texture_to_use = game_assets.get("textures",{}).get("health_pickup_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
+            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x
+            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y
             texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
             texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
             pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)            
-    for entity in entities["brains"].values():        
+    for entity in entities["brains"].values():
+        g_graphics.ensure_default_cinematic_shadow(entity)
+
         if entity.get("type","") == "buddha":
-            texture_scale = 1
-            texture_to_use = game_assets.get("textures",{}).get("buddha_texture")
-            render_pos_x = tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x
-            render_pos_y = tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y
-            texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
-            texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
-            pr.draw_texture_ex(texture_to_use, pr.Vector2(texture_x, texture_y), 0.0, texture_scale, pr.WHITE)
+            continue
         elif entity.get("type","") == "red head":
-            entity_frame_key =  entity.get("animation_frame", 0)   
-            entity_frame_number = game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get(entity_frame_key, 0) 
-            
-            texture_to_use = game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet")
-            texture_scale = 2
-            render_pos_x = int(tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera.x)
-            render_pos_y = int(tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera.y)
-
-
+            render_pos_x = int(tile_width * entity.get("position",{}).get("tile_x",0) + entity.get("position",{}).get("x",0) - game_camera_x)
+            render_pos_y = int(tile_height * entity.get("position",{}).get("tile_y",0) + entity.get("position",{}).get("y",0) - game_camera_y)
 
             texture_x = render_pos_x - 24
             texture_y = render_pos_y - 24            
-            debug_str = f"angle is {entity.get("sight_angle",0)}"
+            debug_str = f"angle is {round(entity.get("sight_angle",0))}"
             if debug_queue is not None:
                 debug_item = {
                     "type" : "text",
                     "drawing_function" : draw_debug_text,
                     "pos" : {"x" : render_pos_x, "y" : render_pos_y-10},                                        
-                    "font_size" : 16,
+                    "font_size" : 8,
                     "text" : debug_str,
                     "color" : "WHITE",
                     "z_sort" : 0,                    
+                    "debug_modes" : ["entity_states", "player_debug"]
                 }
                 debug_queue.append(debug_item)
-            
-            # texture_x = (render_pos_x) - (texture_to_use.width*texture_scale) / 2
-            # texture_y = (render_pos_y) - (texture_to_use.height*texture_scale) / 2            
-            
-
-            # entity_dest_rect = pr.Rectangle(int(render_pos_x), int(render_pos_y), 24*2, 24*2) 
-            entity_dest_rect = pr.Rectangle(int(texture_x), int(texture_y), 24*2, 24*2) 
-            entity_source_rect = pr.Rectangle(entity_frame_number*24, 0, 24, 24) 
-            pr.draw_texture_pro(game_assets.get("sprite_sheets",{}).get("red_head_texture_sheet",{}).get("sheet"), entity_source_rect, entity_dest_rect, pr.Vector2(0,0), 0, pr.WHITE)
 
             # also put some debut stuff here for the attack
-            pr.draw_text(f"{entity.get("current_state","")}", texture_x, texture_y - 40, 10, pr.WHITE)
-            pr.draw_text(f"{entity.get("attack_substate","")}", texture_x, texture_y - 60, 10, pr.WHITE)
+            if debug_queue is not None:
+                pr.draw_text(f"{entity.get("current_state","")}", texture_x, texture_y - 40, 10, pr.WHITE)
+                pr.draw_text(f"{entity.get("attack_substate","")}", texture_x, texture_y - 60, 10, pr.WHITE)
             if entity.get("current_state","") == "angry and attacking":
                 attack_point = entity.get("attack_point", {"x" : 0, "y" :0})
                 attack_timer = round(entity["attack_timer"], 2)
                 attack_cooldown = entity["attack_cooldown"]
                 attack_windup = entity["attack_windup_duration"]
                 if entity.get("attack_substate","") == "windup" or entity.get("attack_substate","") == "committed":
-                    pr.draw_text(f"{attack_timer}/{attack_windup} windup...", texture_x, texture_y - 20, 10, pr.WHITE)
-                    pr.draw_circle(int(attack_point["x"] - game_camera.x), int(attack_point["y"] - game_camera.y), 10, pr.YELLOW)
+                    if debug_queue is not None:
+                        pr.draw_text(f"{attack_timer}/{attack_windup} windup...", texture_x, texture_y - 20, 10, pr.WHITE)
+                    pr.draw_circle(int(attack_point["x"] - game_camera_x), int(attack_point["y"] - game_camera_y), 10, pr.YELLOW)
                 elif entity.get("attack_substate","") == "attacking":
                     
-                    pr.draw_circle(int(attack_point["x"] - game_camera.x), int(attack_point["y"] - game_camera.y), 10, pr.RED)
-                    pr.draw_text(f"BAM {attack_timer}/{attack_cooldown}", texture_x, texture_y - 20, 10, pr.RED)
+                    pr.draw_circle(int(attack_point["x"] - game_camera_x), int(attack_point["y"] - game_camera_y), 10, pr.RED)
+                    if debug_queue is not None:
+                        pr.draw_text(f"BAM {attack_timer}/{attack_cooldown}", texture_x, texture_y - 20, 10, pr.RED)
+
+
+def update_render_tile_map_base(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
+    _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, True, False)
+
+def draw_world_entities(game_camera, entities, tile_map, game_assets, ignore, player_entity, mode, debug_queue):
+    _render_world_scene_phase(game_camera, entities, tile_map, pr.Vector2(0, 0), 0, 0, 0, game_assets, ignore, player_entity, mode, debug_queue, False, True)
+
+def resolve_render_item_texture(texture_reference, game_assets):
+    collection = game_assets.get(texture_reference.get("collection", ""), {})
+    asset = collection.get(texture_reference.get("name"))
+    if texture_reference.get("field") is not None and isinstance(asset, dict):
+        return asset.get(texture_reference["field"])
+    return asset
+
+def draw_sorted_world_render_items(render_items, game_camera, game_assets, player_entity=None):
+    camera_x = float(game_camera.x)
+    camera_y = float(game_camera.y)
+    for item in render_items:
+        texture = resolve_render_item_texture(item["texture"], game_assets)
+        if texture is None:
+            continue
+        source = item["source_rect"]
+        destination = item["dest_rect"]
+        source_rect = pr.Rectangle(source["x"], source["y"], source["width"], source["height"])
+        destination_rect = pr.Rectangle(destination["x"] - camera_x, destination["y"] - camera_y, destination["width"], destination["height"])
+        pr.draw_texture_pro(texture, source_rect, destination_rect, pr.Vector2(0, 0), 0, pr.WHITE)
+        if item.get("source") != "player":
+            continue
+        draw_data = item.get("draw_data", {})
+        center = draw_data.get("center_world", {})
+        gun = draw_data.get("gun_world", {})
+        pistol = draw_data.get("pistol_world", {})
+        center_screen = pr.Vector2(center.get("x", 0.0) - camera_x, center.get("y", 0.0) - camera_y)
+        gun_screen = pr.Vector2(gun.get("x", 0.0) - camera_x, gun.get("y", 0.0) - camera_y)
+        pistol_screen = pr.Vector2(pistol.get("x", 0.0) - camera_x, pistol.get("y", 0.0) - camera_y)
+        if player_entity is not None:
+            player_entity["gun_render_pos"] = {"x": gun_screen.x, "y": gun_screen.y}
+        pr.draw_line(int(center_screen.x), int(center_screen.y), int(gun_screen.x), int(gun_screen.y), pr.Color(174, 164, 175, 255))
+        pistol_texture = game_assets.get("textures", {}).get(draw_data.get("pistol_texture", "pistol_texture"))
+        if pistol_texture is not None:
+            pr.draw_texture_ex(pistol_texture, pistol_screen, float(draw_data.get("pistol_angle", 0.0)), 0.5, pr.WHITE)
+
+def draw_sorted_world_debug(render_items, occluding_items, game_camera):
+    occluding_ids = {item.get("id") for item in occluding_items}
+    for item in render_items:
+        bounds = g_render_order.world_bounds_to_screen(item["bounds_world"], game_camera)
+        base = item["base_world"]
+        base_x = int(base["x"] - game_camera.x)
+        base_y = int(base["y"] - game_camera.y)
+        color = pr.YELLOW if item.get("id") in occluding_ids else pr.MAGENTA if item.get("occludes_player") else pr.GREEN
+        pr.draw_rectangle_lines(int(bounds["x"]), int(bounds["y"]), int(bounds["width"]), int(bounds["height"]), color)
+        pr.draw_circle(base_x, base_y, 2, color)
+        pr.draw_text(f"{item.get('source')} y={item.get('sort_y', 0.0):.1f}", base_x + 3, base_y - 5, 6, color)
+
+def update_render_tile_map(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue):
+    _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, current_tile_selection, current_entity_selection, current_shape_selection, game_assets, ignore, player_entity, mode, debug_queue, True, True)
 
 
 def transition_debug_state(current):
+    # TODO is there any benefit to this approach over just...
+    # incrementing a list counter? maybe not?
     state_transitions = {
         "clear" : "player_debug",
-        "player_debug" : "slow_bullets",
-        "slow_bullets" : "clear",                
+        "player_debug" : "entity_states",
+        "entity_states" : "pathfinding",
+        "pathfinding" : "collisions",
+        "collisions" : "line_of_sight",
+        "line_of_sight" : "slow_bullets",
+        "slow_bullets" : "clear",
     }
     return state_transitions.get(current)
 
 def transition_pause_state(current):
     state_transitions = {
         "paused" : "unpaused",
-        "unpaused" : "paused",                
+        "unpaused" : "paused",
     }
     return state_transitions.get(current)
-
 
 def transition_editor_state(current):
     state_transitions = {
-        "play" : "editing",
-        "editing" : "entity_placing",        
-        "entity_placing" : "play",
+        "play": "tile",
+        "tile": "entity",
+        "entity": "environment",
+        "environment": "play"
     }
-    return state_transitions.get(current)
+    return state_transitions.get(g_editor.migrate_editor_mode(current), "tile")
 
 def transition_collision_state(current):
     state_transitions = {
@@ -570,23 +767,6 @@ def make_default_camera():
     game_camera = pr.Camera3D(pr.Vector3(0,0,10), pr.Vector3(0,1,0), pr.Vector3(0,1,0), 45.0, pr.CameraProjection.CAMERA_ORTHOGRAPHIC)    
     return game_camera
 
-def do_button(pos, width = 50, height = 20, name = "some buttons"):
-    global g_mouse_is_ui_captured
-    font_width = 6
-    width = len(name) * font_width
-    base_rect = pr.Rectangle(int(pos.x), int(pos.y), width, height)
-    rect_col = pr.WHITE
-    
-    result = False
-    if pr.check_collision_point_rec(pr.get_mouse_position(), base_rect):
-        g_mouse_is_ui_captured = True
-        rect_col = pr.YELLOW
-        if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
-            result = True
-            
-    pr.draw_rectangle(int(pos.x), int(pos.y), width, height, rect_col)
-    pr.draw_text(name, int(pos.x), int(pos.y), int(height/10), pr.BLACK)
-    return result
 
 
 def make_projectile(responsible, spawn_pos, velocity, id, type):
@@ -619,17 +799,20 @@ def give_entity_stats_from_type(entity, entity_type):
     elif entity_type == "health_pickup":
         entity["value"] = 25
 
+    g_graphics.ensure_default_cinematic_shadow(entity)
+    g_render_order.ensure_entity_render_metadata(entity, entity_type)
+
 
     
 
-def update_camera(game_camera, mode, player_pos, dt):    
+def update_camera(game_camera, camera_physics, mode, player_pos, dt):    
     camera_speed = 500
     up = 0
     across = 0
 
     # let's go for a bounded box camera
 
-    free_nav_modes = {"editing", "entity_placing"}
+    free_nav_modes = {"tile", "entity", "environment"}
     
     if mode in free_nav_modes:
         if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
@@ -652,13 +835,58 @@ def update_camera(game_camera, mode, player_pos, dt):
     
         
         game_camera.position = pr.vector3_add(game_camera.position, pr.vector3_scale(camera_direction, camera_speed * dt))    
-        game_camera.position.x = max(0, game_camera.position.x)
-        game_camera.position.y = max(0, game_camera.position.y)
+        game_camera.position.x = max(-100, game_camera.position.x)
+        game_camera.position.y = max(-100, game_camera.position.y)
     else:
-        game_camera.position.x = player_pos["x"] - pr.get_screen_width()/2
-        game_camera.position.x = max(0, game_camera.position.x)
-        game_camera.position.y = player_pos["y"] - pr.get_screen_height()/2
-        game_camera.position.y = max(0, game_camera.position.y)
+        camera_acceleration = get_or_invoke(camera_physics, "acceleration", vec2_new)
+        camera_velocity = get_or_invoke(camera_physics, "velocity", vec2_new)
+
+        # TODO focus region
+
+        tile_width = 16
+        tile_height = 16
+        player_pos_abs = make_pos_abs(player_pos, tile_width, tile_height)
+        desired_camera_x = max(-16, player_pos_abs["x"] - 240)
+        desired_camera_y = max(-24, player_pos_abs["y"] - 135)
+
+        error_x = desired_camera_x - game_camera.position.x
+        error_y = desired_camera_y - game_camera.position.y
+
+        if math.sqrt(error_x**2 + error_y**2) < 10:
+            camera_velocity["x"] = 0
+            camera_velocity["y"] = 0
+            return game_camera
+
+        
+
+        
+
+        stiffness_x = 25
+        damping_x = 10
+
+        stiffness_y = 25
+        damping_y = 10
+
+        accel_x = error_x * stiffness_x - damping_x * camera_velocity["x"]        
+        accel_y = error_y * stiffness_y - damping_y * camera_velocity["y"]
+
+        camera_velocity["x"] += accel_x * dt        
+        camera_velocity["y"] += accel_y * dt        
+        
+        game_camera.position.x += camera_velocity["x"] * dt
+        game_camera.position.y += camera_velocity["y"] * dt
+
+        remaining_error_x = (desired_camera_x - game_camera.position.x )
+        remaining_error_y = (desired_camera_y - game_camera.position.y)
+
+        error_x_epsilon = 2
+        error_y_epsilon = 2
+
+        vel_x_epsilon = 4
+        vel_y_epsilon = 4
+
+     
+        
         
     
     return game_camera
@@ -677,8 +905,8 @@ def make_default_player(x,y,z):
     pos["tile_x"] = 0
     pos["tile_y"] = 0
 
-    player["entity_width"] = 24 #drawing at double scale
-    player["entity_height"] = 24
+    player["entity_width"] = 12 #drawing at double scale
+    player["entity_height"] = 12
 
     player["position"] = pos
 
@@ -691,6 +919,7 @@ def make_default_player(x,y,z):
     player["ammo"]["pistol"] = 20    
     player["ammo"]["spare_pistol"] = 20
 
+    g_render_order.ensure_entity_render_metadata(player, "player")
     return player
 
 def get_reload_time(gun_type):
@@ -707,56 +936,8 @@ def get_clip_size(gun_type):
 
     return sizes.get(gun_type, 0)
 
-def update_tile_selection(current_tile_selection, tile_types_amount):
-    mouse_wheel =  pr.get_mouse_wheel_move()
-    if mouse_wheel < 0:
-        current_tile_selection = (current_tile_selection - 1) % tile_types_amount
-    elif mouse_wheel > 0:
-        current_tile_selection = (current_tile_selection + 1) % tile_types_amount
-    return current_tile_selection        
-
-def update_mousewheel_selection(current_selection, types_amount):
-    mouse_wheel =  pr.get_mouse_wheel_move()
-    if mouse_wheel < 0:
-        current_selection = (current_selection - 1) % types_amount
-    elif mouse_wheel > 0:
-        current_selection = (current_selection + 1) % types_amount
-    return current_selection        
-
-def draw_load_level(arena, assets):    
-    if not arena.get("do_load_level", False):
-        return -1, arena.get("do_load_level", False)
-        
-    saved_files = arena.get("saved_files")
-    if not saved_files:
-        return -1, arena.get("do_load_level", False)
-    
-    items_per_page = 20
-    start_index = arena.get("load_level_index_start", 0)
-    end_index = arena.get("load_level_end_start", 20)
-
-    selected_file = arena.get("selected_save_index", -1)
-
-    start_index = max(0, start_index)
-    end_index = min(len(saved_files), end_index)
 
 
-
-    dropdown_x = 100
-    dropdown_y = 40
-    height = 20
-    drawn = 0
-    width = 120
-    for i in range(start_index, end_index):
-        saved_file = saved_files[i]
-        if do_button(pr.Vector2(dropdown_x, dropdown_y + drawn*height), width, height, f"{saved_file}"):
-            selected_file = i
-        drawn += 1    
-
-    do_load = False
-    if do_button(pr.Vector2(dropdown_x + 200, dropdown_y), 100, 40, f"load {saved_files[selected_file]}"):
-        do_load = True
-    return selected_file, do_load
 
 
     
@@ -774,8 +955,8 @@ def load_state(file_name):
         pr.draw_text(f"loaded editor state {file_path}", 400, 40, 30, pr.WHITE)        
         return new_arena
         print(f"saved editor state")
-    except Exception as e:
-        print(f"issue saving state {e}")        
+    except Exception as e:        
+        print(f"issue loading state {e}")        
 
 def save_state(arena):
     directory = g_save_directory   
@@ -787,8 +968,9 @@ def save_state(arena):
             pickle.dump(arena, f)
         pr.draw_text(f"saved editor state {file_path}", 400, 40, 30, pr.WHITE)        
         print(f"saved editor state")
-    except Exception as e:
+    except Exception as e:        
         print(f"issue saving state {e}")        
+        find_unpickleable_values(arena)
 
 def get_saved_files():    
     directory = g_save_directory   
@@ -829,8 +1011,7 @@ def load_pistol_pool(engine):
     variants = 10
     result = {"index" : 0, "pool" : []}
     for i in range(variants):        
-
-        pistol_shot = load_sound(engine, "sounds/pistol_shot.wav", False, 0.5, 1 , 0)
+        pistol_shot = load_sound(engine, "sounds/pistol_shot_lofi.wav", False, 0.5, 1 , 0)
         result["pool"].append(pistol_shot)
     return result
 
@@ -848,15 +1029,37 @@ def stop_pool_sounds(pool_name, sounds):
             sound_to_play.stop()
             sound_to_play.seek(0)        
 
-def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25):
+def play_pool_sound(pool_name, sounds, rand_lower=-1, rand_upper=5, rand_base=25, volume = -1):
+    if g_mute:
+        return
     if pool_name in sounds and sounds[pool_name] is not None:            
         sound_to_play_idx = sounds[pool_name]["index"]
         sound_to_play = sounds[pool_name]["pool"][sound_to_play_idx]
         sound_to_play.pitch = 1 + float(random.randint(rand_lower,rand_upper) / rand_base)
+        # TODO careful this might permanently change the volume?
+        if volume != -1:
+            sound_to_play.volume = volume
         sounds[pool_name]["index"] = (sounds[pool_name]["index"] + 1) % len(sounds[pool_name]["pool"])
         sound_to_play.stop()
         sound_to_play.seek(0)
         sound_to_play.start()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def load_sounds(engine):
     result = {}
@@ -869,14 +1072,16 @@ def load_sounds(engine):
 
     pistol_reload = load_sound(engine, "sounds/pistol_reload.wav", False, 0.75, 1, 0)
 
+    ui_hover = load_sound(engine, "sounds/ui_hover.wav", False, 0.75, 1, 0)
 
+    result["ui_hover"] = ui_hover
     result["pistol_reload"] = pistol_reload
 
     result["whoosh_pool"] = load_sound_pool(engine, 10, "whoosh.wav", 0.75, 0.7, 0)
 
     result["player_footstep_pool"] = load_sound_pool(engine, 10, "player_footstep.wav", 0.75, 0.7, 0)
     result["pistol_pool"] = load_pistol_pool(engine)
-    result["stagger_hit_pool"] = load_sound_pool(engine, 10, "pistol_hit_body.wav", 0.75, 0.7, 0)
+    result["stagger_hit_pool"] = load_sound_pool(engine, 10, "punch_1.wav", 0.75, 0.7, 0)
 
     result["ammo_pickup_pool"] = load_sound_pool(engine, 10, "ammo_pickup.wav", 0.75, 0.7, 0)
 
@@ -927,21 +1132,158 @@ def load_sprite_sheets():
 
 
     return result
+
+def load_shaders():
+    result = {}
+
+    tile_mask = pr.load_shader("", "shaders/tile_mask.fs")
+    result["tile_mask"] = {
+        "shader": tile_mask,
+        "shape_index_location": pr.get_shader_location(tile_mask, "shapeIndex")
+    }
+
+    cinematic_shadow_projection = pr.load_shader("", "shaders/cinematic_shadow_projection.fs")
+    result["cinematic_shadow_projection"] = {
+        "shader": cinematic_shadow_projection,
+        "shadow_color_location": pr.get_shader_location(cinematic_shadow_projection, "shadowColor"),
+        "shadow_opacity_location": pr.get_shader_location(cinematic_shadow_projection, "shadowOpacity"),
+        "alpha_cutoff_location": pr.get_shader_location(cinematic_shadow_projection, "alphaCutoff")
+    }
+
+    cinematic_shadow_composite = pr.load_shader("", "shaders/cinematic_shadow_composite.fs")
+    result["cinematic_shadow_composite"] = {
+        "shader": cinematic_shadow_composite,
+        "shadow_texture_location": pr.get_shader_location(cinematic_shadow_composite, "shadowTexture"),
+        "visibility_texture_location": pr.get_shader_location(cinematic_shadow_composite, "visibilityTexture")
+    }
+
+    player_outline = pr.load_shader("", "shaders/player_outline.fs")
+    result["player_outline"] = {
+        "shader": player_outline,
+        "resolution_location": pr.get_shader_location(player_outline, "resolution"),
+        "outline_color_location": pr.get_shader_location(player_outline, "outlineColor"),
+        "outline_width_location": pr.get_shader_location(player_outline, "outlineWidth")
+    }
+
+    light_accumulation = pr.load_shader("", "shaders/light_accumulation.fs")
+    result["light_accumulation"] = {
+        "shader": light_accumulation,
+        "resolution_location": pr.get_shader_location(light_accumulation, "resolution"),
+        "light_position_location": pr.get_shader_location(light_accumulation, "lightPosition"),
+        "light_direction_location": pr.get_shader_location(light_accumulation, "lightDirection"),
+        "light_color_location": pr.get_shader_location(light_accumulation, "lightColor"),
+        "radius_location": pr.get_shader_location(light_accumulation, "radius"),
+        "intensity_location": pr.get_shader_location(light_accumulation, "intensity"),
+        "falloff_location": pr.get_shader_location(light_accumulation, "falloff"),
+        "near_fade_distance_location": pr.get_shader_location(light_accumulation, "nearFadeDistance"),
+        "inner_cone_cos_location": pr.get_shader_location(light_accumulation, "innerConeCos"),
+        "outer_cone_cos_location": pr.get_shader_location(light_accumulation, "outerConeCos"),
+        "light_type_location": pr.get_shader_location(light_accumulation, "lightType")
+    }
+
+    top_down_light = pr.load_shader("", "shaders/top_down_light.fs")
+    result["top_down_light"] = {
+        "shader": top_down_light,
+        "resolution_location": pr.get_shader_location(top_down_light, "resolution"),
+        "area_min_location": pr.get_shader_location(top_down_light, "areaMin"),
+        "area_max_location": pr.get_shader_location(top_down_light, "areaMax"),
+        "light_color_location": pr.get_shader_location(top_down_light, "lightColor"),
+        "intensity_location": pr.get_shader_location(top_down_light, "intensity"),
+        "edge_softness_location": pr.get_shader_location(top_down_light, "edgeSoftness")
+    }
+
+    fog_volume_mask = pr.load_shader("", "shaders/fog_volume_mask.fs")
+    result["fog_volume_mask"] = {
+        "shader": fog_volume_mask,
+        "resolution_location": pr.get_shader_location(fog_volume_mask, "resolution"),
+        "area_min_location": pr.get_shader_location(fog_volume_mask, "areaMin"),
+        "area_max_location": pr.get_shader_location(fog_volume_mask, "areaMax"),
+        "shape_type_location": pr.get_shader_location(fog_volume_mask, "shapeType"),
+        "edge_softness_location": pr.get_shader_location(fog_volume_mask, "edgeSoftness"),
+        "strength_location": pr.get_shader_location(fog_volume_mask, "strength")
+    }
+
+    lighting_composite = pr.load_shader("", "shaders/lighting_composite.fs")
+    result["lighting_composite"] = {
+        "shader": lighting_composite,
+        "light_texture_location": pr.get_shader_location(lighting_composite, "lightTexture"),
+        "readability_light_texture_location": pr.get_shader_location(lighting_composite, "readabilityLightTexture"),
+        "ambient_color_location": pr.get_shader_location(lighting_composite, "ambientColor"),
+        "shadow_color_location": pr.get_shader_location(lighting_composite, "shadowColor"),
+        "ambient_strength_location": pr.get_shader_location(lighting_composite, "ambientStrength"),
+        "direct_light_strength_location": pr.get_shader_location(lighting_composite, "directLightStrength"),
+        "black_point_location": pr.get_shader_location(lighting_composite, "blackPoint"),
+        "shadow_softness_location": pr.get_shader_location(lighting_composite, "shadowSoftness"),
+        "shadow_detail_location": pr.get_shader_location(lighting_composite, "shadowDetail"),
+        "contrast_location": pr.get_shader_location(lighting_composite, "contrast"),
+        "light_posterize_enabled_location": pr.get_shader_location(lighting_composite, "lightPosterizeEnabled"),
+        "light_posterize_levels_location": pr.get_shader_location(lighting_composite, "lightPosterizeLevels"),
+        "light_dither_enabled_location": pr.get_shader_location(lighting_composite, "lightDitherEnabled"),
+        "light_dither_strength_location": pr.get_shader_location(lighting_composite, "lightDitherStrength"),
+        "posterize_ambient_location": pr.get_shader_location(lighting_composite, "posterizeAmbient")
+    }
+
+    illuminated_fog = pr.load_shader("", "shaders/illuminated_fog.fs")
+    result["illuminated_fog"] = {
+        "shader": illuminated_fog,
+        "texture_location": pr.get_shader_location(illuminated_fog, "texture0"),
+        "light_texture_location": pr.get_shader_location(illuminated_fog, "lightTexture"),
+        "volume_texture_location": pr.get_shader_location(illuminated_fog, "volumeTexture"),
+        "resolution_location": pr.get_shader_location(illuminated_fog, "resolution"),
+        "camera_position_location": pr.get_shader_location(illuminated_fog, "cameraPosition"),
+        "fog_drift_location": pr.get_shader_location(illuminated_fog, "fogDrift"),
+        "detail_drift_location": pr.get_shader_location(illuminated_fog, "detailDrift"),
+        "fog_color_location": pr.get_shader_location(illuminated_fog, "fogColor"),
+        "time_location": pr.get_shader_location(illuminated_fog, "time"),
+        "density_location": pr.get_shader_location(illuminated_fog, "density"),
+        "opacity_location": pr.get_shader_location(illuminated_fog, "opacity"),
+        "world_scale_location": pr.get_shader_location(illuminated_fog, "worldScale"),
+        "detail_scale_location": pr.get_shader_location(illuminated_fog, "detailScale"),
+        "cutoff_location": pr.get_shader_location(illuminated_fog, "cutoff"),
+        "softness_location": pr.get_shader_location(illuminated_fog, "softness"),
+        "light_strength_location": pr.get_shader_location(illuminated_fog, "lightStrength"),
+        "ambient_strength_location": pr.get_shader_location(illuminated_fog, "ambientStrength"),
+        "veil_strength_location": pr.get_shader_location(illuminated_fog, "veilStrength"),
+        "evolution_speed_location": pr.get_shader_location(illuminated_fog, "evolutionSpeed"),
+        "warp_scale_location": pr.get_shader_location(illuminated_fog, "warpScale"),
+        "warp_strength_location": pr.get_shader_location(illuminated_fog, "warpStrength"),
+        "detail_evolution_speed_location": pr.get_shader_location(illuminated_fog, "detailEvolutionSpeed"),
+        "global_amount_location": pr.get_shader_location(illuminated_fog, "globalAmount"),
+        "posterize_enabled_location": pr.get_shader_location(illuminated_fog, "posterizeEnabled"),
+        "posterize_levels_location": pr.get_shader_location(illuminated_fog, "posterizeLevels"),
+        "dither_enabled_location": pr.get_shader_location(illuminated_fog, "ditherEnabled"),
+        "dither_strength_location": pr.get_shader_location(illuminated_fog, "ditherStrength")
+    }
+
+    return result
+
+
+
+def unload_shaders(shaders):
+    if not shaders:
+        return
+
+    for shader_info in shaders.values():
+        shader = shader_info.get("shader")
+        if shader is not None:
+            pr.unload_shader(shader)
     
 
-    
+
+
 def load_textures():
     result = {}    
     # we could make this easier to use if we monitored the files in the directory once
     # a second and then did a reload when a new one was in there!
     result["pistol_texture"] = pr.load_texture("art/pistol.png")
     result["pistol_texture_flipped"] = pr.load_texture("art/pistol_flipped.png")
-    result["wood_texture"] = pr.load_texture("art/WoodTest.png")
-    result["wall_texture"] = pr.load_texture("art/Wall.png")
+    result["wood_texture"] = pr.load_texture("art/WoodDark.png")
+    result["wall_texture_editor"] = pr.load_texture("art/WallDark.png")
+    result["wall_texture"] = pr.load_texture("art/WallDarkChunky16x.png")
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
-    result["grey_tile_texture"] = pr.load_texture("art/grey_tile_32x.png")
-    result["orange_tile_texture"] = pr.load_texture("art/orange_tile_32x.png")
+    result["grey_tile_texture"] = pr.load_texture("art/grey_tile_16x.png")
+    result["orange_tile_texture"] = pr.load_texture("art/orange_tile_16x.png")
 
     result["pistol_ammo_pickup_texture"] = pr.load_texture("art/pistol_ammo_pickup.png")
     result["health_pickup_texture"] = pr.load_texture("art/health_pickup.png")
@@ -977,17 +1319,23 @@ def get_tile_at_index(flat_index, tile_map):
     tile_at_index = tile_map["tiles"][flat_index]
     return tile_at_index
 
+def update_player_flashlight_toggle(player_entity, editor_mode, pause_state, sounds):
+    if "flashlight_enabled" not in player_entity:
+        player_entity["flashlight_enabled"] = True
 
+    if editor_mode == "play" and pause_state == "unpaused" and pr.is_key_pressed(pr.KeyboardKey.KEY_F):
+        play_sound(sounds["ui_hover"])
+        player_entity["flashlight_enabled"] = not player_entity["flashlight_enabled"]
+
+    return player_entity["flashlight_enabled"]
 
 def get_tile_index_from_pos(pos, tile_map, debug_queue = None):    
     map_width = tile_map["map_width"]
     map_height = tile_map["map_height"]
     tile_width = tile_map["tile_width"]
-    tile_height = tile_map["tile_height"]    
-    tile_pos_x = int((pos.get("x",0))/tile_width)
-    tile_pos_y =  int((pos.get("y",0))/tile_height)
-    tile_x = tile_pos_x % map_width
-    tile_y = tile_pos_y  % map_height
+    tile_height = tile_map["tile_height"]        
+    tile_x = math.floor((pos.get("x",0))/tile_width)
+    tile_y = math.floor((pos.get("y",0))/tile_height)
 
     return {"tile_x" : tile_x, "tile_y" : tile_y}
 
@@ -996,10 +1344,9 @@ def get_tile_index_and_offset_from_pos(pos, tile_map, debug_queue = None):
     map_height = tile_map["map_height"]
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]    
-    tile_pos_x = int((pos.get("x",0))/tile_width)
-    tile_pos_y =  int((pos.get("y",0))/tile_height)
-    tile_x = tile_pos_x % map_width
-    tile_y = tile_pos_y  % map_height
+    
+    tile_x = math.floor((pos.get("x",0))/tile_width)
+    tile_y = math.floor((pos.get("y",0))/tile_height)
 
     offset_x = pos["x"] - (tile_x * tile_width)
     offset_y = pos["y"] - (tile_y * tile_height)
@@ -1036,23 +1383,22 @@ def get_tiles_from_pos(pos, tile_map, debug_queue = None):
     additional_x_tiles = 0
     additional_y_tiles = 0
     if pos["x"] > tile_width:
-        additional_x_tiles = int(pos.get("x",0) / tile_width)        
+        additional_x_tiles = math.floor(pos.get("x",0) / tile_width)        
 
     if pos["x"] < 0:
-        additional_x_tiles = -int((tile_width + abs(pos.get("x",0))) / tile_width)
+        additional_x_tiles = -math.floor((tile_width + abs(pos.get("x",0))) / tile_width)
         
 
     if pos["y"] < 0:
-        additional_y_tiles = -int((tile_height + abs(pos.get("y",0))) / tile_height)
+        additional_y_tiles = -math.floor((tile_height + abs(pos.get("y",0))) / tile_height)
         # I think this will do us?                
 
     if pos["y"] > tile_height:
-        additional_y_tiles = int(pos.get("y",0) / tile_height)        
+        additional_y_tiles = math.floor(pos.get("y",0) / tile_height)        
 
-    tile_x = pos.get("tile_x") + additional_x_tiles
-    tile_x = tile_x % map_width
+    tile_x = pos.get("tile_x") + additional_x_tiles    
     tile_y = pos.get("tile_y") + additional_y_tiles
-    tile_y = tile_y  % map_height
+
 
     return {"tile_x" : tile_x, "tile_y" : tile_y}
     # if debug_queue is not None:
@@ -1086,7 +1432,8 @@ def get_tile_type_from_pos(pos, tile_map, debug_queue = None):
             "tile_height" : tile_height,
             "color" : "PINK",
             "drawing_function" : draw_debug_tile,
-            "z_sort" : 1
+            "z_sort" : 1,
+            "debug_modes" : ["player_debug"]
 
         }    
         debug_queue.append(debug_item)
@@ -1164,7 +1511,9 @@ def vec2_distance_tile(a, b, tile_map):
     tile_abs_a = get_abs_pos_from_index(a, tile_map)
     tile_abs_b = get_abs_pos_from_index(b, tile_map)
     return vec2_distance(tile_abs_a, tile_abs_b)
-    
+
+def vec2_new(x=0, y=0):
+    return {"x":x, "y":y}
 
 def vec2_distance(a, b):    
     return math.sqrt((a["x"] - b["x"])**2 + (a["y"] - b["y"])**2)
@@ -1188,6 +1537,83 @@ def sin_flexible(angle, unit="degrees"):
     if unit == "degrees":
         angle_in_radians = deg_to_rad(angle)
     return math.sin(angle_in_radians)
+
+def alice_can_see_bob_points(alice, bob_entity, tile_map, debug_queue):
+
+    bob_position = bob_entity["position"]
+
+    bob_points = make_entity_boundary_points(bob_position, bob_entity["entity_width"], bob_entity["entity_height"], tile_map["tile_width"], tile_map["tile_height"], 4)
+    min_dist = 999999999999999999999999999999
+
+    can_see = False
+
+    found_pos = None
+
+    for position in bob_points.values():
+        if alice_can_see_bob(alice, position, tile_map, debug_queue):
+            can_see = True
+            if vec2_distance_tile(alice, position, tile_map) < min_dist:
+                found_pos = position
+                min_dist = vec2_distance_tile(alice, position, tile_map)                            
+    
+
+    return can_see, found_pos
+
+    
+def alice_can_move_to_bob(alice, bob_position, tile_map, debug_queue):
+    bob_abs = get_abs_pos_from_index(bob_position["position"], tile_map)
+    alice_abs = get_abs_pos_from_index(alice["position"], tile_map)
+    ray_to_bob = (vec2_subtract(bob_abs, alice_abs))
+    ray_to_bob_normal = vec2_normalize(ray_to_bob)
+    bob_beam = vec2_rotate_by(ray_to_bob_normal, 90)
+    
+    beam_width = 16 # might need to derive this
+
+    scaled_beam = vec2_scale(bob_beam, beam_width / 2)
+
+    bob_upper = vec2_add(bob_abs, scaled_beam)
+    bob_upper_canonical = get_tile_index_and_offset_from_pos(bob_upper, tile_map, debug_queue)
+    bob_lower = vec2_add(bob_abs, vec2_scale(scaled_beam, -1.0))
+    bob_lower_canonical = get_tile_index_and_offset_from_pos(bob_lower, tile_map, debug_queue)
+
+    alice_upper = vec2_add(alice_abs, scaled_beam)
+
+
+    alice_upper_canonical = get_tile_index_and_offset_from_pos(alice_upper, tile_map, debug_queue)
+
+
+    alice_lower = vec2_add(alice_abs, vec2_scale(scaled_beam, -1.0))
+    alice_lower_canonical = get_tile_index_and_offset_from_pos(alice_lower, tile_map, debug_queue)
+
+    move_range = 900 # matches sight range?
+    can_move =  alice_can_raycast_to_bob(move_range, alice_upper_canonical, bob_upper_canonical, tile_map, debug_queue) and alice_can_raycast_to_bob(move_range, alice_lower_canonical, bob_lower_canonical, tile_map, debug_queue)
+
+    if debug_queue is not None:                        
+        debug_item = debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : alice_upper.get("x"), "y" : alice_upper.get("y")},                                        
+                    "pos_end" : {"x" : bob_upper.get("x"), "y" : bob_upper.get("y")},                                        
+                    "line_width" : 2,                    
+                    "color" : "PINK",
+                    "z_sort" : -1,                    
+                    "debug_modes" : ["collisions"]                    
+                }
+        debug_queue.append(debug_item)
+        debug_item = debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : alice_lower.get("x"), "y" : alice_lower.get("y")},                                        
+                    "pos_end" : {"x" : bob_lower.get("x"), "y" : bob_lower.get("y")},                                        
+                    "line_width" : 2,                    
+                    "color" : "PINK",
+                    "z_sort" : -1,                    
+                    "debug_modes" : ["collisions"]                    
+                }
+        debug_queue.append(debug_item)
+
+    return can_move
+
 
 def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     # we can actually super optimze this
@@ -1214,7 +1640,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     
     alice_pos = alice.get("position")
 
-    abs_alice = get_abs_pos_from_index(alice_pos, tile_map, )
+    abs_alice = get_abs_pos_from_index(alice_pos, tile_map)
     alice_sight_angle = int(alice.get("sight_angle", 0)) #+ 180 #here?
 
     main_direction = vector_from_angle(alice_sight_angle) # I think we want to 180 this
@@ -1230,10 +1656,11 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "line_width" : 1,                    
                     "color" : "PURPLE",
                     "z_sort" : -1,                    
+                    "debug_modes" : ["line_of_sight"]
                 }
         debug_queue.append(debug_item)
 
-    sight_range = 300
+    sight_range = alice.get("sight_range", 900)
 
 
 
@@ -1262,6 +1689,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "text" : f"angle to bob: {angle_to_bob}",
                     "color" : "RED",
                     "z_sort" : 0,                    
+                    "debug_modes" : ["line_of_sight"]
                 }
         debug_queue.append(debug_item)
         debug_item = {
@@ -1272,6 +1700,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "line_width" : 1,                    
                     "color" : "PURPLE",
                     "z_sort" : -1,                    
+                    "debug_modes" : ["line_of_sight"]
                 }
         debug_queue.append(debug_item)
 
@@ -1283,6 +1712,7 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
                     "line_width" : 1,                    
                     "color" : "PURPLE",
                     "z_sort" : -1,                    
+                    "debug_modes" : ["line_of_sight"]
                 }
         debug_queue.append(debug_item)
 
@@ -1305,6 +1735,21 @@ def alice_can_see_bob(alice, bob_position, tile_map, debug_queue):
     
     return can_see
 
+def alice_can_raycast_to_bob(sight_range, alice_position, bob_position, tile_map, debug_queue):
+    # should have a size of object too obviously
+    bob_abs = get_abs_pos_from_index(bob_position, tile_map)
+    alice_abs = get_abs_pos_from_index(alice_position, tile_map)
+    ray_to_bob = (vec2_subtract(bob_abs, alice_abs))
+    ray_to_bob_normal = vec2_normalize(ray_to_bob)
+    # you could model bob as a sphere
+    # then just trace down the line of sight?
+    
+    bob_radius = 16
+
+    can_see = ray_along_tiles_hits_target_tile(alice_position, bob_position, sight_range, int(bob_radius)/2, ray_to_bob_normal, tile_map, debug_queue)
+    
+    return can_see
+
 def get_neighbouring_tiles(tile, tile_map):
     # the idea here is we return the neighbouring tiles
     # which is like our 'adjacency matrix', I suppose
@@ -1322,22 +1767,23 @@ def get_neighbouring_tiles(tile, tile_map):
     #tileF tileE tileD       
     
 
-    adjacent_tiles = [
-    {"tile_x" : tile_x,  "tile_y" : tile_y - 1}, #A
-    {"tile_x" : tile_x+1,  "tile_y" : tile_y - 1}, #B
-    {"tile_x" : tile_x+1,  "tile_y" : tile_y}, #C
-    {"tile_x" : tile_x+1,  "tile_y" : tile_y+1}, #D
-    {"tile_x" : tile_x,  "tile_y" : tile_y+1}, #E
-    {"tile_x" : tile_x-1,  "tile_y" : tile_y+1}, #F
-    {"tile_x" : tile_x-1,  "tile_y" : tile_y}, #G
-    {"tile_x" : tile_x-1,  "tile_y" : tile_y-1}] #H
+    adjacent_tiles = {
+    "A" : {"tile_x" : tile_x,  "tile_y" : tile_y - 1}, #A
+    "B" : {"tile_x" : tile_x+1,  "tile_y" : tile_y - 1}, #B
+    "C" : {"tile_x" : tile_x+1,  "tile_y" : tile_y}, #C
+    "D" : {"tile_x" : tile_x+1,  "tile_y" : tile_y+1}, #D
+    "E" : {"tile_x" : tile_x,  "tile_y" : tile_y+1}, #E
+    "F" : {"tile_x" : tile_x-1,  "tile_y" : tile_y+1}, #F
+    "G" : {"tile_x" : tile_x-1,  "tile_y" : tile_y}, #G
+    "H" : {"tile_x" : tile_x-1,  "tile_y" : tile_y-1} #H
+    }
     
-    filtered = []
+    filtered = {}
 
-    for new_tile in adjacent_tiles:
+    for key, new_tile in adjacent_tiles.items():
         if new_tile.get("tile_x") < 0 or new_tile.get("tile_x") >= tile_map.get("map_width") or new_tile.get("tile_y") < 0 or new_tile.get("tile_y") >= tile_map.get("map_height"):
             continue
-        filtered.append(new_tile)
+        filtered[key] = new_tile
 
     return filtered
 
@@ -1382,7 +1828,8 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
                     "tile_height" : tile_map.get("tile_height",5),
                     "color" : "PINK",
                     "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
+                    "z_sort" : 1,
+                    "debug_modes" : ["line_of_sight"]
 
                 }    
                 debug_queue.append(debug_item)
@@ -1397,7 +1844,8 @@ def ray_along_tiles_hits_target_tile(original_position, target_tile, end_range, 
                     "tile_height" : tile_map.get("tile_height",5),
                     "color" : "RED",
                     "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
+                    "z_sort" : 1,
+                    "debug_modes" : ["line_of_sight"]
 
                 }    
                 debug_queue.append(debug_item)
@@ -1423,7 +1871,8 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
         test_tiles = get_tile_index_from_pos(pos_test, tile_map)
 
         
-
+        if tile_not_in_bounds(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map):
+            continue
         found_tile = get_tile_type_from_indices(test_tiles.get("tile_x",0), test_tiles.get("tile_y",0), tile_map)
 
 
@@ -1437,7 +1886,8 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
                     "tile_height" : tile_map.get("tile_height",5),
                     "color" : "PINK",
                     "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
+                    "z_sort" : 1,
+                    "debug_modes" : ["line_of_sight"]
 
                 }    
                 debug_queue.append(debug_item)
@@ -1463,7 +1913,8 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
                     "tile_height" : tile_map.get("tile_height",5),
                     "color" : "RED",
                     "drawing_function" : draw_debug_tile,
-                    "z_sort" : 1
+                    "z_sort" : 1,
+                    "debug_modes" : ["line_of_sight"]
 
                 }    
                 debug_queue.append(debug_item)
@@ -1475,21 +1926,118 @@ def ray_along_tiles_collides(original_position, end_range, step_size, normalized
 def tiles_equal(a, b):
     return a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0)
 
-def tiles_close(a, b, epsilon):
-    if a.get("tile_x",0) == b.get("tile_x",0) and a.get("tile_y",0) == b.get("tile_y",0):
-        if vec2_distance(a, {"x": 16, "y" : 16}):
-            return True
-    return False
+def tiles_close(entity_position, waypoint_tile, target_offset, epsilon):
+    if not tiles_equal(entity_position,  waypoint_tile):
+        return False
+
+    entity_local_position = {"x": entity_position.get("x", 0), "y": entity_position.get("y", 0)}
+
+    return vec2_distance(entity_local_position, target_offset) < epsilon
+
+def get_current_ai_waypoint_target_abs(entity, tile_map, arrival_epsilon=8.0):
+    path = entity.get("path_to_player", [])
+
+    if not path:
+        return (None, make_pos_abs(entity["position"], tile_map["tile_width"], tile_map["tile_height"]))
+
+    path_index = entity.get("path_to_player_current_index", 0)
+
+    # Keep len(path) as the existing "finished path"
+    # sentinel, but use the final element as the actual target.
+    waypoint_index = min(path_index, len(path) - 1)
+
+    waypoint = path[waypoint_index]
+
+    tile_target_offset = entity.get("current_tile_target_offset")
+
+    if tile_target_offset is None:
+        tile_target_offset = {"x": tile_map["tile_width"] / 2, "y": tile_map["tile_height"] / 2}
+        entity["current_tile_target_offset"] = (tile_target_offset)
+
+    reached_waypoint = tiles_close(entity["position"], waypoint, tile_target_offset, arrival_epsilon)
+
+    if reached_waypoint and path_index < len(path):
+        path_index += 1
+
+        entity["path_to_player_current_index"] = path_index
+
+        waypoint_index = min(path_index, len(path) - 1)
+
+        waypoint = path[waypoint_index]
+
+    target_position_abs = (get_abs_pos_from_index_given_offset(waypoint, tile_target_offset, tile_map))
+
+    return waypoint, target_position_abs
 
 
+def make_entity_boundary_points(entity_pos, entity_width, entity_height, tile_width, tile_height, sub_divisions):
+    # TODO
+    # not taking into account that the tiles will be different when adding width/height    
+    # true if we think in terms of offset
+    entity_points = {}        
 
+    for sub_i in range(0, sub_divisions):
+        # left to right, semi-open interval (i.e includes left most, excludes right most)
+        entity_pos_top = {"x" : entity_pos.get("x",0) + (entity_width * sub_i / sub_divisions),
+                                "y" : entity_pos.get("y",0),
+                                "tile_x" : entity_pos.get("tile_x", 0),
+                                "tile_y" : entity_pos.get("tile_y", 0)  
+                                }
+        
+        entity_pos_top = move_position_along_tiles(entity_pos_top, tile_width, tile_height)
+    
+        
+        # includes top right, excludes bottom right
+        entity_pos_right = {"x" : entity_pos.get("x",0) + entity_width,
+                                "y" : entity_pos.get("y",0) + entity_height * (sub_i / sub_divisions),
+                                "tile_x" : entity_pos.get("tile_x", 0),
+                                "tile_y" : entity_pos.get("tile_y", 0)  
+                                }
+        entity_pos_right = move_position_along_tiles(entity_pos_right, tile_width, tile_height)
+    
+        
+    
+
+        # so this has to go FROM bottom right (inc) to bottom left (exc.)
+        entity_pos_bottom = {"x" : entity_pos.get("x",0) + entity_width - entity_width * (sub_i / sub_divisions),
+                                "y" : entity_pos.get("y",0) + entity_height,
+                                "tile_x" : entity_pos.get("tile_x", 0),
+                                "tile_y" : entity_pos.get("tile_y", 0) 
+                                }
+    
+        entity_pos_bottom = move_position_along_tiles(entity_pos_bottom, tile_width, tile_height)
+
+        # and THIS has to go from bottom left (inc.) to top left (exc.)
+        entity_pos_left = {"x" : entity_pos.get("x",0),
+                                "y" : entity_pos.get("y",0) + entity_height - entity_height * (sub_i / sub_divisions),
+                                "tile_x" : entity_pos.get("tile_x", 0),
+                                "tile_y" : entity_pos.get("tile_y", 0) 
+                                }
+    
+        entity_pos_left = move_position_along_tiles(entity_pos_left, tile_width, tile_height)
+
+        entity_points[f"top_{sub_i}"] = entity_pos_top             
+        entity_points[f"right_{sub_i}"] = entity_pos_right
+        entity_points[f"left_{sub_i}"] =  entity_pos_left
+        entity_points[f"bottom_{sub_i}"] = entity_pos_bottom
+        
+    
+    return entity_points
 
 def make_player_points(player_pos, entity_width, entity_height, tile_width, tile_height):
     # TODO
     # not taking into account that the tiles will be different when adding width/height    
     # true if we think in terms of offset
-    player_pos_top_right = {"x" : player_pos.get("x",0) + entity_width,
-                            "y" : player_pos.get("y",0),
+    player_pos_top_left = {"x" : player_pos.get("x",0) - entity_width/2,
+                            "y" : player_pos.get("y",0) - entity_height/2,
+                            "tile_x" : player_pos.get("tile_x", 0),
+                            "tile_y" : player_pos.get("tile_y", 0)  
+                            }
+    
+    player_pos_top_left = move_position_along_tiles(player_pos_top_left, tile_width, tile_height)
+
+    player_pos_top_right = {"x" : player_pos.get("x",0) + entity_width/2,
+                            "y" : player_pos.get("y",0) - entity_height/2,
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0)  
                             }
@@ -1498,16 +2046,16 @@ def make_player_points(player_pos, entity_width, entity_height, tile_width, tile
     
 
     
-    player_pos_bottom_right = {"x" : player_pos.get("x",0) + entity_width,
-                            "y" : player_pos.get("y",0) + entity_height,
+    player_pos_bottom_right = {"x" : player_pos.get("x",0) + entity_width/2,
+                            "y" : player_pos.get("y",0) + entity_height/2,
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
     
     player_pos_bottom_right = move_position_along_tiles(player_pos_bottom_right, tile_width, tile_height)
     
-    player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + entity_height,
+    player_pos_bottom_left = {"x" : player_pos.get("x",0) - entity_width/2,
+                            "y" : player_pos.get("y",0) + entity_height/2,
                             "tile_x" : player_pos.get("tile_x", 0),
                             "tile_y" : player_pos.get("tile_y", 0) 
                             }
@@ -1515,7 +2063,7 @@ def make_player_points(player_pos, entity_width, entity_height, tile_width, tile
     player_pos_bottom_left = move_position_along_tiles(player_pos_bottom_left, tile_width, tile_height)
 
     player_points = {
-        "top_left" : player_pos,
+        "top_left" : player_pos_top_left,
         "top_right" : player_pos_top_right,
         "bottom_left" : player_pos_bottom_left,
         "bottom_right" : player_pos_bottom_right,
@@ -1523,35 +2071,160 @@ def make_player_points(player_pos, entity_width, entity_height, tile_width, tile
     
     return player_points
 
-def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile_map, dt, debug_queue = None):
-    # TODO use this for any entity but only for walls
-    collisions = { "x" : False, "y" : False}
-    for potential_pos in player_points.values():    
-        new_pos_x_direction = new_pos_from_old(potential_pos)
-        new_pos_y_direction = new_pos_from_old(potential_pos)
+def remove_velocity_into_surface(velocity, normal):
+    velocity_into_surface = vec2_dot(velocity, normal)
 
-        new_pos_x_direction['x'] += new_pos_velocity['x'] * dt
+    
+    if velocity_into_surface >= 0:
+        return velocity
 
-        new_pos_y_direction['y'] += new_pos_velocity['y'] * dt
+    return vec2_subtract(velocity, vec2_scale(normal, velocity_into_surface))
 
-        # these need to be adjusted!!!!
-        tile_at_pos_x = get_tile_type_from_pos(new_pos_x_direction, tile_map, debug_queue)
-        tile_at_pos_y = get_tile_type_from_pos(new_pos_y_direction, tile_map, debug_queue)
+def check_collisions_on_tilemap(entity_id, player_points, new_pos_velocity, tile_map, dt, debug_queue=None):
+    collisions = {
+        "x": False,
+        "y": False,
+        "slope_normals": [],
+    }
+
+    tile_width = tile_map["tile_width"]
+    tile_height = tile_map["tile_height"]
+
+    for potential_pos in player_points.values():        
+        candidate_x = new_pos_from_old(
+            potential_pos
+        )
+
+        candidate_x["x"] += (
+            new_pos_velocity["x"] * dt
+        )
+
+        candidate_x = move_position_along_tiles(
+            candidate_x,
+            tile_width,
+            tile_height,
+        )
+
+        candidate_y = new_pos_from_old(
+            potential_pos
+        )
+
+        candidate_y["y"] += (
+            new_pos_velocity["y"] * dt
+        )
+
+        candidate_y = move_position_along_tiles(
+            candidate_y,
+            tile_width,
+            tile_height,
+        )
+
         
+        # hitting something horizontally does not automatically
+        # prevent vertical movement, and vice versa.
+        if position_collides_within_tile_shape(
+            candidate_x,
+            tile_map,
+        ):
+            collisions["x"] = True
+
+        if position_collides_within_tile_shape(
+            candidate_y,
+            tile_map,
+        ):
+            collisions["y"] = True
+
         
-        if tile_type_is_collidable(tile_at_pos_x):
-            collisions["x"] = True            
-        if tile_type_is_collidable(tile_at_pos_y):
-            collisions["y"] = True            
+        # Combined movement for diagonal slope detection        
+
+        candidate_combined = new_pos_from_old(
+            potential_pos
+        )
+
+        candidate_combined["x"] += (
+            new_pos_velocity["x"] * dt
+        )
+
+        candidate_combined["y"] += (
+            new_pos_velocity["y"] * dt
+        )
+
+        candidate_combined = move_position_along_tiles(candidate_combined, tile_width, tile_height)
+
+        combined_collision = get_tile_shape_collision(candidate_combined, tile_map)
+
+        if not combined_collision["collides"]:
+            continue
+
+        shape_index = combined_collision["shape_index"]
+        normal = combined_collision["normal"]
+
+        if shape_index == 0 or normal is None:
+            continue
+
+        # The diagonal normal is appropriate when the point was
+        # already in this tile's empty half and is now attempting
+        # to cross the diagonal into its solid half.
+        #
+        # Entering a triangular tile through one of its outer
+        # horizontal/vertical edges remains an ordinary X/Y hit.
+        stayed_in_same_tile = (candidate_combined["tile_x"] == potential_pos["tile_x"] and candidate_combined["tile_y"] == potential_pos["tile_y"])
+
+        started_colliding = (position_collides_within_tile_shape(potential_pos, tile_map))
+
+        moving_into_diagonal = (vec2_dot(new_pos_velocity, normal) < 0)
+
+        if (
+            stayed_in_same_tile
+            and not started_colliding
+            and moving_into_diagonal
+            and normal not in collisions["slope_normals"]
+        ):
+            collisions["slope_normals"].append(normal)
+
     return collisions
 
 def is_legal_position_on_tilemap(player_points, tile_map, debug_queue = None):        
-    for potential_pos in player_points.values():            
-        # these need to be adjusted!!!!
-        tile_at_pos = get_tile_type_from_pos(potential_pos, tile_map, debug_queue)                        
-        if tile_type_is_collidable(tile_at_pos):
+    for potential_pos in player_points.values():                    
+        if position_collides_within_tile_shape(potential_pos, tile_map):
             return False        
     return True
+
+def move_position_by_velocity(start_pos, velocity, dt, tile_width, tile_height):
+    result = new_pos_from_old(start_pos)
+
+    result["x"] += velocity["x"] * dt
+    result["y"] += velocity["y"] * dt
+    result["source"] = "ai"
+
+    return move_position_along_tiles(result, tile_width, tile_height)
+
+def vec2_move_towards(current, target, max_delta):
+    delta = vec2_subtract(target, current)
+    distance = vec2_norm(delta)
+
+    if distance == 0 or distance <= max_delta:
+        return {
+            "x": target["x"],
+            "y": target["y"],
+        }
+
+    movement = vec2_scale(delta, max_delta / distance)
+
+    return vec2_add(current, movement)
+
+def entity_position_is_legal(position, entity, tile_map, debug_queue=None):
+    entity_points = make_player_points(position, entity["entity_width"], entity["entity_height"], tile_map["tile_width"], tile_map["tile_height"])
+
+    if not is_legal_position_on_tilemap(entity_points, tile_map, debug_queue):
+        return False
+
+    moving_radius = max(entity["entity_width"], entity["entity_height"]) / 2
+
+    collides_with_entity, _ = (collides_within_tile_at_position(position, entity["id"], tile_map, debug_queue, moving_radius=moving_radius, other_radius=8.0))
+
+    return not collides_with_entity
+
 
 def check_collision_on_tilemap(entity_id, potential_pos, new_pos_velocity, tile_map, dt, debug_queue = None):
     # TODO use this for any entity but only for walls
@@ -1609,52 +2282,43 @@ def collides_within_tile(new_entity_pos, entity_id, tile_map, debug_queue = None
                 return True
     return False
 
-def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue = None):    
-    # zzz TODO make this cross tile boundaries using neighboughrs
-    # and use absolute coords
-    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
-    new_tile = tile_map["tiles"][new_tile_index]
-    if "current_entities" not in new_tile:
-        new_tile["current_entities"] = {}
-        return False, None
-    
-    entity_radius_for_now = 30
+def collides_within_tile_at_position(new_entity_pos, entity_id, tile_map, debug_queue=None, moving_radius=8.0, other_radius=8.0):
+    tile_x = new_entity_pos["tile_x"]
+    tile_y = new_entity_pos["tile_y"]
+
+    if tile_not_in_bounds(tile_x, tile_y, tile_map):
+        return True, None
 
     new_entity_pos_abs = tile_and_offset_to_absolute(tile_map, new_entity_pos)
-    
-    for entity_key, entity_val in new_tile["current_entities"].items():
-        if entity_key != entity_id:            
-            
-            entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
 
-            minkowski_rect = {
-                "x" : entity_pos_abs["x"] - 24,
-                "y" : entity_pos_abs["y"] - 24,
-                "width" : 48, # TODO tweak this, test idea first
-                "height" : 48
-            }
+    tile_index = get_flat_tile_index(tile_x, tile_y, tile_map, debug_queue)
 
-            if point_in_rect(new_entity_pos_abs, minkowski_rect):
-                return True,  entity_val
-            
-    for neighbour in new_tile["neighbours"]:
-        neighbour_tile_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
-        neighbour_tile = tile_map["tiles"][neighbour_tile_index]
-        for entity_key, entity_val in neighbour_tile.get("current_entities",{}).items():
-            if entity_key != entity_id:     
-                entity_pos_abs = tile_and_offset_to_absolute(tile_map, entity_val)
-                minkowski_rect = {
-                    "x" : entity_pos_abs["x"] - 24,
-                    "y" : entity_pos_abs["y"] - 24,
-                    "width" : 48, # TODO tweak this, test idea first
-                    "height" : 48
-                }
+    current_tile = tile_map["tiles"][tile_index]
 
-                if point_in_rect(new_entity_pos_abs, minkowski_rect):
-                    return True,  entity_val
-             
+    tiles_to_check = [current_tile]
+
+    for neighbour in current_tile["neighbours"].values():
+        neighbour_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
+
+        tiles_to_check.append(tile_map["tiles"][neighbour_index])
+
+    combined_radius = moving_radius + other_radius
+
+    for tile in tiles_to_check:
+        for (other_entity_id, other_entity_position) in tile.get("current_entities", {}).items():
+
+            if other_entity_id == entity_id:
+                continue
+
+            other_position_abs = tile_and_offset_to_absolute(tile_map, other_entity_position)
             
+
+            if vec2_distance(new_entity_pos_abs, other_position_abs) < combined_radius:
+                return (True, other_entity_position)
+
     return False, None
+
+
 
 
 def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map, debug_queue = None):    
@@ -1687,7 +2351,7 @@ def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map
             if point_in_circle(new_pos_abs, minkowski_circle):
                 return True,  entity_pos_abs
     
-    for neighbour in new_tile["neighbours"]:
+    for neighbour in new_tile["neighbours"].values():
         neighbour_tile_index = get_flat_tile_index(neighbour["tile_x"], neighbour["tile_y"], tile_map, debug_queue)
         neighbour_tile = tile_map["tiles"][neighbour_tile_index]
         for entity_key, entity_val in neighbour_tile.get("current_entities",{}).items():
@@ -1710,49 +2374,6 @@ def collides_within_tiles_at_position_circle(new_entity_pos, entity_id, tile_map
 def point_in_circle(point, circle):
     return (point["x"] - circle["x"]) ** 2 + (point["y"] - circle["y"]) ** 2  <= circle["radius"]**2
 
-def is_space_for_entity_at_tile(new_entity_pos, entity_id, tile_map, debug_queue = None):    
-    # we could allow very close 
-    # if every tile had partitions maybe?
-    new_tile_index = get_flat_tile_index(new_entity_pos["tile_x"], new_entity_pos["tile_y"], tile_map, debug_queue)
-    new_tile = tile_map["tiles"][new_tile_index]
-    result = {"space" : "totally_spare"}
-    if "current_entities" not in new_tile:
-        new_tile["current_entities"] = {}
-        return result        
-    
-    if "subtiles" not in new_tile:
-        new_tile["subtiles"] = {}
-
-
-    
-
-    # it's more like
-    # 'drag' the circle across the square 
-    # by a certain amount and then if we
-    # find a spare spot, take it
-    entity_radius_for_now = 20
-    invalid_spots = []
-    for entity_key, entity_val in new_tile["current_entities"].items():
-        if entity_key != entity_id:            
-            if vec2_distance(new_entity_pos, entity_val) <= entity_radius_for_now:
-                invalid_spots.append(entity_val)                
-    
-    if invalid_spots:        
-        # will be a bit spenny
-        found_spot = False
-        x_start = 0
-        y_start = 0
-
-        # ZZZ zzz pickup here        
-        pass
-                        
-
-        
-    
-    
-    
-
-    return result
 
 def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, debug_queue = None, remove_only = False):    
     old_tile_index = get_flat_tile_index(old_entity_pos["tile_x"], old_entity_pos["tile_y"], tile_map, debug_queue)
@@ -1780,197 +2401,177 @@ def update_tile_manager(old_entity_pos, new_entity_pos, entity_id, tile_map, deb
             del new_tile["current_entities"][entity_id]
 
     
-
+def vec2_rotate_by(vec, amount): #in degrees
+    angle = angle_from_vector(vec)
+    result = vector_from_angle(angle + amount)
+    return result
 
 def move_entity_towards_target_abs(entity, target_position, tile_map, debug_queue, dt):
-    # start with a straight line
-    # returns an updated position, doesn't     
-    tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
-    vec2_between = vec2_normalize(vec2_subtract(target_position, make_player_pos_abs(entity.get("position",{}), tile_width, tile_height)))
+    tile_height = tile_map["tile_height"]
 
-    # we can also set our heading here
-    entity["sight_angle"] = angle_from_vector(vec2_between) 
-    # obviously we should move to 'proper' velocity but it's just a tad harder
-    default_speed = 50
+    entity_position_abs = make_pos_abs(entity["position"], tile_width, tile_height)
+
+    vector_to_target = vec2_subtract(target_position, entity_position_abs)
+
+    distance_to_target = vec2_norm(vector_to_target)
+
+    default_speed = 150.0
     entity_speed = entity.get("speed", default_speed)
-    new_entity_velocity = vec2_scale(vec2_between, entity_speed)
 
-    new_entity_position = move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue, dt)
-    
+    entity_acceleration = entity.get("acceleration", 1000.0)
+
+    entity_reverse_acceleration = entity.get("reverse_acceleration", 1800.0)
+
+    arrival_radius = entity.get("arrival_radius", 1.0)
+
+    ai_velocity = get_or_set(entity, "ai_velocity", {"x": 0.0, "y": 0.0})
+
+    if distance_to_target <= arrival_radius:
+        target_velocity = {"x": 0.0, "y": 0.0}
+    else:
+        target_direction = vec2_normalize(vector_to_target)
+        target_velocity = vec2_scale(target_direction, entity_speed)
+
+    acceleration = entity_acceleration
+
+    if vec2_dot(ai_velocity, target_velocity) < 0:
+        acceleration = entity_reverse_acceleration
+
+    ai_velocity = vec2_move_towards(ai_velocity, target_velocity, acceleration * dt)
+
+    # This mutates ai_velocity so that blocked components
+    # remain removed after collision resolution.
+    new_entity_position = move_entity_with_velocity(entity, ai_velocity, tile_map, debug_queue, dt)
+
+    entity["ai_velocity"] = ai_velocity
 
     return new_entity_position
+
 
 def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue, dt):
-    # start with a straight line
-    # returns an updated position, doesn't     
-    tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
-    
+    tile_height = tile_map["tile_height"]
 
-    # we can also set our heading here
-    entity["sight_angle"] = angle_from_vector(vec2_normalize(new_entity_velocity)) 
-    # obviously we should move to 'proper' velocity but it's just a tad harder
-    
-    
-    candidate_start_pos = new_pos_from_old(entity["position"])
+    start_pos = new_pos_from_old(entity["position"])
 
-    # TODO (Cooper) we also need to do our collision logic here    
-    tile_manager_needs_update = False
-    
-    tile_manager_needs_update = True
+    if vec2_norm(new_entity_velocity) > 0:
+        entity["sight_angle"] = angle_from_vector(vec2_normalize(new_entity_velocity))
 
+    # Record the starting position for the tile manager.
     if "old_tile" not in entity:
         entity["old_tile"] = {}
-    entity["old_tile"]["tile_x"] = entity["position"]["tile_x"]
-    entity["old_tile"]["tile_y"] = entity["position"]["tile_y"]
-    entity["old_tile"]["x"] = entity["position"]["x"]
-    entity["old_tile"]["y"] = entity["position"]["y"]
+
+    entity["old_tile"]["tile_x"] = start_pos["tile_x"]
+    entity["old_tile"]["tile_y"] = start_pos["tile_y"]
+    entity["old_tile"]["x"] = start_pos["x"]
+    entity["old_tile"]["y"] = start_pos["y"]
+
+    # Work on a local copy. At the end we copy the resolved
+    # components back into the supplied velocity dictionary.
+    resolved_velocity = {
+        "x": new_entity_velocity["x"],
+        "y": new_entity_velocity["y"],
+    }
+
+    start_points = make_player_points(
+        start_pos,
+        entity["entity_width"],
+        entity["entity_height"],
+        tile_width,
+        tile_height,
+    )
+
+    initial_collisions = check_collisions_on_tilemap(entity.get("id"), start_points, resolved_velocity, tile_map, dt, debug_queue)
+
+    # Remove only the parts of velocity directed into
+    # diagonal slope faces.
+    for slope_normal in initial_collisions["slope_normals"]:
+        resolved_velocity = (remove_velocity_into_surface(resolved_velocity, slope_normal))
     
-    
-    
+    combined_candidate = move_position_by_velocity(
+        start_pos,
+        resolved_velocity,
+        dt,
+        tile_width,
+        tile_height,
+    )
 
-    new_entity_position = vec2_add(entity.get("position",{}), vec2_scale(new_entity_velocity, dt))    
-
-    
-    new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)
-    new_entity_position["tile_y"] = entity.get("position",{}).get("tile_y",0)    
-
-    new_entity_position["source"] = "ai"
-    
-    new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
-
-    # we should actually adjust velocity based on collision, 
-    # rather than just killing it outright
-    # then renormalize afterwards I think....
-        
-    
-
-    
-    
-
-    entity_points = make_player_points(candidate_start_pos, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
-
-    for potential_pos in entity_points.values():
-        if debug_queue is not None:
-                debug_item = {
-                    "type" : "circle",
-                    "drawing_function" : draw_debug_circle,
-                    "pos" : potential_pos,                    
-                    "tile_width" : tile_width,
-                    "tile_height" : tile_height,
-                    "radius" : 2,
-                    "color" : "BLUE",
-                    "z_sort" : 0,
-                    "tile_width" : tile_width,
-                    "tile_height" : tile_height
-                }
-                debug_queue.append(debug_item)
-
-    wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
-
-    entity_collision_pos_x = new_pos_from_old(candidate_start_pos)
-    entity_collision_pos_x["x"] += new_entity_velocity["x"]*dt                                    
-    entity_collision_pos_x = move_position_along_tiles(entity_collision_pos_x, tile_width, tile_height)
-    entity_col_x, x_point = collides_within_tile_at_position(entity_collision_pos_x, entity["id"], tile_map, debug_queue)
-    
-
-    if wall_collisions.get("x", False) or entity_col_x:
-        # new_entity_velocity['x'] = 0
-        # new_entity_velocity = vec2_normalize(new_entity_velocity)
-        # new_entity_velocity = vec2_scale(new_entity_velocity, entity_speed * dt)
-        new_entity_position["x"] = candidate_start_pos.get("x",0)            
-        new_entity_position["tile_x"] = candidate_start_pos.get("tile_x",0)
-        # new_entity_position["tile_x"] = entity.get("position",{}).get("tile_x",0)    
+    if entity_position_is_legal(combined_candidate, entity, tile_map, debug_queue):
+        new_entity_position = combined_candidate
     else:
-        candidate_start_pos["x"] = new_entity_position["x"]
-        candidate_start_pos["tile_x"] = new_entity_position["tile_x"]
+        # Fall back to ordinary axis-separated movement. 
 
-    entity_points = make_player_points(candidate_start_pos, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
-    wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, new_entity_velocity, tile_map, dt, debug_queue)
-    entity_collision_pos_y = new_pos_from_old(candidate_start_pos)
-    entity_collision_pos_y["y"] += new_entity_velocity["y"]*dt                                    
-    entity_collision_pos_y = move_position_along_tiles(entity_collision_pos_y, tile_width, tile_height)
-    entity_col_y, y_point = collides_within_tile_at_position(entity_collision_pos_y, entity["id"], tile_map, debug_queue)
-
-    if wall_collisions.get("y", False) or entity_col_y:
-        # new_entity_velocity['y'] = 0
-        new_entity_position["y"] = candidate_start_pos.get("y",0)    
-        new_entity_position["tile_y"] = candidate_start_pos.get("tile_y",0)    
+        new_entity_position = new_pos_from_old(start_pos)
         
+        x_velocity = {
+            "x": resolved_velocity["x"],
+            "y": 0,
+        }
+
+        x_candidate = move_position_by_velocity(new_entity_position, x_velocity, dt, tile_width, tile_height)
+
+        if entity_position_is_legal(x_candidate, entity, tile_map, debug_queue):
+            new_entity_position = x_candidate
+        else:
+            resolved_velocity["x"] = 0
+        
+        y_velocity = {
+            "x": 0,
+            "y": resolved_velocity["y"],
+        }
+
+        y_candidate = move_position_by_velocity(new_entity_position, y_velocity, dt, tile_width, tile_height)
+
+        if entity_position_is_legal(y_candidate, entity, tile_map, debug_queue):
+            new_entity_position = y_candidate
+        else:
+            resolved_velocity["y"] = 0
 
     
-    new_entity_position = move_position_along_tiles(new_entity_position, tile_width, tile_height)
+    # Last-resort invariant check    
 
-    still_collides, point = collides_within_tile_at_position(new_entity_position, entity["id"], tile_map, debug_queue)
-    if still_collides:
-        corrected_new_entity_position = new_pos_from_old(new_entity_position)
-        new_pos_abs = tile_and_offset_to_absolute(tile_map, corrected_new_entity_position)
-        away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))
-        iter_count = 0
-        max_iterations = 4
-        back_speed = 1 #vec2_norm(new_entity_velocity) * dt         
-        entity_points = make_player_points(corrected_new_entity_position, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
+    final_points = make_player_points(new_entity_position, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
 
-        while iter_count < max_iterations and still_collides:
-            old_pos = new_pos_from_old(corrected_new_entity_position)
-            corrected_new_entity_position = vec2_add_just(corrected_new_entity_position ,vec2_scale(away_direction, back_speed * dt))
-            corrected_new_entity_position = move_position_along_tiles(corrected_new_entity_position, tile_width, tile_height)            
-            entity_points = make_player_points(old_pos, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
-            wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, vec2_scale(away_direction, back_speed), tile_map, dt, debug_queue)            
-
-            if wall_collisions["x"]:
-                corrected_new_entity_position["x"] = old_pos["x"]
-                corrected_new_entity_position["tile_x"] = old_pos["tile_x"]
-            else:
-                old_pos["x"] = corrected_new_entity_position["x"]
-                old_pos["tile_x"] = corrected_new_entity_position["tile_x"]
-            
-            entity_points = make_player_points(old_pos, entity["entity_width"], entity["entity_height"], tile_width, tile_height)
-            wall_collisions = check_collisions_on_tilemap(entity.get("id"), entity_points, vec2_scale(away_direction, back_speed), tile_map, dt, debug_queue)            
-
-            if wall_collisions["y"]:
-                corrected_new_entity_position["y"] = old_pos["y"]
-                corrected_new_entity_position["tile_y"] = old_pos["tile_y"]
-
-            still_collides, point = collides_within_tile_at_position(corrected_new_entity_position, entity["id"], tile_map, debug_queue)
-            
-            if still_collides:
-                new_pos_abs = tile_and_offset_to_absolute(tile_map, corrected_new_entity_position)
-                away_direction = vec2_normalize(vec2_subtract(new_pos_abs, point))                    
-            iter_count += 1
-
-        new_entity_position = corrected_new_entity_position
-
-
-    final_points = make_player_points(new_entity_position, entity["entity_width"], entity["entity_height"], tile_map["tile_width"], tile_map["tile_height"])
     if not is_legal_position_on_tilemap(final_points, tile_map, debug_queue):
-        print("doing super safe fallback rejection")
-        new_entity_position = entity["position"]
+        print("doing super safe fallback rejection!")
 
-    # THEN update the tiles
-    # if not tiles_equal(entity["old_tile"], new_entity_position) or tile_manager_needs_update:            
+        new_entity_position = new_pos_from_old(
+            start_pos
+        )
+
+        resolved_velocity["x"] = 0
+        resolved_velocity["y"] = 0
+    
+    # Mutating it stops the next frame from immediately pushing
+    # back into the blocked wall.
+    new_entity_velocity["x"] = resolved_velocity["x"]
+    new_entity_velocity["y"] = resolved_velocity["y"]
+
     update_tile_manager(entity["old_tile"], new_entity_position, entity["id"], tile_map)
-    
 
+    entity["current_speed"] = vec2_norm(resolved_velocity)
 
-    motion_angle = angle_from_vector(new_entity_velocity)
-    
-    #risky!    
-    animation_direction = direction_from_angle(motion_angle) 
-    entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
-    
+    if entity["current_speed"] > 0:
+        motion_angle = angle_from_vector(resolved_velocity)
+
+        animation_direction = direction_from_angle(motion_angle)
+
+        entity["animation_frame"] = (animation_frame_number_from_direction(animation_direction))
 
     return new_entity_position
 
 
-def make_player_pos_abs(player_pos, tile_width, tile_height):
-    player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
-                          "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
-    
-    return player_pos_abs
 
-def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+
+def make_pos_abs(pos, tile_width, tile_height):
+    pos_abs = { "x" : pos.get("x",0) + pos.get("tile_x",0) * tile_width,
+                          "y" : pos.get("y",0) + pos.get("tile_y",0) * tile_height}
+    
+    return pos_abs
+
+def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt):
+    player_pos = player_info["position"]
     entity_pos = entity.get("position",{})        
     next_state = current_state
     tile_width = tile_map.get("tile_width", 0)
@@ -1984,21 +2585,22 @@ def idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue,
     entity_collide_distance = 5
     bored_timer = entity.get("bored_timer", 0)
 
-    bored_threshold = 5
+    bored_threshold = 1
+    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
         
     if vec2_distance(entity_pos_abs, player_pos_abs) < entity_collide_distance:
         
         next_state = "angry and attacking"
-    elif alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+    elif can_see:
         next_state = "angry chase"
         # path to player needed here
         
-        target_tile_from_tile_map = tile_map.get("tiles")[player_pos.get("tile_y")*tile_map.get("map_width") + player_pos.get("tile_x")]
+        target_tile_from_tile_map = tile_map.get("tiles")[seen_pos.get("tile_y")*tile_map.get("map_width") + seen_pos.get("tile_x")]
         start_tile_from_tile_map = tile_map.get("tiles")[entity_pos.get("tile_y")*tile_map.get("map_width") + entity_pos.get("tile_x")]
         path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
         entity["path_to_player"] = path_to_player
         entity["path_to_player_current_index"] = 0
-        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+        entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
     else:
         bored_timer += dt
         # TODO
@@ -2057,7 +2659,7 @@ def fast_distance_within_tiles(tile_and_offset_a, tile_and_offset_b, dist):
             collides = True        
     return collides
 
-def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+def death_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     get_or_set(entity, "death_timer", 0)
     entity["death_timer"] += dt
 
@@ -2131,7 +2733,7 @@ def death_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 
     return next_state
 
-def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+def stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt):
     entity["stagger_timer"] += dt
     
     
@@ -2169,10 +2771,11 @@ def stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
 def attack_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
     player_pos = player_info.get("position",{}) # top left
     next_state = current_state
-    can_see = True    
-    if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
+    can_move = alice_can_move_to_bob(entity, player_info, tile_map, debug_queue)
+    if can_see:
         # on some interval we should also update the path to the player here...I think
-        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+        entity["last_seen_player_pos"] = copy_entity_pos(seen_pos)
     else:
         if entity.get("attack_substate","") != "committed":
             can_see = False
@@ -2301,7 +2904,8 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
                 "tile_height" : tile_height,
                 "color" : "GREEN",
                 "drawing_function" : draw_debug_tile,
-                "z_sort" : 1
+                "z_sort" : 1,
+                "debug_modes" : ["pathfinding"]
 
             }    
             debug_queue.append(debug_item)
@@ -2347,19 +2951,52 @@ def attack_state(entity, current_state, player_info, tile_map, debug_queue, soun
     return next_state
 
 
-def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt):
+def angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt):
+
+    player_pos = player_info["position"]
+    # this state exists for 
+    # entities to get into position to attack the player
+
+    # for enemies with a ranged attack
+    # that means a line of sight usually
+
+    # for melee enemies, that means close enough 
+    # to a point around the edge of the player
+
+    #
+
     # We need a 'transition into 
     # portion of these state functions because there's some book keeping
     # that will need to be done only once
-    # zzzz do that here
+    # TODO do that here
     
     next_state = current_state
-    can_see = True    
-    if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
+    # TODO these likely don't need to be checked every single frame
+    # the better move would likely be to use a manager that can orchestrate
+    # these (so that we don't get a whole ton on one frame)
+    can_see, seen_pos = alice_can_see_bob_points(entity, player_info, tile_map, debug_queue)
+    can_move = False
+    if can_see:
+        can_move = alice_can_move_to_bob(entity, player_info, tile_map, debug_queue)
+    breadcrumb_timer = get_or_set(entity, "breadcrumb_timer", 0)
+    breadcrumb_interval = 3
+    knows_of_player = False
+    if can_see or (breadcrumb_timer < breadcrumb_interval): 
+        knows_of_player = True
         # on some interval we should also update the path to the player here...I think
-        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)
+        entity["last_seen_player_pos"] = copy_entity_pos(player_pos)                    
     else:
         can_see = False
+    
+
+    # print(f"does {knows_of_player} of player")
+    if can_see:
+        breadcrumb_timer = 0
+    else:
+        breadcrumb_timer += dt
+
+    entity["breadcrumb_timer"] = breadcrumb_timer
+
     entity_collide_distance = 5
     tile_width = tile_map.get("tile_width", 0)
     tile_height = tile_map.get("tile_height", 0)
@@ -2369,36 +3006,28 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     player_pos_abs = { "x" : player_pos.get("x",0) + player_pos.get("tile_x",0) * tile_width,
                           "y" : player_pos.get("y",0) + player_pos.get("tile_y",0) * tile_height}
         
-    current_tile_target_offset = entity.get("current_tile_target_offset", {"x" : 16, "y" : 16})
-    waypoint_pos = entity["path_to_player"][min(entity["path_to_player_current_index"], len(entity["path_to_player"])-1)]
-    # if our last position here doesn't match tiles on the last_seen_player_position we should recalculate?
-    # OR if enough time has elapsed
-    # really depends how slow this thing is
-
-    if debug_queue is not None:
-        for tile in entity["path_to_player"]:
-            debug_item = {
-                "type" : "tile",
-                "tile_x" : tile.get("tile_x"),
-                "tile_y" : tile.get("tile_y"),
-                "tile_width" : tile_width,
-                "tile_height" : tile_height,
-                "color" : "GREEN",
-                "drawing_function" : draw_debug_tile,
-                "z_sort" : 1
-
-            }    
-            debug_queue.append(debug_item)
-
-    if tiles_close(entity_pos, waypoint_pos, 1) and entity["path_to_player_current_index"] < len(entity["path_to_player"]):
-        entity["path_to_player_current_index"] += 1
-        current_tile_target_offset["x"] = random.randint(4,12)
-        current_tile_target_offset["y"] = random.randint(4,12)
-        entity["current_tile_target_offset"] = current_tile_target_offset
-
-    target_pos = get_abs_pos_from_index_given_offset(waypoint_pos, current_tile_target_offset, tile_map, debug_queue)
-
+    waypoint_pos, target_pos = (get_current_ai_waypoint_target_abs(entity, tile_map, arrival_epsilon=8.0))
     
+    if can_move: 
+        # print("can move here apparently")
+        player_abs = make_pos_abs(player_pos, tile_width, tile_height)
+        target_pos = player_abs
+
+    if debug_queue is not None:        
+        entity_abs = make_pos_abs(entity["position"], tile_width, tile_height)
+        debug_item = debug_item = {
+                    "type" : "line",
+                    "drawing_function" : draw_debug_line,
+                    "pos_start" : {"x" : entity_abs.get("x"), "y" : entity_abs.get("y")},                                        
+                    "pos_end" : {"x" : target_pos.get("x"), "y" : target_pos.get("y")},                                        
+                    "line_width" : 2,                    
+                    "color" : "RED",
+                    "z_sort" : -1,                    
+                    "debug_modes" : ["collisions"]                    
+                }
+        debug_queue.append(debug_item)
+
+
     new_position = move_entity_towards_target_abs(entity, target_pos, tile_map, debug_queue, dt)
     # we could do a raycast along positions to check if we 'hit' the target on the way maybe
 
@@ -2408,7 +3037,27 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
     # entity.get("position",{})["y"] = new_position.get("y", 0)        
 
     dest_threshold = 40
-    give_up_threshold = 3
+    give_up_threshold = 10
+
+    current_speed = entity.get("current_speed", 0)
+    footstep_timer = get_or_set(entity, "footstep_timer", 0)
+    footstep_timer += dt * 0.009 * current_speed
+    footstep_timer_base_gap = entity.get("base_gap", 0.3)
+
+    if footstep_timer >= footstep_timer_base_gap:
+        # sounds horrible at a constant speed like this
+        # also needs to be way creepier and in a different range than the player
+        footstep_timer = 0
+        # this helps to sound less mechanical, for now, 
+        # though introducing some actual speed variation in enemies might be good
+        new_base_gap = float(random.randint(30,50))/100.0
+        entity["base_gap"] = new_base_gap
+        play_pool_sound("player_footstep_pool", sounds, 10, 15, 40, 0.3) # make this an enemy footstep, creepier, later
+
+    entity["footstep_timer"] = footstep_timer
+
+
+    
 
     
 
@@ -2416,19 +3065,26 @@ def angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, 
         next_state = "angry and attacking"
 
     
-    if not can_see and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
+    if not knows_of_player and entity["path_to_player_current_index"] == len(entity["path_to_player"]):
+        # so here....you could either
+        # go into a "start looking around in all directions" state
+        # OR
+        # maybe simulate a 'guess' by picking a random
+        # valid tile 'nearish' the player?
+        # OR
+        # 
         get_or_set(entity, "give_up_time", 0)
         entity["give_up_time"] += dt
         if entity["give_up_time"] > give_up_threshold:
             next_state = "idle"
 
     
-    if can_see and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]):
+    if knows_of_player and not tiles_equal(entity["path_to_player"][-1], entity["last_seen_player_pos"]) and not can_move:
         target_tile_from_tile_map = tile_map.get("tiles")[entity["last_seen_player_pos"]["tile_y"]*tile_map.get("map_width") + entity["last_seen_player_pos"]["tile_x"]]
         start_tile_from_tile_map = tile_map.get("tiles")[entity["position"].get("tile_y")*tile_map.get("map_width") + entity["position"].get("tile_x")]
         path_to_player = reconstruct_path(a_star_path(start_tile_from_tile_map, target_tile_from_tile_map, tile_map), target_tile_from_tile_map, start_tile_from_tile_map)
         entity["path_to_player"] = path_to_player
-        entity["path_to_player_current_index"] = 0        
+        entity["path_to_player_current_index"] = min(1, len(path_to_player) -1)
     return next_state
 
 
@@ -2457,15 +3113,15 @@ def transition_entity_state(entity, current_state, player_info, tile_map, debug_
     tile_height = tile_map.get("tile_height", 0)    
 
     if current_state == "idle":
-        next_state = idle_redhead_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
+        next_state = idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
     elif current_state == "angry chase":        
         # this is essentially a 'go to last position' state
         # with maybe a different animation and / or speed
-        next_state = angry_chase_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+        next_state = angry_chase_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)
     elif current_state == "stagger":        
-        next_state = stagger_state(entity, current_state, player_pos, tile_map, debug_queue, dt)
+        next_state = stagger_state(entity, current_state, player_info, tile_map, debug_queue, dt)
     elif current_state == "dead":        
-        next_state = death_state(entity, current_state, player_pos, tile_map, debug_queue, dt)        
+        next_state = death_state(entity, current_state, player_info, tile_map, debug_queue, dt)        
     elif current_state == "angry and attacking":        
         next_state = attack_state(entity, current_state, player_info, tile_map, debug_queue, sounds, dt)        
         # if alice_can_see_bob(entity, player_pos, tile_map, debug_queue):
@@ -2536,7 +3192,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "width" : minkowski_rect["width"],                    
                     "height" : minkowski_rect["height"],                    
                     "color" : "GREEN",
-                    "z_sort" : 0,                    
+                    "z_sort" : 0,   
+                    "debug_modes" : ["collisions"]                 
                 }
                 debug_queue.append(minkowski_debug_item)
 
@@ -2547,6 +3204,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "radius" : 8,
                     "color" : "RED",
                     "z_sort" : 0,                    
+                    "debug_modes" : ["collisions"]                 
                 }
                 debug_queue.append(debug_item)
 
@@ -2569,6 +3227,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         if key == "taken":
             continue
         place_decal = False
+        # TODO should have two types of decal at least, wall and floor ones
+        # wall ones should be 'tall' and narrow, floor ones should be 'short' and wide
         if particle_system["timer"] >= particle_system["duration"]:
             # mark for deletion
             deletions.append({"subdict": "particle_systems", "id" : particle_system["id"]})            
@@ -2602,7 +3262,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
                  
                 # TODO (optimisation) : preallocate a certain amount of decals on each tile up front
-                # zzz AND we already know the type of tile that it's landing on so we can properly like
+                # AND we already know the type of tile that it's landing on so we can properly like
                 # have different decals for different tile types!!
                 decal = {
                     "type" : "blood",
@@ -2623,7 +3283,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                 
                 
 
-                print("already have our tile indices, good on me")
+                
 
 
         particle_system["timer"] += dt                    
@@ -2635,7 +3295,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     for entity in entities["projectiles"].values():        
         # TODO (Cooper) : move this stuff into an update function later
         if entity.get("type","") == "bullet":        
-            # TODO zzz 
+            # TODO 
             # make 'dynamite bullets' 
             # that take a few seconds before exploding
             # kinda like the flare gun from Blood
@@ -2666,7 +3326,13 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             
 
             # interp the tiles between this and next 
+
+    costly_updates = 0
+    max_costly_updates_per_frame = 2
+
     for entity in entities.get("brains",{}).values():                        
+        
+
         if entity.get("type","") == "red head":
             # he needs to know about the environment (the tilemap)
             # he needs to know about potentially other entities...
@@ -2687,7 +3353,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             bullet_key = f"{entity.get("position",{}).get("tile_x")},{entity.get("position",{}).get("tile_y")}"
             if bullet_key in bullet_tiles:
                 # possible collision!
-                # but we're allowing one bullet in multiple times somehow
+                # TODO but we're allowing one bullet in multiple times somehow?
                 print(f"we're saying there's {len(bullet_tiles[bullet_key])} in this square")
                 for bullet_id in bullet_tiles[bullet_key].keys():
                     bullet_list = bullet_tiles[bullet_key][bullet_id]
@@ -2729,8 +3395,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
 
                             
                             # if you need to turn off damage, do so here
-                            # base_bullet_damage = 20
-                            base_bullet_damage = 0
+                            base_bullet_damage = 20
+                            # base_bullet_damage = 0
 
                             entity["health"] -= base_bullet_damage
 
@@ -2747,7 +3413,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                     particle_system = make_blood_spatter(5, start_color,  end_color, 0.1, 0.01, 100, bullet_hitting_us, entity.get("position"))
                                 entity["current_state"] = "dead"
 
-                                entity["animation_frame"] = "death_frame_start" # zzz TODO make this directional
+                                entity["animation_frame"] = "death_frame_start" # TODO make this directional
                                 
                                 
                             
@@ -2780,7 +3446,8 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                                     "color" : "BLUE",
                                     "z_sort" : -2,                    
                                     "tile_width" : tile_width,
-                                    "tile_height" : tile_height
+                                    "tile_height" : tile_height,
+                                    "debug_modes" : ["damage"]                 
                                 }
                                 debug_queue.append(debug_item)
                             break
@@ -2796,6 +3463,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     "text" : f"{entity["current_state"]}",
                     "color" : "WHITE",
                     "z_sort" : 0,                    
+                    "debug_modes" : ["entity_states"]                 
                 }
                 debug_queue.append(debug_item)
     for deletion in deletions:
@@ -2812,7 +3480,7 @@ def make_tile_x_y(x, y):
 def pathfind_test_on_player(player_info, tile_map, game_camera, debug_queue = None):
     if "path" not in player_info:
         player_info["test_path"] = []
-    mouse_pos_world = pr.get_mouse_position()
+    mouse_pos_world = g_ui.get_mouse_position()
     tile_width = tile_map["tile_width"]
     tile_height = tile_map["tile_height"]
     if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT):
@@ -2833,7 +3501,8 @@ def pathfind_test_on_player(player_info, tile_map, game_camera, debug_queue = No
                 "tile_height" : tile_height,
                 "color" : "GREEN",
                 "drawing_function" : draw_debug_tile,
-                "z_sort" : 1
+                "z_sort" : 1,
+                "debug_modes" : ["pathfinding"]                 
 
             }    
             debug_queue.append(debug_item)
@@ -2847,187 +3516,87 @@ def point_in_rect(point_position, rectangle):
     return point_position["x"] >= rect_left and point_position["x"] <= rect_right and point_position["y"] >= rect_top and point_position["y"] <= rect_bottom 
     
 
-def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, sounds, debug_queue = None):
-    # i think the offset should be relative to _actual_ tile width
-    # and so our world position is always a sum of the tile start pos + offset
-
-    tile_height = tile_map["tile_height"]
-    tile_width = tile_map["tile_width"]
-
+def update_player_position(tile_map, entity, editor_mode, collision_mode, dt, sounds, debug_queue=None):
     if editor_mode != "play":
-        return entity.get("position",{})
-    
-    player_pos = entity.get("position",{}) # top left
-    # true if we think in terms of offset
-    player_pos_top_right = {"x" : player_pos.get("x",0) + entity.get("entity_width",0),
-                            "y" : player_pos.get("y",0),
-                            "tile_x" : player_pos.get("tile_x", 0),
-                            "tile_y" : player_pos.get("tile_y", 0)  
-                            }
-    
-    player_pos_bottom_right = {"x" : player_pos.get("x",0) + entity.get("entity_width",0),
-                            "y" : player_pos.get("y",0) + entity.get("entity_height",0),
-                            "tile_x" : player_pos.get("tile_x", 0),
-                            "tile_y" : player_pos.get("tile_y", 0) 
-                            }
-    
-    player_pos_bottom_left = {"x" : player_pos.get("x",0),
-                            "y" : player_pos.get("y",0) + entity.get("entity_height",0),
-                            "tile_x" : player_pos.get("tile_x", 0),
-                            "tile_y" : player_pos.get("tile_y", 0) 
-                            }
+        return entity.get("position", {})
 
-    # player_points = {
-    #     "top_left" : player_pos,
-    #     "top_right" : player_pos_top_right,
-    #     "bottom_left" : player_pos_bottom_left,
-    #     "bottom_right" : player_pos_bottom_right,
-    # }
-
-    player_points = make_player_points(entity["position"], entity["entity_width"], entity["entity_height"], tile_width, tile_height)
-
-    collisions = { "x" : False, "y" : False}
-
-    old_frame_collisions = { "x" : False, "y" : False}
-
-    
-
-    #need to test 4 corners I believe
-        
-
-    player_velocity = get_or_set(entity, "player_velocity", {"x" : 0, "y" : 0})
+    player_velocity = get_or_set(entity, "player_velocity", {"x": 0.0, "y": 0.0})
 
     player_footstep_timer = get_or_set(entity, "player_footstep_timer", 0)
 
-    player_footstep_timer_base_gap = 0.3
-
-    player_accel = 3000
-
-    player_speed_max = 500
+    
+    player_speed_max = 35.0
 
     
-    
+    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+        player_speed_max = 90.0
 
-    
-    # I think what we should do is resolve the vector into two components
-    # that are perpendicular
-    # and check each of those for collisions
-    # return either 0 or motion vectors,
-    # then sum thhem
-    new_pos = new_pos_from_old(player_pos)
+    player_accel = 1500.0
+    player_reverse_accel = 3000.0
+    player_decel = 1500.0
 
-
-    # assume we CAN move
-
-    # need a direction vector to first normalize...
-
-    direction_vector = {"x" : 0.0, "y" : 0.0}
-
-
-
+    direction_vector = {
+        "x": 0.0,
+        "y": 0.0,
+    }
 
     if pr.is_key_down(pr.KeyboardKey.KEY_A):
-        direction_vector["x"] = -1.0        
+        direction_vector["x"] -= 1.0
+
     if pr.is_key_down(pr.KeyboardKey.KEY_D):
-        direction_vector["x"] = 1.0        
+        direction_vector["x"] += 1.0
+
     if pr.is_key_down(pr.KeyboardKey.KEY_W):
-        direction_vector["y"] = -1.0        
+        direction_vector["y"] -= 1.0
+
     if pr.is_key_down(pr.KeyboardKey.KEY_S):
-        direction_vector["y"] = 1.0        
+        direction_vector["y"] += 1.0
 
-    run_multiplier = 0
-    if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
-        run_multiplier = 4
+    has_movement_input = vec2_norm(direction_vector) > 0
 
-    # if run_multiplier:
-    #     player_speed *= run_multiplier
+    if has_movement_input:
+        direction_vector = vec2_normalize(direction_vector)
 
-    direction_vector = vec2_normalize(direction_vector)    
+        target_velocity = vec2_scale(direction_vector, player_speed_max)
 
-    if (player_velocity["x"]*direction_vector["x"] < 0) or (player_velocity["y"]*direction_vector["y"] < 0):
-        player_accel *= 2
+        acceleration = player_accel
 
-    player_velocity = vec2_add(player_velocity, vec2_scale(direction_vector, dt * player_accel))
-    # correct in the case that we're diagonal but not full speed?
-    
-    
-    if vec2_norm(player_velocity) >= player_speed_max:
-        # this will need to be adjusted for sprinting -> walking transition
-        player_velocity = vec2_set_new_length(player_velocity, player_speed_max)
+        # Accelerate more strongly when changing to a genuinely
+        # opposing direction.
+        if vec2_dot(player_velocity, target_velocity) < 0:
+            acceleration = player_reverse_accel
 
+        player_velocity = vec2_move_towards(player_velocity, target_velocity, acceleration * dt)
 
-    min_speed = 10
-    current_speed = vec2_norm(player_velocity)
+    else:
+        # No input: approach a complete stop.
+        player_velocity = vec2_move_towards(player_velocity, {"x": 0.0, "y": 0.0}, player_decel * dt)
 
-    if current_speed > 0: # make this distance based rather than speed based, better accumulator
-        player_footstep_timer += dt * 0.003 * current_speed #although I guess this *is* a distance in disguise kinda
-    # else:
-    #     player_footstep_timer = 0
-
-    if player_footstep_timer >= player_footstep_timer_base_gap:
-        player_footstep_timer = 0
-        play_pool_sound("player_footstep_pool", sounds, -3, 3, 40)
-        # print("playing pool sound")
-
-    entity["player_footstep_timer"] = player_footstep_timer
-
-    if vec2_norm(direction_vector) < 0.1 and vec2_norm(player_velocity) > min_speed:
-        player_decel = 10
-        # no buttons are pressed in this case, so subtract speed
-        friction_vector = vec2_scale(player_velocity, -1)        
-        player_velocity = vec2_add(player_velocity, vec2_scale(friction_vector, dt * player_decel))
-    elif vec2_norm(direction_vector) < 0.1 and current_speed > 0 and current_speed <= min_speed:
-        # print("killing velocity")
-        player_velocity = {"x" : 0, "y" : 0}
-    
-    entity["player_velocity"] = player_velocity
+    # move_entity_with_velocity mutates this velocity to contain
+    # the collision-resolved velocity. 
     new_pos = move_entity_with_velocity(entity, player_velocity, tile_map, debug_queue, dt)
 
-        
-
-
-    update_tile_manager(player_pos, new_pos, "player", tile_map, debug_queue)
+    entity["player_velocity"] = player_velocity
 
     
-    
+    resolved_speed = vec2_norm(player_velocity)
 
-    # need the screen space of the player to get the mouse screen space to make a direction vector
-    
+    player_footstep_timer_base_gap = 0.135
 
-    # if new_pos["x"] > tile_width:
-    #     additional_x_tiles = int(new_pos.get("x",0) / tile_width)
-    #     new_pos["tile_x"] += additional_x_tiles
-    #     new_pos["x"] = new_pos["x"] % tile_width
+    if resolved_speed > 0:
+        #player_footstep_timer += (dt * 0.003 * resolved_speed)
+        player_footstep_timer += (dt * 0.006 * resolved_speed)
 
-    # if new_pos["x"] < 0:
-    #     additional_x_tiles = int((tile_width + abs(new_pos.get("x",0))) / tile_width)
-    #     new_pos["tile_x"] -= additional_x_tiles
+    if (player_footstep_timer >= player_footstep_timer_base_gap):
+        player_footstep_timer = 0
 
-    #     new_pos["x"] = tile_width + new_pos["x"]
+        play_pool_sound("player_footstep_pool", sounds,-3, 3, 40, 0.2)
 
-    # if new_pos["y"] < 0:
-    #     additional_y_tiles = int((tile_height + abs(new_pos.get("y",0))) / tile_height)
-    #     # I think this will do us?
-        
-    #     new_pos["tile_y"] -= additional_y_tiles    
-    #     new_pos["y"] = new_pos["y"] + tile_height
+    entity["player_footstep_timer"] = (player_footstep_timer)
 
-    # if new_pos["y"] > tile_height:
-    #     additional_y_tiles = int(new_pos.get("y",0) / tile_height)
-    #     # I think this will do us?
-        
-    #     new_pos["tile_y"] += additional_y_tiles    
-
-    #     new_pos["y"] = new_pos["y"] % tile_height
-
-    
-
-    
-    
-    
-
-    
     return new_pos
+
+
 
 def get_player_center_screen_space(tile_width, tile_height, player_pos, game_camera):
     player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
@@ -3039,18 +3608,17 @@ def apply_force():
     # A = F / m
     pass
 
-def update_player_interaction(tile_map, entity, game_camera, entities, sounds, audio_engine, dt, debug_state):
+def update_player_interaction(tile_map, entity, game_camera, entities, sounds, audio_engine, dt, debug_state, debug_queue):
     player_pos = entity["position"]
     tile_height = tile_map["tile_height"]
     tile_width = tile_map["tile_width"]
     # really need to have a 'player center' position
-    player_render_pos = {"x" : tile_width * player_pos["tile_x"] + player_pos["x"] - 20 - game_camera.x, "y" : tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y - 16}
+    player_render_pos = {"x" : tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x, "y" : tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y}
+    
 
-    player_render_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] - game_camera.x + 12, tile_height * player_pos["tile_y"] + player_pos["y"] - game_camera.y + 12)    
+    player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"], tile_height * player_pos["tile_y"] + player_pos["y"])    
 
-    player_pos_center = pr.Vector2(tile_width * player_pos["tile_x"] + player_pos["x"] + 12, tile_height * player_pos["tile_y"] + player_pos["y"] + 12)    
-
-    mouse_pos = pr.get_mouse_position()
+    mouse_pos = g_ui.get_mouse_position() #mouse_pos_world_from_lowres() #pr.get_mouse_position()
     
     mouse_pos_mine = {"x" : mouse_pos.x, "y" : mouse_pos.y}
 
@@ -3061,16 +3629,66 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
 
     spawn_pos = vec2_add_any(player_pos_center, aim_heading)
 
+    if debug_queue is not None:
+        debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle,
+                    "pos" : spawn_pos,                    
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "radius" : 2,
+                    "color" : "RED",
+                    "z_sort" : 0,
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "debug_modes" : ["all"]
+                }
+        debug_queue.append(debug_item)
+
+        debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle,
+                    "pos" : player_render_pos,                    
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "radius" : 2,
+                    "color" : "PINK",
+                    "z_sort" : 0,
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "debug_modes" : ["all"]
+                }
+        debug_queue.append(debug_item)
+
+        debug_item = {
+                    "type" : "circle",
+                    "drawing_function" : draw_debug_circle,
+                    "pos" : mouse_pos_mine,                    
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "radius" : 2,
+                    "color" : "WHITE",
+                    "z_sort" : 0,
+                    "tile_width" : tile_width,
+                    "tile_height" : tile_height,
+                    "debug_modes" : ["all"]
+                }
+        debug_queue.append(debug_item)
+
+
+    #pr.draw_circle(int(spawn_pos["x"] - game_camera.x), int(spawn_pos["y"] - game_camera.y), 300, pr.WHITE)
+
     # resulting_sounds = []
 
     # set direciton based on aim? or running?
     player_angle_current = angle_from_vector(aim_heading_normal)
     #player_angle_current += 180
     animation_direction = direction_from_angle(player_angle_current)
-
+    gunshot_timer = entity.get("gunshot_timer", 0)
+    entity["animation_direction"] = animation_direction
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
 
-    pr.draw_text(f"player angle is {int(player_angle_current)}", 80, 30, 10, pr.RED)
+    pr.draw_text(f"player angle is {int(player_angle_current)}", 20, 30, 10, pr.RED)
 
     pr.draw_text(f"player health is {int(entity["health"])}", 80, 40, 10, pr.RED)
 
@@ -3135,8 +3753,8 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
             bullet = make_projectile("player", bullet_pos, vec2_scale(aim_heading_normal, bullet_speed), bullet_id, "bullet")
             
             # TODO! move this stuff to an audio manager, just need the sound info
-
-            play_pool_sound("pistol_pool", sounds)        
+            gunshot_timer = 0.07
+            play_pool_sound("pistol_pool", sounds, rand_lower=5, rand_upper=6)        
 
             entities["projectiles"][bullet_id] = bullet
 
@@ -3151,8 +3769,10 @@ def update_player_interaction(tile_map, entity, game_camera, entities, sounds, a
             # spawn a bullet with our name on it
             # try playing a gunshot sound directly here
         
-        
+    
     entity["aim_direction"] = aim_heading
+    
+    entity["gunshot_timer"] = max(0, gunshot_timer - dt)
 
 
 def copy_position_dict(original):
@@ -3208,6 +3828,9 @@ def make_particle_system(particle_amount, start_color, end_color, total_duration
 
 
 def play_sound(sound):
+    if g_mute:
+        return
+
     sound.stop()
     sound.seek(0)
     sound.start()
@@ -3217,56 +3840,29 @@ def stop_sound(sound):
     sound.seek(0)
 
 
+
+def move_position_along_tiles(new_pos, tile_width, tile_height):    
+
+    additional_x_tiles = math.floor(new_pos["x"] / tile_width)
+
+    additional_y_tiles = math.floor(new_pos["y"] / tile_height)
+
+    new_pos["tile_x"] += additional_x_tiles
+    new_pos["tile_y"] += additional_y_tiles
+
+    new_pos["x"] -= additional_x_tiles * tile_width
+    new_pos["y"] -= additional_y_tiles * tile_height
     
-
-def move_position_along_tiles(new_pos, tile_width, tile_height):        
-
-    # draw_debug = (new_pos.get("source","") == "ai")
-    draw_debug = False
-    if new_pos["x"] > tile_width:
-        additional_x_tiles = int(new_pos.get("x",0) / tile_width)
-        new_pos["tile_x"] += additional_x_tiles
-        new_pos["x"] = new_pos["x"] % tile_width
-
-    if new_pos["x"] < 0:
-        additional_x_tiles = int((tile_width + abs(new_pos.get("x",0))) / tile_width)
-        new_pos["tile_x"] -= additional_x_tiles
-
-        new_pos["x"] = tile_width + new_pos["x"]
-
-    if new_pos["y"] < 0:
-        additional_y_tiles = int((tile_height + abs(new_pos.get("y",0))) / tile_height)
-        # I think this will do us?
-        
-        new_pos["tile_y"] -= additional_y_tiles    
-        new_pos["y"] = new_pos["y"] + tile_height
-
-    if new_pos["y"] > tile_height:
-        additional_y_tiles = int(new_pos.get("y",0) / tile_height)
-        # I think this will do us?
-        
-        new_pos["tile_y"] += additional_y_tiles    
-
-        new_pos["y"] = new_pos["y"] % tile_height
-
-    if draw_debug:
-        pr.draw_text(f"tile x: {new_pos.get("tile_x","")}", 80, 30, 10, pr.WHITE)
-        print(f"tile x: {new_pos.get("tile_x","")}")
-        print(f"tile y: {new_pos.get("tile_y","")}")
-
-
-    # somewhat heavy handed bounds check
     if new_pos["tile_x"] < 0:
         new_pos["tile_x"] = 0
         new_pos["x"] = 0
+
     if new_pos["tile_y"] < 0:
         new_pos["tile_y"] = 0
         new_pos["y"] = 0
 
-    # TODO also add the 'positive' edges, i.e right-most and bottom-most
+    return new_pos    
 
-
-    return new_pos
 
 def in_the_range(x, start, end):
     return x >= start and x <= end
@@ -3319,6 +3915,7 @@ def draw_debug_tile(debug_item, camera):
     pr.draw_rectangle(draw_x, draw_y, tile_width, tile_height, color)
 
 
+
 def draw_debug_rect(debug_item, camera):
     width = debug_item.get("width", 0)
     height = debug_item.get("height", 0)
@@ -3357,7 +3954,7 @@ def draw_debug_text(debug_item, camera):
     pr.draw_text(text_to_draw, cx, cy, font_size, color)
     
 
-def draw_debug_item(debug_item, camera):
+def draw_debug_item(debug_state, debug_item, camera):
     # two ways we could do this
     # have a map of types to functions
     # or, add the drawing function on the argument
@@ -3371,13 +3968,57 @@ def draw_debug_item(debug_item, camera):
 
     # drawing_functions.get(debug_item.get("type",""), lambda x : x)(debug_item)
     # OR
-    debug_item.get("drawing_function", lambda x, y : x)(debug_item, camera)
-    
+    if debug_state in debug_item["debug_modes"] or "all" in debug_item["debug_modes"]:
+        debug_item.get("drawing_function", lambda x, y : x)(debug_item, camera)
+
+def find_unpickleable_values(value, path="arena", seen=None):
+    if seen is None:
+        seen = set()
+
+    value_id = id(value)
+
+    if value_id in seen:
+        return
+
+    seen.add(value_id)
+
+    try:
+        pickle.dumps(value)
+        return
+    except Exception:
+        # don't want to handle it yet
+        pass
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            find_unpickleable_values(child, f"{path}[{key!r}]", seen)
+        return
+
+    if hasattr(value, "items"):
+        for key, child in value.items():
+            find_unpickleable_values(child, f"{path}[{key!r}]")
+        return
+
+    if isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            find_unpickleable_values(child, f"{path}[{index}]", seen)
+        return
+
+    print("Can't be pickled:", path, type(value), repr(value))
+
     
 
-def update_and_render(main_arena, game_assets, cma_engine):
+
+g_internal_width = 480
+g_internal_height = 270
+
+
+
+def update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine):
     global g_mouse_is_ui_captured
-    global g_mouse_is_ui_captured_frames
+    global g_interacted_ui_this_frame 
+    global g_last_interacted_ui_id
+    g_interacted_ui_this_frame = 0
     # maybe we think of assets as things that can't be serialized, or are expensive to do so...
     # arena initialisation
     
@@ -3385,18 +4026,28 @@ def update_and_render(main_arena, game_assets, cma_engine):
     # if dt > 0:
     #     print(f"fps is {1/dt}")
     # issue here when debugging, people will accumulate insane time
-    dt = min(dt, 0.016)
-    mouse_pos = pr.get_mouse_position()
+    dt = min(dt, 0.05)
+    mouse_pos = g_ui.get_mouse_position()
     time_elapsed = main_arena.get("time_elapsed", 0.0) 
     save_interval = 200
     save_elapsed = main_arena.get("save_elapsed", 0.0) 
     player_info = main_arena.get("player_info") # really more info
     debug_state = main_arena.get("debug_state", "clear") 
-    pause_state = main_arena.get("pause_state", "unpaused") 
+    pause_state = main_arena.get("pause_state", "unpaused")     
+
+    lighting_profile = main_arena.get("lighting_profile")
+
+    if lighting_profile is None:
+        lighting_profile = g_graphics.make_lighting_profile("inky")
+
+    fog_profile = main_arena.get("fog_profile")
+
+    if fog_profile is None:
+        fog_profile = g_graphics.make_fog_profile("misty")
 
     # could handle a pause event here...?
     if pr.is_key_pressed(pr.KeyboardKey.KEY_PAUSE):
-        pause_state = transition_pause_state(pause_state)    
+        pause_state = transition_pause_state(pause_state)
     
 
     
@@ -3415,10 +4066,19 @@ def update_and_render(main_arena, game_assets, cma_engine):
 
     save_elapsed += dt
     saved_files = main_arena.get("saved_files") 
+
+    show_options = main_arena.get("show_options", False) 
     
     do_load_level = main_arena.get("do_load_level", False) 
-    editor_mode = main_arena.get("editor_mode", "editing")
+    editor_mode = g_editor.migrate_editor_mode(main_arena.get("editor_mode", "tile"))
     collision_mode = main_arena.get("collision_mode", "regular")
+
+    global g_mute   
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_O):
+        show_options = not show_options
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F11):
+        g_mute = not g_mute
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F6):
         do_load_level = not do_load_level
@@ -3443,10 +4103,21 @@ def update_and_render(main_arena, game_assets, cma_engine):
         game_assets["sounds"] = sounds
     textures = game_assets.get("textures")
     if not textures:
-        textures = load_textures()
-        sprite_sheets = load_sprite_sheets()
+        textures = load_textures()        
         game_assets["textures"] = textures
+
+    sprite_sheets = game_assets.get("sprite_sheets")
+    if not sprite_sheets:
+        sprite_sheets = load_sprite_sheets()
         game_assets["sprite_sheets"] = sprite_sheets
+
+    shaders = game_assets.get("shaders")
+    lighting_composite_shader = shaders.get("lighting_composite", {}) if shaders else {}
+    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "player_outline" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader:
+        if shaders:
+            unload_shaders(shaders)
+        shaders = load_shaders()
+        game_assets["shaders"] = shaders
 
     entity_types = game_assets.get("entity_types")
     if not entity_types:
@@ -3467,16 +4138,43 @@ def update_and_render(main_arena, game_assets, cma_engine):
     entities = main_arena.get("entities")
 
     if not tile_map:
-        tile_map = make_tile_map(100, 100, 32, 32)        
+        tile_map = make_tile_map(100, 100, 16, 16)        
 
     if not entities:
         entities = {}
+
+    g_editor.migrate_environment_data(entities)
+    ui_state = game_assets.get("ui_state")
+
+    if ui_state is None:
+        ui_state = g_ui.make_ui_state()
+        game_assets["ui_state"] = ui_state
+
+    show_editor = ui_state.get("show_editor", False)
+
+    if pr.is_key_pressed(pr.KeyboardKey.KEY_F10):
+        show_editor = not show_editor
+    editor_state = g_editor.get_or_create_editor_state(game_assets)
+    g_ui.ui_begin_frame(ui_state, sounds)
+    g_editor.capture_editor_ui_regions(ui_state, editor_state, editor_mode)
+
+    if show_options and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(0, 0, 170, 180)):
+        g_ui.ui_capture_mouse(ui_state)
+
+    if do_load_level and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(90, 30, 340, 230)):
+        g_ui.ui_capture_mouse(ui_state)
+
+    g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
+
+    
 
     
     
 
     use_mouse_screen_navigation =  ui_button_states.get("use_mouse_screen_navigation", True)
     current_tile_selection = main_arena.get("current_tile_selection", 0)
+    current_shape_selection = main_arena.get("current_shape_selection", 0)
+
 
     current_entity_selection = main_arena.get("current_entity_selection", 0)
 
@@ -3486,6 +4184,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
 
     # this is 'mutable' or at least expensive since it's a raylib/opengl call I think, don't want to spam it
     camera_3d = get_or_invoke(game_assets, "camera_3d", make_default_camera)        
+
+    camera_physics = get_or_set(game_assets, "camera_physics", {})        
     
     
     
@@ -3498,6 +4198,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
 
     if pause_state != "paused":
         player_info["position"] = update_player_position(entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, sounds=sounds, tile_map=tile_map, debug_queue=debug_queue)
+        update_player_flashlight_toggle(player_info, editor_mode, pause_state, sounds)
     
     if pause_state != "paused":
         # I think we want to have the current 'hot spots' in terms of bullets cached
@@ -3512,93 +4213,146 @@ def update_and_render(main_arena, game_assets, cma_engine):
         # and then if there is a bullet(s) in the square,
         # we check against only those (there may be more than one I suppose)
         update_entities(entities=entities,player_info=player_info, editor_mode=editor_mode, collision_mode=collision_mode ,dt=dt, tile_map=tile_map, sounds =sounds, debug_queue=debug_queue)
-    camera_3d = update_camera(camera_3d, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
+    
+    if ui_state.get("focused_id") is None and editor_state.get("drag_kind") is None:
+        camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
     if editor_mode == "play":
-        update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, dt, debug_state)
+        update_player_interaction(tile_map, player_info, camera_3d.position, entities, sounds, cma_engine, dt, debug_state, debug_queue)
     # pathfind_test_on_player(player_info=player_info, tile_map=tile_map, game_camera=camera_3d.position, debug_queue=debug_queue)
     
     auto_reload = main_arena.get("auto_reload", True)
     # print(f"game camera is at x:{game_camera.position.x}, y: {game_camera.position.y}, z: {game_camera.position.z}")
+
+
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F1):
         auto_reload = not auto_reload    
-        draw_variable_state("auto reload", auto_reload, 10, 10, 20, pr.WHITE)            
-                
-
-    # rendering code
-    # this seems to be about the shade of the sky
-    #color_to_draw = pr.Color(60, 160, 250, 255)    
-
-    color_to_draw = pr.Color(160, 150, 150, 255)    
-    pr.begin_drawing()
-    pr.clear_background(color_to_draw)    
+        g_ui.draw_variable_state("auto reload", auto_reload, 10, 10, 20, pr.WHITE)            
     
+    if tile_map and editor_mode == "tile" and not ui_state.get("mouse_captured"):
+        if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT):
+            current_shape_selection = g_ui.update_mousewheel_selection(current_shape_selection, len(g_tile_collision_shapes))
+        else:
+            current_tile_selection = g_ui.update_mousewheel_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))
 
+    if tile_map and editor_mode == "entity" and not ui_state.get("mouse_captured"):
+        current_entity_selection = g_ui.update_mousewheel_selection(current_entity_selection, len(entity_types))
+
+    color_to_draw = pr.Color(33, 25, 68, 255)
+    pr.begin_texture_mode(render_target)
+    pr.clear_background(color_to_draw)
+    update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
+    pr.end_texture_mode()
+
+    lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
+    prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
+
+    if editor_mode == "play" and not do_load_level:
+        g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
+
+    sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
+    player_occluders = g_render_order.find_player_occluders(sorted_world_items, camera_3d.position)
+    player_outline_occluders = g_render_order.find_player_occluders(sorted_world_items, camera_3d.position, require_outline=True)
+
+    pr.begin_texture_mode(render_target)
+    draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
+    draw_sorted_world_render_items(sorted_world_items, camera_3d.position, game_assets, player_info)
+
+    if debug_queue:
+        debug_queue = sorted(debug_queue, key=lambda x: x.get("z_sort", 0), reverse=True)
+
+        for debug_item in debug_queue:
+            draw_debug_item(debug_state, debug_item, camera=camera_3d)
+
+    pr.end_texture_mode()
+
+    if player_outline_occluders:
+        g_graphics.draw_player_occlusion_outline(render_target, g_render_order.get_player_render_item(sorted_world_items), camera_3d.position, game_assets)
+
+    preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
+
+    if editor_mode == "play" or preview_environment:
+        fog_light_target, readability_light_target = g_graphics.render_prepared_lighting(lighting_frame, camera_3d.position, lighting_target, game_assets)
+        g_graphics.apply_lighting(render_target, lighting_target, readability_light_target, game_assets, lighting_profile)
+        fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
+        g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
+
+    pr.begin_texture_mode(render_target)
+
+    if game_assets.get("show_lighting_stats", False) and (editor_mode == "play" or preview_environment):
+        g_graphics.draw_lighting_stats_debug(lighting_frame["stats"])
+
+    if editor_mode != "play":
+        g_graphics.draw_cinematic_shadow_debug(camera_3d.position, entities, player_info, tile_map, game_assets, prepared_flashlight)
+
+    if editor_mode != "play" and game_assets.get("show_render_order_debug", False):
+        draw_sorted_world_debug(sorted_world_items, player_occluders, camera_3d.position)
     
+    editor_mode = g_editor.draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, camera_3d.position, tile_map, show_editor)
 
-    update_render_tile_map(camera_3d.position, entities, tile_map, pr.get_mouse_position(), current_tile_selection, current_entity_selection, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
-
-    pr.draw_text(editor_mode, 1700, 30, 20, pr.WHITE)
-
-    if debug_state != "clear":
-        pr.draw_text(debug_state, 1700, 50, 20, pr.WHITE)
-
-    if pause_state == "paused":
-        pr.draw_text("PAUSED", 1700, 50, 20, pr.WHITE)
-
-    if editor_mode == "editing":
+    if editor_mode == "tile":
         tile_type = tile_map["tile_types"][current_tile_selection]
-        tile_width = tile_map["tile_width"]
-        tile_height = tile_map["tile_height"]
-        draw_tile_texture_from_type(game_assets, tile_type, 1700, 100)
-        pr.draw_text(tile_type.get("type",""), 1700, 50, 20, pr.WHITE)
+        draw_tile_texture_from_type(game_assets, tile_type, 275, 42, current_shape_selection)
+        pr.draw_text(tile_type.get("type", ""), 275, 32, 8, pr.WHITE)
+        pr.draw_text(g_tile_collision_shapes[current_shape_selection], 275, 60, 8, pr.WHITE)
+    elif editor_mode == "entity":
+        pr.draw_text(entity_types[current_entity_selection], 275, 42, 8, pr.WHITE)
 
-    if editor_mode == "entity_placing":
-        pr.draw_text(entity_types[current_entity_selection], 1700, 50, 20, pr.WHITE)
+    if show_options:
+        if g_ui.do_button(sounds, pr.Vector2(10, 100), name="reload assets"):
+            unload_shaders(game_assets["shaders"])
+            game_assets["textures"] = None
+            game_assets["sprite_sheets"] = None
+            game_assets["shaders"] = None
+            game_assets["sounds"] = None
 
-    
-
-    if do_button(pr.Vector2(10, 100), name="reload assets"):        
-        game_assets["textures"] = None
-        game_assets["sounds"] = None
-
-    if do_button(pr.Vector2(10, 140), name="reset player"):        
-        player_info = None
+        if g_ui.do_button(sounds, pr.Vector2(10, 140), name="reset player"):
+            player_info = None
 
     reset_all = False
-    if do_button(pr.Vector2(10, 10), name="reset all"):        
+
+    if show_options and g_ui.do_button(sounds, pr.Vector2(10, 42), name="reset all"):
         player_info = None
         tile_map = None
         game_assets["textures"] = None
         entities = None
         reset_all = True
-        
-    if tile_map and editor_mode == "editing":
-        if do_button(pr.Vector2(10, 30), name=f"sel:{tile_map.get("tile_names",{}).get(current_tile_selection, "")}"):
-            current_tile_selection = (current_tile_selection + 1) % tile_map.get("tile_types_amount", 1)
-        current_tile_selection = (update_tile_selection(current_tile_selection, tile_map.get("tile_types_amount", 1))) % tile_map.get("tile_types_amount", 1)
+        fog_profile = None
+        lighting_profile = None
 
-    if tile_map and editor_mode == "entity_placing":        
-        current_entity_selection = update_mousewheel_selection(current_entity_selection, len(entity_types))
+    selected_save_index, load_saved_data = g_ui.draw_load_level(main_arena, game_assets)
 
-    
-    selected_save_index, load_saved_data = draw_load_level(main_arena, game_assets)
     if load_saved_data:
         main_arena = load_state(saved_files[selected_save_index])
         tile_map = main_arena.get("tile_map")
+        loaded_entities = main_arena.get("entities")
+        lighting_profile = main_arena.get("lighting_profile") or g_graphics.make_lighting_profile("inky")
+        fog_profile = main_arena.get("fog_profile") or g_graphics.make_fog_profile("misty")
+        editor_mode = g_editor.migrate_editor_mode(main_arena.get("editor_mode", editor_mode))
 
-    
-    #if debug_queue:
-        
-    if debug_queue:
-        debug_queue = sorted(debug_queue, key=lambda x : x.get("z_sort", 0), reverse=True)
-        for debug_item in debug_queue:
-            draw_debug_item(debug_item, camera=camera_3d)
+        if loaded_entities is not None:
+            entities = loaded_entities
+            g_editor.migrate_environment_data(entities)
+            g_editor.validate_selection(entities, editor_state)
 
-    pr.end_drawing()
+    if g_mute:
+        pr.draw_text("sound muted", 400, 42, 8, pr.WHITE)
+    if debug_state != "clear":
+        pr.draw_text(debug_state, 400, 52, 8, pr.WHITE)
+    if pause_state == "paused":
+        pr.draw_text("PAUSED", 220, 130, 12, pr.WHITE)
+
+    mp = g_ui.get_mouse_position()
+    pr.draw_circle(int(mp.x), int(mp.y), 4 if editor_mode != "play" else 1, pr.WHITE)
+    pr.end_texture_mode()
+    g_ui.ui_end_frame(ui_state)
+    ui_state["show_editor"] = show_editor
+    g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
+
 
     # update persistent variables here
     changes = main_arena.evolver()
+    changes["show_options"] = show_options
     changes["pause_state"] = pause_state
     changes["debug_state"] = debug_state
     changes["collision_mode"] = collision_mode
@@ -3606,6 +4360,7 @@ def update_and_render(main_arena, game_assets, cma_engine):
     changes["do_load_level"] = do_load_level
     changes["time_elapsed"] = time_elapsed + dt
     changes["current_tile_selection"] = current_tile_selection
+    changes["current_shape_selection"] = current_shape_selection
     changes["current_entity_selection"] = current_entity_selection
     changes["auto_reload"] = auto_reload    
     changes["ui_button_states"] = ui_button_states
@@ -3615,6 +4370,8 @@ def update_and_render(main_arena, game_assets, cma_engine):
     changes["entities"] = entities
     changes["player_info"] = player_info
     changes["selected_save_index"] = selected_save_index
+    changes["lighting_profile"] = lighting_profile
+    changes["fog_profile"] = fog_profile
 
     result = changes.persistent()    
     
@@ -3622,18 +4379,10 @@ def update_and_render(main_arena, game_assets, cma_engine):
     if reset_all:
         del game_assets["camera_3d"]
 
-    if g_mouse_is_ui_captured:
-        frames_to_hide_game_input = 3
-        g_mouse_is_ui_captured_frames += 1
-        if g_mouse_is_ui_captured_frames > frames_to_hide_game_input:
-            g_mouse_is_ui_captured = False
-            g_mouse_is_ui_captured_frames = 0
+    if g_interacted_ui_this_frame == 0:
+        g_last_interacted_ui_id = -1
+    
 
     return result
 
-def interactive_mouse_left_pressed():
-    return pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured
 
-def interactive_mouse_left_down():
-    return pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT) and not g_mouse_is_ui_captured
-    

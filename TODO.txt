@@ -1,0 +1,24 @@
+TODO 
+
+Technical Problems To Solve On Existing Code
+-enemy pathfinding/raycasting expensive, happening every frame, doesn't 
+scale well with multiple enemies on screen 
+-Enemies can technically get stuck on things still while navigating, would be nice to 
+semi-detect this and slide in a valid direction rather than press on against something, barely
+moving
+
+Remaining Core Engine Features That Haven't Been Implemented
+-Lighting
+-Sloped/diagonal tiles
+-wall rendering (i.e as distinct from regular sized tiles)
+
+Game (highest priority for now, after that collision detection sprint, which was grindy)
+-encounter with enemies, level dressing, ambient sounds etc to get
+a vibe of the game (which we currently only have in our heads)
+    IMMEDIATE IMPROVEMENTS:
+        -better footstep sounds (player + enemies)
+        -bring in scissor enemy
+        -better attack sound on enemies
+        -implement player death + restart
+        -ambient sound
+        
