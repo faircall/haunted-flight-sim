@@ -588,7 +588,7 @@ def update_animation_debug_preview(editor_state, editor_mode, entities,
     fields = {}
     if track.get("kind") == "procedural_gait":
         facing = debug.get("facing", "right")
-        if facing not in {"left", "right"}:
+        if facing not in {"left", "right", "up", "down"}:
             facing = "right"
             debug["facing"] = facing
         fields = {
@@ -2109,8 +2109,8 @@ def draw_animation_debug_inspector(ui_state, editor_state, entities,
     if collection_name == "player":
         debug["facing"], _ = g_ui.ui_dropdown(
             ui_state, "animation_inspector:facing", "facing",
-            debug.get("facing", "right"), ("right", "left"),
-            max_visible=2,
+            debug.get("facing", "right"), ("right", "left", "up", "down"),
+            max_visible=4,
         )
     debug["playback"], _ = g_ui.ui_dropdown(
         ui_state, "animation_inspector:playback", "playback",

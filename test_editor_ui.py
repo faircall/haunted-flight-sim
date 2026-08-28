@@ -402,6 +402,31 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertAlmostEqual(override["phase"], math.pi * 0.5)
         self.assertEqual(override["pose_index"], 1)
 
+    def test_animation_player_preview_accepts_front_and_back_facings(self):
+        for facing in ("up", "down"):
+            player = {"id": "player"}
+            state = g_editor.make_editor_state()
+            state.update({
+                "selected_kind": "animation_entity",
+                "selected_collection": "player",
+                "selected_id": "player",
+            })
+            state["animation_debug"].update({
+                "playback": "keyframe", "track": "walk",
+                "facing": facing, "keyframe": 0,
+                "target_key": ("player", "player"),
+            })
+            override = g_editor.update_animation_debug_preview(
+                state, "animation", {}, player, 0.0,
+            )
+            self.assertEqual(
+                override["fields"]["animation_direction"], facing,
+            )
+            self.assertEqual(
+                override["fields"]["animation_frame"],
+                f"{facing}_frame_start",
+            )
+
     def test_animation_redhead_track_steps_direction_frames(self):
         redhead = {"id": 7, "type": "red head"}
         entities = {"brains": {7: redhead}, "pickups": {}}

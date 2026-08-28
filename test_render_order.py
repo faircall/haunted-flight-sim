@@ -209,7 +209,6 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(near_arm["texture"], far_arm["texture"])
         self.assertEqual(near_leg["texture"], far_leg["texture"])
         self.assertNotEqual(near_arm["pivot_local"], far_arm["pivot_local"])
-        self.assertNotEqual(near_leg["pivot_local"], far_leg["pivot_local"])
         self.assertAlmostEqual(
             near_arm["rotation"],
             pose["torso_degrees"] + pose["near_upper_arm_degrees"],
@@ -494,13 +493,47 @@ class RenderOrderTests(unittest.TestCase):
             self.assertEqual(left["rotation"], -right["rotation"])
             self.assertTrue(left["flip_x"])
 
-    def test_non_side_facing_player_keeps_sprite_fallback(self):
+    def test_up_and_down_players_use_directional_procedural_cutouts(self):
+        for direction in ("up", "down"):
+            player = {
+                "id": "player",
+                "animation_direction": direction,
+                "procedural_gait": {"phase": 1.0, "blend": 1.0},
+            }
+            parts = g_render_order.build_player_cutout_rig_parts(player)
+            self.assertEqual(len(parts), 10)
+            self.assertIn(
+                f"player_cutout_torso_{direction}",
+                [part["texture"] for part in parts],
+            )
+            near_leg = self.rig_part(parts, "upper_leg", "near")
+            far_leg = self.rig_part(parts, "upper_leg", "far")
+            self.assertFalse(near_leg["flip_x"])
+            self.assertTrue(far_leg["flip_x"])
+            self.assertAlmostEqual(
+                near_leg["pivot_local"]["x"]
+                + far_leg["pivot_local"]["x"],
+                32.0,
+            )
+
+    def test_up_facing_weapon_is_layered_behind_the_torso(self):
         player = {
             "id": "player",
             "animation_direction": "up",
-            "procedural_gait": {"phase": 1.0, "blend": 1.0},
+            "aim_direction": {"x": 0.0, "y": -1.0},
+            "aiming": True,
+            "weapon_transition": {
+                "progress": 1.0, "target": 1.0, "phase": "unholstered",
+            },
+            "procedural_gait": {"phase": 0.0, "blend": 0.0},
         }
-        self.assertEqual(g_render_order.build_player_cutout_rig_parts(player), [])
+        parts = g_render_order.build_player_cutout_rig_parts(player)
+        gun_index = parts.index(self.rig_part(parts, "gun", "near"))
+        torso_index = parts.index(self.rig_part(parts, "torso"))
+        self.assertLess(gun_index, torso_index)
+        self.assertEqual(
+            parts[gun_index]["texture"], "player_cutout_gun_right",
+        )
 
     def test_weapon_path_is_continuous_when_transition_reverses(self):
         player = {

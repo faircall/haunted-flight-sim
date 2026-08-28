@@ -1691,6 +1691,18 @@ PLAYER_CUTOUT_TEXTURE_PATHS = {
     "player_cutout_upper_arm_right": "art/split_player/player_upper_arm_right.png",
     "player_cutout_lower_arm_right": "art/split_player/player_lower_arm_right.png",
     "player_cutout_gun_right": "art/split_player/player_gun_right.png",
+    "player_cutout_head_up": "art/split_player/player_head_up.png",
+    "player_cutout_torso_up": "art/split_player/player_torso_up.png",
+    "player_cutout_upper_leg_up": "art/split_player/player_upper_leg_up.png",
+    "player_cutout_lower_leg_up": "art/split_player/player_lower_leg_up.png",
+    "player_cutout_upper_arm_up": "art/split_player/player_upper_arm_up.png",
+    "player_cutout_lower_arm_up": "art/split_player/player_lower_arm_up.png",
+    "player_cutout_head_down": "art/split_player/player_head_down.png",
+    "player_cutout_torso_down": "art/split_player/player_torso_down.png",
+    "player_cutout_upper_leg_down": "art/split_player/player_upper_leg_down.png",
+    "player_cutout_lower_leg_down": "art/split_player/player_lower_leg_down.png",
+    "player_cutout_upper_arm_down": "art/split_player/player_upper_arm_down.png",
+    "player_cutout_lower_arm_down": "art/split_player/player_lower_arm_down.png",
 }
 
 
