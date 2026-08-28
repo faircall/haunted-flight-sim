@@ -159,14 +159,73 @@ PLAYER_FRONT_CUTOUT_RIG_DEFAULTS = {
     "leg_bind_pose": {
         "hip": {"x": 17.5, "y": 20.0},
         "knee": {"x": 17.5, "y": 25.0},
+        "foot": {"x": 17.5, "y": 31.0},
     },
     "near_hip": {"x": 17.5, "y": 20.0},
-    "far_hip": {"x": 17.5, "y": 20.0},
-    "leg_angle_scale": 0.42,
-    "knee_angle_scale": 0.34,
+    "far_hip": {"x": 16.5, "y": 20.0},
+    "leg_lateral_scale": 1.0,
+    "leg_lift_scale": 1.0,
     "arm_angle_scale": 0.42,
     "elbow_angle_scale": 0.34,
     "torso_angle_scale": 0.12,
+}
+
+# Front/back legs are posed as joint targets rather than side-view angles.
+# X values provide only a little separation; negative Y values shorten/lift a
+# limb into the screen. Contact poses remain at 0 and 2, matching footsteps.
+PLAYER_FRONT_CUTOUT_LEG_PROFILES = {
+    "walk": [
+        # Near contact; far leg lifted.
+        {"near_knee_x_pixels": 0.35, "near_knee_y_pixels": 0.0,
+         "near_foot_x_pixels": 0.65, "near_foot_y_pixels": 0.0,
+         "far_knee_x_pixels": -0.15, "far_knee_y_pixels": -0.5,
+         "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -2.0,
+         "body_y_pixels": 0.0, "torso_degrees": 0.5},
+        # Passing: near lifts while far extends toward contact.
+        {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -0.8,
+         "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -1.6,
+         "far_knee_x_pixels": 0.2, "far_knee_y_pixels": -0.2,
+         "far_foot_x_pixels": 0.4, "far_foot_y_pixels": -0.4,
+         "body_y_pixels": -0.6, "torso_degrees": -0.5},
+        # Far contact; near leg lifted.
+        {"near_knee_x_pixels": -0.15, "near_knee_y_pixels": -0.5,
+         "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -2.0,
+         "far_knee_x_pixels": 0.35, "far_knee_y_pixels": 0.0,
+         "far_foot_x_pixels": 0.65, "far_foot_y_pixels": 0.0,
+         "body_y_pixels": 0.0, "torso_degrees": 0.5},
+        # Passing: far lifts while near extends toward contact.
+        {"near_knee_x_pixels": 0.2, "near_knee_y_pixels": -0.2,
+         "near_foot_x_pixels": 0.4, "near_foot_y_pixels": -0.4,
+         "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -0.8,
+         "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -1.6,
+         "body_y_pixels": -0.6, "torso_degrees": 0.5},
+    ],
+    "run": [
+        # Near contact; far knee tucked high.
+        {"near_knee_x_pixels": 0.45, "near_knee_y_pixels": 0.0,
+         "near_foot_x_pixels": 0.8, "near_foot_y_pixels": 0.0,
+         "far_knee_x_pixels": -0.2, "far_knee_y_pixels": -1.4,
+         "far_foot_x_pixels": -0.35, "far_foot_y_pixels": -3.6,
+         "body_y_pixels": 0.0, "torso_degrees": 1.0},
+        # Flight: both legs are compressed beneath the body.
+        {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -1.0,
+         "near_foot_x_pixels": -0.2, "near_foot_y_pixels": -2.8,
+         "far_knee_x_pixels": 0.1, "far_knee_y_pixels": -0.8,
+         "far_foot_x_pixels": 0.2, "far_foot_y_pixels": -2.2,
+         "body_y_pixels": -1.5, "torso_degrees": 1.5},
+        # Far contact; near knee tucked high.
+        {"near_knee_x_pixels": -0.2, "near_knee_y_pixels": -1.4,
+         "near_foot_x_pixels": -0.35, "near_foot_y_pixels": -3.6,
+         "far_knee_x_pixels": 0.45, "far_knee_y_pixels": 0.0,
+         "far_foot_x_pixels": 0.8, "far_foot_y_pixels": 0.0,
+         "body_y_pixels": 0.0, "torso_degrees": 1.0},
+        # Flight: opposite compression before the next contact.
+        {"near_knee_x_pixels": 0.1, "near_knee_y_pixels": -0.8,
+         "near_foot_x_pixels": 0.2, "near_foot_y_pixels": -2.2,
+         "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -1.0,
+         "far_foot_x_pixels": -0.2, "far_foot_y_pixels": -2.8,
+         "body_y_pixels": -1.5, "torso_degrees": 1.5},
+    ],
 }
 
 PLAYER_FRONT_CUTOUT_ARM_DEFAULTS = {
@@ -184,6 +243,32 @@ PLAYER_FRONT_CUTOUT_ARM_DEFAULTS = {
     "ik_bend_side": 1.0,
     "far_arm_aim_motion_scale": 0.25,
 }
+
+# Running toward/away from the camera reads as depth, so the arms pump by
+# shortening and extending vertically instead of inheriting the side-view
+# swing. These offsets are relative to the neutral elbow and hand.
+PLAYER_FRONT_CUTOUT_RUN_ARM_PROFILE = [
+    # Near arm lifted; far arm extended.
+    {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.8,
+     "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -2.4,
+     "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": 0.15,
+     "far_hand_x_pixels": 0.0, "far_hand_y_pixels": 0.4},
+    # Both arms pass through their middle depths.
+    {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.45,
+     "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -1.2,
+     "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.2,
+     "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -0.6},
+    # Far arm lifted; near arm extended.
+    {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": 0.15,
+     "near_hand_x_pixels": 0.0, "near_hand_y_pixels": 0.4,
+     "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.8,
+     "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -2.4},
+    # Opposite middle-depth passing pose.
+    {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.2,
+     "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -0.6,
+     "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.45,
+     "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -1.2},
+]
 
 
 def world_to_screen_pixel(world_x, world_y, game_camera):
@@ -445,7 +530,8 @@ def _rotate_rig_vector(x, y, angle_degrees):
 
 def _make_player_cutout_part(texture_name, source_pivot, target_pivot,
                               rotation, facing_left=False, tint=None,
-                              source_canvas_width=None):
+                              source_canvas_width=None, scale_x=1.0,
+                              scale_y=1.0):
     canvas_size = float(PLAYER_CUTOUT_RIG_DEFAULTS["canvas_size"])
     source_canvas_width = float(source_canvas_width or canvas_size)
     target_x = float(target_pivot["x"])
@@ -460,6 +546,7 @@ def _make_player_cutout_part(texture_name, source_pivot, target_pivot,
         "origin": {"x": origin_x, "y": float(source_pivot["y"])},
         "rotation": float(rotation),
         "flip_x": bool(facing_left),
+        "scale": {"x": float(scale_x), "y": float(scale_y)},
         "tint": list(tint or [255, 255, 255, 255]),
     }
 
@@ -507,6 +594,23 @@ def _blended_player_cutout_gait_pose(phase, run_blend):
     )
     run = sample_player_cutout_gait_profile(
         PLAYER_CUTOUT_GAIT_PROFILES["run"], phase,
+    )
+    amount = max(0.0, min(1.0, float(run_blend)))
+    return {
+        key: float(walk.get(key, 0.0)) + (
+            float(run.get(key, walk.get(key, 0.0)))
+            - float(walk.get(key, 0.0))
+        ) * amount
+        for key in walk
+    }
+
+
+def _blended_player_front_leg_pose(phase, run_blend):
+    walk = sample_player_cutout_gait_profile(
+        PLAYER_FRONT_CUTOUT_LEG_PROFILES["walk"], phase,
+    )
+    run = sample_player_cutout_gait_profile(
+        PLAYER_FRONT_CUTOUT_LEG_PROFILES["run"], phase,
     )
     amount = max(0.0, min(1.0, float(run_blend)))
     return {
@@ -948,16 +1052,8 @@ def _build_player_front_locomotion_arm_pose(
         "x": float(source_hand["x"]) - float(source_elbow["x"]),
         "y": float(source_hand["y"]) - float(source_elbow["y"]),
     }
-    gait_pose = _blended_player_cutout_gait_pose(arm_phase, run_blend)
     swing_scale = max(0.0, float(motion_scale)) * float(movement_blend)
     side = "far" if is_far else "near"
-    upper_angle = torso_angle + float(
-        gait_pose.get(f"{side}_upper_arm_degrees", 0.0)
-    ) * float(rig_settings["arm_angle_scale"]) * swing_scale
-    lower_angle = upper_angle - float(
-        gait_pose.get(f"{side}_elbow_bend_degrees", 0.0)
-    ) * float(rig_settings["elbow_angle_scale"]) * swing_scale
-
     body_bind_hip = rig_settings["body_hip"]
     attachment = arm_settings[
         "far_shoulder" if is_far else "shoulder"
@@ -971,28 +1067,98 @@ def _build_player_front_locomotion_arm_pose(
         "x": float(body_hip["x"]) + shoulder_offset["x"],
         "y": float(body_hip["y"]) + shoulder_offset["y"],
     }
-    elbow_offset = _rotate_rig_vector(
-        upper_bind["x"], upper_bind["y"], upper_angle,
+
+    # Walking retains the readable lateral arm sway.
+    walk_pose = sample_player_cutout_gait_profile(
+        PLAYER_CUTOUT_GAIT_PROFILES["walk"], arm_phase,
     )
+    walk_upper_angle = torso_angle + float(
+        walk_pose.get(f"{side}_upper_arm_degrees", 0.0)
+    ) * float(rig_settings["arm_angle_scale"]) * swing_scale
+    walk_lower_angle = walk_upper_angle - float(
+        walk_pose.get(f"{side}_elbow_bend_degrees", 0.0)
+    ) * float(rig_settings["elbow_angle_scale"]) * swing_scale
+    walk_elbow_offset = _rotate_rig_vector(
+        upper_bind["x"], upper_bind["y"], walk_upper_angle,
+    )
+    walk_elbow = {
+        "x": shoulder["x"] + walk_elbow_offset["x"],
+        "y": shoulder["y"] + walk_elbow_offset["y"],
+    }
+    walk_hand_offset = _rotate_rig_vector(
+        lower_bind["x"], lower_bind["y"], walk_lower_angle,
+    )
+    walk_hand = {
+        "x": walk_elbow["x"] + walk_hand_offset["x"],
+        "y": walk_elbow["y"] + walk_hand_offset["y"],
+    }
+
+    # Running uses vertical compression/extension to represent the arm moving
+    # toward and away from the camera, rather than drawing a lateral arc.
+    run_pose = sample_player_cutout_gait_profile(
+        PLAYER_FRONT_CUTOUT_RUN_ARM_PROFILE, arm_phase,
+    )
+    neutral_elbow_offset = _rotate_rig_vector(
+        upper_bind["x"], upper_bind["y"], torso_angle,
+    )
+    neutral_hand_offset = _rotate_rig_vector(
+        upper_bind["x"] + lower_bind["x"],
+        upper_bind["y"] + lower_bind["y"],
+        torso_angle,
+    )
+    run_elbow = {
+        "x": shoulder["x"] + neutral_elbow_offset["x"] + float(
+            run_pose.get(f"{side}_elbow_x_pixels", 0.0)
+        ) * swing_scale,
+        "y": shoulder["y"] + neutral_elbow_offset["y"] + float(
+            run_pose.get(f"{side}_elbow_y_pixels", 0.0)
+        ) * swing_scale,
+    }
+    run_hand = {
+        "x": shoulder["x"] + neutral_hand_offset["x"] + float(
+            run_pose.get(f"{side}_hand_x_pixels", 0.0)
+        ) * swing_scale,
+        "y": shoulder["y"] + neutral_hand_offset["y"] + float(
+            run_pose.get(f"{side}_hand_y_pixels", 0.0)
+        ) * swing_scale,
+    }
+    profile_amount = max(0.0, min(1.0, float(run_blend)))
     elbow = {
-        "x": shoulder["x"] + elbow_offset["x"],
-        "y": shoulder["y"] + elbow_offset["y"],
+        "x": walk_elbow["x"] + (run_elbow["x"] - walk_elbow["x"])
+             * profile_amount,
+        "y": walk_elbow["y"] + (run_elbow["y"] - walk_elbow["y"])
+             * profile_amount,
     }
-    hand_offset = _rotate_rig_vector(
-        lower_bind["x"], lower_bind["y"], lower_angle,
-    )
     hand = {
-        "x": elbow["x"] + hand_offset["x"],
-        "y": elbow["y"] + hand_offset["y"],
+        "x": walk_hand["x"] + (run_hand["x"] - walk_hand["x"])
+             * profile_amount,
+        "y": walk_hand["y"] + (run_hand["y"] - walk_hand["y"])
+             * profile_amount,
     }
+    target_upper = {
+        "x": elbow["x"] - shoulder["x"],
+        "y": elbow["y"] - shoulder["y"],
+    }
+    target_lower = {
+        "x": hand["x"] - elbow["x"],
+        "y": hand["y"] - elbow["y"],
+    }
+    upper_angle = _rig_vector_angle_degrees(upper_bind, target_upper)
+    lower_angle = _rig_vector_angle_degrees(lower_bind, target_lower)
+    upper_scale = math.hypot(
+        target_upper["x"], target_upper["y"],
+    ) / max(0.0001, math.hypot(upper_bind["x"], upper_bind["y"]))
+    lower_scale = math.hypot(
+        target_lower["x"], target_lower["y"],
+    ) / max(0.0001, math.hypot(lower_bind["x"], lower_bind["y"]))
     tint = PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"] if is_far else None
     upper_part = _make_player_cutout_part(
         textures["upper_arm"], source_shoulder, shoulder,
-        upper_angle, is_far, tint,
+        upper_angle, is_far, tint, scale_y=upper_scale,
     )
     lower_part = _make_player_cutout_part(
         textures["lower_arm"], source_elbow, elbow,
-        lower_angle, is_far, tint,
+        lower_angle, is_far, tint, scale_y=lower_scale,
     )
     upper_part.update({"rig_side": side, "rig_joint": "upper_arm"})
     lower_part.update({"rig_side": side, "rig_joint": "lower_arm"})
@@ -1031,7 +1197,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     if not math.isfinite(run_blend):
         run_blend = 0.0
 
-    body_pose = _blended_player_cutout_gait_pose(phase, run_blend)
+    body_pose = _blended_player_front_leg_pose(phase, run_blend)
     bob = float(body_pose.get("body_y_pixels", 0.0)) * blend
     torso_angle = (
         float(body_pose.get("torso_degrees", 0.0))
@@ -1060,10 +1226,31 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     source_knee = dict(leg_bind["knee"])
     if direction == "down":
         source_knee["y"] = 26.0
-    upper_length = {
+    source_foot = dict(leg_bind["foot"])
+    source_upper_vector = {
         "x": float(source_knee["x"]) - float(source_hip["x"]),
         "y": float(source_knee["y"]) - float(source_hip["y"]),
     }
+    source_lower_vector = {
+        "x": float(source_foot["x"]) - float(source_knee["x"]),
+        "y": float(source_foot["y"]) - float(source_knee["y"]),
+    }
+    source_hip_to_foot = {
+        "x": float(source_foot["x"]) - float(source_hip["x"]),
+        "y": float(source_foot["y"]) - float(source_hip["y"]),
+    }
+    source_upper_length = max(
+        0.0001, math.hypot(
+            source_upper_vector["x"], source_upper_vector["y"],
+        ),
+    )
+    source_lower_length = max(
+        0.0001, math.hypot(
+            source_lower_vector["x"], source_lower_vector["y"],
+        ),
+    )
+    lateral_scale = float(settings["leg_lateral_scale"])
+    lift_scale = float(settings["leg_lift_scale"])
     leg_parts = []
     for is_far in (True, False):
         side = "far" if is_far else "near"
@@ -1077,31 +1264,53 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
             "x": body_hip["x"] + attachment_offset["x"],
             "y": body_hip["y"] + attachment_offset["y"],
         }
-        upper_angle = float(
-            body_pose.get(f"{side}_upper_leg_degrees", 0.0)
-        ) * float(settings["leg_angle_scale"]) * blend
-        knee_bend = float(
-            body_pose.get(f"{side}_knee_bend_degrees", 0.0)
-        ) * float(settings["knee_angle_scale"]) * blend
-        lower_angle = upper_angle + knee_bend
-        knee_offset = _rotate_rig_vector(
-            upper_length["x"], upper_length["y"], upper_angle,
-        )
         target_knee = {
-            "x": target_hip["x"] + knee_offset["x"],
-            "y": target_hip["y"] + knee_offset["y"],
+            "x": target_hip["x"] + source_upper_vector["x"] + float(
+                body_pose.get(f"{side}_knee_x_pixels", 0.0)
+            ) * lateral_scale * blend,
+            "y": target_hip["y"] + source_upper_vector["y"] + float(
+                body_pose.get(f"{side}_knee_y_pixels", 0.0)
+            ) * lift_scale * blend,
         }
+        target_foot = {
+            "x": target_hip["x"] + source_hip_to_foot["x"] + float(
+                body_pose.get(f"{side}_foot_x_pixels", 0.0)
+            ) * lateral_scale * blend,
+            "y": target_hip["y"] + source_hip_to_foot["y"] + float(
+                body_pose.get(f"{side}_foot_y_pixels", 0.0)
+            ) * lift_scale * blend,
+        }
+        target_upper_vector = {
+            "x": target_knee["x"] - target_hip["x"],
+            "y": target_knee["y"] - target_hip["y"],
+        }
+        target_lower_vector = {
+            "x": target_foot["x"] - target_knee["x"],
+            "y": target_foot["y"] - target_knee["y"],
+        }
+        upper_angle = _rig_vector_angle_degrees(
+            source_upper_vector, target_upper_vector,
+        )
+        lower_angle = _rig_vector_angle_degrees(
+            source_lower_vector, target_lower_vector,
+        )
+        upper_scale = math.hypot(
+            target_upper_vector["x"], target_upper_vector["y"],
+        ) / source_upper_length
+        lower_scale = math.hypot(
+            target_lower_vector["x"], target_lower_vector["y"],
+        ) / source_lower_length
         tint = (
             PLAYER_CUTOUT_RIG_DEFAULTS["far_leg_tint"]
             if is_far else None
         )
         lower_part = _make_player_cutout_part(
             textures["lower_leg"], source_knee, target_knee,
-            lower_angle, is_far, tint,
+            lower_angle, is_far, tint, scale_y=lower_scale,
         )
         upper_part = _make_player_cutout_part(
             textures["upper_leg"], source_hip, target_hip,
-            upper_angle, is_far, tint,
+            upper_angle, is_far, tint, scale_y=upper_scale,
         )
         lower_part.update({"rig_side": side, "rig_joint": "lower_leg"})
         upper_part.update({"rig_side": side, "rig_joint": "upper_leg"})

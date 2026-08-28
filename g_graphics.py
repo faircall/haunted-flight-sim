@@ -1679,6 +1679,9 @@ def _draw_player_cutout_rig(render_item, game_camera, game_assets):
     for part, part_texture in resolved:
         pivot = part.get("pivot_local", {})
         origin = part.get("origin", {})
+        scale = part.get("scale", {})
+        scale_x = max(0.0001, float(scale.get("x", 1.0)))
+        scale_y = max(0.0001, float(scale.get("y", 1.0)))
         source_width = float(part_texture.width)
         source_x = 0.0
         if part.get("flip_x", False):
@@ -1692,11 +1695,12 @@ def _draw_player_cutout_rig(render_item, game_camera, game_assets):
             pr.Rectangle(
                 float(top_left["x"]) + float(pivot.get("x", 0.0)),
                 float(top_left["y"]) + float(pivot.get("y", 0.0)),
-                float(part_texture.width), float(part_texture.height),
+                float(part_texture.width) * scale_x,
+                float(part_texture.height) * scale_y,
             ),
             pr.Vector2(
-                float(origin.get("x", 0.0)),
-                float(origin.get("y", 0.0)),
+                float(origin.get("x", 0.0)) * scale_x,
+                float(origin.get("y", 0.0)) * scale_y,
             ),
             float(part.get("rotation", 0.0)),
             _color_from_components(part.get("tint")),

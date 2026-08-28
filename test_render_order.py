@@ -535,6 +535,60 @@ class RenderOrderTests(unittest.TestCase):
             parts[gun_index]["texture"], "player_cutout_gun_right",
         )
 
+    def test_front_running_alternates_vertical_leg_extension(self):
+        player = {
+            "id": "player",
+            "animation_direction": "up",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 1.0,
+            },
+        }
+        first_contact = g_render_order.build_player_cutout_rig_parts(player)
+        near_first = self.rig_part(first_contact, "upper_leg", "near")
+        far_first = self.rig_part(first_contact, "upper_leg", "far")
+        self.assertGreater(near_first["scale"]["y"], far_first["scale"]["y"])
+        self.assertLess(abs(near_first["rotation"]), 8.0)
+        self.assertLess(abs(far_first["rotation"]), 8.0)
+
+        player["procedural_gait"]["phase"] = math.pi
+        opposite_contact = g_render_order.build_player_cutout_rig_parts(player)
+        near_opposite = self.rig_part(opposite_contact, "upper_leg", "near")
+        far_opposite = self.rig_part(opposite_contact, "upper_leg", "far")
+        self.assertLess(near_opposite["scale"]["y"], far_opposite["scale"]["y"])
+
+    def test_front_leg_profiles_keep_walk_and_run_lift_independent(self):
+        walk = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["walk"]
+        run = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["run"]
+        self.assertEqual(len(walk), 4)
+        self.assertEqual(len(run), 4)
+        self.assertLess(
+            run[0]["far_foot_y_pixels"],
+            walk[0]["far_foot_y_pixels"],
+        )
+
+    def test_front_running_arms_pump_vertically_and_alternate_depth(self):
+        player = {
+            "id": "player",
+            "animation_direction": "down",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 1.0,
+            },
+        }
+        first = g_render_order.build_player_cutout_rig_parts(player)
+        near_first = self.rig_part(first, "upper_arm", "near")
+        far_first = self.rig_part(first, "upper_arm", "far")
+        self.assertLess(abs(near_first["rotation"]), 3.0)
+        self.assertLess(abs(far_first["rotation"]), 3.0)
+        self.assertLess(near_first["scale"]["y"], far_first["scale"]["y"])
+
+        player["procedural_gait"]["phase"] = math.pi
+        opposite = g_render_order.build_player_cutout_rig_parts(player)
+        near_opposite = self.rig_part(opposite, "upper_arm", "near")
+        far_opposite = self.rig_part(opposite, "upper_arm", "far")
+        self.assertGreater(
+            near_opposite["scale"]["y"], far_opposite["scale"]["y"],
+        )
+
     def test_weapon_path_is_continuous_when_transition_reverses(self):
         player = {
             "id": "player",
