@@ -176,7 +176,7 @@ PLAYER_FRONT_CUTOUT_ARM_DEFAULTS = {
         "hand": {"x": 20.0, "y": 19.0},
     },
     "shoulder": {"x": 19.5, "y": 11.0},
-    "far_shoulder": {"x": 19.5, "y": 11.0},
+    "far_shoulder": {"x": 18.5, "y": 11.0},
     "aim_reach": 6.5,
     "gun_grip": {"x": 0.0, "y": 2.0},
     "gun_source_size": 4.0,
