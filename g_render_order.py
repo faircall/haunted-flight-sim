@@ -346,10 +346,10 @@ PLAYER_FRONT_CUTOUT_ARM_PROFILES = {
         "walk": [
             {"near_upper_arm_degrees": -15.0,
              "near_elbow_bend_degrees": 18.0,
-             "far_upper_arm_degrees": 1.0,
-             "far_elbow_bend_degrees": -20.0},
+             "far_upper_arm_degrees": 10.0,
+             "far_elbow_bend_degrees": -50.0},
             {"near_upper_arm_degrees": -4.0,
-             "near_elbow_bend_degrees": 24.0,
+             "near_elbow_bend_degrees": 14.0,
              "far_upper_arm_degrees": -5.0,
              "far_elbow_bend_degrees": 32.0},
             {"near_upper_arm_degrees": 40.0,
@@ -1150,7 +1150,7 @@ def _build_player_side_cutout_rig_parts(player_entity):
 
 def _build_player_front_locomotion_arm_pose(
         arm_phase, run_blend, movement_blend, body_hip, torso_angle,
-        textures, is_far=False, motion_scale=1.0):
+        direction, textures, is_far=False, motion_scale=1.0):
     rig_settings = PLAYER_FRONT_CUTOUT_RIG_DEFAULTS
     arm_settings = PLAYER_FRONT_CUTOUT_ARM_DEFAULTS
     bind_pose = arm_settings["bind_pose"]
@@ -1167,6 +1167,7 @@ def _build_player_front_locomotion_arm_pose(
     }
     swing_scale = max(0.0, float(motion_scale)) * float(movement_blend)
     side = "far" if is_far else "near"
+    direction_profiles = PLAYER_FRONT_CUTOUT_ARM_PROFILES[direction]
     body_bind_hip = rig_settings["body_hip"]
     attachment = arm_settings[
         "far_shoulder" if is_far else "shoulder"
@@ -1183,7 +1184,7 @@ def _build_player_front_locomotion_arm_pose(
 
     # Walking retains the readable lateral arm sway.
     walk_pose = sample_player_cutout_gait_profile(
-        PLAYER_CUTOUT_GAIT_PROFILES["walk"], arm_phase,
+        direction_profiles["walk"], arm_phase,
     )
     walk_upper_angle = torso_angle + float(
         walk_pose.get(f"{side}_upper_arm_degrees", 0.0)
@@ -1209,7 +1210,7 @@ def _build_player_front_locomotion_arm_pose(
     # Running uses vertical compression/extension to represent the arm moving
     # toward and away from the camera, rather than drawing a lateral arc.
     run_pose = sample_player_cutout_gait_profile(
-        PLAYER_FRONT_CUTOUT_RUN_ARM_PROFILE, arm_phase,
+        direction_profiles["run"], arm_phase,
     )
     neutral_elbow_offset = _rotate_rig_vector(
         upper_bind["x"], upper_bind["y"], torso_angle,
@@ -1447,11 +1448,11 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
         )
     )
     far_arm = _build_player_front_locomotion_arm_pose(
-        phase, run_blend, blend, body_hip, torso_angle, textures,
+        phase, run_blend, blend, body_hip, torso_angle, direction, textures,
         is_far=True, motion_scale=far_motion_scale,
     )
     near_arm = _build_player_front_locomotion_arm_pose(
-        phase, run_blend, blend, body_hip, torso_angle, textures,
+        phase, run_blend, blend, body_hip, torso_angle, direction, textures,
         is_far=False,
     )
     weapon_parts = _build_player_weapon_cutout_parts(

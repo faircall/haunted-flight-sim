@@ -565,10 +565,20 @@ class RenderOrderTests(unittest.TestCase):
     def test_up_and_down_front_leg_profiles_are_independently_authored(self):
         up = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["up"]
         down = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["down"]
-        self.assertEqual(up, down)
+        self.assertEqual(set(up), {"walk", "run"})
+        self.assertEqual(set(down), {"walk", "run"})
         self.assertIsNot(up, down)
         self.assertIsNot(up["walk"], down["walk"])
         self.assertIsNot(up["walk"][0], down["walk"][0])
+
+    def test_up_and_down_front_arm_profiles_are_independently_authored(self):
+        up = g_render_order.PLAYER_FRONT_CUTOUT_ARM_PROFILES["up"]
+        down = g_render_order.PLAYER_FRONT_CUTOUT_ARM_PROFILES["down"]
+        self.assertEqual(set(up), {"walk", "run"})
+        self.assertEqual(set(down), {"walk", "run"})
+        self.assertIsNot(up, down)
+        self.assertIsNot(up["walk"], down["walk"])
+        self.assertIsNot(up["run"][0], down["run"][0])
 
     def test_front_running_arms_pump_vertically_and_alternate_depth(self):
         player = {
