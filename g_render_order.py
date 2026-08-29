@@ -163,6 +163,10 @@ PLAYER_FRONT_CUTOUT_RIG_DEFAULTS = {
     },
     "near_hip": {"x": 17.5, "y": 20.0},
     "far_hip": {"x": 16.5, "y": 20.0},
+    # The down idle art retains its angled feet, while locomotion borrows the
+    # straight-footed up leg pieces. Torso, head and arms remain down-facing.
+    "down_locomotion_uses_up_leg_art": True,
+    "locomotion_leg_art_blend_threshold": 0.02,
     "leg_lateral_scale": 1.0,
     "leg_lift_scale": 1.0,
     "arm_angle_scale": 0.42,
@@ -179,18 +183,18 @@ PLAYER_FRONT_CUTOUT_LEG_PROFILES = {
             # Near contact; far leg lifted.
             {"near_knee_x_pixels": 0.35, "near_knee_y_pixels": 0.0,
              "near_foot_x_pixels": 0.0, "near_foot_y_pixels": 0.0,
-             "far_knee_x_pixels": -0.15, "far_knee_y_pixels": -0.5,
-             "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -2.0,
+             "far_knee_x_pixels": 0, "far_knee_y_pixels": -0.5,
+             "far_foot_x_pixels": 0.0, "far_foot_y_pixels": -2.0,
              "body_y_pixels": 0.0, "torso_degrees": 0.5},
             # Passing: near lifts while far extends toward contact.
             {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -0.8,
-             "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -1.6,
+             "near_foot_x_pixels": 0.25, "near_foot_y_pixels": -1.6,
              "far_knee_x_pixels": 0.2, "far_knee_y_pixels": -0.2,
              "far_foot_x_pixels": 0.4, "far_foot_y_pixels": -0.4,
              "body_y_pixels": -0.6, "torso_degrees": -0.5},
             # Far contact; near leg lifted.
             {"near_knee_x_pixels": -0.15, "near_knee_y_pixels": -0.5,
-             "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -2.0,
+             "near_foot_x_pixels": -0.00, "near_foot_y_pixels": -2.0,
              "far_knee_x_pixels": 0.35, "far_knee_y_pixels": 0.0,
              "far_foot_x_pixels": 0.0, "far_foot_y_pixels": 0.0,
              "body_y_pixels": 0.0, "torso_degrees": 0.5},
@@ -198,7 +202,7 @@ PLAYER_FRONT_CUTOUT_LEG_PROFILES = {
             {"near_knee_x_pixels": 0.2, "near_knee_y_pixels": -0.2,
              "near_foot_x_pixels": 0.4, "near_foot_y_pixels": -0.4,
              "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -0.8,
-             "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -1.6,
+             "far_foot_x_pixels": 0.25, "far_foot_y_pixels": -1.6,
              "body_y_pixels": -0.6, "torso_degrees": 0.5},
         ],
         "run": [
@@ -234,7 +238,7 @@ PLAYER_FRONT_CUTOUT_LEG_PROFILES = {
             {"near_knee_x_pixels": 0.35, "near_knee_y_pixels": 0.0,
              "near_foot_x_pixels": 0.0, "near_foot_y_pixels": 0.0,
              "far_knee_x_pixels": -0.15, "far_knee_y_pixels": -0.5,
-             "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -2.0,
+             "far_foot_x_pixels": -1.25, "far_foot_y_pixels": -2.0,
              "body_y_pixels": 0.0, "torso_degrees": 0.5},
             # Passing: near lifts while far extends toward contact.
             {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -0.8,
@@ -244,7 +248,7 @@ PLAYER_FRONT_CUTOUT_LEG_PROFILES = {
              "body_y_pixels": -0.6, "torso_degrees": -0.5},
             # Far contact; near leg lifted.
             {"near_knee_x_pixels": -0.15, "near_knee_y_pixels": -0.5,
-             "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -2.0,
+             "near_foot_x_pixels": -1.25, "near_foot_y_pixels": -2.0,
              "far_knee_x_pixels": 0.35, "far_knee_y_pixels": 0.0,
              "far_foot_x_pixels": 0.0, "far_foot_y_pixels": 0.0,
              "body_y_pixels": 0.0, "torso_degrees": 0.5},
@@ -308,24 +312,24 @@ PLAYER_FRONT_CUTOUT_ARM_PROFILES = {
         "walk": [
             {"near_upper_arm_degrees": -15.0,
              "near_elbow_bend_degrees": 18.0,
-             "far_upper_arm_degrees": 1.0,
-             "far_elbow_bend_degrees": -20.0},
+             "far_upper_arm_degrees": 15.0,
+             "far_elbow_bend_degrees": -45.0},
             {"near_upper_arm_degrees": -4.0,
-             "near_elbow_bend_degrees": 24.0,
+             "near_elbow_bend_degrees": 12.0,
              "far_upper_arm_degrees": -5.0,
-             "far_elbow_bend_degrees": 32.0},
+             "far_elbow_bend_degrees": 12.0},
             {"near_upper_arm_degrees": 40.0,
              "near_elbow_bend_degrees": 28.0,
              "far_upper_arm_degrees": -18.0,
              "far_elbow_bend_degrees": 20.0},
             {"near_upper_arm_degrees": 4.0,
-             "near_elbow_bend_degrees": 28.0,
-             "far_upper_arm_degrees": -6.0,
-             "far_elbow_bend_degrees": 28.0},
+             "near_elbow_bend_degrees": 12.0,
+             "far_upper_arm_degrees": -1.0,
+             "far_elbow_bend_degrees": 12.0},
         ],
         "run": [
             {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.8,
-             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -2.4,
+             "near_hand_x_pixels": -2.0, "near_hand_y_pixels": -4.4,
              "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": 0.15,
              "far_hand_x_pixels": 0.0, "far_hand_y_pixels": 0.4},
             {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.45,
@@ -335,7 +339,7 @@ PLAYER_FRONT_CUTOUT_ARM_PROFILES = {
             {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": 0.15,
              "near_hand_x_pixels": 0.0, "near_hand_y_pixels": 0.4,
              "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.8,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -2.4},
+             "far_hand_x_pixels": -2.0, "far_hand_y_pixels": -4.5},
             {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.2,
              "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -0.6,
              "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.45,
@@ -350,30 +354,30 @@ PLAYER_FRONT_CUTOUT_ARM_PROFILES = {
              "far_elbow_bend_degrees": -50.0},
             {"near_upper_arm_degrees": -4.0,
              "near_elbow_bend_degrees": 14.0,
-             "far_upper_arm_degrees": -5.0,
-             "far_elbow_bend_degrees": 32.0},
+             "far_upper_arm_degrees": -1.0,
+             "far_elbow_bend_degrees": 12.0},
             {"near_upper_arm_degrees": 40.0,
              "near_elbow_bend_degrees": 28.0,
              "far_upper_arm_degrees": -18.0,
              "far_elbow_bend_degrees": 20.0},
             {"near_upper_arm_degrees": 4.0,
              "near_elbow_bend_degrees": 28.0,
-             "far_upper_arm_degrees": -6.0,
-             "far_elbow_bend_degrees": 28.0},
+             "far_upper_arm_degrees": -1.0,
+             "far_elbow_bend_degrees": 12.0},
         ],
         "run": [
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.8,
-             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -2.4,
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -2.8,
+             "near_hand_x_pixels": 1.0, "near_hand_y_pixels": -1.0,
              "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": 0.15,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": 0.4},
+             "far_hand_x_pixels": -1.4, "far_hand_y_pixels": -2.4},
             {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.45,
              "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -1.2,
              "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.2,
              "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -0.6},
             {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": 0.15,
-             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": 0.4,
+             "near_hand_x_pixels": -1.0, "near_hand_y_pixels": -1.0,
              "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.8,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -2.4},
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -2.0},
             {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.2,
              "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -0.6,
              "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.45,
@@ -1311,6 +1315,13 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     if not math.isfinite(run_blend):
         run_blend = 0.0
 
+    leg_texture_direction = direction
+    if (direction == "down"
+            and settings.get("down_locomotion_uses_up_leg_art", True)
+            and blend > float(settings["locomotion_leg_art_blend_threshold"])):
+        leg_texture_direction = "up"
+    leg_textures = PLAYER_CUTOUT_DIRECTION_TEXTURES[leg_texture_direction]
+
     body_pose = _blended_player_front_leg_pose(
         direction, phase, run_blend,
     )
@@ -1340,7 +1351,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     # The down-facing authored upper leg includes one extra row at its foot.
     # Pivoting at y=26 keeps that row attached to the knee; up uses y=25.
     source_knee = dict(leg_bind["knee"])
-    if direction == "down":
+    if leg_texture_direction == "down":
         source_knee["y"] = 26.0
     source_foot = dict(leg_bind["foot"])
     source_upper_vector = {
@@ -1421,11 +1432,11 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
             if is_far else None
         )
         lower_part = _make_player_cutout_part(
-            textures["lower_leg"], source_knee, target_knee,
+            leg_textures["lower_leg"], source_knee, target_knee,
             lower_angle, is_far, tint, scale_y=lower_scale,
         )
         upper_part = _make_player_cutout_part(
-            textures["upper_leg"], source_hip, target_hip,
+            leg_textures["upper_leg"], source_hip, target_hip,
             upper_angle, is_far, tint, scale_y=upper_scale,
         )
         lower_part.update({"rig_side": side, "rig_joint": "lower_leg"})

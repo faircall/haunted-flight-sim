@@ -511,6 +511,39 @@ class RenderOrderTests(unittest.TestCase):
             self.assertFalse(near_leg["flip_x"])
             self.assertTrue(far_leg["flip_x"])
 
+    def test_down_locomotion_uses_up_legs_but_down_idle_keeps_down_legs(self):
+        player = {
+            "id": "player",
+            "animation_direction": "down",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 0.0, "run_blend": 0.0,
+            },
+        }
+        idle = g_render_order.build_player_cutout_rig_parts(player)
+        self.assertEqual(
+            self.rig_part(idle, "upper_leg", "near")["texture"],
+            "player_cutout_upper_leg_down",
+        )
+        self.assertEqual(
+            self.rig_part(idle, "torso")["texture"],
+            "player_cutout_torso_down",
+        )
+
+        player["procedural_gait"]["blend"] = 1.0
+        moving = g_render_order.build_player_cutout_rig_parts(player)
+        self.assertEqual(
+            self.rig_part(moving, "upper_leg", "near")["texture"],
+            "player_cutout_upper_leg_up",
+        )
+        self.assertEqual(
+            self.rig_part(moving, "lower_leg", "near")["texture"],
+            "player_cutout_lower_leg_up",
+        )
+        self.assertEqual(
+            self.rig_part(moving, "torso")["texture"],
+            "player_cutout_torso_down",
+        )
+
     def test_up_facing_weapon_is_layered_behind_the_torso(self):
         player = {
             "id": "player",
@@ -591,8 +624,6 @@ class RenderOrderTests(unittest.TestCase):
         first = g_render_order.build_player_cutout_rig_parts(player)
         near_first = self.rig_part(first, "upper_arm", "near")
         far_first = self.rig_part(first, "upper_arm", "far")
-        self.assertLess(abs(near_first["rotation"]), 3.0)
-        self.assertLess(abs(far_first["rotation"]), 3.0)
         self.assertLess(near_first["scale"]["y"], far_first["scale"]["y"])
 
         player["procedural_gait"]["phase"] = math.pi
