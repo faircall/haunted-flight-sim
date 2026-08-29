@@ -297,6 +297,12 @@ PLAYER_FRONT_CUTOUT_ARM_DEFAULTS = {
     "shoulder": {"x": 19.5, "y": 11.0},
     "far_shoulder": {"x": 18.5, "y": 11.0},
     "aim_reach": 6.5,
+    # Up aiming and the centre/right portion of down aiming use the arm's full
+    # authored length. Down-left is a cross-body pose and can retain a bend.
+    "straight_aim_reach_scale": 1.0,
+    "down_cross_body_aim_reach": 6.5,
+    "down_cross_body_reach_exponent": 1.0,
+    "down_cross_body_ik_bend_side": -1.0,
     "gun_grip": {"x": 0.0, "y": 2.0},
     "gun_source_size": 4.0,
     "gun_grip_perpendicular_offset": 1.0,
@@ -746,6 +752,47 @@ def _rig_vector_angle_degrees(source, target):
     return (result + 180.0) % 360.0 - 180.0
 
 
+def _lerp_rig_vector_by_angle(start, end, amount):
+    """Interpolate a limb vector without collapsing through the shoulder."""
+    start_length = math.hypot(float(start["x"]), float(start["y"]))
+    end_length = math.hypot(float(end["x"]), float(end["y"]))
+    if start_length <= 0.000001:
+        start = end
+        start_length = end_length
+    if end_length <= 0.000001:
+        end = start
+        end_length = start_length
+    start_angle = math.atan2(float(start["y"]), float(start["x"]))
+    end_angle = math.atan2(float(end["y"]), float(end["x"]))
+    delta = (end_angle - start_angle + math.pi) % math.tau - math.pi
+    t = max(0.0, min(1.0, float(amount)))
+    angle = start_angle + delta * t
+    length = start_length + (end_length - start_length) * t
+    return {"x": math.cos(angle) * length, "y": math.sin(angle) * length}
+
+
+def _player_cutout_aim_reach(settings, animation_direction, canonical_aim,
+                              maximum_reach):
+    if animation_direction not in {"up", "down"}:
+        return float(settings["aim_reach"])
+    straight_reach = float(maximum_reach) * float(
+        settings.get("straight_aim_reach_scale", 1.0)
+    )
+    if animation_direction == "up" or float(canonical_aim["x"]) >= 0.0:
+        return straight_reach
+    cross_body_amount = max(0.0, min(1.0, -float(canonical_aim["x"])))
+    exponent = max(
+        0.01, float(settings.get("down_cross_body_reach_exponent", 1.0))
+    )
+    cross_body_amount = cross_body_amount ** exponent
+    cross_body_reach = float(
+        settings.get("down_cross_body_aim_reach", settings["aim_reach"])
+    )
+    return straight_reach + (
+        cross_body_reach - straight_reach
+    ) * cross_body_amount
+
+
 def _solve_player_arm_ik(shoulder, target, upper_length, lower_length,
                          bend_side=1.0):
     """Return elbow and reachable hand points for a two-segment arm."""
@@ -868,7 +915,8 @@ def _build_player_locomotion_arm_pose(arm_phase, run_blend, movement_blend,
 
 def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
                                        facing_left, locomotion_pose=None,
-                                       arm_settings=None, textures=None):
+                                       arm_settings=None, textures=None,
+                                       animation_direction=None):
     progress = _player_weapon_transition_progress(player_entity)
     if progress <= 0.000001:
         return []
@@ -879,6 +927,16 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
     source_shoulder = bind_pose["shoulder"]
     source_elbow = bind_pose["elbow"]
     source_hand = bind_pose["hand"]
+    upper_bind = {
+        "x": float(source_elbow["x"]) - float(source_shoulder["x"]),
+        "y": float(source_elbow["y"]) - float(source_shoulder["y"]),
+    }
+    lower_bind = {
+        "x": float(source_hand["x"]) - float(source_elbow["x"]),
+        "y": float(source_hand["y"]) - float(source_elbow["y"]),
+    }
+    upper_length = math.hypot(upper_bind["x"], upper_bind["y"])
+    lower_length = math.hypot(lower_bind["x"], lower_bind["y"])
     shoulder = (
         locomotion_pose["shoulder"] if isinstance(locomotion_pose, dict)
         else _player_arm_shoulder(body_hip, torso_angle)
@@ -916,24 +974,15 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
             "x": shoulder["x"] + neutral_arm["x"],
             "y": shoulder["y"] + neutral_arm["y"],
         }
+    aim_reach = _player_cutout_aim_reach(
+        settings, animation_direction, canonical_aim,
+        upper_length + lower_length,
+    )
     aimed_hand = {
-        "x": shoulder["x"] + canonical_aim["x"] * float(settings["aim_reach"]),
-        "y": shoulder["y"] + canonical_aim["y"] * float(settings["aim_reach"]),
+        "x": shoulder["x"] + canonical_aim["x"] * aim_reach,
+        "y": shoulder["y"] + canonical_aim["y"] * aim_reach,
     }
     pose_amount = progress * progress * (3.0 - 2.0 * progress)
-    requested_hand = {
-        "x": neutral_hand["x"] + (aimed_hand["x"] - neutral_hand["x"]) * pose_amount,
-        "y": neutral_hand["y"] + (aimed_hand["y"] - neutral_hand["y"]) * pose_amount,
-    }
-
-    upper_bind = {
-        "x": float(source_elbow["x"]) - float(source_shoulder["x"]),
-        "y": float(source_elbow["y"]) - float(source_shoulder["y"]),
-    }
-    lower_bind = {
-        "x": float(source_hand["x"]) - float(source_elbow["x"]),
-        "y": float(source_hand["y"]) - float(source_elbow["y"]),
-    }
     shoulder_to_hand = {
         "x": neutral_hand["x"] - shoulder["x"],
         "y": neutral_hand["y"] - shoulder["y"],
@@ -950,12 +999,59 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
         1.0 if bend_cross > 0.000001 else
         -1.0 if bend_cross < -0.000001 else settings["ik_bend_side"]
     )
-    elbow, hand = _solve_player_arm_ik(
-        shoulder, requested_hand,
-        math.hypot(upper_bind["x"], upper_bind["y"]),
-        math.hypot(lower_bind["x"], lower_bind["y"]),
-        bend_side,
-    )
+    if (animation_direction == "down"
+            and float(canonical_aim["x"]) < 0.0):
+        bend_side = float(settings.get(
+            "down_cross_body_ik_bend_side", bend_side,
+        ))
+
+    if animation_direction in {"up", "down"}:
+        aimed_elbow, aimed_hand = _solve_player_arm_ik(
+            shoulder, aimed_hand, upper_length, lower_length, bend_side,
+        )
+        neutral_upper = {
+            "x": neutral_elbow["x"] - shoulder["x"],
+            "y": neutral_elbow["y"] - shoulder["y"],
+        }
+        neutral_lower = {
+            "x": neutral_hand["x"] - neutral_elbow["x"],
+            "y": neutral_hand["y"] - neutral_elbow["y"],
+        }
+        aimed_upper = {
+            "x": aimed_elbow["x"] - shoulder["x"],
+            "y": aimed_elbow["y"] - shoulder["y"],
+        }
+        aimed_lower = {
+            "x": aimed_hand["x"] - aimed_elbow["x"],
+            "y": aimed_hand["y"] - aimed_elbow["y"],
+        }
+        upper_vector = _lerp_rig_vector_by_angle(
+            neutral_upper, aimed_upper, pose_amount,
+        )
+        lower_vector = _lerp_rig_vector_by_angle(
+            neutral_lower, aimed_lower, pose_amount,
+        )
+        elbow = {
+            "x": shoulder["x"] + upper_vector["x"],
+            "y": shoulder["y"] + upper_vector["y"],
+        }
+        hand = {
+            "x": elbow["x"] + lower_vector["x"],
+            "y": elbow["y"] + lower_vector["y"],
+        }
+    else:
+        requested_hand = {
+            "x": neutral_hand["x"] + (
+                aimed_hand["x"] - neutral_hand["x"]
+            ) * pose_amount,
+            "y": neutral_hand["y"] + (
+                aimed_hand["y"] - neutral_hand["y"]
+            ) * pose_amount,
+        }
+        elbow, hand = _solve_player_arm_ik(
+            shoulder, requested_hand,
+            upper_length, lower_length, bend_side,
+        )
     upper_angle = _rig_vector_angle_degrees(
         upper_bind,
         {"x": elbow["x"] - shoulder["x"], "y": elbow["y"] - shoulder["y"]},
@@ -969,14 +1065,19 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
         "x": neutral_hand["x"] - neutral_elbow["x"],
         "y": neutral_hand["y"] - neutral_elbow["y"],
     }) or {"x": 0.0, "y": 1.0}
-    gun_direction = normalize_vector({
-        "x": neutral_direction["x"] + (
-            canonical_aim["x"] - neutral_direction["x"]
-        ) * pose_amount,
-        "y": neutral_direction["y"] + (
-            canonical_aim["y"] - neutral_direction["y"]
-        ) * pose_amount,
-    }) or canonical_aim
+    if animation_direction in {"up", "down"}:
+        gun_direction = normalize_vector(_lerp_rig_vector_by_angle(
+            neutral_direction, canonical_aim, pose_amount,
+        )) or canonical_aim
+    else:
+        gun_direction = normalize_vector({
+            "x": neutral_direction["x"] + (
+                canonical_aim["x"] - neutral_direction["x"]
+            ) * pose_amount,
+            "y": neutral_direction["y"] + (
+                canonical_aim["y"] - neutral_direction["y"]
+            ) * pose_amount,
+        }) or canonical_aim
     gun_perpendicular = {"x": -gun_direction["y"], "y": gun_direction["x"]}
     gun_grip = {
         "x": hand["x"] + gun_perpendicular["x"] * float(
@@ -1470,6 +1571,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
         player_entity, body_hip, torso_angle, False, near_arm,
         arm_settings=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS,
         textures=textures,
+        animation_direction=direction,
     )
     near_arm_parts = weapon_parts or [
         near_arm["upper_part"], near_arm["lower_part"],

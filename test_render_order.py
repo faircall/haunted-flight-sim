@@ -366,6 +366,91 @@ class RenderOrderTests(unittest.TestCase):
             upper_arm["rotation"], lower_arm["rotation"],
         )
 
+    def test_front_aim_reach_straightens_down_center_and_right(self):
+        def visual_bend(parts):
+            upper = self.rig_part(parts, "upper_arm", "near")
+            lower = self.rig_part(parts, "lower_arm", "near")
+            bind = g_render_order.PLAYER_FRONT_CUTOUT_ARM_DEFAULTS["bind_pose"]
+            upper_source = math.degrees(math.atan2(
+                bind["elbow"]["y"] - bind["shoulder"]["y"],
+                bind["elbow"]["x"] - bind["shoulder"]["x"],
+            ))
+            lower_source = math.degrees(math.atan2(
+                bind["hand"]["y"] - bind["elbow"]["y"],
+                bind["hand"]["x"] - bind["elbow"]["x"],
+            ))
+            difference = (
+                lower_source + lower["rotation"]
+                - upper_source - upper["rotation"]
+                + 180.0
+            ) % 360.0 - 180.0
+            return abs(difference)
+
+        def pose(angle_degrees):
+            radians = math.radians(angle_degrees)
+            player = {
+                "id": "player", "animation_direction": "down",
+                "aim_direction": {
+                    "x": math.cos(radians), "y": math.sin(radians),
+                },
+                "aiming": True,
+                "weapon_transition": {"progress": 1.0},
+                "procedural_gait": {"phase": 0.0, "blend": 0.0},
+            }
+            return g_render_order.build_player_cutout_rig_parts(player)
+
+        self.assertGreater(visual_bend(pose(135.0)), 10.0)
+        self.assertLess(visual_bend(pose(90.0)), 0.001)
+        self.assertLess(visual_bend(pose(45.0)), 0.001)
+
+    def test_up_aim_transition_rotates_without_collapsing_at_the_shoulder(self):
+        player = {
+            "id": "player", "animation_direction": "up",
+            "aim_direction": {"x": 0.0, "y": -1.0},
+            "aiming": True,
+            "weapon_transition": {"progress": 0.5},
+            "procedural_gait": {"phase": 0.0, "blend": 0.0},
+        }
+        parts = g_render_order.build_player_cutout_rig_parts(player)
+        upper = self.rig_part(parts, "upper_arm", "near")
+        lower = self.rig_part(parts, "lower_arm", "near")
+        elbow_distance = math.hypot(
+            lower["pivot_local"]["x"] - upper["pivot_local"]["x"],
+            lower["pivot_local"]["y"] - upper["pivot_local"]["y"],
+        )
+        self.assertGreater(elbow_distance, 3.5)
+        self.assertAlmostEqual(
+            self.rig_part(parts, "gun", "near")["rotation"], 0.0,
+        )
+        bind = g_render_order.PLAYER_FRONT_CUTOUT_ARM_DEFAULTS["bind_pose"]
+        upper_source = math.degrees(math.atan2(
+            bind["elbow"]["y"] - bind["shoulder"]["y"],
+            bind["elbow"]["x"] - bind["shoulder"]["x"],
+        ))
+        lower_source = math.degrees(math.atan2(
+            bind["hand"]["y"] - bind["elbow"]["y"],
+            bind["hand"]["x"] - bind["elbow"]["x"],
+        ))
+        player["weapon_transition"]["progress"] = 1.0
+        for angle_degrees in (-130.0, -90.0, -35.0):
+            radians = math.radians(angle_degrees)
+            player["aim_direction"] = {
+                "x": math.cos(radians), "y": math.sin(radians),
+            }
+            aimed = g_render_order.build_player_cutout_rig_parts(player)
+            aimed_upper = self.rig_part(aimed, "upper_arm", "near")
+            aimed_lower = self.rig_part(aimed, "lower_arm", "near")
+            upper_error = (
+                upper_source + aimed_upper["rotation"]
+                - angle_degrees + 180.0
+            ) % 360.0 - 180.0
+            lower_error = (
+                lower_source + aimed_lower["rotation"]
+                - angle_degrees + 180.0
+            ) % 360.0 - 180.0
+            self.assertAlmostEqual(upper_error, 0.0)
+            self.assertAlmostEqual(lower_error, 0.0)
+
     def test_cutout_gun_recoil_rotates_at_fixed_grip(self):
         player = {
             "id": "player",
