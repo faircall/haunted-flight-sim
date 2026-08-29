@@ -174,58 +174,114 @@ PLAYER_FRONT_CUTOUT_RIG_DEFAULTS = {
 # X values provide only a little separation; negative Y values shorten/lift a
 # limb into the screen. Contact poses remain at 0 and 2, matching footsteps.
 PLAYER_FRONT_CUTOUT_LEG_PROFILES = {
-    "walk": [
-        # Near contact; far leg lifted.
-        {"near_knee_x_pixels": 0.35, "near_knee_y_pixels": 0.0,
-         "near_foot_x_pixels": 0.65, "near_foot_y_pixels": 0.0,
-         "far_knee_x_pixels": -0.15, "far_knee_y_pixels": -0.5,
-         "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -2.0,
-         "body_y_pixels": 0.0, "torso_degrees": 0.5},
-        # Passing: near lifts while far extends toward contact.
-        {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -0.8,
-         "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -1.6,
-         "far_knee_x_pixels": 0.2, "far_knee_y_pixels": -0.2,
-         "far_foot_x_pixels": 0.4, "far_foot_y_pixels": -0.4,
-         "body_y_pixels": -0.6, "torso_degrees": -0.5},
-        # Far contact; near leg lifted.
-        {"near_knee_x_pixels": -0.15, "near_knee_y_pixels": -0.5,
-         "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -2.0,
-         "far_knee_x_pixels": 0.35, "far_knee_y_pixels": 0.0,
-         "far_foot_x_pixels": 0.65, "far_foot_y_pixels": 0.0,
-         "body_y_pixels": 0.0, "torso_degrees": 0.5},
-        # Passing: far lifts while near extends toward contact.
-        {"near_knee_x_pixels": 0.2, "near_knee_y_pixels": -0.2,
-         "near_foot_x_pixels": 0.4, "near_foot_y_pixels": -0.4,
-         "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -0.8,
-         "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -1.6,
-         "body_y_pixels": -0.6, "torso_degrees": 0.5},
-    ],
-    "run": [
-        # Near contact; far knee tucked high.
-        {"near_knee_x_pixels": 0.45, "near_knee_y_pixels": 0.0,
-         "near_foot_x_pixels": 0.8, "near_foot_y_pixels": 0.0,
-         "far_knee_x_pixels": -0.2, "far_knee_y_pixels": -1.4,
-         "far_foot_x_pixels": -0.35, "far_foot_y_pixels": -3.6,
-         "body_y_pixels": 0.0, "torso_degrees": 1.0},
-        # Flight: both legs are compressed beneath the body.
-        {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -1.0,
-         "near_foot_x_pixels": -0.2, "near_foot_y_pixels": -2.8,
-         "far_knee_x_pixels": 0.1, "far_knee_y_pixels": -0.8,
-         "far_foot_x_pixels": 0.2, "far_foot_y_pixels": -2.2,
-         "body_y_pixels": -1.5, "torso_degrees": 1.5},
-        # Far contact; near knee tucked high.
-        {"near_knee_x_pixels": -0.2, "near_knee_y_pixels": -1.4,
-         "near_foot_x_pixels": -0.35, "near_foot_y_pixels": -3.6,
-         "far_knee_x_pixels": 0.45, "far_knee_y_pixels": 0.0,
-         "far_foot_x_pixels": 0.8, "far_foot_y_pixels": 0.0,
-         "body_y_pixels": 0.0, "torso_degrees": 1.0},
-        # Flight: opposite compression before the next contact.
-        {"near_knee_x_pixels": 0.1, "near_knee_y_pixels": -0.8,
-         "near_foot_x_pixels": 0.2, "near_foot_y_pixels": -2.2,
-         "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -1.0,
-         "far_foot_x_pixels": -0.2, "far_foot_y_pixels": -2.8,
-         "body_y_pixels": -1.5, "torso_degrees": 1.5},
-    ],
+    "up": {
+        "walk": [
+            # Near contact; far leg lifted.
+            {"near_knee_x_pixels": 0.35, "near_knee_y_pixels": 0.0,
+             "near_foot_x_pixels": 0.0, "near_foot_y_pixels": 0.0,
+             "far_knee_x_pixels": -0.15, "far_knee_y_pixels": -0.5,
+             "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -2.0,
+             "body_y_pixels": 0.0, "torso_degrees": 0.5},
+            # Passing: near lifts while far extends toward contact.
+            {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -0.8,
+             "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -1.6,
+             "far_knee_x_pixels": 0.2, "far_knee_y_pixels": -0.2,
+             "far_foot_x_pixels": 0.4, "far_foot_y_pixels": -0.4,
+             "body_y_pixels": -0.6, "torso_degrees": -0.5},
+            # Far contact; near leg lifted.
+            {"near_knee_x_pixels": -0.15, "near_knee_y_pixels": -0.5,
+             "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -2.0,
+             "far_knee_x_pixels": 0.35, "far_knee_y_pixels": 0.0,
+             "far_foot_x_pixels": 0.0, "far_foot_y_pixels": 0.0,
+             "body_y_pixels": 0.0, "torso_degrees": 0.5},
+            # Passing: far lifts while near extends toward contact.
+            {"near_knee_x_pixels": 0.2, "near_knee_y_pixels": -0.2,
+             "near_foot_x_pixels": 0.4, "near_foot_y_pixels": -0.4,
+             "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -0.8,
+             "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -1.6,
+             "body_y_pixels": -0.6, "torso_degrees": 0.5},
+        ],
+        "run": [
+            # Near contact; far knee tucked high.
+            {"near_knee_x_pixels": 0.45, "near_knee_y_pixels": 0.0,
+             "near_foot_x_pixels": -1.8, "near_foot_y_pixels": 0.0,
+             "far_knee_x_pixels": -0.2, "far_knee_y_pixels": -1.4,
+             "far_foot_x_pixels": -0.35, "far_foot_y_pixels": -3.6,
+             "body_y_pixels": 0.0, "torso_degrees": 1.0},
+            # Flight: both legs are compressed beneath the body.
+            {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -1.0,
+             "near_foot_x_pixels": -0.2, "near_foot_y_pixels": -2.8,
+             "far_knee_x_pixels": 0.1, "far_knee_y_pixels": -0.8,
+             "far_foot_x_pixels": 0.2, "far_foot_y_pixels": -2.2,
+             "body_y_pixels": -1.5, "torso_degrees": 1.5},
+            # Far contact; near knee tucked high.
+            {"near_knee_x_pixels": -0.2, "near_knee_y_pixels": -1.4,
+             "near_foot_x_pixels": -0.35, "near_foot_y_pixels": -3.6,
+             "far_knee_x_pixels": 0.45, "far_knee_y_pixels": 0.0,
+             "far_foot_x_pixels": -1.8, "far_foot_y_pixels": 0.0,
+             "body_y_pixels": 0.0, "torso_degrees": 1.0},
+            # Flight: opposite compression before the next contact.
+            {"near_knee_x_pixels": 0.1, "near_knee_y_pixels": -0.8,
+             "near_foot_x_pixels": 0.2, "near_foot_y_pixels": -2.2,
+             "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -1.0,
+             "far_foot_x_pixels": -0.2, "far_foot_y_pixels": -2.8,
+             "body_y_pixels": -1.5, "torso_degrees": 1.5},
+        ],
+    },
+    "down": {
+        "walk": [
+            # Near contact; far leg lifted.
+            {"near_knee_x_pixels": 0.35, "near_knee_y_pixels": 0.0,
+             "near_foot_x_pixels": 0.0, "near_foot_y_pixels": 0.0,
+             "far_knee_x_pixels": -0.15, "far_knee_y_pixels": -0.5,
+             "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -2.0,
+             "body_y_pixels": 0.0, "torso_degrees": 0.5},
+            # Passing: near lifts while far extends toward contact.
+            {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -0.8,
+             "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -1.6,
+             "far_knee_x_pixels": 0.2, "far_knee_y_pixels": -0.2,
+             "far_foot_x_pixels": 0.4, "far_foot_y_pixels": -0.4,
+             "body_y_pixels": -0.6, "torso_degrees": -0.5},
+            # Far contact; near leg lifted.
+            {"near_knee_x_pixels": -0.15, "near_knee_y_pixels": -0.5,
+             "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -2.0,
+             "far_knee_x_pixels": 0.35, "far_knee_y_pixels": 0.0,
+             "far_foot_x_pixels": 0.0, "far_foot_y_pixels": 0.0,
+             "body_y_pixels": 0.0, "torso_degrees": 0.5},
+            # Passing: far lifts while near extends toward contact.
+            {"near_knee_x_pixels": 0.2, "near_knee_y_pixels": -0.2,
+             "near_foot_x_pixels": 0.4, "near_foot_y_pixels": -0.4,
+             "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -0.8,
+             "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -1.6,
+             "body_y_pixels": -0.6, "torso_degrees": 0.5},
+        ],
+        "run": [
+            # Near contact; far knee tucked high.
+            {"near_knee_x_pixels": 0.45, "near_knee_y_pixels": 0.0,
+             "near_foot_x_pixels": -1.5, "near_foot_y_pixels": 0.0,
+             "far_knee_x_pixels": -0.2, "far_knee_y_pixels": -1.4,
+             "far_foot_x_pixels": -1.35, "far_foot_y_pixels": -3.6,
+             "body_y_pixels": 0.0, "torso_degrees": 1.0},
+            # Flight: both legs are compressed beneath the body.
+            {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -1.0,
+             "near_foot_x_pixels": -0.2, "near_foot_y_pixels": -2.8,
+             "far_knee_x_pixels": 0.1, "far_knee_y_pixels": -0.8,
+             "far_foot_x_pixels": 0.2, "far_foot_y_pixels": -2.2,
+             "body_y_pixels": -1.5, "torso_degrees": 1.5},
+            # Far contact; near knee tucked high.
+            {"near_knee_x_pixels": -0.2, "near_knee_y_pixels": -1.4,
+             "near_foot_x_pixels": -1.35, "near_foot_y_pixels": -3.6,
+             "far_knee_x_pixels": 0.45, "far_knee_y_pixels": 0.0,
+             "far_foot_x_pixels": -1.5, "far_foot_y_pixels": 0.0,
+             "body_y_pixels": 0.0, "torso_degrees": 1.0},
+            # Flight: opposite compression before the next contact.
+            {"near_knee_x_pixels": 0.1, "near_knee_y_pixels": -0.8,
+             "near_foot_x_pixels": 0.2, "near_foot_y_pixels": -2.2,
+             "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -1.0,
+             "far_foot_x_pixels": -0.2, "far_foot_y_pixels": -2.8,
+             "body_y_pixels": -1.5, "torso_degrees": 1.5},
+        ],
+    },
 }
 
 PLAYER_FRONT_CUTOUT_ARM_DEFAULTS = {
@@ -244,31 +300,87 @@ PLAYER_FRONT_CUTOUT_ARM_DEFAULTS = {
     "far_arm_aim_motion_scale": 0.25,
 }
 
-# Running toward/away from the camera reads as depth, so the arms pump by
-# shortening and extending vertically instead of inheriting the side-view
-# swing. These offsets are relative to the neutral elbow and hand.
-PLAYER_FRONT_CUTOUT_RUN_ARM_PROFILE = [
-    # Near arm lifted; far arm extended.
-    {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.8,
-     "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -2.4,
-     "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": 0.15,
-     "far_hand_x_pixels": 0.0, "far_hand_y_pixels": 0.4},
-    # Both arms pass through their middle depths.
-    {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.45,
-     "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -1.2,
-     "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.2,
-     "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -0.6},
-    # Far arm lifted; near arm extended.
-    {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": 0.15,
-     "near_hand_x_pixels": 0.0, "near_hand_y_pixels": 0.4,
-     "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.8,
-     "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -2.4},
-    # Opposite middle-depth passing pose.
-    {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.2,
-     "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -0.6,
-     "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.45,
-     "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -1.2},
-]
+# Front/back arm animation is authored independently for each facing. Walking
+# uses angular shoulder/elbow poses; running uses screen-space compression and
+# extension so the arms pump in depth rather than swinging sideways.
+PLAYER_FRONT_CUTOUT_ARM_PROFILES = {
+    "up": {
+        "walk": [
+            {"near_upper_arm_degrees": -15.0,
+             "near_elbow_bend_degrees": 18.0,
+             "far_upper_arm_degrees": 1.0,
+             "far_elbow_bend_degrees": -20.0},
+            {"near_upper_arm_degrees": -4.0,
+             "near_elbow_bend_degrees": 24.0,
+             "far_upper_arm_degrees": -5.0,
+             "far_elbow_bend_degrees": 32.0},
+            {"near_upper_arm_degrees": 40.0,
+             "near_elbow_bend_degrees": 28.0,
+             "far_upper_arm_degrees": -18.0,
+             "far_elbow_bend_degrees": 20.0},
+            {"near_upper_arm_degrees": 4.0,
+             "near_elbow_bend_degrees": 28.0,
+             "far_upper_arm_degrees": -6.0,
+             "far_elbow_bend_degrees": 28.0},
+        ],
+        "run": [
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.8,
+             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -2.4,
+             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": 0.15,
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": 0.4},
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.45,
+             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -1.2,
+             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.2,
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -0.6},
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": 0.15,
+             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": 0.4,
+             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.8,
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -2.4},
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.2,
+             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -0.6,
+             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.45,
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -1.2},
+        ],
+    },
+    "down": {
+        "walk": [
+            {"near_upper_arm_degrees": -15.0,
+             "near_elbow_bend_degrees": 18.0,
+             "far_upper_arm_degrees": 1.0,
+             "far_elbow_bend_degrees": -20.0},
+            {"near_upper_arm_degrees": -4.0,
+             "near_elbow_bend_degrees": 24.0,
+             "far_upper_arm_degrees": -5.0,
+             "far_elbow_bend_degrees": 32.0},
+            {"near_upper_arm_degrees": 40.0,
+             "near_elbow_bend_degrees": 28.0,
+             "far_upper_arm_degrees": -18.0,
+             "far_elbow_bend_degrees": 20.0},
+            {"near_upper_arm_degrees": 4.0,
+             "near_elbow_bend_degrees": 28.0,
+             "far_upper_arm_degrees": -6.0,
+             "far_elbow_bend_degrees": 28.0},
+        ],
+        "run": [
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.8,
+             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -2.4,
+             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": 0.15,
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": 0.4},
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.45,
+             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -1.2,
+             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.2,
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -0.6},
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": 0.15,
+             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": 0.4,
+             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.8,
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -2.4},
+            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.2,
+             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -0.6,
+             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.45,
+             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -1.2},
+        ],
+    },
+}
 
 
 def world_to_screen_pixel(world_x, world_y, game_camera):
@@ -605,12 +717,13 @@ def _blended_player_cutout_gait_pose(phase, run_blend):
     }
 
 
-def _blended_player_front_leg_pose(phase, run_blend):
+def _blended_player_front_leg_pose(direction, phase, run_blend):
+    direction_profiles = PLAYER_FRONT_CUTOUT_LEG_PROFILES[direction]
     walk = sample_player_cutout_gait_profile(
-        PLAYER_FRONT_CUTOUT_LEG_PROFILES["walk"], phase,
+        direction_profiles["walk"], phase,
     )
     run = sample_player_cutout_gait_profile(
-        PLAYER_FRONT_CUTOUT_LEG_PROFILES["run"], phase,
+        direction_profiles["run"], phase,
     )
     amount = max(0.0, min(1.0, float(run_blend)))
     return {
@@ -1197,7 +1310,9 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     if not math.isfinite(run_blend):
         run_blend = 0.0
 
-    body_pose = _blended_player_front_leg_pose(phase, run_blend)
+    body_pose = _blended_player_front_leg_pose(
+        direction, phase, run_blend,
+    )
     bob = float(body_pose.get("body_y_pixels", 0.0)) * blend
     torso_angle = (
         float(body_pose.get("torso_degrees", 0.0))

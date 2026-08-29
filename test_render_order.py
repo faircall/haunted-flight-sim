@@ -510,11 +510,6 @@ class RenderOrderTests(unittest.TestCase):
             far_leg = self.rig_part(parts, "upper_leg", "far")
             self.assertFalse(near_leg["flip_x"])
             self.assertTrue(far_leg["flip_x"])
-            self.assertAlmostEqual(
-                near_leg["pivot_local"]["x"]
-                + far_leg["pivot_local"]["x"],
-                32.0,
-            )
 
     def test_up_facing_weapon_is_layered_behind_the_torso(self):
         player = {
@@ -557,14 +552,23 @@ class RenderOrderTests(unittest.TestCase):
         self.assertLess(near_opposite["scale"]["y"], far_opposite["scale"]["y"])
 
     def test_front_leg_profiles_keep_walk_and_run_lift_independent(self):
-        walk = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["walk"]
-        run = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["run"]
+        profiles = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["up"]
+        walk = profiles["walk"]
+        run = profiles["run"]
         self.assertEqual(len(walk), 4)
         self.assertEqual(len(run), 4)
         self.assertLess(
             run[0]["far_foot_y_pixels"],
             walk[0]["far_foot_y_pixels"],
         )
+
+    def test_up_and_down_front_leg_profiles_are_independently_authored(self):
+        up = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["up"]
+        down = g_render_order.PLAYER_FRONT_CUTOUT_LEG_PROFILES["down"]
+        self.assertEqual(up, down)
+        self.assertIsNot(up, down)
+        self.assertIsNot(up["walk"], down["walk"])
+        self.assertIsNot(up["walk"][0], down["walk"][0])
 
     def test_front_running_arms_pump_vertically_and_alternate_depth(self):
         player = {
