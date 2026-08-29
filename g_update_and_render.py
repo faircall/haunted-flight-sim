@@ -1370,6 +1370,80 @@ def get_clip_size(gun_type):
     return sizes.get(gun_type, 0)
 
 
+def player_is_reloading(player):
+    return player.get("reload_state", "") == "reloading"
+
+
+def update_player_reload(player, gun_type, reload_requested, dt,
+                         audio_runtime=None, world_position=None):
+    """Advance reload state before aim/fire gates are evaluated.
+
+    The raw aim button is deliberately handled by the caller. While this state
+    is active effective aim is suppressed; on the completion frame a held aim
+    button can therefore begin the normal unholster transition immediately.
+    """
+    if reload_requested and not player_is_reloading(player):
+        if audio_runtime is not None:
+            queue_gameplay_audio(
+                audio_runtime, "reload_start", "player", "player",
+                world_position or {"x": 0.0, "y": 0.0}, priority=1.4,
+                data={"instance_key": "player:pistol_reload"},
+            )
+        player["reload_state"] = "reloading"
+        player["reload_timer"] = 0.0
+        transition = ensure_player_weapon_transition_state(player)
+        aim_direction = ensure_player_aim_state(player)
+        player["reload_animation"] = {
+            "progress": 0.0,
+            # Freeze the exact visual departure pose. Reload rendering uses it
+            # only for the entry blend, so moving the cursor during the reload
+            # cannot pull the arm away from its original on-screen position.
+            "start_weapon_progress": float(transition["progress"]),
+            "start_aim_direction": {
+                "x": float(aim_direction["x"]),
+                "y": float(aim_direction["y"]),
+            },
+        }
+
+    if not player_is_reloading(player):
+        return False
+
+    try:
+        frame_dt = max(0.0, float(dt))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    duration = max(0.000001, float(get_reload_time(gun_type)))
+    reload_timer = min(
+        duration, float(player.get("reload_timer", 0.0)) + frame_dt,
+    )
+    player["reload_timer"] = reload_timer
+    reload_animation = player.get("reload_animation", {})
+    if not isinstance(reload_animation, dict):
+        reload_animation = {}
+        player["reload_animation"] = reload_animation
+    reload_animation["progress"] = max(
+        0.0, min(1.0, reload_timer / duration),
+    )
+    if reload_timer + 0.000001 < duration:
+        return True
+
+    ammo = player.setdefault("ammo", {})
+    current_bullets = int(ammo.get(gun_type, 0))
+    spare_key = f"spare_{gun_type}"
+    spare_bullets = int(ammo.get(spare_key, 0))
+    clip_to_load = min(
+        max(0, get_clip_size(gun_type) - current_bullets),
+        max(0, spare_bullets),
+    )
+    ammo[gun_type] = current_bullets + clip_to_load
+    ammo[spare_key] = spare_bullets - clip_to_load
+    player["reload_timer"] = 0.0
+    player["reload_state"] = "reloaded"
+    return False
+
+
 
 
 
@@ -5025,6 +5099,8 @@ def player_weapon_transition_phase(progress, target):
 
 
 def player_weapon_is_ready(player, aim_requested=None):
+    if player_is_reloading(player):
+        return False
     state = ensure_player_weapon_transition_state(player)
     if aim_requested is None:
         aim_requested = player.get("aim_requested", player.get("aiming", False))
@@ -5348,6 +5424,8 @@ def roll_player_headshot_qualification(player, brains, tile_map, rng=None):
 
 
 def player_weapon_can_fire(player, aim_requested=None):
+    if player_is_reloading(player):
+        return False
     state = ensure_player_weapon_transition_state(player)
     if aim_requested is None:
         aim_requested = player.get("aim_requested", player.get("aiming", False))
@@ -5627,7 +5705,7 @@ def ensure_player_weapon_transition_state(player):
 
 
 def update_player_weapon_transition(player, aim_requested, dt, audio_runtime,
-                                    world_position):
+                                    world_position, play_endpoint_sound=True):
     """Move the pistol between normalized endpoints and manage reversal audio."""
     state = ensure_player_weapon_transition_state(player)
     settings = get_player_weapon_transition_settings(player)
@@ -5642,26 +5720,27 @@ def update_player_weapon_transition(player, aim_requested, dt, audio_runtime,
             world_position, priority=2.0,
             data={"instance_key": PLAYER_WEAPON_TRANSITION_INSTANCE_KEY},
         )
-        if target >= 1.0:
-            event_type = "weapon_unholster"
-            start_fraction = progress
-            remaining_seconds = (
-                (1.0 - progress) * settings["unholster_duration"]
-            )
-        else:
-            event_type = "weapon_holster"
-            start_fraction = 1.0 - progress
-            remaining_seconds = progress * settings["holster_duration"]
-        if (remaining_seconds + 0.000001
-                >= settings["minimum_reverse_sound_seconds"]):
-            queue_gameplay_audio(
-                audio_runtime, event_type, "player", "player",
-                world_position, priority=1.6,
-                data={
-                    "instance_key": PLAYER_WEAPON_TRANSITION_INSTANCE_KEY,
-                    "start_fraction": start_fraction,
-                },
-            )
+        if play_endpoint_sound:
+            if target >= 1.0:
+                event_type = "weapon_unholster"
+                start_fraction = progress
+                remaining_seconds = (
+                    (1.0 - progress) * settings["unholster_duration"]
+                )
+            else:
+                event_type = "weapon_holster"
+                start_fraction = 1.0 - progress
+                remaining_seconds = progress * settings["holster_duration"]
+            if (remaining_seconds + 0.000001
+                    >= settings["minimum_reverse_sound_seconds"]):
+                queue_gameplay_audio(
+                    audio_runtime, event_type, "player", "player",
+                    world_position, priority=1.6,
+                    data={
+                        "instance_key": PLAYER_WEAPON_TRANSITION_INSTANCE_KEY,
+                        "start_fraction": start_fraction,
+                    },
+                )
 
     try:
         frame_dt = max(0.0, float(dt))
@@ -7691,13 +7770,22 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
 
     arm_length = 20
 
+    current_gun = "pistol" # TODO make more types of guns and make them selectable
     ensure_player_weapon_transition_state(entity)
-    aim_requested = pr.is_mouse_button_down(
+    aim_button_held = pr.is_mouse_button_down(
         pr.MouseButton.MOUSE_BUTTON_RIGHT,
     )
+    entity["aim_button_held"] = aim_button_held
+    update_player_reload(
+        entity, current_gun,
+        pr.is_key_pressed(pr.KeyboardKey.KEY_R), dt,
+        audio_runtime, player_pos_center,
+    )
+    aim_requested = aim_button_held and not player_is_reloading(entity)
     entity["aim_requested"] = aim_requested
     update_player_weapon_transition(
         entity, aim_requested, dt, audio_runtime, player_pos_center,
+        play_endpoint_sound=not player_is_reloading(entity),
     )
     # Aiming intent slows movement immediately; readiness and firing use their
     # own transition-aware gates below.
@@ -7777,57 +7865,10 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
 
     pr.draw_text(f"player ammo is {int(entity["ammo"]["pistol"])} / {int(entity["ammo"]["spare_pistol"])}", 80, 50, 10, pr.RED)
 
-    current_gun = "pistol" # TODO make more types of guns and make them selectable
-
-    if entity.get("reload_state","") == "reloading":
-        reload_timer = entity.get("reload_timer",0)
-        reload_timer += dt
-        entity["reload_timer"] = reload_timer
-        if reload_timer >= get_reload_time(current_gun):
-            entity["reload_timer"] = 0
-            entity["reload_state"] = "reloaded"
-            # reload!
-            current_bullets = entity["ammo"][f"{current_gun}"]
-            spare_bullets = entity["ammo"][f"spare_{current_gun}"]
-            clip_size = get_clip_size(current_gun)
-
-            bullets_we_have_room_for = clip_size - current_bullets
-
-            
-            clip_to_load = min(bullets_we_have_room_for, spare_bullets)            
-
-            entity["ammo"][current_gun] += clip_to_load # this would allow it to go over
-            #entity["ammo"][f"{current_gun}"] = max(spare_bullets, 0)
-            spare_bullets -= clip_to_load                        
-            entity["ammo"][f"spare_{current_gun}"] = max(spare_bullets, 0)
-
-
-        # should also be able to interrupt this
-
-    if pr.is_key_pressed(pr.KeyboardKey.KEY_R):
-        if entity.get("reload_state","") != "reloading":
-            queue_gameplay_audio(
-                audio_runtime, "reload_start", "player", "player",
-                player_pos_center, priority=1.4,
-                data={"instance_key": "player:pistol_reload"},
-            )
-            entity["reload_state"] = "reloading"
-
-
     if (pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT)
             and not g_mouse_is_ui_captured and weapon_can_fire):
-        
+
         current_ammo = entity["ammo"][current_gun]
-        if entity.get("reload_state","") == "reloading":
-            queue_gameplay_audio(
-                audio_runtime, "reload_stop", "player", "player",
-                player_pos_center, priority=2.0,
-                data={"instance_key": "player:pistol_reload"},
-            )
-            entity["reload_timer"] = 0
-            entity["reload_state"] = "interrupted" # could do something with this
-
-
         if current_ammo <= 0:
             print("no bullets")
             queue_gameplay_audio(

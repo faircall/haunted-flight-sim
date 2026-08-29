@@ -596,6 +596,112 @@ class RenderOrderTests(unittest.TestCase):
             self.assertFalse(near_leg["flip_x"])
             self.assertTrue(far_leg["flip_x"])
 
+    def test_reload_builds_direction_specific_weapon_poses(self):
+        base = {
+            "id": "player",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 0.0, "run_blend": 0.0,
+            },
+            "reload_state": "reloading",
+            "reload_animation": {"progress": 0.5},
+            "weapon_transition": {
+                "progress": 0.0, "target": 0.0, "phase": "holstered",
+            },
+        }
+        poses = {
+            direction: g_render_order.build_player_cutout_rig_parts(
+                dict(base, animation_direction=direction),
+            )
+            for direction in ("left", "right", "down", "up")
+        }
+        for direction, parts in poses.items():
+            gun = self.rig_part(parts, "gun", "near")
+            self.assertEqual(gun["rig_pose"], "reload", direction)
+
+        for direction in ("left", "right"):
+            parts = poses[direction]
+            gun = self.rig_part(parts, "gun", "near")
+            shoulder = self.rig_part(parts, "upper_arm", "near")
+            self.assertGreater(
+                gun["pivot_local"]["y"], shoulder["pivot_local"]["y"],
+            )
+
+        down = poses["down"]
+        down_gun = self.rig_part(down, "gun", "near")
+        self.assertAlmostEqual(down_gun["pivot_local"]["x"], 16.0)
+        self.assertEqual(
+            len([part for part in down if part.get("rig_pose") == "reload"
+                 and part.get("rig_joint") in {"upper_arm", "lower_arm"}]),
+            4,
+        )
+        down_torso_index = next(
+            index for index, part in enumerate(down)
+            if part.get("rig_joint") == "torso"
+        )
+        self.assertGreater(down.index(down_gun), down_torso_index)
+
+        up = poses["up"]
+        up_gun = self.rig_part(up, "gun", "near")
+        up_torso_index = next(
+            index for index, part in enumerate(up)
+            if part.get("rig_joint") == "torso"
+        )
+        self.assertLess(up.index(up_gun), up_torso_index)
+
+    def test_aimed_reload_entry_starts_at_the_visible_weapon_pose(self):
+        aims = {
+            "right": {"x": 1.0, "y": 0.0},
+            "left": {"x": -1.0, "y": 0.0},
+            "down": {"x": 0.0, "y": 1.0},
+            "up": {"x": 0.0, "y": -1.0},
+        }
+        for direction, aim in aims.items():
+            aimed_player = {
+                "id": "player",
+                "animation_direction": direction,
+                "aim_direction": aim,
+                "aiming": True,
+                "procedural_gait": {
+                    "phase": 0.0, "blend": 0.0, "run_blend": 0.0,
+                },
+                "weapon_transition": {
+                    "progress": 1.0, "target": 1.0,
+                    "phase": "unholstered",
+                },
+            }
+            aimed_parts = g_render_order.build_player_cutout_rig_parts(
+                aimed_player,
+            )
+            reload_player = dict(aimed_player)
+            reload_player.update({
+                "reload_state": "reloading",
+                "reload_animation": {
+                    "progress": 0.0,
+                    "start_weapon_progress": 1.0,
+                    "start_aim_direction": aim,
+                },
+                # Gameplay begins silently lowering this transition as soon as
+                # reload starts; the reload snapshot must override it.
+                "weapon_transition": {
+                    "progress": 0.0, "target": 0.0,
+                    "phase": "holstered",
+                },
+            })
+            reload_parts = g_render_order.build_player_cutout_rig_parts(
+                reload_player,
+            )
+            for joint in ("upper_arm", "lower_arm", "gun"):
+                before = self.rig_part(aimed_parts, joint, "near")
+                after = self.rig_part(reload_parts, joint, "near")
+                self.assertEqual(
+                    after["pivot_local"], before["pivot_local"],
+                    (direction, joint),
+                )
+                self.assertAlmostEqual(
+                    after["rotation"], before["rotation"],
+                    msg=(direction, joint),
+                )
+
     def test_down_locomotion_uses_up_legs_but_down_idle_keeps_down_legs(self):
         player = {
             "id": "player",

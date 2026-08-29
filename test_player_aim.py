@@ -324,6 +324,133 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertTrue(game.player_weapon_can_fire(player))
         self.assertFalse(game.player_weapon_is_ready(player))
 
+    def test_reload_blocks_aim_readiness_and_firing_until_complete(self):
+        player = game.make_default_player(0, 0, 0)
+        player["ammo"].update({"pistol": 4, "spare_pistol": 30})
+        player["aim_requested"] = True
+        player["weapon_transition"].update({
+            "progress": 1.0, "target": 1.0, "phase": "unholstered",
+        })
+        runtime = g_audio.make_audio_runtime()
+
+        active = game.update_player_reload(
+            player, "pistol", True, 0.0, runtime,
+            {"x": 0.0, "y": 0.0},
+        )
+        self.assertTrue(active)
+        self.assertEqual(
+            player["reload_animation"]["start_weapon_progress"], 1.0,
+        )
+        self.assertEqual(
+            player["reload_animation"]["start_aim_direction"],
+            {"x": 1.0, "y": 0.0},
+        )
+        self.assertFalse(game.player_weapon_can_fire(player, True))
+        self.assertFalse(game.player_weapon_is_ready(player, True))
+        game.update_player_weapon_transition(
+            player, False,
+            game.get_player_weapon_transition_settings(player)[
+                "holster_duration"
+            ],
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+
+        active = game.update_player_reload(
+            player, "pistol", False, game.get_reload_time("pistol"),
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertFalse(active)
+        self.assertEqual(player["reload_state"], "reloaded")
+        self.assertEqual(player["ammo"]["pistol"], 20)
+        self.assertEqual(player["ammo"]["spare_pistol"], 14)
+
+        # Held raw aim is converted back to effective aim by the interaction
+        # update, which then follows this ordinary unholster path.
+        player["aim_requested"] = True
+        game.update_player_weapon_transition(
+            player, True, 0.01, runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertEqual(player["weapon_transition"]["target"], 1.0)
+        self.assertEqual(player["weapon_transition"]["phase"], "unholstering")
+
+    def test_reload_disables_active_reticle_outline(self):
+        player = game.make_default_player(0, 0, 0)
+        player["aim_requested"] = True
+        player["weapon_transition"].update({
+            "progress": 1.0, "target": 1.0, "phase": "unholstered",
+        })
+        player["reload_state"] = "reloading"
+        with mock.patch.object(game.pr, "draw_circle_lines") as outline, \
+                mock.patch.object(game.pr, "draw_circle") as center:
+            game.draw_player_aim_cursor(
+                player, {"tile_width": 16, "tile_height": 16},
+                pr.Vector3(0.0, 0.0, 0.0),
+            )
+        outline.assert_not_called()
+        center.assert_called_once()
+
+    def test_held_aim_restarts_unholster_when_reload_finishes(self):
+        player = game.make_default_player(8.0, 8.0, 0.0)
+        player["aim_requested"] = True
+        player["aiming"] = True
+        player["weapon_transition"].update({
+            "progress": 1.0, "target": 1.0, "phase": "unholstered",
+        })
+        runtime = g_audio.make_audio_runtime()
+        tile_map = game.make_tile_map(8, 8, 16, 16)
+
+        with mock.patch.object(
+                game.pr, "is_mouse_button_down", return_value=True), \
+                mock.patch.object(
+                    game.pr, "is_mouse_button_pressed", return_value=False,
+                ), \
+                mock.patch.object(
+                    game.pr, "is_key_pressed", return_value=True,
+                ), \
+                mock.patch.object(game.pr, "draw_text"):
+            game.update_player_interaction(
+                tile_map, player, pr.Vector3(0.0, 0.0, 0.0), {}, runtime,
+                0.01, "clear", None, aim_input_enabled=False,
+                mouse_delta=pr.Vector2(0.0, 0.0),
+            )
+        self.assertTrue(game.player_is_reloading(player))
+        self.assertFalse(player["aim_requested"])
+        self.assertFalse(player["weapon_can_fire"])
+        self.assertEqual(player["weapon_transition"]["target"], 0.0)
+        self.assertNotIn(
+            "weapon_holster",
+            [event["type"] for event in runtime["event_queue"]],
+        )
+
+        # The long reload would have completed the silent lowering transition.
+        player["weapon_transition"].update({
+            "progress": 0.0, "target": 0.0, "phase": "holstered",
+        })
+        player["reload_timer"] = game.get_reload_time("pistol") - 0.01
+        runtime["event_queue"].clear()
+        with mock.patch.object(
+                game.pr, "is_mouse_button_down", return_value=True), \
+                mock.patch.object(
+                    game.pr, "is_mouse_button_pressed", return_value=False,
+                ), \
+                mock.patch.object(
+                    game.pr, "is_key_pressed", return_value=False,
+                ), \
+                mock.patch.object(game.pr, "draw_text"):
+            game.update_player_interaction(
+                tile_map, player, pr.Vector3(0.0, 0.0, 0.0), {}, runtime,
+                0.01, "clear", None, aim_input_enabled=False,
+                mouse_delta=pr.Vector2(0.0, 0.0),
+            )
+        self.assertEqual(player["reload_state"], "reloaded")
+        self.assertTrue(player["aim_requested"])
+        self.assertEqual(player["weapon_transition"]["target"], 1.0)
+        self.assertEqual(player["weapon_transition"]["phase"], "unholstering")
+        self.assertIn(
+            "weapon_unholster",
+            [event["type"] for event in runtime["event_queue"]],
+        )
+
     def test_interaction_spawns_quick_draw_shot_at_minimum_progress(self):
         tile_map = game.make_tile_map(8, 8, 16, 16)
         minimum = game.PLAYER_AIM_ACCURACY_DEFAULTS[
