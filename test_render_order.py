@@ -958,6 +958,90 @@ class RenderOrderTests(unittest.TestCase):
                 barrel["direction"]["y"], aim["y"], msg=facing,
             )
 
+    def test_deployed_flashlight_replaces_far_arm_and_uses_aim(self):
+        player = g_update_and_render.make_default_player(0, 0, 0)
+        player.update({
+            "animation_direction": "right",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 1.0,
+            },
+        })
+        parts = g_render_order.build_player_cutout_rig_parts(player)
+        flashlight = self.rig_part(parts, "flashlight", "far")
+        self.assertTrue(flashlight["placeholder_rect"])
+        self.assertEqual(flashlight["placeholder_size"], {"x": 5.0, "y": 2.0})
+        self.rig_part(parts, "upper_arm", "far")
+        self.rig_part(parts, "lower_arm", "far")
+
+        world = g_render_order.player_cutout_flashlight_world(
+            player, self.tile_map,
+        )
+        self.assertEqual(world["direction"], {"x": 1.0, "y": 0.0})
+        self.assertGreater(
+            world["position"]["x"], world["grip_position"]["x"],
+        )
+
+    def test_running_flashlight_arm_does_not_repeat_gait_swing(self):
+        aims = {
+            "right": {"x": 1.0, "y": 0.0},
+            "left": {"x": -1.0, "y": 0.0},
+            "up": {"x": 0.0, "y": -1.0},
+            "down": {"x": 0.0, "y": 1.0},
+        }
+        for facing, aim in aims.items():
+            player = g_update_and_render.make_default_player(0, 0, 0)
+            player.update({
+                "animation_direction": facing,
+                "aim_direction": aim,
+                "procedural_gait": {
+                    "phase": 0.0, "blend": 1.0, "run_blend": 1.0,
+                },
+            })
+            contact = g_render_order.build_player_cutout_rig_parts(player)
+            player["procedural_gait"]["phase"] = math.pi
+            opposite_contact = g_render_order.build_player_cutout_rig_parts(
+                player,
+            )
+
+            for joint in ("upper_arm", "lower_arm", "flashlight"):
+                first = self.rig_part(contact, joint, "far")
+                second = self.rig_part(opposite_contact, joint, "far")
+                self.assertAlmostEqual(
+                    first["rotation"], second["rotation"], msg=facing,
+                )
+                self.assertEqual(
+                    first["pivot_local"], second["pivot_local"], msg=facing,
+                )
+
+    def test_flashlight_transition_blends_from_current_walk_pose(self):
+        player = g_update_and_render.make_default_player(0, 0, 0)
+        player.update({
+            "animation_direction": "right",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "flashlight_enabled": False,
+            "flashlight_requested": True,
+            "procedural_gait": {
+                "phase": 0.7, "blend": 1.0, "run_blend": 0.0,
+            },
+        })
+        player["flashlight_transition"].update({
+            "progress": 0.0, "target": 1.0, "phase": "unholstering",
+        })
+        holstered = g_render_order.build_player_cutout_rig_parts(player)
+        self.assertFalse(any(
+            part.get("rig_joint") == "flashlight" for part in holstered
+        ))
+        player["flashlight_transition"]["progress"] = 0.5
+        drawing = g_render_order.build_player_cutout_rig_parts(player)
+        self.rig_part(drawing, "flashlight", "far")
+        player["flashlight_transition"]["progress"] = 1.0
+        deployed = g_render_order.build_player_cutout_rig_parts(player)
+        self.assertNotEqual(
+            self.rig_part(drawing, "lower_arm", "far")["pivot_local"],
+            self.rig_part(deployed, "lower_arm", "far")["pivot_local"],
+        )
+
     def test_player_occluder_requires_later_sort_and_overlap(self):
         player = {"source": "player", "sort_y": 20.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}}
         behind = {"source": "buddha", "sort_y": 10.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}, "occludes_player": True, "outline_player_when_behind": True}

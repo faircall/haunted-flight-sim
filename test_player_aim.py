@@ -44,7 +44,81 @@ class PlayerAimHeadingTests(unittest.TestCase):
             "target": 0.0,
             "phase": "holstered",
         })
+        self.assertTrue(player["flashlight_enabled"])
+        self.assertTrue(player["flashlight_requested"])
+        self.assertEqual(player["flashlight_transition"], {
+            "progress": 1.0,
+            "target": 1.0,
+            "phase": "unholstered",
+        })
         self.assertNotIn("weapon_transition_settings", player)
+
+    def test_flashlight_turns_on_only_after_unholster_and_off_before_holster(self):
+        player = game.make_default_player(0, 0, 0)
+        player.update({
+            "flashlight_requested": False,
+            "flashlight_enabled": False,
+            "flashlight_transition": {
+                "progress": 0.0, "target": 0.0, "phase": "holstered",
+            },
+        })
+        runtime = g_audio.make_audio_runtime()
+        settings = game.get_player_flashlight_transition_settings(player)
+
+        state = game.update_player_flashlight_transition(
+            player, True, settings["unholster_duration"] * 0.5,
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertAlmostEqual(state["progress"], 0.5)
+        self.assertEqual(state["phase"], "unholstering")
+        self.assertFalse(player["flashlight_enabled"])
+        self.assertEqual(runtime["event_queue"], [])
+
+        game.update_player_flashlight_transition(
+            player, True, settings["unholster_duration"] * 0.5,
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertTrue(player["flashlight_enabled"])
+        self.assertEqual(
+            [event["type"] for event in runtime["event_queue"]],
+            ["flashlight_click"],
+        )
+
+        runtime["event_queue"].clear()
+        state = game.update_player_flashlight_transition(
+            player, False, settings["holster_duration"] * 0.5,
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertFalse(player["flashlight_enabled"])
+        self.assertAlmostEqual(state["progress"], 0.5)
+        self.assertEqual(state["phase"], "holstering")
+        self.assertEqual(
+            [event["type"] for event in runtime["event_queue"]],
+            ["flashlight_click"],
+        )
+
+    def test_reversing_partial_flashlight_draw_never_switches_beam_on(self):
+        player = game.make_default_player(0, 0, 0)
+        player.update({
+            "flashlight_requested": False,
+            "flashlight_enabled": False,
+            "flashlight_transition": {
+                "progress": 0.0, "target": 0.0, "phase": "holstered",
+            },
+        })
+        runtime = g_audio.make_audio_runtime()
+        settings = game.get_player_flashlight_transition_settings(player)
+        game.update_player_flashlight_transition(
+            player, True, settings["unholster_duration"] * 0.6,
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        state = game.update_player_flashlight_transition(
+            player, False, settings["holster_duration"] * 0.6,
+            runtime, {"x": 0.0, "y": 0.0},
+        )
+        self.assertEqual(state["progress"], 0.0)
+        self.assertFalse(player["flashlight_enabled"])
+        self.assertEqual(runtime["event_queue"], [])
 
     def test_live_transition_defaults_are_not_pinned_to_player_state(self):
         player = game.make_default_player(0, 0, 0)
@@ -767,10 +841,11 @@ class PlayerAimHeadingTests(unittest.TestCase):
                 - from_flashlight["y"] * aim["x"]
             )
 
-            # The gun is held a few pixels off the character centre, but its
-            # flash must remain visually inside the middle of the cone.  A
+            # The cone now originates from the flashlight in the spare hand,
+            # rather than the player centre. It remains close and parallel to
+            # the pistol flash while preserving distinct hand placement. A
             # missing (-16, -16) player render anchor violates this heavily.
-            self.assertLessEqual(lateral_distance, 5.0, msg=facing)
+            self.assertLessEqual(lateral_distance, 8.0, msg=facing)
             self.assertAlmostEqual(flame["direction"]["x"], aim["x"])
             self.assertAlmostEqual(flame["direction"]["y"], aim["y"])
 

@@ -77,6 +77,12 @@ PLAYER_WEAPON_TRANSITION_DEFAULTS = {
     "holster_duration": 0.15,
     "minimum_reverse_sound_seconds": 0.07,
 }
+PLAYER_FLASHLIGHT_TRANSITION_DEFAULTS = {
+    # Independent of the pistol transition so the eventual authored
+    # flashlight draw/holster clips can be timed without coupling weapons.
+    "unholster_duration": 0.24,
+    "holster_duration": 0.20,
+}
 PLAYER_AIM_ACCURACY_DEFAULTS = {
     "minimum_fire_progress": 0.08,
     "turn_speed_deadzone": 35.0,
@@ -1335,6 +1341,15 @@ def make_default_player(x,y,z):
         "target": 0.0,
         "phase": "holstered",
     }
+    # Preserve the existing new-game behaviour (flashlight starts on), while
+    # giving subsequent F toggles a normalized, reversible animation state.
+    player["flashlight_requested"] = True
+    player["flashlight_enabled"] = True
+    player["flashlight_transition"] = {
+        "progress": 1.0,
+        "target": 1.0,
+        "phase": "unholstered",
+    }
     player["aim_accuracy"] = {
         "motion_instability": 0.0,
         "shot_instability": 0.0,
@@ -1777,6 +1792,7 @@ PLAYER_CUTOUT_TEXTURE_PATHS = {
     "player_cutout_upper_arm_right": "art/split_player/player_upper_arm_right.png",
     "player_cutout_lower_arm_right": "art/split_player/player_lower_arm_right.png",
     "player_cutout_gun_right": "art/split_player/player_gun_right.png",
+    "player_cutout_flashlight_right": "art/split_player/player_flashlight_right.png",
     "player_cutout_head_up": "art/split_player/player_head_up.png",
     "player_cutout_torso_up": "art/split_player/player_torso_up.png",
     "player_cutout_upper_leg_up": "art/split_player/player_upper_leg_up.png",
@@ -1926,14 +1942,128 @@ def get_tile_at_index(flat_index, tile_map):
     tile_at_index = tile_map["tiles"][flat_index]
     return tile_at_index
 
-def update_player_flashlight_toggle(player_entity, editor_mode, pause_state, audio_runtime):
-    if "flashlight_enabled" not in player_entity:
-        player_entity["flashlight_enabled"] = True
+def get_player_flashlight_transition_settings(player):
+    authored = player.get("flashlight_transition_overrides", {})
+    if not isinstance(authored, dict):
+        authored = {}
 
-    if editor_mode == "play" and pause_state == "unpaused" and pr.is_key_pressed(pr.KeyboardKey.KEY_F):
-        queue_gameplay_audio(audio_runtime, "ui_hover", "player:flashlight", "ui", priority=1.2)
-        player_entity["flashlight_enabled"] = not player_entity["flashlight_enabled"]
+    def value(name):
+        try:
+            result = float(authored.get(
+                name, PLAYER_FLASHLIGHT_TRANSITION_DEFAULTS[name],
+            ))
+        except (TypeError, ValueError, OverflowError):
+            result = float(PLAYER_FLASHLIGHT_TRANSITION_DEFAULTS[name])
+        if not math.isfinite(result):
+            result = float(PLAYER_FLASHLIGHT_TRANSITION_DEFAULTS[name])
+        return max(0.01, result)
 
+    return {
+        "unholster_duration": value("unholster_duration"),
+        "holster_duration": value("holster_duration"),
+    }
+
+
+def player_flashlight_transition_phase(progress, target):
+    if progress <= 0.000001 and target <= 0.0:
+        return "holstered"
+    if progress >= 0.999999 and target >= 1.0:
+        return "unholstered"
+    return "unholstering" if target >= 1.0 else "holstering"
+
+
+def ensure_player_flashlight_transition_state(player):
+    state = player.get("flashlight_transition")
+    if not isinstance(state, dict):
+        initial = 1.0 if player.get("flashlight_enabled", True) else 0.0
+        state = {"progress": initial, "target": initial}
+        player["flashlight_transition"] = state
+    try:
+        progress = max(0.0, min(1.0, float(state.get("progress", 0.0))))
+        target = 1.0 if float(state.get("target", progress)) >= 0.5 else 0.0
+    except (TypeError, ValueError, OverflowError):
+        progress = 0.0
+        target = 0.0
+    requested = bool(player.get("flashlight_requested", target >= 1.0))
+    player["flashlight_requested"] = requested
+    player["flashlight_enabled"] = bool(
+        player.get("flashlight_enabled", progress >= 0.999999)
+        and progress >= 0.999999
+    )
+    state.update({
+        "progress": progress,
+        "target": target,
+        "phase": player_flashlight_transition_phase(progress, target),
+    })
+    return state
+
+
+def update_player_flashlight_transition(player, requested, dt, audio_runtime,
+                                        world_position=None):
+    """Animate the spare-arm flashlight and switch its beam at endpoints."""
+    state = ensure_player_flashlight_transition_state(player)
+    settings = get_player_flashlight_transition_settings(player)
+    progress = state["progress"]
+    target = 1.0 if requested else 0.0
+    player["flashlight_requested"] = bool(requested)
+
+    # Switch off before lowering the live light. Switching on waits until the
+    # arm and prop are fully deployed, so the cone never precedes the draw.
+    if target < 1.0 and player.get("flashlight_enabled", False):
+        player["flashlight_enabled"] = False
+        queue_gameplay_audio(
+            audio_runtime, "flashlight_click", "player:flashlight", "player",
+            world_position, priority=1.2,
+        )
+    state["target"] = target
+
+    try:
+        frame_dt = max(0.0, float(dt))
+    except (TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+    if not math.isfinite(frame_dt):
+        frame_dt = 0.0
+    if target > progress:
+        progress = min(
+            target, progress + frame_dt / settings["unholster_duration"],
+        )
+    elif target < progress:
+        progress = max(
+            target, progress - frame_dt / settings["holster_duration"],
+        )
+
+    if (target >= 1.0 and progress >= 0.999999
+            and not player.get("flashlight_enabled", False)):
+        player["flashlight_enabled"] = True
+        queue_gameplay_audio(
+            audio_runtime, "flashlight_click", "player:flashlight", "player",
+            world_position, priority=1.2,
+        )
+    state.update({
+        "progress": progress,
+        "target": target,
+        "phase": player_flashlight_transition_phase(progress, target),
+    })
+    return state
+
+
+def update_player_flashlight_toggle(player_entity, editor_mode, pause_state,
+                                    audio_runtime, dt=0.0, tile_map=None):
+    state = ensure_player_flashlight_transition_state(player_entity)
+    requested = bool(player_entity.get(
+        "flashlight_requested", state["target"] >= 1.0,
+    ))
+    if (editor_mode == "play" and pause_state == "unpaused"
+            and pr.is_key_pressed(pr.KeyboardKey.KEY_F)):
+        requested = not requested
+    world_position = make_pos_abs(
+        player_entity.get("position", {}),
+        float((tile_map or {}).get("tile_width", 16.0)),
+        float((tile_map or {}).get("tile_height", 16.0)),
+    )
+    update_player_flashlight_transition(
+        player_entity, requested, dt, audio_runtime, world_position,
+    )
     return player_entity["flashlight_enabled"]
 
 def get_tile_index_from_pos(pos, tile_map, debug_queue = None):    
@@ -8568,7 +8698,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             dt=dt, audio_runtime=audio_runtime, audio_profile=audio_profile,
             tile_map=tile_map, debug_queue=debug_queue,
         )
-        update_player_flashlight_toggle(player_info, editor_mode, pause_state, audio_runtime)
+        update_player_flashlight_toggle(
+            player_info, editor_mode, pause_state, audio_runtime, dt, tile_map,
+        )
     
     if pause_state != "paused":
         # I think we want to have the current 'hot spots' in terms of bullets cached

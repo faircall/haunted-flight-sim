@@ -38,6 +38,7 @@ SUPPORTED_EVENT_TYPES = {
     "weapon_unholster", "weapon_holster", "sound_instance_stop",
     "bullet_wall_impact", "melee_whoosh", "stagger_impact", "death_impact",
     "pickup_ammo", "pickup_health", "ui_hover", "fire_crackle",
+    "flashlight_click",
     "redhead_startle", "redhead_pursuit_hiss", "redhead_evade",
     "ambience_incidental",
     "sound_emitter_cadence",
@@ -330,6 +331,14 @@ def make_audio_manifest():
                                      pitch_variation=0.01, voice_count=3, bus="weapons"),
             "small_room_tail": _family(optional=True, base_gain=0.35, voice_count=3, bus="weapons"),
             "large_hall_tail": _family(optional=True, base_gain=0.5, voice_count=3, bus="weapons"),
+        },
+        "equipment": {
+            # Temporary draw/holster endpoint sound. This family gives the
+            # eventual dedicated flashlight audio a stable replacement point.
+            "flashlight_click": _family(
+                fallback="sounds/ui_hover.wav", base_gain=0.75,
+                voice_count=1, bus="sfx",
+            ),
         },
         "impacts": {
             "bullet_wall": _family(fallback="sounds/pistol_hit_wall.wav", base_gain=0.75,
@@ -1411,6 +1420,7 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
         "reload_start": "weapons.pistol_reload", "weapon_empty": "weapons.pistol_empty",
         "weapon_unholster": "weapons.pistol_unholster",
         "weapon_holster": "weapons.pistol_holster",
+        "flashlight_click": "equipment.flashlight_click",
         "bullet_wall_impact": "impacts.bullet_wall", "melee_whoosh": "impacts.melee_whoosh",
         "stagger_impact": "impacts.stagger", "death_impact": "impacts.death",
         "pickup_ammo": "pickups.ammo", "pickup_health": "pickups.health",

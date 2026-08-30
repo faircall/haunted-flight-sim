@@ -125,6 +125,16 @@ class AudioProfileAndEventTests(unittest.TestCase):
 
 
 class VariantAndManifestTests(unittest.TestCase):
+    def test_flashlight_click_has_dedicated_replaceable_family(self):
+        runtime = g_audio.make_audio_runtime()
+        self.assertIn("flashlight_click", g_audio.SUPPORTED_EVENT_TYPES)
+        self.assertEqual(
+            g_audio.resolve_available_family_paths(
+                runtime, "equipment.flashlight_click",
+            ),
+            ["sounds/ui_hover.wav"],
+        )
+
     def test_new_player_surface_families_use_all_authored_variants(self):
         runtime = g_audio.make_audio_runtime()
         for surface in ("carpet", "wood", "stone", "grass"):

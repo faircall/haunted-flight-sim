@@ -152,6 +152,21 @@ PLAYER_CUTOUT_ARM_DEFAULTS = {
     "far_arm_aim_motion_scale": 0.25,
 }
 
+# Spare-arm held-light prototype. The optional texture is expected to be a
+# small right-facing prop with its grip at (0, 1); until it exists the same
+# transform draws a compact rectangle, so animation tuning can proceed now.
+PLAYER_FLASHLIGHT_POSE_DEFAULTS = {
+    "texture": "player_cutout_flashlight_right",
+    "grip": {"x": 0.0, "y": 1.0},
+    "source_width": 5.0,
+    "placeholder_size": {"x": 5.0, "y": 2.0},
+    "placeholder_color": [205, 210, 196, 255],
+    "aim_reach": 6.0,
+    # Keep the spare hand on the opposite side of the aim line from the gun.
+    "grip_perpendicular_offset": -0.75,
+    "tip_distance": 5.0,
+}
+
 # Up/down artwork is authored as the screen-right limb on the same aligned
 # 32x32 canvas. The opposite limb is a mirrored instance with its own gait
 # pose, so it remains independently animated without requiring duplicate art.
@@ -1232,6 +1247,66 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
     return [upper_part, lower_part, gun_part]
 
 
+def _player_flashlight_transition_progress(player_entity):
+    transition = player_entity.get("flashlight_transition", {})
+    try:
+        progress = float(transition.get(
+            "progress", 1.0 if player_entity.get("flashlight_enabled", False)
+            else 0.0,
+        ))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        progress = 0.0
+    return max(0.0, min(1.0, progress))
+
+
+def _build_player_flashlight_cutout_parts(
+        player_entity, body_hip, torso_angle, mirror_parts,
+        locomotion_pose, arm_settings=None, textures=None,
+        animation_direction=None):
+    """Pose the spare arm with the weapon IK, substituting a held light."""
+    progress = _player_flashlight_transition_progress(player_entity)
+    if progress <= 0.000001:
+        return []
+    pose = PLAYER_FLASHLIGHT_POSE_DEFAULTS
+    flashlight_player = dict(player_entity)
+    flashlight_player["weapon_transition"] = {
+        "progress": progress, "target": 1.0, "phase": "unholstering",
+    }
+    flashlight_player["weapon_visual_recoil"] = {"rotation_degrees": 0.0}
+    flashlight_settings = dict(arm_settings or PLAYER_CUTOUT_ARM_DEFAULTS)
+    flashlight_settings.update({
+        "aim_reach": float(pose["aim_reach"]),
+        "gun_grip": dict(pose["grip"]),
+        "gun_source_size": float(pose["source_width"]),
+        "gun_grip_perpendicular_offset": float(
+            pose["grip_perpendicular_offset"]
+        ),
+    })
+    flashlight_textures = dict(textures or PLAYER_CUTOUT_TEXTURES)
+    flashlight_textures["gun"] = pose["texture"]
+    parts = _build_player_weapon_cutout_parts(
+        flashlight_player, body_hip, torso_angle, mirror_parts,
+        locomotion_pose, arm_settings=flashlight_settings,
+        textures=flashlight_textures,
+        animation_direction=animation_direction,
+    )
+    if len(parts) != 3:
+        return []
+    for part in parts[:2]:
+        part["rig_side"] = "far"
+        part["tint"] = list(PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"])
+    item = parts[2]
+    item.update({
+        "rig_side": "far",
+        "rig_joint": "flashlight",
+        "placeholder_rect": True,
+        "placeholder_size": dict(pose["placeholder_size"]),
+        "placeholder_color": list(pose["placeholder_color"]),
+        "held_item_tip_distance": float(pose["tip_distance"]),
+    })
+    return parts
+
+
 def _build_player_side_reload_parts(player_entity, body_hip, torso_angle,
                                     facing_left, locomotion_pose):
     timing = _player_reload_pose_timing(player_entity)
@@ -1535,6 +1610,10 @@ def _build_player_side_cutout_rig_parts(player_entity):
     weapon_parts = _build_player_weapon_cutout_parts(
         player_entity, body_hip, torso_angle, facing_left, near_arm,
     )
+    flashlight_parts = _build_player_flashlight_cutout_parts(
+        player_entity, body_hip, torso_angle, facing_left, far_arm,
+        animation_direction=direction,
+    )
     if player_entity.get("reload_state", "") == "reloading":
         weapon_parts = _build_player_side_reload_parts(
             player_entity, body_hip, torso_angle, facing_left, near_arm,
@@ -1542,10 +1621,13 @@ def _build_player_side_cutout_rig_parts(player_entity):
     near_arm_parts = weapon_parts or [
         near_arm["upper_part"], near_arm["lower_part"],
     ]
+    far_arm_parts = flashlight_parts or [
+        far_arm["lower_part"], far_arm["upper_part"],
+    ]
     far_lower, far_upper = leg_parts[0]
     near_lower, near_upper = leg_parts[1]
     return [
-        far_arm["lower_part"], far_arm["upper_part"],
+        *far_arm_parts,
         far_lower, far_upper, torso, near_lower, near_upper,
         *near_arm_parts, head,
     ]
@@ -1871,6 +1953,11 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
         textures=textures,
         animation_direction=direction,
     )
+    flashlight_parts = _build_player_flashlight_cutout_parts(
+        player_entity, body_hip, torso_angle, True, far_arm,
+        arm_settings=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS,
+        textures=textures, animation_direction=direction,
+    )
     reload_parts = None
     if player_entity.get("reload_state", "") == "reloading":
         reload_parts = _build_player_front_reload_parts(
@@ -1878,10 +1965,12 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
             near_arm, far_arm,
         )
     if reload_parts is not None:
-        far_arm_parts = reload_parts["far"]
+        far_arm_parts = flashlight_parts or reload_parts["far"]
         near_arm_parts = [*reload_parts["near"], reload_parts["gun"]]
     else:
-        far_arm_parts = [far_arm["lower_part"], far_arm["upper_part"]]
+        far_arm_parts = flashlight_parts or [
+            far_arm["lower_part"], far_arm["upper_part"],
+        ]
         near_arm_parts = weapon_parts or [
             near_arm["upper_part"], near_arm["lower_part"],
         ]
@@ -1979,6 +2068,39 @@ def player_cutout_gun_barrel_world(player_entity, tile_map):
         },
         "direction": direction,
         "grip_position": grip_world,
+    }
+
+
+def player_cutout_flashlight_world(player_entity, tile_map):
+    """Return the deployed flashlight tip using the rendered spare-arm rig."""
+    parts = build_player_cutout_rig_parts(player_entity)
+    flashlight = next((
+        part for part in parts if part.get("rig_joint") == "flashlight"
+    ), None)
+    if flashlight is None:
+        return None
+    direction = normalize_vector(player_entity.get("aim_direction", {}))
+    if direction is None:
+        return None
+    player_world = position_to_world(player_entity.get("position", {}), tile_map)
+    render_anchor = player_entity.get("render_anchor_offset", {})
+    pivot = flashlight.get("pivot_local", {})
+    grip = {
+        "x": player_world["x"] + float(render_anchor.get("x", -16.0))
+             + float(pivot.get("x", 0.0)),
+        "y": player_world["y"] + float(render_anchor.get("y", -16.0))
+             + float(pivot.get("y", 0.0)),
+    }
+    distance = max(
+        0.0, float(flashlight.get("held_item_tip_distance", 5.0)),
+    )
+    return {
+        "position": {
+            "x": grip["x"] + direction["x"] * distance,
+            "y": grip["y"] + direction["y"] * distance,
+        },
+        "grip_position": grip,
+        "direction": direction,
     }
 
 

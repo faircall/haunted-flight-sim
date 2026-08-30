@@ -403,6 +403,11 @@ def make_player_flashlight(player_entity, tile_map):
     forward_offset = game.vec2_scale(direction, settings["forward_offset"])
     side_offset = game.vec2_scale(side_direction, settings["side_offset"])
     flashlight_position = game.vec2_add(player_world_position, game.vec2_add(forward_offset, side_offset))
+    rendered_flashlight = g_render_order.player_cutout_flashlight_world(
+        player_entity, tile_map,
+    )
+    if rendered_flashlight is not None:
+        flashlight_position = dict(rendered_flashlight["position"])
 
     
 
@@ -1666,7 +1671,9 @@ def _draw_player_cutout_rig(render_item, game_camera, game_assets):
         return False
     textures = game_assets.get("textures", {})
     resolved = [(part, textures.get(part.get("texture"))) for part in parts]
-    if any(texture is None for _part, texture in resolved):
+    if any(
+            texture is None and not part.get("placeholder_rect", False)
+            for part, texture in resolved):
         return False
 
     destination = render_item["dest_rect"]
@@ -1682,6 +1689,23 @@ def _draw_player_cutout_rig(render_item, game_camera, game_assets):
         scale = part.get("scale", {})
         scale_x = max(0.0001, float(scale.get("x", 1.0)))
         scale_y = max(0.0001, float(scale.get("y", 1.0)))
+        if part_texture is None and part.get("placeholder_rect", False):
+            size = part.get("placeholder_size", {})
+            pr.draw_rectangle_pro(
+                pr.Rectangle(
+                    float(top_left["x"]) + float(pivot.get("x", 0.0)),
+                    float(top_left["y"]) + float(pivot.get("y", 0.0)),
+                    max(1.0, float(size.get("x", 5.0))) * scale_x,
+                    max(1.0, float(size.get("y", 2.0))) * scale_y,
+                ),
+                pr.Vector2(
+                    float(origin.get("x", 0.0)) * scale_x,
+                    float(origin.get("y", 1.0)) * scale_y,
+                ),
+                float(part.get("rotation", 0.0)),
+                _color_from_components(part.get("placeholder_color")),
+            )
+            continue
         source_width = float(part_texture.width)
         source_x = 0.0
         if part.get("flip_x", False):
