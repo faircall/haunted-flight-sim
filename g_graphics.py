@@ -241,7 +241,7 @@ def set_shader_vec4(shader, location, x, y, z, w):
 _EFFECT_SHADER_UNIFORMS = {
     "effect_fire": (
         "resolution", "boundsMin", "boundsSize", "anchorInBounds", "effectSize",
-        "wind", "time", "seed", "density", "speed", "turbulence",
+        "effectDirection", "wind", "time", "seed", "density", "speed", "turbulence",
         "windResponse", "opacity", "posterizeLevels", "emberDensity",
         "emberHeight", "passMode", "colorCore", "colorHot", "colorMid",
         "colorOuter",
@@ -3120,12 +3120,18 @@ def _bind_effect_uniforms(info, emitter, bounds, game_camera, tile_map, wind_pro
     area_height = max(1.0, float(area.get("y", 1.0)))
     wind = g_effects.sample_wind(wind_profile, position["x"], position["y"], time_elapsed)
     size = emitter.get("size", area)
+    effect_direction = emitter.get("direction", {})
 
     _set_effect_vec2(info, "resolution", viewport_width, viewport_height)
     _set_effect_vec2(info, "boundsMin", bounds["left"], bounds["top"])
     _set_effect_vec2(info, "boundsSize", bounds["width"], bounds["height"])
     _set_effect_vec2(info, "anchorInBounds", anchor_x, anchor_y)
     _set_effect_vec2(info, "effectSize", max(1.0, float(size.get("x", area_width))), max(1.0, float(size.get("y", area_height))))
+    _set_effect_vec2(
+        info, "effectDirection",
+        float(effect_direction.get("x", 0.0)),
+        float(effect_direction.get("y", 0.0)),
+    )
     _set_effect_vec2(info, "cameraPosition", game_camera.x, game_camera.y)
     _set_effect_vec2(info, "areaMin", position["x"] - area_width * 0.5, position["y"] - area_height * 0.5)
     _set_effect_vec2(info, "areaSize", area_width, area_height)

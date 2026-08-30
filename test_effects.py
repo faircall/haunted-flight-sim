@@ -134,6 +134,21 @@ class ProceduralReferenceAndBoundsTests(unittest.TestCase):
         self.assertLessEqual(bounds["y"], anchor["y"] - emitter["size"]["y"] - emitter["ember_height"])
         self.assertGreaterEqual(bounds["y"] + bounds["height"], anchor["y"])
 
+    def test_directed_fire_bounds_extend_along_its_direction(self):
+        emitter = g_effects.make_default_fire_emitter({"x": 40.0, "y": 50.0})
+        emitter.update({
+            "size": {"x": 4.0, "y": 8.0},
+            "area_size": {"x": 4.0, "y": 4.0},
+            "direction": {"x": 1.0, "y": 0.0},
+            "ember_height": 0.0,
+            "wind_response": 0.0,
+        })
+        bounds = g_effects.emitter_world_bounds(emitter, TILE_MAP)
+        self.assertLessEqual(bounds["x"], 40.0)
+        self.assertGreaterEqual(bounds["x"] + bounds["width"], 48.0)
+        self.assertLess(bounds["y"], 50.0)
+        self.assertGreater(bounds["y"] + bounds["height"], 50.0)
+
     def test_disabled_emitter_submits_no_draw(self):
         emitter = g_effects.make_default_smoke_emitter(POSITION)
         emitter["enabled"] = False

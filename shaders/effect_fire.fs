@@ -9,6 +9,7 @@ uniform vec2 boundsMin;
 uniform vec2 boundsSize;
 uniform vec2 anchorInBounds;
 uniform vec2 effectSize;
+uniform vec2 effectDirection; // Screen-space direction; zero retains upward fire.
 uniform vec2 wind;
 uniform float time;
 uniform float seed;
@@ -85,7 +86,14 @@ bool emberAtPixel(vec2 pixel, float fieldHeight, int maximumCount, float fieldDe
         float rise = phase * fieldHeight;
         float drift = (r1 - 0.5) * effectSize.x + wind.x * windResponse * phase * phase * 0.32;
         float wobble = sin(phase * 18.0 + r0 * 31.0) * turbulence * 2.0;
-        vec2 ember = anchorInBounds + vec2(drift + wobble, -rise);
+        vec2 flameDirection = effectDirection;
+        if (dot(flameDirection, flameDirection) < 0.000001)
+            flameDirection = vec2(0.0, -1.0);
+        flameDirection = normalize(flameDirection);
+        vec2 flamePerpendicular = vec2(-flameDirection.y, flameDirection.x);
+        vec2 ember = anchorInBounds
+                   + flamePerpendicular * (drift + wobble)
+                   + flameDirection * rise;
         if (all(equal(target, ivec2(floor(ember)))))
             return true;
     }
@@ -101,7 +109,16 @@ void main()
 
     float flameHeight = max(1.0, effectSize.y);
     float flameWidth = max(1.0, effectSize.x);
-    vec2 fromBase = vec2(pixel.x - anchorInBounds.x, anchorInBounds.y - pixel.y);
+    vec2 flameDirection = effectDirection;
+    if (dot(flameDirection, flameDirection) < 0.000001)
+        flameDirection = vec2(0.0, -1.0);
+    flameDirection = normalize(flameDirection);
+    vec2 flamePerpendicular = vec2(-flameDirection.y, flameDirection.x);
+    vec2 screenFromBase = pixel - anchorInBounds;
+    vec2 fromBase = vec2(
+        dot(screenFromBase, flamePerpendicular),
+        dot(screenFromBase, flameDirection)
+    );
     float y = fromBase.y / flameHeight;
 
     if (passMode == 2)

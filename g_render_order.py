@@ -141,6 +141,10 @@ PLAYER_CUTOUT_ARM_DEFAULTS = {
     "aim_reach": 6.5,
     "gun_grip": {"x": 0.0, "y": 2.0},
     "gun_source_size": 4.0,
+    # Authored points in player_gun_right.png. The barrel occupies the upper
+    # row; it does not pass through the lower grip pivot.
+    "gun_muzzle": {"x": 4.0, "y": 0.5},
+    "gun_barrel_direction": {"x": 1.0, "y": 0.0},
     # The hand meets the top of the grip; the gun pivot sits one pixel below
     # the aim line, matching player_aim_reference_right.png.
     "gun_grip_perpendicular_offset": 1.0,
@@ -1915,6 +1919,67 @@ def build_player_cutout_rig_parts(player_entity):
     if direction in {"up", "down"}:
         return _build_player_front_cutout_rig_parts(player_entity, direction)
     return []
+
+
+def player_cutout_gun_barrel_world(player_entity, tile_map):
+    """Return the rendered gun-tip position and direction in world space."""
+    parts = build_player_cutout_rig_parts(player_entity)
+    gun = next((
+        part for part in parts if part.get("rig_joint") == "gun"
+    ), None)
+    if gun is None:
+        return None
+    grip = gun.get("pivot_local", {})
+    source_grip = PLAYER_CUTOUT_ARM_DEFAULTS["gun_grip"]
+    source_muzzle = PLAYER_CUTOUT_ARM_DEFAULTS["gun_muzzle"]
+    source_direction = PLAYER_CUTOUT_ARM_DEFAULTS["gun_barrel_direction"]
+    muzzle_from_grip = {
+        "x": float(source_muzzle["x"]) - float(source_grip["x"]),
+        "y": float(source_muzzle["y"]) - float(source_grip["y"]),
+    }
+    if gun.get("flip_x", False):
+        muzzle_from_grip["x"] = -muzzle_from_grip["x"]
+        source_direction = {
+            "x": -float(source_direction["x"]),
+            "y": float(source_direction["y"]),
+        }
+    transformed_muzzle = _rotate_rig_vector(
+        muzzle_from_grip["x"], muzzle_from_grip["y"],
+        float(gun.get("rotation", 0.0)),
+    )
+    direction = _rotate_rig_vector(
+        source_direction["x"], source_direction["y"],
+        float(gun.get("rotation", 0.0)),
+    )
+    direction_length = math.hypot(direction["x"], direction["y"])
+    if direction_length <= 0.000001:
+        return None
+    direction = {
+        "x": direction["x"] / direction_length,
+        "y": direction["y"] / direction_length,
+    }
+    player_world = position_to_world(player_entity.get("position", {}), tile_map)
+    # Rig pivots are sprite-local, so their world origin must match the
+    # destination rectangle used by build_player_render_item.  Player
+    # position is the character anchor/flashlight origin, not the sprite's
+    # top-left corner.
+    render_anchor = player_entity.get("render_anchor_offset", {})
+    top_left = {
+        "x": player_world["x"] + float(render_anchor.get("x", -16.0)),
+        "y": player_world["y"] + float(render_anchor.get("y", -16.0)),
+    }
+    grip_world = {
+        "x": top_left["x"] + float(grip.get("x", 0.0)),
+        "y": top_left["y"] + float(grip.get("y", 0.0)),
+    }
+    return {
+        "position": {
+            "x": grip_world["x"] + transformed_muzzle["x"],
+            "y": grip_world["y"] + transformed_muzzle["y"],
+        },
+        "direction": direction,
+        "grip_position": grip_world,
+    }
 
 
 def entity_with_animation_debug_override(game_assets, collection_name,

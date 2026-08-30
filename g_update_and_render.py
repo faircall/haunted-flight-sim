@@ -112,6 +112,16 @@ PLAYER_MUZZLE_FLASH_DEFAULTS = {
     "fade_exponent": 1.5,
     "height": 18.0,
     "color": [1.0, 0.66, 0.28],
+    # The procedural flame shares duration_seconds with the light, but keeps
+    # its visual size and fade independently tunable.
+    "flame_width": 5.0,
+    "flame_length": 9.0,
+    "flame_density": 1.0,
+    "flame_speed": 3.5,
+    "flame_turbulence": 0.42,
+    "flame_opacity": 1.0,
+    "flame_fade_exponent": 0.65,
+    "flame_posterize_levels": 4.0,
 }
 DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET = {"x": -12.0, "y": -8.0}
 DEFAULT_REDHEAD_COLLISION_RADIUS_REDUCTION = 4.0
@@ -1340,6 +1350,8 @@ def make_default_player(x,y,z):
     player["muzzle_flash"] = {
         "amount": 0.0,
         "position": {"x": 0.0, "y": 0.0},
+        "direction": {"x": 1.0, "y": 0.0},
+        "burst_index": 0,
         "light": None,
     }
     player["procedural_gait"] = {
@@ -5575,6 +5587,16 @@ def get_player_muzzle_flash_settings(player):
         "falloff": max(0.01, value("falloff")),
         "fade_exponent": max(0.01, value("fade_exponent")),
         "height": max(0.0, value("height")),
+        "flame_width": max(1.0, value("flame_width")),
+        "flame_length": max(1.0, value("flame_length")),
+        "flame_density": max(0.0, min(1.0, value("flame_density"))),
+        "flame_speed": max(0.0, value("flame_speed")),
+        "flame_turbulence": max(0.0, value("flame_turbulence")),
+        "flame_opacity": max(0.0, min(1.0, value("flame_opacity"))),
+        "flame_fade_exponent": max(0.01, value("flame_fade_exponent")),
+        "flame_posterize_levels": max(
+            2.0, value("flame_posterize_levels"),
+        ),
         "color": color,
     }
 
@@ -5602,9 +5624,29 @@ def ensure_player_muzzle_flash_state(player):
         position = {"x": 0.0, "y": 0.0}
     if not math.isfinite(position["x"]) or not math.isfinite(position["y"]):
         position = {"x": 0.0, "y": 0.0}
+    direction = state.get("direction", {})
+    if not isinstance(direction, dict):
+        direction = {}
+    try:
+        direction_x = float(direction.get("x", 1.0))
+        direction_y = float(direction.get("y", 0.0))
+    except (TypeError, ValueError, OverflowError):
+        direction_x, direction_y = 1.0, 0.0
+    direction_length = math.hypot(direction_x, direction_y)
+    if not math.isfinite(direction_length) or direction_length <= 0.000001:
+        direction_x, direction_y, direction_length = 1.0, 0.0, 1.0
+    try:
+        burst_index = max(0, int(state.get("burst_index", 0)))
+    except (TypeError, ValueError, OverflowError):
+        burst_index = 0
     state.update({
         "amount": max(0.0, min(1.0, amount)),
         "position": position,
+        "direction": {
+            "x": direction_x / direction_length,
+            "y": direction_y / direction_length,
+        },
+        "burst_index": burst_index,
     })
     return state
 
@@ -5657,13 +5699,101 @@ def update_player_muzzle_flash(player, dt):
     return refresh_player_muzzle_flash_light(player)
 
 
-def trigger_player_muzzle_flash(player, world_position):
+def build_player_muzzle_flash_emitter(player, tile_map=None):
+    state = ensure_player_muzzle_flash_state(player)
+    if state["amount"] <= 0.000001:
+        return None
+    if tile_map is not None:
+        rendered_barrel = g_render_order.player_cutout_gun_barrel_world(
+            player, tile_map,
+        )
+        if rendered_barrel is not None:
+            live_aim = g_render_order.normalize_vector(
+                player.get("aim_direction", {}),
+            )
+            if live_aim is None:
+                live_aim = dict(rendered_barrel["direction"])
+            muzzle_position = dict(rendered_barrel["position"])
+            grip_position = rendered_barrel.get("grip_position")
+            if isinstance(grip_position, dict):
+                muzzle_from_grip = {
+                    "x": muzzle_position["x"] - grip_position["x"],
+                    "y": muzzle_position["y"] - grip_position["y"],
+                }
+                # The live aim vector is authoritative. If a future facing or
+                # asset transform puts the authored muzzle behind/perpendicular
+                # to it, fail safely to the forward end of the gun.
+                forward_distance = (
+                    muzzle_from_grip["x"] * live_aim["x"]
+                    + muzzle_from_grip["y"] * live_aim["y"]
+                )
+                if forward_distance <= 0.25:
+                    muzzle_position = {
+                        "x": grip_position["x"] + live_aim["x"] * 4.0,
+                        "y": grip_position["y"] + live_aim["y"] * 4.0,
+                    }
+            state["position"] = muzzle_position
+            # Muzzle fire represents the discharge before the visual recoil
+            # kick, so it follows shot/reticle aim rather than a facing label
+            # or the already-kicked gun angle.
+            state["direction"] = live_aim
+            if isinstance(state.get("light"), dict):
+                state["light"]["position"] = dict(state["position"])
+    settings = get_player_muzzle_flash_settings(player)
+    opacity = settings["flame_opacity"] * (
+        state["amount"] ** settings["flame_fade_exponent"]
+    )
+    if opacity <= 0.000001:
+        return None
+    emitter = g_effects.make_default_fire_emitter(state["position"])
+    emitter.update({
+        "area_size": {
+            "x": settings["flame_width"],
+            "y": settings["flame_width"],
+        },
+        "size": {
+            "x": settings["flame_width"],
+            "y": settings["flame_length"],
+        },
+        "direction": dict(state["direction"]),
+        "seed": 4109 + state["burst_index"] * 7919,
+        "density": settings["flame_density"],
+        "speed": settings["flame_speed"],
+        "turbulence": settings["flame_turbulence"],
+        "wind_response": 0.0,
+        "opacity": opacity,
+        "posterize_levels": settings["flame_posterize_levels"],
+        "ember_density": 0.0,
+        "ember_height": 0.0,
+        "render_group": "world_front",
+        "light": {"enabled": False},
+        "palette": {
+            # At this tiny resolution only a few shader bands survive. Keep
+            # the emissive core orange instead of near-white so additive
+            # compositing cannot wash the whole flash into a pale speck.
+            "core": [1.0, 0.82, 0.20, 1.0],
+            "hot": [1.0, 0.48, 0.035, 1.0],
+            "mid": [0.96, 0.16, 0.008, 1.0],
+            "outer": [0.38, 0.018, 0.002, 1.0],
+        },
+    })
+    return emitter
+
+
+def trigger_player_muzzle_flash(player, world_position, direction=None):
     state = ensure_player_muzzle_flash_state(player)
     state["amount"] = 1.0
     state["position"] = {
         "x": float(world_position["x"]),
         "y": float(world_position["y"]),
     }
+    if isinstance(direction, dict):
+        state["direction"] = {
+            "x": float(direction.get("x", 0.0)),
+            "y": float(direction.get("y", 0.0)),
+        }
+    state["burst_index"] += 1
+    ensure_player_muzzle_flash_state(player)
     refresh_player_muzzle_flash_light(player)
     return state["light"]
 
@@ -7907,7 +8037,18 @@ def update_player_interaction(tile_map, entity, game_camera, entities, audio_run
             })
             apply_player_shot_recoil_bloom(entity)
             apply_player_weapon_visual_recoil(entity)
-            trigger_player_muzzle_flash(entity, bullet_pos)
+            rendered_barrel = g_render_order.player_cutout_gun_barrel_world(
+                entity, tile_map,
+            )
+            if rendered_barrel is None:
+                rendered_barrel = {
+                    "position": bullet_pos,
+                    "direction": aim_heading_normal,
+                }
+            trigger_player_muzzle_flash(
+                entity, rendered_barrel["position"],
+                rendered_barrel["direction"],
+            )
             
             gunshot_timer = 0.07
             queue_gameplay_audio(
@@ -8488,9 +8629,16 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
     render_environment_effects = editor_mode == "play" or preview_environment
+    authored_effect_emitters = entities.get("emitters", {})
+    frame_effect_emitters = authored_effect_emitters
+    if editor_mode == "play" and player_info is not None:
+        muzzle_flame = build_player_muzzle_flash_emitter(player_info, tile_map)
+        if muzzle_flame is not None:
+            frame_effect_emitters = dict(authored_effect_emitters)
+            frame_effect_emitters["runtime:player_muzzle_flame"] = muzzle_flame
     g_effects.update_effects(
         effects_runtime,
-        entities.get("emitters", {}),
+        authored_effect_emitters,
         wind_profile,
         time_elapsed,
         0.0 if pause_state == "paused" else dt,
@@ -8536,7 +8684,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if render_environment_effects and not do_load_level:
         g_graphics.render_effect_group(
             render_target, camera_3d.position, game_assets, lighting_profile, None,
-            "floor_lit", False, entities.get("emitters", {}), tile_map,
+            "floor_lit", False, frame_effect_emitters, tile_map,
             wind_profile, time_elapsed, editor_mode == "environment",
         )
 
@@ -8551,7 +8699,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         g_graphics.apply_lighting(render_target, lighting_target, readability_light_target, game_assets, lighting_profile)
         g_graphics.render_effect_group(
             render_target, camera_3d.position, game_assets, lighting_profile,
-            lighting_target, "world_behind", True, entities.get("emitters", {}),
+            lighting_target, "world_behind", True, frame_effect_emitters,
             tile_map, wind_profile, time_elapsed, editor_mode == "environment",
         )
 
@@ -8565,12 +8713,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if render_environment_effects:
         g_graphics.render_effect_group(
             render_target, camera_3d.position, game_assets, lighting_profile,
-            lighting_target, "world_front", True, entities.get("emitters", {}),
+            lighting_target, "world_front", True, frame_effect_emitters,
             tile_map, wind_profile, time_elapsed, editor_mode == "environment",
         )
         g_graphics.render_effect_group(
             render_target, camera_3d.position, game_assets, lighting_profile,
-            lighting_target, "emissive", False, entities.get("emitters", {}),
+            lighting_target, "emissive", False, frame_effect_emitters,
             tile_map, wind_profile, time_elapsed, editor_mode == "environment",
         )
         rain_exposure_texture = g_graphics.ensure_rain_exposure_texture(game_assets, tile_map)

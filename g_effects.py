@@ -434,6 +434,41 @@ def emitter_world_bounds(emitter, tile_map=None):
         height = max(area_height, float(size.get("y", area_height)))
         extra_height = float(emitter.get("ember_height", 0.0)) if effect_type == "fire" else 0.0
         wind_pad = min(height * 0.45, abs(float(emitter.get("wind_response", 0.0))) * 10.0)
+        direction = emitter.get("direction")
+        if isinstance(direction, dict):
+            direction_x = float(direction.get("x", 0.0))
+            direction_y = float(direction.get("y", 0.0))
+            direction_length = math.hypot(direction_x, direction_y)
+            if direction_length > 0.000001:
+                direction_x /= direction_length
+                direction_y /= direction_length
+                perpendicular_x = -direction_y
+                perpendicular_y = direction_x
+                half_width = width * 0.5 + wind_pad
+                flame_length = height + extra_height
+                points = [
+                    (centre["x"] + perpendicular_x * side * half_width,
+                     centre["y"] + perpendicular_y * side * half_width)
+                    for side in (-1.0, 1.0)
+                ]
+                points.extend([
+                    (centre["x"] + direction_x * flame_length
+                     + perpendicular_x * side * half_width,
+                     centre["y"] + direction_y * flame_length
+                     + perpendicular_y * side * half_width)
+                    for side in (-1.0, 1.0)
+                ])
+                padding = 2.0
+                minimum_x = min(point[0] for point in points) - padding
+                maximum_x = max(point[0] for point in points) + padding
+                minimum_y = min(point[1] for point in points) - padding
+                maximum_y = max(point[1] for point in points) + padding
+                return {
+                    "x": minimum_x, "y": minimum_y,
+                    "width": maximum_x - minimum_x,
+                    "height": maximum_y - minimum_y,
+                    "anchor_x": centre["x"], "anchor_y": centre["y"],
+                }
         return {
             "x": centre["x"] - width * 0.5 - wind_pad,
             "y": centre["y"] - height - extra_height,

@@ -889,6 +889,75 @@ class RenderOrderTests(unittest.TestCase):
         self.assertEqual(kicked["draw_data"]["pistol_angle"], -14.0)
         self.assertEqual(resting["draw_data"]["pistol_angle"], 0.0)
 
+    def test_cutout_barrel_position_follows_rendered_gun_rotation(self):
+        player = {
+            "id": "player",
+            "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+            "animation_direction": "right",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "aiming": True,
+            "weapon_transition": {
+                "progress": 1.0, "target": 1.0, "phase": "unholstered",
+            },
+            "weapon_visual_recoil": {"rotation_degrees": 14.0},
+            "procedural_gait": {"phase": 0.0, "blend": 0.0},
+        }
+        parts = g_render_order.build_player_cutout_rig_parts(player)
+        gun = self.rig_part(parts, "gun", "near")
+        barrel = g_render_order.player_cutout_gun_barrel_world(
+            player, self.tile_map,
+        )
+        world = g_render_order.position_to_world(player["position"], self.tile_map)
+        anchor = player.get("render_anchor_offset", {"x": -16.0, "y": -16.0})
+        grip = {
+            "x": world["x"] + anchor["x"] + gun["pivot_local"]["x"],
+            "y": world["y"] + anchor["y"] + gun["pivot_local"]["y"],
+        }
+        self.assertAlmostEqual(
+            math.hypot(
+                barrel["position"]["x"] - grip["x"],
+                barrel["position"]["y"] - grip["y"],
+            ),
+            math.hypot(4.0, -1.5),
+        )
+        self.assertAlmostEqual(
+            math.degrees(math.atan2(
+                barrel["direction"]["y"], barrel["direction"]["x"],
+            )),
+            gun["rotation"],
+        )
+
+    def test_cutout_barrel_direction_matches_all_cardinal_aims(self):
+        aims = {
+            "right": {"x": 1.0, "y": 0.0},
+            "left": {"x": -1.0, "y": 0.0},
+            "up": {"x": 0.0, "y": -1.0},
+            "down": {"x": 0.0, "y": 1.0},
+        }
+        for facing, aim in aims.items():
+            player = {
+                "id": "player",
+                "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+                "animation_direction": facing,
+                "aim_direction": aim,
+                "aiming": True,
+                "weapon_transition": {
+                    "progress": 1.0, "target": 1.0,
+                    "phase": "unholstered",
+                },
+                "weapon_visual_recoil": {"rotation_degrees": 0.0},
+                "procedural_gait": {"phase": 0.0, "blend": 0.0},
+            }
+            barrel = g_render_order.player_cutout_gun_barrel_world(
+                player, self.tile_map,
+            )
+            self.assertAlmostEqual(
+                barrel["direction"]["x"], aim["x"], msg=facing,
+            )
+            self.assertAlmostEqual(
+                barrel["direction"]["y"], aim["y"], msg=facing,
+            )
+
     def test_player_occluder_requires_later_sort_and_overlap(self):
         player = {"source": "player", "sort_y": 20.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}}
         behind = {"source": "buddha", "sort_y": 10.0, "bounds_world": {"x": 0.0, "y": 0.0, "width": 20.0, "height": 20.0}, "occludes_player": True, "outline_player_when_behind": True}

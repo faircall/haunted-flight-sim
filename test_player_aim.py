@@ -670,7 +670,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
         }
 
         light = game.trigger_player_muzzle_flash(
-            player, {"x": 12.0, "y": 34.0},
+            player, {"x": 12.0, "y": 34.0}, {"x": 0.0, "y": 1.0},
         )
         self.assertEqual(light["position"], {"x": 12.0, "y": 34.0})
         self.assertEqual(light["radius"], 80.0)
@@ -679,6 +679,40 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertEqual(light["gameplay_intensity"], 0.0)
         self.assertEqual(player["aim_accuracy"]["shot_instability"], 0.0)
         self.assertEqual(player["weapon_visual_recoil"]["amount"], 0.0)
+        flame = game.build_player_muzzle_flash_emitter(player)
+        self.assertEqual(flame["type"], "fire")
+        self.assertEqual(flame["position"], {"x": 12.0, "y": 34.0})
+        self.assertEqual(flame["direction"], {"x": 0.0, "y": 1.0})
+        self.assertEqual(flame["size"], {"x": 5.0, "y": 9.0})
+        self.assertEqual(flame["ember_density"], 0.0)
+        self.assertFalse(flame["light"]["enabled"])
+        self.assertLess(flame["palette"]["core"][2], 0.5)
+
+        player.update({
+            "position": {"x": 10.0, "y": 20.0},
+            "animation_direction": "right",
+            "aim_direction": {"x": 1.0, "y": 0.0},
+            "aiming": True,
+        })
+        player["weapon_transition"].update({
+            "progress": 1.0, "target": 1.0, "phase": "unholstered",
+        })
+        # The rendered gun has already kicked when the flash is drawn.  The
+        # discharge itself must still use the shot/reticle direction rather
+        # than inheriting that visual rotation.
+        player["weapon_visual_recoil"]["rotation_degrees"] = 14.0
+        barrel = game.g_render_order.player_cutout_gun_barrel_world(
+            player, {"tile_width": 16, "tile_height": 16},
+        )
+        attached_flame = game.build_player_muzzle_flash_emitter(
+            player, {"tile_width": 16, "tile_height": 16},
+        )
+        self.assertEqual(attached_flame["position"], barrel["position"])
+        self.assertEqual(attached_flame["direction"], {"x": 1.0, "y": 0.0})
+        self.assertNotAlmostEqual(barrel["direction"]["y"], 0.0)
+        self.assertEqual(
+            player["muzzle_flash"]["light"]["position"], barrel["position"],
+        )
 
         records = game.g_graphics.collect_light_records(
             {}, player, game.make_tile_map(4, 4, 16, 16), {},
@@ -691,8 +725,54 @@ class PlayerAimHeadingTests(unittest.TestCase):
 
         game.update_player_muzzle_flash(player, 0.1)
         self.assertAlmostEqual(player["muzzle_flash"]["light"]["intensity"], 1.5)
+        self.assertIsNotNone(game.build_player_muzzle_flash_emitter(player))
         game.update_player_muzzle_flash(player, 0.1)
         self.assertIsNone(player["muzzle_flash"]["light"])
+        self.assertIsNone(game.build_player_muzzle_flash_emitter(player))
+
+    def test_muzzle_flame_stays_on_flashlight_cone_centreline(self):
+        tile_map = {"tile_width": 16, "tile_height": 16}
+        aims = {
+            "right": {"x": 1.0, "y": 0.0},
+            "left": {"x": -1.0, "y": 0.0},
+            "up": {"x": 0.0, "y": -1.0},
+            "down": {"x": 0.0, "y": 1.0},
+        }
+        for facing, aim in aims.items():
+            player = game.make_default_player(100.0, 100.0, 0.0)
+            player.update({
+                "animation_direction": facing,
+                "aim_direction": dict(aim),
+                "aiming": True,
+                "flashlight_enabled": True,
+            })
+            player["weapon_transition"].update({
+                "progress": 1.0, "target": 1.0,
+                "phase": "unholstered",
+            })
+            game.trigger_player_muzzle_flash(
+                player, {"x": 100.0, "y": 100.0}, aim,
+            )
+
+            flashlight = game.g_graphics.make_player_flashlight(
+                player, tile_map,
+            )
+            flame = game.build_player_muzzle_flash_emitter(player, tile_map)
+            from_flashlight = {
+                "x": flame["position"]["x"] - flashlight["position"]["x"],
+                "y": flame["position"]["y"] - flashlight["position"]["y"],
+            }
+            lateral_distance = abs(
+                from_flashlight["x"] * aim["y"]
+                - from_flashlight["y"] * aim["x"]
+            )
+
+            # The gun is held a few pixels off the character centre, but its
+            # flash must remain visually inside the middle of the cone.  A
+            # missing (-16, -16) player render anchor violates this heavily.
+            self.assertLessEqual(lateral_distance, 5.0, msg=facing)
+            self.assertAlmostEqual(flame["direction"]["x"], aim["x"])
+            self.assertAlmostEqual(flame["direction"]["y"], aim["y"])
 
     def test_fast_turn_blooms_more_than_slow_turn_and_then_recovers(self):
         slow = game.make_default_player(0, 0, 0)
