@@ -111,6 +111,47 @@ class EffectFactoryAndMigrationTests(unittest.TestCase):
         self.assertEqual(runtime["bursts"], {})
         self.assertEqual(runtime["stats"]["live_particle_count"], 0)
 
+    def test_wall_debris_is_a_short_lived_directional_gpu_emitter(self):
+        runtime = g_effects.make_effects_runtime()
+        emitter_id = g_effects.spawn_wall_debris_puff(
+            runtime,
+            {"x": 100.0, "y": 0.0},
+            {"x": 48.0, "y": 50.0},
+            TILE_MAP,
+        )
+
+        self.assertEqual(runtime["bursts"], {})
+        emitter = g_effects.collect_transient_effect_emitters(runtime)[emitter_id]
+        self.assertEqual(emitter["type"], "smoke")
+        self.assertEqual(emitter["runtime_kind"], "wall_debris")
+        self.assertEqual(emitter["direction"], {"x": -1.0, "y": -0.0})
+        self.assertAlmostEqual(emitter["position"]["x"], 45.5)
+        self.assertAlmostEqual(emitter["position"]["y"], 50.0)
+        self.assertEqual(emitter["size"], {"x": 2.0, "y": 3.0})
+
+        g_effects.update_effects(
+            runtime, {}, g_effects.make_wind_profile(), 0.05, 0.05,
+            TILE_MAP,
+        )
+        emitter = g_effects.collect_transient_effect_emitters(runtime)[emitter_id]
+        self.assertGreater(emitter["size"]["x"], 2.0)
+        self.assertGreater(emitter["opacity"], 0.0)
+        self.assertEqual(runtime["stats"]["transient_emitter_count"], 1)
+
+        g_effects.update_effects(
+            runtime, {}, g_effects.make_wind_profile(), 0.25, 0.20,
+            TILE_MAP,
+        )
+        self.assertEqual(g_effects.collect_transient_effect_emitters(runtime), {})
+        self.assertEqual(runtime["stats"]["transient_emitter_count"], 0)
+
+    def test_smoke_shader_supports_direction_without_changing_default_upward_flow(self):
+        with open("shaders/effect_smoke.fs", encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertIn("uniform vec2 effectDirection", source)
+        self.assertIn("smokeDirection = vec2(0.0, -1.0)", source)
+        self.assertIn("dot(screenFromBase, smokeDirection)", source)
+
 
 class ProceduralReferenceAndBoundsTests(unittest.TestCase):
     def test_reference_hash_is_deterministic_and_spatially_varied(self):

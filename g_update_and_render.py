@@ -7829,6 +7829,10 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             })
         elif wall_hit is not None:
             projectile["position"] = wall_hit["position"]
+            g_effects.spawn_wall_debris_puff(
+                effects_runtime, projectile.get("velocity", {}),
+                wall_hit["position"], tile_map,
+            )
             queue_gameplay_audio(
                 audio_runtime, "bullet_wall_impact",
                 f"projectile:{projectile['id']}", "world",
@@ -8762,12 +8766,6 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
     render_environment_effects = editor_mode == "play" or preview_environment
     authored_effect_emitters = entities.get("emitters", {})
-    frame_effect_emitters = authored_effect_emitters
-    if editor_mode == "play" and player_info is not None:
-        muzzle_flame = build_player_muzzle_flash_emitter(player_info, tile_map)
-        if muzzle_flame is not None:
-            frame_effect_emitters = dict(authored_effect_emitters)
-            frame_effect_emitters["runtime:player_muzzle_flame"] = muzzle_flame
     g_effects.update_effects(
         effects_runtime,
         authored_effect_emitters,
@@ -8779,6 +8777,22 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         update_bursts=editor_mode == "play",
         respect_preview_enabled=editor_mode == "environment",
     )
+    frame_effect_emitters = authored_effect_emitters
+    if editor_mode == "play":
+        transient_emitters = g_effects.collect_transient_effect_emitters(
+            effects_runtime,
+        )
+        if transient_emitters:
+            frame_effect_emitters = dict(authored_effect_emitters)
+            frame_effect_emitters.update(transient_emitters)
+        if player_info is not None:
+            muzzle_flame = build_player_muzzle_flash_emitter(
+                player_info, tile_map,
+            )
+            if muzzle_flame is not None:
+                if frame_effect_emitters is authored_effect_emitters:
+                    frame_effect_emitters = dict(authored_effect_emitters)
+                frame_effect_emitters["runtime:player_muzzle_flame"] = muzzle_flame
     apply_effect_events_to_world(g_effects.drain_effect_events(effects_runtime), tile_map)
     fire_light_emitters = entities.get("emitters", {})
     if editor_mode == "environment":

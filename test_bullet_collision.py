@@ -2,6 +2,7 @@ import unittest
 from unittest import mock
 
 import g_audio
+import g_effects
 import g_update_and_render as game
 
 
@@ -303,7 +304,7 @@ class BulletUpdateIntegrationTests(unittest.TestCase):
             "projectiles": {},
         }
 
-    def update(self):
+    def update(self, effects_runtime=None):
         with mock.patch.object(
                 game, "transition_entity_state",
                 side_effect=lambda entity, state, *args: state), \
@@ -311,6 +312,7 @@ class BulletUpdateIntegrationTests(unittest.TestCase):
             game.update_entities(
                 self.entities, self.tile_map, make_player(), "play", "regular",
                 0.01, self.audio, g_audio.make_audio_profile(),
+                effects_runtime=effects_runtime,
             )
 
     def test_diagonal_cross_tile_shot_damages_redhead_once(self):
@@ -338,6 +340,25 @@ class BulletUpdateIntegrationTests(unittest.TestCase):
             [event["type"] for event in self.audio["event_queue"]],
             ["bullet_wall_impact"],
         )
+
+    def test_wall_hit_spawns_gpu_debris_at_confirmed_impact(self):
+        self.tile_map["tiles"][3 + 3 * 12]["index"] = 3
+        bullet = game.make_projectile(
+            "player", {"x": 0.0, "y": 60.0},
+            {"x": 10000.0, "y": 0.0}, 0, "bullet",
+        )
+        self.entities["projectiles"][0] = bullet
+        effects_runtime = g_effects.make_effects_runtime()
+
+        self.update(effects_runtime)
+
+        self.assertEqual(effects_runtime["bursts"], {})
+        emitters = g_effects.collect_transient_effect_emitters(effects_runtime)
+        self.assertEqual(len(emitters), 1)
+        debris = next(iter(emitters.values()))
+        self.assertEqual(debris["runtime_kind"], "wall_debris")
+        self.assertAlmostEqual(debris["direction"]["x"], -1.0)
+        self.assertAlmostEqual(debris["direction"]["y"], 0.0)
 
     def test_dumb_entities_freezes_ai_but_keeps_bullet_damage(self):
         original_position = dict(self.redhead["position"])

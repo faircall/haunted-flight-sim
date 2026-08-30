@@ -248,7 +248,7 @@ _EFFECT_SHADER_UNIFORMS = {
     ),
     "effect_smoke": (
         "resolution", "boundsMin", "boundsSize", "anchorInBounds", "effectSize",
-        "wind", "time", "seed", "density", "speed", "turbulence",
+        "effectDirection", "wind", "time", "seed", "density", "speed", "turbulence",
         "detailScale", "warpStrength", "evolutionSpeed", "windResponse", "opacity",
         "posterizeLevels", "smokeColor",
     ),
@@ -3305,6 +3305,7 @@ def draw_effect_stats_debug(runtime, x=4, y=58):
         f"fx emit {stats.get('active_emitter_count', 0)}/{stats.get('authored_emitter_count', 0)} "
         f"gpu draws {stats.get('procedural_draw_calls', 0)} culled {stats.get('culled_emitters', 0)} "
         f"blood {stats.get('live_particle_count', 0)} "
+        f"impact {stats.get('transient_emitter_count', 0)} "
         f"{stats.get('update_time_ms', 0.0):.2f}+{stats.get('submission_time_ms', 0.0):.2f}ms",
         x, y, 8, pr.LIME,
     )

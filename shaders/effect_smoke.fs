@@ -9,6 +9,7 @@ uniform vec2 boundsMin;
 uniform vec2 boundsSize;
 uniform vec2 anchorInBounds;
 uniform vec2 effectSize;
+uniform vec2 effectDirection; // Screen-space direction; zero retains upward smoke.
 uniform vec2 wind;
 uniform float time;
 uniform float seed;
@@ -75,7 +76,16 @@ void main()
     if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x >= boundsSize.x || pixel.y >= boundsSize.y)
         discard;
 
-    vec2 fromBase = vec2(pixel.x - anchorInBounds.x, anchorInBounds.y - pixel.y);
+    vec2 smokeDirection = effectDirection;
+    if (dot(smokeDirection, smokeDirection) < 0.000001)
+        smokeDirection = vec2(0.0, -1.0);
+    smokeDirection = normalize(smokeDirection);
+    vec2 smokePerpendicular = vec2(-smokeDirection.y, smokeDirection.x);
+    vec2 screenFromBase = pixel - anchorInBounds;
+    vec2 fromBase = vec2(
+        dot(screenFromBase, smokePerpendicular),
+        dot(screenFromBase, smokeDirection)
+    );
     float height = max(1.0, effectSize.y);
     float width = max(1.0, effectSize.x);
     float y = fromBase.y / height;

@@ -4,7 +4,8 @@ Smoke, fire, and embers are described by serialisable emitter dictionaries and
 generated entirely by local fragment shaders.  This
 module deliberately creates no live particles for those continuous effects.
 Only short gameplay bursts whose state matters (currently blood) are simulated
-on the CPU.
+on the CPU. Purely visual impact dust is retained as a handful of transient
+GPU emitter records, never as particle arrays.
 """
 
 import copy
@@ -488,6 +489,7 @@ def emitter_world_bounds(emitter, tile_map=None):
 def make_effects_runtime():
     return {
         "bursts": {},
+        "transient_emitters": {},
         "next_runtime_id": 1,
         "events": [],
         "authored_visible": True,
@@ -504,6 +506,7 @@ def ensure_effects_runtime(game_assets):
     # Retire runtime data produced by the removed continuous particle system.
     runtime.pop("emitters", None)
     runtime.setdefault("bursts", {})
+    runtime.setdefault("transient_emitters", {})
     runtime.setdefault("events", [])
     runtime.setdefault("next_runtime_id", 1)
     runtime.setdefault("stats", _empty_stats())
@@ -526,6 +529,7 @@ def _empty_stats():
         "active_emitter_count": 0,
         "live_particle_count": 0,
         "burst_count": 0,
+        "transient_emitter_count": 0,
         "procedural_draw_calls": 0,
         "draw_calls_by_type": {},
         "culled_emitters": 0,
@@ -630,9 +634,95 @@ def _update_blood_particle(particle, dt, tile_map, runtime):
     return True
 
 
+def _smoothstep_unit(value):
+    value = max(0.0, min(1.0, float(value)))
+    return value * value * (3.0 - 2.0 * value)
+
+
+def _update_transient_emitters(runtime, dt):
+    emitters = runtime.setdefault("transient_emitters", {})
+    for emitter_id in list(emitters):
+        record = emitters[emitter_id]
+        age = max(0.0, float(record.get("age", 0.0))) + dt
+        lifetime = max(0.001, float(record.get("lifetime", 0.2)))
+        if age >= lifetime:
+            del emitters[emitter_id]
+            continue
+        amount = age / lifetime
+        expansion = 1.0 - (1.0 - amount) ** 3
+        emitter = record["emitter"]
+        start_size = record.get("start_size", {})
+        end_size = record.get("end_size", start_size)
+        emitter["size"] = {
+            axis: float(start_size.get(axis, 1.0)) + (
+                float(end_size.get(axis, 1.0))
+                - float(start_size.get(axis, 1.0))
+            ) * expansion
+            for axis in ("x", "y")
+        }
+        # Stay fully readable for the first quarter, then dissipate smoothly.
+        fade = 1.0 - _smoothstep_unit(max(0.0, (amount - 0.22) / 0.78))
+        emitter["opacity"] = float(record.get("peak_opacity", 0.72)) * fade
+        record["age"] = age
+
+
+def spawn_wall_debris_puff(runtime, bullet_velocity, impact_position,
+                           tile_map=None, duration=0.20):
+    """Spawn one directional, shader-authored dust puff at a wall impact."""
+    if not isinstance(runtime, dict):
+        return None
+    origin = position_to_world(impact_position, tile_map)
+    velocity = bullet_velocity if isinstance(bullet_velocity, dict) else {}
+    vx = float(velocity.get("x", 0.0))
+    vy = float(velocity.get("y", 0.0))
+    magnitude = math.hypot(vx, vy)
+    if magnitude <= 0.000001:
+        incoming = {"x": 1.0, "y": 0.0}
+    else:
+        incoming = {"x": vx / magnitude, "y": vy / magnitude}
+    # The sampled hit can lie just inside the collidable tile. Pull the visual
+    # back toward the shooter so the dust remains visible on the wall face.
+    outward = {"x": -incoming["x"], "y": -incoming["y"]}
+    position = {
+        "x": origin["x"] + outward["x"] * 2.5,
+        "y": origin["y"] + outward["y"] * 2.5,
+    }
+    runtime_id = int(runtime.get("next_runtime_id", 1))
+    runtime["next_runtime_id"] = runtime_id + 1
+    emitter = make_default_smoke_emitter(position)
+    emitter.update({
+        "area_size": {"x": 2.0, "y": 2.0},
+        "size": {"x": 2.0, "y": 3.0},
+        "direction": outward,
+        "seed": 7103 + runtime_id * 3571,
+        "density": 1.0,
+        "speed": 0.9,
+        "evolution_speed": 1.8,
+        "turbulence": 0.92,
+        "detail_scale": 0.24,
+        "warp_strength": 1.05,
+        "wind_response": 0.0,
+        "opacity": 0.72,
+        "posterize_levels": 4,
+        "color": [0.43, 0.36, 0.27, 1.0],
+        "render_group": "world_front",
+        "runtime_kind": "wall_debris",
+    })
+    emitter_id = f"runtime:wall_debris:{runtime_id}"
+    runtime.setdefault("transient_emitters", {})[emitter_id] = {
+        "emitter": emitter,
+        "age": 0.0,
+        "lifetime": max(0.05, float(duration)),
+        "start_size": {"x": 2.0, "y": 3.0},
+        "end_size": {"x": 8.0, "y": 11.0},
+        "peak_opacity": 0.72,
+    }
+    return emitter_id
+
+
 def update_effects(runtime, emitters, wind_profile, time_elapsed, dt, tile_map=None,
                    update_authored=True, update_bursts=True, respect_preview_enabled=False):
-    """Update CPU gameplay bursts; authored emitters have no live runtime state."""
+    """Update transient effects; authored emitters have no live runtime state."""
     started = time.perf_counter()
     runtime["authored_visible"] = bool(update_authored)
     stats = reset_render_stats(runtime, emitters, update_authored)
@@ -649,10 +739,26 @@ def update_effects(runtime, emitters, wind_profile, time_elapsed, dt, tile_map=N
             particles[:] = [particle for particle in particles if _update_blood_particle(particle, dt, tile_map, runtime)]
             if not particles:
                 del bursts[burst_id]
+    # Let purely visual impacts expire even if play mode ends during their
+    # lifetime, so stale puffs cannot reappear on the next play session.
+    _update_transient_emitters(runtime, max(0.0, float(dt)))
     stats["burst_count"] = len(runtime.get("bursts", {}))
+    stats["transient_emitter_count"] = len(
+        runtime.get("transient_emitters", {}),
+    )
     stats["live_particle_count"] = sum(len(burst.get("particles", ())) for burst in runtime.get("bursts", {}).values())
     stats["update_time_ms"] = (time.perf_counter() - started) * 1000.0
     return stats
+
+
+def collect_transient_effect_emitters(runtime):
+    return {
+        emitter_id: record["emitter"]
+        for emitter_id, record in (runtime or {}).get(
+            "transient_emitters", {},
+        ).items()
+        if isinstance(record, dict) and isinstance(record.get("emitter"), dict)
+    }
 
 
 def _new_burst(runtime, effect_type, particles):
