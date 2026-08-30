@@ -99,6 +99,36 @@ class AudioProfileAndEventTests(unittest.TestCase):
         self.assertEqual(queued["data"]["gait"], "walk")
         pickle.dumps(queued)
 
+    def test_wall_impact_material_selects_audio_family_and_treatment(self):
+        pitches = {}
+        for material in g_audio.BULLET_IMPACT_MATERIALS:
+            runtime = g_audio.make_audio_runtime(seed=4409)
+            FakeSound.instances = []
+            event = {
+                "type": "bullet_wall_impact",
+                "source_id": "projectile:1",
+                "source_kind": "world",
+                "world_position": {"x": 4.0, "y": 4.0},
+                "priority": 1.0,
+                "gain": 1.0,
+                "data": {"material": material},
+            }
+            self.assertTrue(g_audio.queue_audio_event(runtime, event))
+            queued_event = runtime["event_queue"].pop()
+            with mock.patch.object(g_audio.cma, "Sound", FakeSound):
+                voices = g_audio._process_event(
+                    runtime, queued_event, listener(), make_map(), {},
+                    g_audio.normalize_audio_profile(
+                        g_audio.make_audio_profile()
+                    ),
+                )
+            self.assertEqual(
+                voices[0]["family"], f"impacts.bullet_wall_{material}",
+            )
+            pitches[material] = FakeSound.instances[-1].pitch
+        self.assertLess(pitches["wood"], pitches["stone"])
+        self.assertLess(pitches["stone"], pitches["metal"])
+
     def test_malformed_or_unknown_events_are_rejected(self):
         runtime = g_audio.make_audio_runtime()
         self.assertFalse(g_audio.queue_audio_event(runtime, None))

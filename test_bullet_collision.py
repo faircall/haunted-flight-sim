@@ -340,6 +340,9 @@ class BulletUpdateIntegrationTests(unittest.TestCase):
             [event["type"] for event in self.audio["event_queue"]],
             ["bullet_wall_impact"],
         )
+        self.assertEqual(
+            self.audio["event_queue"][0]["data"]["material"], "stone",
+        )
 
     def test_wall_hit_spawns_gpu_debris_at_confirmed_impact(self):
         self.tile_map["tiles"][3 + 3 * 12]["index"] = 3
@@ -354,11 +357,75 @@ class BulletUpdateIntegrationTests(unittest.TestCase):
 
         self.assertEqual(effects_runtime["bursts"], {})
         emitters = g_effects.collect_transient_effect_emitters(effects_runtime)
-        self.assertEqual(len(emitters), 1)
-        debris = next(iter(emitters.values()))
+        self.assertEqual(len(emitters), 2)
+        debris = next(
+            emitter for emitter in emitters.values()
+            if emitter["runtime_kind"] == "wall_debris"
+        )
+        sparks = next(
+            emitter for emitter in emitters.values()
+            if emitter["runtime_kind"] == "wall_sparks"
+        )
         self.assertEqual(debris["runtime_kind"], "wall_debris")
+        self.assertEqual(debris["impact_material"], "stone")
         self.assertAlmostEqual(debris["direction"]["x"], -1.0)
         self.assertAlmostEqual(debris["direction"]["y"], 0.0)
+        self.assertEqual(sparks["type"], "spark")
+        self.assertEqual(sparks["impact_material"], "stone")
+        self.assertEqual(
+            len(g_effects.collect_transient_effect_lights(effects_runtime)),
+            1,
+        )
+
+    def test_wall_material_selects_wood_or_metal_impact_response(self):
+        self.tile_map["tiles"][3 + 3 * 12]["index"] = 3
+        effects_runtime = g_effects.make_effects_runtime()
+
+        self.tile_map["tile_types"][3]["impact_material"] = "wood"
+        self.entities["projectiles"][0] = game.make_projectile(
+            "player", {"x": 0.0, "y": 60.0},
+            {"x": 10000.0, "y": 0.0}, 0, "bullet",
+        )
+        self.update(effects_runtime)
+        emitters = g_effects.collect_transient_effect_emitters(effects_runtime)
+        self.assertEqual(
+            [emitter["runtime_kind"] for emitter in emitters.values()],
+            ["wall_debris"],
+        )
+        self.assertEqual(
+            self.audio["event_queue"][-1]["data"]["material"], "wood",
+        )
+
+        effects_runtime = g_effects.make_effects_runtime()
+        self.tile_map["tile_types"][3]["impact_material"] = "metal"
+        self.entities["projectiles"][1] = game.make_projectile(
+            "player", {"x": 0.0, "y": 60.0},
+            {"x": 10000.0, "y": 0.0}, 1, "bullet",
+        )
+        self.update(effects_runtime)
+        emitters = g_effects.collect_transient_effect_emitters(effects_runtime)
+        sparks = next(
+            emitter for emitter in emitters.values()
+            if emitter["runtime_kind"] == "wall_sparks"
+        )
+        self.assertEqual(sparks["impact_material"], "metal")
+        self.assertGreater(sparks["density"], 0.8)
+        light = next(iter(
+            g_effects.collect_transient_effect_lights(effects_runtime).values()
+        ))
+        self.assertGreater(light["intensity"], 0.5)
+        self.assertEqual(
+            self.audio["event_queue"][-1]["data"]["material"], "metal",
+        )
+
+    def test_placed_tile_material_override_beats_type_material(self):
+        self.tile_map["tiles"][3 + 3 * 12].update({
+            "index": 3,
+            "impact_material": "metal",
+        })
+        self.assertEqual(
+            game.get_tile_impact_material(self.tile_map, 3, 3), "metal",
+        )
 
     def test_dumb_entities_freezes_ai_but_keeps_bullet_damage(self):
         original_position = dict(self.redhead["position"])

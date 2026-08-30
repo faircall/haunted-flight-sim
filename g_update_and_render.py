@@ -317,6 +317,39 @@ def tile_is_collidable(tile, tile_map):
     return tile_type_is_collidable(tile_types[tile_index].get("type", ""))
 
 
+IMPACT_MATERIALS = ("wood", "stone", "metal")
+
+
+def get_tile_impact_material(tile_map, tile_x, tile_y):
+    """Resolve an instance/type wall material with legacy-map fallbacks."""
+    width = int(tile_map.get("map_width", 0))
+    height = int(tile_map.get("map_height", 0))
+    tile_x = int(tile_x)
+    tile_y = int(tile_y)
+    if tile_x < 0 or tile_y < 0 or tile_x >= width or tile_y >= height:
+        return "stone"
+    tile = tile_map.get("tiles", [])[tile_y * width + tile_x]
+    tile_types = tile_map.get("tile_types", [])
+    tile_index = int(tile.get("index", 0))
+    tile_type = (
+        tile_types[tile_index]
+        if 0 <= tile_index < len(tile_types) else {}
+    )
+    candidates = (
+        tile.get("impact_material"),
+        tile_type.get("impact_material"),
+        tile_type.get("audio_surface"),
+        tile_type.get("type"),
+    )
+    for candidate in candidates:
+        material = str(candidate or "").lower()
+        if material in IMPACT_MATERIALS:
+            return material
+    # Existing saved wall definitions predate impact_material and used the
+    # generic audio surface. Their chunky wall artwork reads as masonry.
+    return "stone"
+
+
 def should_tint_forced_collision_tile(tile, editor_mode):
     return editor_mode != "play" and bool(tile.get("force_collidable", False))
 
@@ -374,11 +407,11 @@ def make_tile_map(width, height, tile_width, tile_height):
     result["acoustic_zones"] = g_audio.make_default_acoustic_zones()
     result["tile_types"] = [{"type" : "blank_tile", "color" : "BLACK", "audio_surface": "dirt"},
                             {"type" : "carpet", "color" : "BLUE", "audio_surface": "carpet"},
-                            {"type" : "door", "color" : "RED", "audio_surface": "generic"},
-                            {"type" : "wall", "color" : "PURPLE", "audio_surface": "generic"},
-                            {"type" : "wood", "color" : "BROWN", "audio_surface": "wood"},
+                            {"type" : "door", "color" : "RED", "audio_surface": "generic", "impact_material": "wood"},
+                            {"type" : "wall", "color" : "PURPLE", "audio_surface": "generic", "impact_material": "stone"},
+                            {"type" : "wood", "color" : "BROWN", "audio_surface": "wood", "impact_material": "wood"},
                             {"type" : "grass", "color" : "GREEN", "audio_surface": "grass"},
-                            {"type" : "stone", "color" : "GREY", "audio_surface": "stone"}]
+                            {"type" : "stone", "color" : "GREY", "audio_surface": "stone", "impact_material": "stone"}]
     result["tile_names"] = {}    
     result["tile_types_amount"] = len(result["tile_types"])
     tiles = []
@@ -2999,6 +3032,9 @@ def first_solid_tile_hit_on_segment(start, end, tile_map, step_size=2.0,
             "position": dict(start),
             "tile_x": start_tile["tile_x"],
             "tile_y": start_tile["tile_y"],
+            "impact_material": get_tile_impact_material(
+                tile_map, start_tile["tile_x"], start_tile["tile_y"],
+            ),
         }
     delta = vec2_subtract(end, start)
     distance = vec2_norm(delta)
@@ -3035,6 +3071,10 @@ def first_solid_tile_hit_on_segment(start, end, tile_map, step_size=2.0,
                 "position": point_along_segment(start, end, fraction),
                 "tile_x": tile_position["tile_x"],
                 "tile_y": tile_position["tile_y"],
+                "impact_material": get_tile_impact_material(
+                    tile_map, tile_position["tile_x"],
+                    tile_position["tile_y"],
+                ),
             }
         if sample_distance >= distance:
             break
@@ -7871,14 +7911,16 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
             })
         elif wall_hit is not None:
             projectile["position"] = wall_hit["position"]
-            g_effects.spawn_wall_debris_puff(
+            impact_material = wall_hit.get("impact_material", "stone")
+            g_effects.spawn_wall_impact(
                 effects_runtime, projectile.get("velocity", {}),
-                wall_hit["position"], tile_map,
+                wall_hit["position"], tile_map, impact_material,
             )
             queue_gameplay_audio(
                 audio_runtime, "bullet_wall_impact",
                 f"projectile:{projectile['id']}", "world",
                 wall_hit["position"], priority=0.9,
+                data={"material": impact_material},
             )
             deletions.append({
                 "subdict": "projectiles", "id": projectile["id"],
@@ -8620,7 +8662,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     entity_self_shadow_shader = shaders.get("entity_self_shadow", {}) if shaders else {}
     effect_shaders_valid = shaders and all(
         name in shaders and shaders[name].get("shader") is not None
-        for name in ("effect_fire", "effect_smoke")
+        for name in ("effect_fire", "effect_smoke", "effect_sparks")
     )
     if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader or "self_shadow_mode_location" not in entity_self_shadow_shader or "self_shadow_pass_location" not in entity_self_shadow_shader or not effect_shaders_valid:
         if shaders:
@@ -8846,7 +8888,13 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if editor_mode == "environment":
         fire_light_emitters = {key: value for key, value in fire_light_emitters.items() if value.get("preview_enabled", True)}
     fire_lights = g_effects.build_fire_runtime_lights(fire_light_emitters, tile_map, time_elapsed) if render_environment_effects else {}
-    game_assets["runtime_lights"] = g_effects.replace_fire_runtime_lights(game_assets.get("runtime_lights", {}), fire_lights)
+    runtime_lights = g_effects.replace_fire_runtime_lights(
+        game_assets.get("runtime_lights", {}), fire_lights,
+    )
+    game_assets["runtime_lights"] = g_effects.replace_transient_runtime_lights(
+        runtime_lights,
+        g_effects.collect_transient_effect_lights(effects_runtime),
+    )
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
     if (editor_mode == "play" and pause_state != "paused"
             and debug_state != "dumb entities"):

@@ -252,6 +252,11 @@ _EFFECT_SHADER_UNIFORMS = {
         "detailScale", "warpStrength", "evolutionSpeed", "windResponse", "opacity",
         "posterizeLevels", "smokeColor",
     ),
+    "effect_sparks": (
+        "resolution", "boundsMin", "boundsSize", "anchorInBounds",
+        "effectSize", "effectDirection", "seed", "density", "opacity",
+        "burstProgress", "sparkColor",
+    ),
 }
 
 _RAIN_SHADER_UNIFORMS = (
@@ -3126,6 +3131,8 @@ def _procedural_effect_submission(emitter, render_group):
         return None
     if effect_type == "ember":
         return {"shader": "effect_fire", "material": "emissive_additive", "pass_mode": 2} if render_group == authored_group else None
+    if effect_type == "spark":
+        return {"shader": "effect_sparks", "material": "emissive_additive", "pass_mode": 0} if render_group == authored_group else None
     if render_group != authored_group:
         return None
     if effect_type == "smoke":
@@ -3170,6 +3177,7 @@ def _bind_effect_uniforms(info, emitter, bounds, game_camera, tile_map, wind_pro
     _set_effect_float(info, "evolutionSpeed", emitter.get("evolution_speed", 0.62))
     _set_effect_float(info, "windResponse", emitter.get("wind_response", 0.3))
     _set_effect_float(info, "opacity", max(0.0, min(1.0, float(emitter.get("opacity", 1.0)))))
+    _set_effect_float(info, "burstProgress", max(0.0, min(1.0, float(emitter.get("burst_progress", 0.0)))))
     _set_effect_float(info, "posterizeLevels", max(2.0, float(emitter.get("posterize_levels", 5))))
     _set_effect_float(info, "emberDensity", emitter.get("ember_density", emitter.get("density", 0.2)))
     _set_effect_float(info, "emberHeight", emitter.get("ember_height", size.get("y", 24.0)))
@@ -3185,6 +3193,8 @@ def _bind_effect_uniforms(info, emitter, bounds, game_camera, tile_map, wind_pro
         _set_effect_vec4(info, "colorHot", color, [1.0, 0.52, 0.12, 1.0])
     elif effect_type == "smoke":
         _set_effect_vec4(info, "smokeColor", emitter.get("color"), [0.42, 0.43, 0.48, 1.0])
+    elif effect_type == "spark":
+        _set_effect_vec4(info, "sparkColor", emitter.get("color"), [1.0, 0.75, 0.3, 1.0])
 
 def _draw_procedural_submission(submission, emitter_id, emitter, bounds, scene, game_camera, game_assets, tile_map, wind_profile, time_elapsed, runtime, render_group):
     info = game_assets["shaders"][submission["shader"]]

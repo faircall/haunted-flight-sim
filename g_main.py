@@ -39,7 +39,8 @@ g_shader_source_files = (
     "shaders/illuminated_fog.fs",
     "shaders/rain_composite.fs",
     "shaders/effect_fire.fs",
-    "shaders/effect_smoke.fs"
+    "shaders/effect_smoke.fs",
+    "shaders/effect_sparks.fs"
 )
 
 g_module_persistent_reload_specs = {

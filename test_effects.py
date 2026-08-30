@@ -152,6 +152,97 @@ class EffectFactoryAndMigrationTests(unittest.TestCase):
         self.assertIn("smokeDirection = vec2(0.0, -1.0)", source)
         self.assertIn("dot(screenFromBase, smokeDirection)", source)
 
+    def test_material_impacts_layer_sparks_and_light_only_where_requested(self):
+        wood_runtime = g_effects.make_effects_runtime()
+        wood = g_effects.spawn_wall_impact(
+            wood_runtime, {"x": 100.0, "y": 0.0},
+            {"x": 48.0, "y": 50.0}, TILE_MAP, "wood",
+        )
+        self.assertIsNotNone(wood["debris"])
+        self.assertIsNone(wood["sparks"])
+        self.assertEqual(
+            g_effects.collect_transient_effect_lights(wood_runtime), {},
+        )
+
+        stone_runtime = g_effects.make_effects_runtime()
+        metal_runtime = g_effects.make_effects_runtime()
+        stone = g_effects.spawn_wall_impact(
+            stone_runtime, {"x": 100.0, "y": 0.0},
+            {"x": 48.0, "y": 50.0}, TILE_MAP, "stone",
+        )
+        metal = g_effects.spawn_wall_impact(
+            metal_runtime, {"x": 100.0, "y": 0.0},
+            {"x": 48.0, "y": 50.0}, TILE_MAP, "metal",
+        )
+        stone_sparks = g_effects.collect_transient_effect_emitters(
+            stone_runtime,
+        )[stone["sparks"]]
+        metal_sparks = g_effects.collect_transient_effect_emitters(
+            metal_runtime,
+        )[metal["sparks"]]
+        self.assertEqual(stone_sparks["type"], "spark")
+        self.assertGreater(metal_sparks["density"], stone_sparks["density"])
+        stone_light = next(iter(
+            g_effects.collect_transient_effect_lights(stone_runtime).values()
+        ))
+        metal_light = next(iter(
+            g_effects.collect_transient_effect_lights(metal_runtime).values()
+        ))
+        self.assertGreater(metal_light["radius"], stone_light["radius"])
+        self.assertGreater(
+            metal_light["intensity"], stone_light["intensity"],
+        )
+
+    def test_spark_shader_and_transient_light_follow_burst_lifetime(self):
+        runtime = g_effects.make_effects_runtime()
+        result = g_effects.spawn_wall_impact(
+            runtime, {"x": 100.0, "y": 0.0},
+            {"x": 48.0, "y": 50.0}, TILE_MAP, "metal",
+        )
+        g_effects.update_effects(
+            runtime, {}, g_effects.make_wind_profile(), 0.03, 0.03, TILE_MAP,
+        )
+        spark = g_effects.collect_transient_effect_emitters(runtime)[
+            result["sparks"]
+        ]
+        self.assertGreater(spark["burst_progress"], 0.0)
+        self.assertLess(spark["burst_progress"], 1.0)
+        light = next(iter(
+            g_effects.collect_transient_effect_lights(runtime).values()
+        ))
+        self.assertLess(
+            light["intensity"],
+            g_effects.WALL_IMPACT_MATERIAL_PROFILES["metal"][
+                "spark_light_intensity"
+            ],
+        )
+
+        g_effects.update_effects(
+            runtime, {}, g_effects.make_wind_profile(), 0.30, 0.30, TILE_MAP,
+        )
+        self.assertNotIn(
+            result["sparks"],
+            g_effects.collect_transient_effect_emitters(runtime),
+        )
+        self.assertEqual(g_effects.collect_transient_effect_lights(runtime), {})
+
+        with open("shaders/effect_sparks.fs", encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertIn("uniform float burstProgress", source)
+        self.assertIn("distanceToSegment", source)
+
+    def test_transient_light_replacement_removes_expired_records(self):
+        lights = {
+            "other": {"type": "point"},
+            "effect:transient:old": {"type": "point"},
+        }
+        result = g_effects.replace_transient_runtime_lights(
+            lights, {"effect:transient:new": {"type": "point"}},
+        )
+        self.assertIn("other", result)
+        self.assertNotIn("effect:transient:old", result)
+        self.assertIn("effect:transient:new", result)
+
 
 class ProceduralReferenceAndBoundsTests(unittest.TestCase):
     def test_reference_hash_is_deterministic_and_spatially_varied(self):

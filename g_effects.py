@@ -14,8 +14,38 @@ import time
 
 
 RENDER_GROUPS = ("floor_lit", "world_behind", "world_front", "emissive")
-PROCEDURAL_EFFECT_TYPES = ("smoke", "fire", "ember")
+PROCEDURAL_EFFECT_TYPES = ("smoke", "fire", "ember", "spark")
 EFFECT_SHADER_VERSION = 2
+IMPACT_MATERIALS = ("wood", "stone", "metal")
+WALL_IMPACT_MATERIAL_PROFILES = {
+    "wood": {
+        "dust_color": [0.47, 0.32, 0.17, 1.0],
+        "dust_opacity": 0.76,
+        "sparks": False,
+    },
+    # Stone/concrete can throw a few brief hot mineral/projectile fragments,
+    # but the response is deliberately much quieter than metal.
+    "stone": {
+        "dust_color": [0.48, 0.45, 0.40, 1.0],
+        "dust_opacity": 0.72,
+        "sparks": True,
+        "spark_density": 0.34,
+        "spark_color": [1.0, 0.62, 0.22, 1.0],
+        "spark_lifetime": 0.11,
+        "spark_light_radius": 15.0,
+        "spark_light_intensity": 0.28,
+    },
+    "metal": {
+        "dust_color": [0.43, 0.46, 0.50, 1.0],
+        "dust_opacity": 0.42,
+        "sparks": True,
+        "spark_density": 0.86,
+        "spark_color": [1.0, 0.82, 0.42, 1.0],
+        "spark_lifetime": 0.15,
+        "spark_light_radius": 23.0,
+        "spark_light_intensity": 0.62,
+    },
+}
 
 
 def _common_emitter(effect_type, position, *, area_size, render_group, seed):
@@ -429,7 +459,7 @@ def emitter_world_bounds(emitter, tile_map=None):
     area_width = max(1.0, float(area.get("x", 1.0)))
     area_height = max(1.0, float(area.get("y", 1.0)))
 
-    if effect_type in {"smoke", "fire", "ember"}:
+    if effect_type in {"smoke", "fire", "ember", "spark"}:
         size = emitter.get("size", {})
         width = max(area_width, float(size.get("x", area_width)))
         height = max(area_height, float(size.get("y", area_height)))
@@ -459,7 +489,10 @@ def emitter_world_bounds(emitter, tile_map=None):
                      + perpendicular_y * side * half_width)
                     for side in (-1.0, 1.0)
                 ])
-                padding = 2.0
+                # Spark trajectories add a small screen-down gravity arc on
+                # top of their directional travel. Extra conservative padding
+                # prevents the final, nearly faded pixels clipping vertically.
+                padding = 6.0 if effect_type == "spark" else 2.0
                 minimum_x = min(point[0] for point in points) - padding
                 maximum_x = max(point[0] for point in points) + padding
                 minimum_y = min(point[1] for point in points) - padding
@@ -660,17 +693,32 @@ def _update_transient_emitters(runtime, dt):
             ) * expansion
             for axis in ("x", "y")
         }
-        # Stay fully readable for the first quarter, then dissipate smoothly.
-        fade = 1.0 - _smoothstep_unit(max(0.0, (amount - 0.22) / 0.78))
+        fade_start = max(0.0, min(0.95, float(
+            record.get("fade_start", 0.22)
+        )))
+        fade = 1.0 - _smoothstep_unit(max(
+            0.0, (amount - fade_start) / max(0.001, 1.0 - fade_start),
+        ))
         emitter["opacity"] = float(record.get("peak_opacity", 0.72)) * fade
+        emitter["burst_progress"] = amount
+        light = record.get("light")
+        if isinstance(light, dict):
+            light["intensity"] = float(
+                record.get("peak_light_intensity", 0.0)
+            ) * (1.0 - _smoothstep_unit(amount))
         record["age"] = age
 
 
 def spawn_wall_debris_puff(runtime, bullet_velocity, impact_position,
-                           tile_map=None, duration=0.20):
+                           tile_map=None, duration=0.20,
+                           material="stone"):
     """Spawn one directional, shader-authored dust puff at a wall impact."""
     if not isinstance(runtime, dict):
         return None
+    material = str(material).lower()
+    profile = WALL_IMPACT_MATERIAL_PROFILES.get(
+        material, WALL_IMPACT_MATERIAL_PROFILES["stone"],
+    )
     origin = position_to_world(impact_position, tile_map)
     velocity = bullet_velocity if isinstance(bullet_velocity, dict) else {}
     vx = float(velocity.get("x", 0.0))
@@ -702,11 +750,12 @@ def spawn_wall_debris_puff(runtime, bullet_velocity, impact_position,
         "detail_scale": 0.24,
         "warp_strength": 1.05,
         "wind_response": 0.0,
-        "opacity": 0.72,
+        "opacity": float(profile["dust_opacity"]),
         "posterize_levels": 4,
-        "color": [0.43, 0.36, 0.27, 1.0],
+        "color": list(profile["dust_color"]),
         "render_group": "world_front",
         "runtime_kind": "wall_debris",
+        "impact_material": material,
     })
     emitter_id = f"runtime:wall_debris:{runtime_id}"
     runtime.setdefault("transient_emitters", {})[emitter_id] = {
@@ -715,9 +764,101 @@ def spawn_wall_debris_puff(runtime, bullet_velocity, impact_position,
         "lifetime": max(0.05, float(duration)),
         "start_size": {"x": 2.0, "y": 3.0},
         "end_size": {"x": 8.0, "y": 11.0},
-        "peak_opacity": 0.72,
+        "peak_opacity": float(profile["dust_opacity"]),
     }
     return emitter_id
+
+
+def spawn_wall_impact_sparks(runtime, bullet_velocity, impact_position,
+                             tile_map=None, material="metal"):
+    """Spawn one brief procedural spark field and its non-gameplay light."""
+    material = str(material).lower()
+    profile = WALL_IMPACT_MATERIAL_PROFILES.get(material, {})
+    if not isinstance(runtime, dict) or not profile.get("sparks", False):
+        return None
+    origin = position_to_world(impact_position, tile_map)
+    velocity = bullet_velocity if isinstance(bullet_velocity, dict) else {}
+    vx = float(velocity.get("x", 0.0))
+    vy = float(velocity.get("y", 0.0))
+    magnitude = math.hypot(vx, vy)
+    incoming = (
+        {"x": vx / magnitude, "y": vy / magnitude}
+        if magnitude > 0.000001 else {"x": 1.0, "y": 0.0}
+    )
+    outward = {"x": -incoming["x"], "y": -incoming["y"]}
+    position = {
+        "x": origin["x"] + outward["x"] * 2.0,
+        "y": origin["y"] + outward["y"] * 2.0,
+    }
+    runtime_id = int(runtime.get("next_runtime_id", 1))
+    runtime["next_runtime_id"] = runtime_id + 1
+    size = {"x": 13.0, "y": 15.0}
+    emitter = _common_emitter(
+        "spark", position, area_size={"x": 2.0, "y": 2.0},
+        render_group="emissive", seed=9109 + runtime_id * 3253,
+    )
+    emitter.update({
+        "size": dict(size),
+        "direction": outward,
+        "density": float(profile["spark_density"]),
+        "opacity": 1.0,
+        "color": list(profile["spark_color"]),
+        "burst_progress": 0.0,
+        "runtime_kind": "wall_sparks",
+        "impact_material": material,
+    })
+    light = {
+        "type": "point",
+        "position": dict(position),
+        "color": list(profile["spark_color"][:3]),
+        "radius": float(profile["spark_light_radius"]),
+        "intensity": float(profile["spark_light_intensity"]),
+        "falloff": 1.8,
+        "enabled": True,
+        "affects_scene": True,
+        "affects_world": True,
+        "affects_entities": True,
+        "affects_fog": False,
+        "affects_ai": False,
+        "casts_wall_shadows": False,
+        "casts_cinematic_shadows": False,
+        "gameplay_intensity": 0.0,
+        "mobility": "dynamic",
+        "render_style": "world",
+        "height": 8.0,
+        "shadow_bias": 0.0,
+    }
+    emitter_id = f"runtime:wall_sparks:{runtime_id}"
+    runtime.setdefault("transient_emitters", {})[emitter_id] = {
+        "emitter": emitter,
+        "age": 0.0,
+        "lifetime": float(profile["spark_lifetime"]),
+        "start_size": dict(size),
+        "end_size": dict(size),
+        "peak_opacity": 1.0,
+        "fade_start": 0.04,
+        "light": light,
+        "peak_light_intensity": float(profile["spark_light_intensity"]),
+    }
+    return emitter_id
+
+
+def spawn_wall_impact(runtime, bullet_velocity, impact_position,
+                      tile_map=None, material="stone"):
+    """Spawn the complete material-aware response for a bullet-wall hit."""
+    material = str(material).lower()
+    if material not in IMPACT_MATERIALS:
+        material = "stone"
+    return {
+        "debris": spawn_wall_debris_puff(
+            runtime, bullet_velocity, impact_position, tile_map,
+            material=material,
+        ),
+        "sparks": spawn_wall_impact_sparks(
+            runtime, bullet_velocity, impact_position, tile_map, material,
+        ),
+        "material": material,
+    }
 
 
 def update_effects(runtime, emitters, wind_profile, time_elapsed, dt, tile_map=None,
@@ -758,6 +899,17 @@ def collect_transient_effect_emitters(runtime):
             "transient_emitters", {},
         ).items()
         if isinstance(record, dict) and isinstance(record.get("emitter"), dict)
+    }
+
+
+def collect_transient_effect_lights(runtime):
+    return {
+        f"effect:transient:{emitter_id}": record["light"]
+        for emitter_id, record in (runtime or {}).get(
+            "transient_emitters", {},
+        ).items()
+        if isinstance(record, dict) and isinstance(record.get("light"), dict)
+        and float(record["light"].get("intensity", 0.0)) > 0.000001
     }
 
 
@@ -874,4 +1026,14 @@ def replace_fire_runtime_lights(runtime_lights, fire_lights):
     for light_id in [key for key in target if str(key).startswith("effect:fire:")]:
         del target[light_id]
     target.update(fire_lights)
+    return target
+
+
+def replace_transient_runtime_lights(runtime_lights, transient_lights):
+    target = runtime_lights if isinstance(runtime_lights, dict) else {}
+    for light_id in [
+            key for key in target
+            if str(key).startswith("effect:transient:")]:
+        del target[light_id]
+    target.update(transient_lights or {})
     return target

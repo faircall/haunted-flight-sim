@@ -15,6 +15,7 @@ import cyminiaudio as cma
 AUDIO_SURFACES = (
     "grass", "dirt", "tile", "wood", "metal", "carpet", "stone", "generic",
 )
+BULLET_IMPACT_MATERIALS = ("wood", "stone", "metal")
 AUDIO_SURFACE_SCHEMA_REVISION = 1
 PLAYER_FOOTSTEP_VARIANT_COUNTS = {
     "carpet": 5,
@@ -343,6 +344,25 @@ def make_audio_manifest():
         "impacts": {
             "bullet_wall": _family(fallback="sounds/pistol_hit_wall.wav", base_gain=0.75,
                                     pitch_variation=0.03, voice_count=5),
+            **{
+                f"bullet_wall_{material}": _family(
+                    # Material recordings can be dropped into this stable
+                    # path later. Until then, pitch/gain treatment below keeps
+                    # the existing wall recording usefully differentiated.
+                    variants=(
+                        f"sounds/impacts/pistol_hit_{material}.wav",
+                    ) if os.path.isfile(
+                        f"sounds/impacts/pistol_hit_{material}.wav"
+                    ) else (),
+                    fallback="sounds/pistol_hit_wall.wav",
+                    base_gain={"wood": 0.68, "stone": 0.75, "metal": 0.82}[
+                        material
+                    ],
+                    pitch_variation=0.03,
+                    voice_count=5,
+                )
+                for material in BULLET_IMPACT_MATERIALS
+            },
             "melee_whoosh": _family(fallback="sounds/whoosh.wav", base_gain=0.75,
                                      pitch_variation=0.03, voice_count=4),
             "stagger": _family(fallback="sounds/punch_1.wav", base_gain=0.75,
@@ -1429,6 +1449,19 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
         "redhead_pursuit_hiss": "barks.redhead.pursuit_hiss",
         "redhead_evade": "barks.redhead.evade",
     }
+    if event_type == "bullet_wall_impact":
+        material = str(
+            event.get("data", {}).get("material", "stone")
+        ).lower()
+        if material not in BULLET_IMPACT_MATERIALS:
+            material = "stone"
+        family_map[event_type] = f"impacts.bullet_wall_{material}"
+        event = dict(event)
+        event["pitch"] = float(event.get("pitch", 1.0)) * {
+            "wood": 0.90,
+            "stone": 1.0,
+            "metal": 1.14,
+        }[material]
     if event_type == "ambience_incidental":
         environment = str(event.get("data", {}).get("environment", "open_exterior"))
         family_map[event_type] = f"ambience.{environment}.incidental"
