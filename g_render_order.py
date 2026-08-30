@@ -338,6 +338,10 @@ PLAYER_RELOAD_POSE_DEFAULTS = {
     "exit_fraction": 0.14,
     "side": {
         "aim_direction": {"x": 0.42, "y": 0.91},
+        # The spare hand meets the lowered pistol around its grip once the
+        # flashlight has returned to its locomotion/holstered endpoint.
+        "far_hand_from_gun": {"x": 0.0, "y": 0.0},
+        "far_bend_side": 1.0,
     },
     "down": {
         "near_hand_from_body_hip": {"x": 1.0, "y": -3.5},
@@ -913,6 +917,31 @@ def _player_reload_pose_amount(player_entity):
     return min(timing["enter"], timing["leave"])
 
 
+def _player_reload_far_pose_amount(player_entity, timing=None):
+    """Delay the support-hand entry until a deployed flashlight is stowed."""
+    timing = timing or _player_reload_pose_timing(player_entity)
+    # Exit remains shared by both hands so the complete reload pose resolves
+    # together before any requested item is drawn again.
+    if timing["progress"] >= 0.5:
+        return timing["leave"]
+    animation = player_entity.get("reload_animation", {})
+    if not isinstance(animation, dict):
+        animation = {}
+    try:
+        release = max(0.0, min(0.45, float(
+            animation.get("flashlight_holster_reload_fraction", 0.0)
+        )))
+    except (TypeError, ValueError, OverflowError):
+        release = 0.0
+    enter_fraction = max(
+        0.0001, float(PLAYER_RELOAD_POSE_DEFAULTS["enter_fraction"]),
+    )
+    amount = max(
+        0.0, min(1.0, (timing["progress"] - release) / enter_fraction),
+    )
+    return amount * amount * (3.0 - 2.0 * amount)
+
+
 def _player_reload_start_weapon_state(player_entity):
     animation = player_entity.get("reload_animation", {})
     if not isinstance(animation, dict):
@@ -1358,6 +1387,72 @@ def _build_player_side_reload_parts(player_entity, body_hip, torso_angle,
     return parts
 
 
+def _build_player_side_reload_support_parts(
+        player_entity, facing_left, locomotion_pose, gun_part):
+    """Move the spare side-view hand onto the lowered reload weapon."""
+    timing = _player_reload_pose_timing(player_entity)
+    pose_amount = _player_reload_far_pose_amount(player_entity, timing)
+    settings = PLAYER_CUTOUT_ARM_DEFAULTS
+    bind_pose = settings["bind_pose"]
+    source_shoulder = bind_pose["shoulder"]
+    source_elbow = bind_pose["elbow"]
+    source_hand = bind_pose["hand"]
+    upper_bind = {
+        "x": float(source_elbow["x"]) - float(source_shoulder["x"]),
+        "y": float(source_elbow["y"]) - float(source_shoulder["y"]),
+    }
+    lower_bind = {
+        "x": float(source_hand["x"]) - float(source_elbow["x"]),
+        "y": float(source_hand["y"]) - float(source_elbow["y"]),
+    }
+    upper_length = math.hypot(upper_bind["x"], upper_bind["y"])
+    lower_length = math.hypot(lower_bind["x"], lower_bind["y"])
+    offset = PLAYER_RELOAD_POSE_DEFAULTS["side"]["far_hand_from_gun"]
+    target_hand = {
+        "x": float(gun_part["pivot_local"]["x"])
+             + (-float(offset["x"]) if facing_left else float(offset["x"])),
+        "y": float(gun_part["pivot_local"]["y"]) + float(offset["y"]),
+    }
+    requested_hand = {
+        "x": float(locomotion_pose["hand"]["x"]) + (
+            target_hand["x"] - float(locomotion_pose["hand"]["x"])
+        ) * pose_amount,
+        "y": float(locomotion_pose["hand"]["y"]) + (
+            target_hand["y"] - float(locomotion_pose["hand"]["y"])
+        ) * pose_amount,
+    }
+    shoulder = locomotion_pose["shoulder"]
+    elbow, hand = _solve_player_arm_ik(
+        shoulder, requested_hand, upper_length, lower_length,
+        PLAYER_RELOAD_POSE_DEFAULTS["side"]["far_bend_side"],
+    )
+    upper_angle = _rig_vector_angle_degrees(
+        upper_bind,
+        {"x": elbow["x"] - shoulder["x"],
+         "y": elbow["y"] - shoulder["y"]},
+    )
+    lower_angle = _rig_vector_angle_degrees(
+        lower_bind,
+        {"x": hand["x"] - elbow["x"], "y": hand["y"] - elbow["y"]},
+    )
+    tint = PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"]
+    upper_part = _make_player_cutout_part(
+        PLAYER_CUTOUT_TEXTURES["upper_arm"], source_shoulder, shoulder,
+        upper_angle, facing_left, tint,
+    )
+    lower_part = _make_player_cutout_part(
+        PLAYER_CUTOUT_TEXTURES["lower_arm"], source_elbow, elbow,
+        lower_angle, facing_left, tint,
+    )
+    upper_part.update({
+        "rig_side": "far", "rig_joint": "upper_arm", "rig_pose": "reload",
+    })
+    lower_part.update({
+        "rig_side": "far", "rig_joint": "lower_arm", "rig_pose": "reload",
+    })
+    return [upper_part, lower_part]
+
+
 def _build_player_front_reload_arm_parts(
         locomotion_pose, body_hip, torso_angle, direction, textures,
         is_far, pose_amount):
@@ -1386,19 +1481,43 @@ def _build_player_front_reload_arm_parts(
         "x": float(body_hip["x"]) + rotated_offset["x"],
         "y": float(body_hip["y"]) + rotated_offset["y"],
     }
-    requested_hand = {
-        "x": float(locomotion_pose["hand"]["x"]) + (
-            target_hand["x"] - float(locomotion_pose["hand"]["x"])
-        ) * pose_amount,
-        "y": float(locomotion_pose["hand"]["y"]) + (
-            target_hand["y"] - float(locomotion_pose["hand"]["y"])
-        ) * pose_amount,
-    }
     shoulder = locomotion_pose["shoulder"]
-    elbow, hand = _solve_player_arm_ik(
-        shoulder, requested_hand, upper_length, lower_length,
+    target_elbow, target_hand = _solve_player_arm_ik(
+        shoulder, target_hand, upper_length, lower_length,
         pose_settings[f"{side}_bend_side"],
     )
+    neutral_upper = {
+        "x": float(locomotion_pose["elbow"]["x"]) - shoulder["x"],
+        "y": float(locomotion_pose["elbow"]["y"]) - shoulder["y"],
+    }
+    neutral_lower = {
+        "x": float(locomotion_pose["hand"]["x"])
+             - float(locomotion_pose["elbow"]["x"]),
+        "y": float(locomotion_pose["hand"]["y"])
+             - float(locomotion_pose["elbow"]["y"]),
+    }
+    target_upper = {
+        "x": target_elbow["x"] - shoulder["x"],
+        "y": target_elbow["y"] - shoulder["y"],
+    }
+    target_lower = {
+        "x": target_hand["x"] - target_elbow["x"],
+        "y": target_hand["y"] - target_elbow["y"],
+    }
+    upper_vector = _lerp_rig_vector_by_angle(
+        neutral_upper, target_upper, pose_amount,
+    )
+    lower_vector = _lerp_rig_vector_by_angle(
+        neutral_lower, target_lower, pose_amount,
+    )
+    elbow = {
+        "x": shoulder["x"] + upper_vector["x"],
+        "y": shoulder["y"] + upper_vector["y"],
+    }
+    hand = {
+        "x": elbow["x"] + lower_vector["x"],
+        "y": elbow["y"] + lower_vector["y"],
+    }
     upper_angle = _rig_vector_angle_degrees(
         upper_bind,
         {"x": elbow["x"] - shoulder["x"],
@@ -1435,10 +1554,10 @@ def _build_player_front_reload_parts(
         return None
     pose_settings = PLAYER_RELOAD_POSE_DEFAULTS[direction]
     if timing["enter"] < 0.999999:
-        far_amount = timing["enter"]
+        far_amount = _player_reload_far_pose_amount(player_entity, timing)
         near_amount = 1.0 if start_progress > 0.000001 else timing["enter"]
     else:
-        far_amount = timing["leave"]
+        far_amount = _player_reload_far_pose_amount(player_entity, timing)
         near_amount = timing["leave"]
     far_parts = _build_player_front_reload_arm_parts(
         far_arm, body_hip, torso_angle, direction, textures, True, far_amount,
@@ -1614,14 +1733,18 @@ def _build_player_side_cutout_rig_parts(player_entity):
         player_entity, body_hip, torso_angle, facing_left, far_arm,
         animation_direction=direction,
     )
+    side_reload_parts = None
     if player_entity.get("reload_state", "") == "reloading":
         weapon_parts = _build_player_side_reload_parts(
             player_entity, body_hip, torso_angle, facing_left, near_arm,
         )
+        side_reload_parts = _build_player_side_reload_support_parts(
+            player_entity, facing_left, far_arm, weapon_parts[-1],
+        )
     near_arm_parts = weapon_parts or [
         near_arm["upper_part"], near_arm["lower_part"],
     ]
-    far_arm_parts = flashlight_parts or [
+    far_arm_parts = flashlight_parts or side_reload_parts or [
         far_arm["lower_part"], far_arm["upper_part"],
     ]
     far_lower, far_upper = leg_parts[0]

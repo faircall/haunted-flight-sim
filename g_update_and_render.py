@@ -1420,6 +1420,18 @@ def update_player_reload(player, gun_type, reload_requested, dt,
         player["reload_timer"] = 0.0
         transition = ensure_player_weapon_transition_state(player)
         aim_direction = ensure_player_aim_state(player)
+        flashlight_transition = ensure_player_flashlight_transition_state(
+            player,
+        )
+        restore_flashlight = bool(player.get(
+            "flashlight_requested",
+            flashlight_transition["target"] >= 1.0,
+        ))
+        flashlight_progress = float(flashlight_transition["progress"])
+        flashlight_settings = get_player_flashlight_transition_settings(
+            player,
+        )
+        reload_duration = max(0.000001, float(get_reload_time(gun_type)))
         player["reload_animation"] = {
             "progress": 0.0,
             # Freeze the exact visual departure pose. Reload rendering uses it
@@ -1430,7 +1442,22 @@ def update_player_reload(player, gun_type, reload_requested, dt,
                 "x": float(aim_direction["x"]),
                 "y": float(aim_direction["y"]),
             },
+            # Preserve toggle intent separately from the temporarily forced
+            # holster target. The normalized release fraction lets rendering
+            # begin the support-hand reload pose exactly where that holster
+            # finishes instead of snapping between two unrelated poses.
+            "restore_flashlight": restore_flashlight,
+            "start_flashlight_progress": flashlight_progress,
+            "flashlight_holster_reload_fraction": min(
+                0.45,
+                flashlight_progress
+                * flashlight_settings["holster_duration"]
+                / reload_duration,
+            ),
         }
+        update_player_flashlight_transition(
+            player, False, 0.0, audio_runtime, world_position,
+        )
 
     if not player_is_reloading(player):
         return False
@@ -1468,6 +1495,14 @@ def update_player_reload(player, gun_type, reload_requested, dt,
     ammo[spare_key] = spare_bullets - clip_to_load
     player["reload_timer"] = 0.0
     player["reload_state"] = "reloaded"
+    reload_animation = player.get("reload_animation", {})
+    restore_flashlight = bool(
+        reload_animation.get("restore_flashlight", False)
+        if isinstance(reload_animation, dict) else False
+    )
+    update_player_flashlight_transition(
+        player, restore_flashlight, 0.0, audio_runtime, world_position,
+    )
     return False
 
 
@@ -2011,10 +2046,11 @@ def update_player_flashlight_transition(player, requested, dt, audio_runtime,
     # arm and prop are fully deployed, so the cone never precedes the draw.
     if target < 1.0 and player.get("flashlight_enabled", False):
         player["flashlight_enabled"] = False
-        queue_gameplay_audio(
-            audio_runtime, "flashlight_click", "player:flashlight", "player",
-            world_position, priority=1.2,
-        )
+        if audio_runtime is not None:
+            queue_gameplay_audio(
+                audio_runtime, "flashlight_click", "player:flashlight",
+                "player", world_position, priority=1.2,
+            )
     state["target"] = target
 
     try:
@@ -2035,10 +2071,11 @@ def update_player_flashlight_transition(player, requested, dt, audio_runtime,
     if (target >= 1.0 and progress >= 0.999999
             and not player.get("flashlight_enabled", False)):
         player["flashlight_enabled"] = True
-        queue_gameplay_audio(
-            audio_runtime, "flashlight_click", "player:flashlight", "player",
-            world_position, priority=1.2,
-        )
+        if audio_runtime is not None:
+            queue_gameplay_audio(
+                audio_runtime, "flashlight_click", "player:flashlight",
+                "player", world_position, priority=1.2,
+            )
     state.update({
         "progress": progress,
         "target": target,
@@ -2053,8 +2090,13 @@ def update_player_flashlight_toggle(player_entity, editor_mode, pause_state,
     requested = bool(player_entity.get(
         "flashlight_requested", state["target"] >= 1.0,
     ))
-    if (editor_mode == "play" and pause_state == "unpaused"
-            and pr.is_key_pressed(pr.KeyboardKey.KEY_F)):
+    if player_is_reloading(player_entity):
+        # Reload owns both hands. Ignore toggle input and force only the live
+        # transition target off; reload_animation retains the pre-reload
+        # toggle intent for restoration on completion.
+        requested = False
+    elif (editor_mode == "play" and pause_state == "unpaused"
+          and pr.is_key_pressed(pr.KeyboardKey.KEY_F)):
         requested = not requested
     world_position = make_pos_abs(
         player_entity.get("position", {}),
@@ -8702,9 +8744,6 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             dt=dt, audio_runtime=audio_runtime, audio_profile=audio_profile,
             tile_map=tile_map, debug_queue=debug_queue,
         )
-        update_player_flashlight_toggle(
-            player_info, editor_mode, pause_state, audio_runtime, dt, tile_map,
-        )
     
     if pause_state != "paused":
         # I think we want to have the current 'hot spots' in terms of bullets cached
@@ -8739,6 +8778,15 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             aim_input_enabled=aim_controls_active and not g_mouse_is_ui_captured,
             mouse_delta=aim_mouse_delta,
         )
+        if pause_state != "paused":
+            # Reload input is resolved first so F is gated on the exact frame
+            # a reload begins. This is also the flashlight transition's one
+            # dt advance for the frame, keeping its holster synchronized with
+            # reload_animation without double-stepping it.
+            update_player_flashlight_toggle(
+                player_info, editor_mode, pause_state, audio_runtime, dt,
+                tile_map,
+            )
         if pause_state != "paused" and debug_state != "dumb entities":
             update_redhead_sound_awareness(
                 entities, tile_map,

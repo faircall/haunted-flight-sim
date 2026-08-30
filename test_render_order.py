@@ -617,6 +617,20 @@ class RenderOrderTests(unittest.TestCase):
         for direction, parts in poses.items():
             gun = self.rig_part(parts, "gun", "near")
             self.assertEqual(gun["rig_pose"], "reload", direction)
+            self.assertFalse(any(
+                part.get("rig_joint") == "flashlight" for part in parts
+            ), direction)
+            self.assertEqual(
+                len([
+                    part for part in parts
+                    if part.get("rig_pose") == "reload"
+                    and part.get("rig_joint") in {
+                        "upper_arm", "lower_arm",
+                    }
+                ]),
+                4,
+                direction,
+            )
 
         for direction in ("left", "right"):
             parts = poses[direction]
@@ -647,6 +661,55 @@ class RenderOrderTests(unittest.TestCase):
             if part.get("rig_joint") == "torso"
         )
         self.assertLess(up.index(up_gun), up_torso_index)
+
+    def test_reload_support_hand_continues_from_flashlight_holster_endpoint(self):
+        aims = {
+            "right": {"x": 1.0, "y": 0.0},
+            "left": {"x": -1.0, "y": 0.0},
+            "up": {"x": 0.0, "y": -1.0},
+            "down": {"x": 0.0, "y": 1.0},
+        }
+        release = 0.11
+        for direction, aim in aims.items():
+            player = g_update_and_render.make_default_player(0, 0, 0)
+            player.update({
+                "animation_direction": direction,
+                "aim_direction": aim,
+                "reload_state": "reloading",
+                "reload_animation": {
+                    "progress": release,
+                    "start_weapon_progress": 0.0,
+                    "flashlight_holster_reload_fraction": release,
+                },
+                "procedural_gait": {
+                    "phase": 0.7, "blend": 1.0, "run_blend": 0.0,
+                },
+            })
+            player["flashlight_transition"].update({
+                "progress": 0.000002, "target": 0.0,
+                "phase": "holstering",
+            })
+            before = g_render_order.build_player_cutout_rig_parts(player)
+            player["flashlight_transition"]["progress"] = 0.0
+            after = g_render_order.build_player_cutout_rig_parts(player)
+
+            for joint in ("upper_arm", "lower_arm"):
+                flashlight_arm = self.rig_part(before, joint, "far")
+                reload_arm = self.rig_part(after, joint, "far")
+                self.assertAlmostEqual(
+                    flashlight_arm["pivot_local"]["x"],
+                    reload_arm["pivot_local"]["x"], places=4,
+                    msg=(direction, joint, "x"),
+                )
+                self.assertAlmostEqual(
+                    flashlight_arm["pivot_local"]["y"],
+                    reload_arm["pivot_local"]["y"], places=4,
+                    msg=(direction, joint, "y"),
+                )
+                self.assertAlmostEqual(
+                    flashlight_arm["rotation"], reload_arm["rotation"],
+                    places=4, msg=(direction, joint, "rotation"),
+                )
 
     def test_aimed_reload_entry_starts_at_the_visible_weapon_pose(self):
         aims = {

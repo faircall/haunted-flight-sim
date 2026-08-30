@@ -120,6 +120,95 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertFalse(player["flashlight_enabled"])
         self.assertEqual(runtime["event_queue"], [])
 
+    def test_reload_holsters_and_restores_a_requested_flashlight(self):
+        player = game.make_default_player(0, 0, 0)
+        runtime = g_audio.make_audio_runtime()
+        settings = game.get_player_flashlight_transition_settings(player)
+
+        self.assertTrue(game.update_player_reload(
+            player, "pistol", True, 0.05, runtime,
+            {"x": 0.0, "y": 0.0},
+        ))
+        animation = player["reload_animation"]
+        self.assertTrue(animation["restore_flashlight"])
+        self.assertAlmostEqual(animation["start_flashlight_progress"], 1.0)
+        self.assertAlmostEqual(
+            animation["flashlight_holster_reload_fraction"],
+            settings["holster_duration"] / game.get_reload_time("pistol"),
+        )
+        self.assertFalse(player["flashlight_requested"])
+        self.assertFalse(player["flashlight_enabled"])
+        self.assertEqual(player["flashlight_transition"]["target"], 0.0)
+        self.assertEqual(
+            [event["type"] for event in runtime["event_queue"]],
+            ["reload_start", "flashlight_click"],
+        )
+
+        # F is ignored while reload owns both hands; it cannot cancel the
+        # stored intent to restore the previously active light.
+        with mock.patch.object(game.pr, "is_key_pressed", return_value=True):
+            game.update_player_flashlight_toggle(
+                player, "play", "unpaused", runtime,
+                settings["holster_duration"],
+                {"tile_width": 16, "tile_height": 16},
+            )
+        self.assertEqual(player["flashlight_transition"]["progress"], 0.0)
+        self.assertFalse(player["flashlight_requested"])
+        self.assertTrue(player["reload_animation"]["restore_flashlight"])
+
+        self.assertFalse(game.update_player_reload(
+            player, "pistol", False, game.get_reload_time("pistol"), runtime,
+            {"x": 0.0, "y": 0.0},
+        ))
+        self.assertTrue(player["flashlight_requested"])
+        self.assertFalse(player["flashlight_enabled"])
+        self.assertEqual(player["flashlight_transition"]["target"], 1.0)
+        self.assertEqual(
+            player["flashlight_transition"]["phase"], "unholstering",
+        )
+
+        with mock.patch.object(game.pr, "is_key_pressed", return_value=False):
+            game.update_player_flashlight_toggle(
+                player, "play", "unpaused", runtime,
+                settings["unholster_duration"],
+                {"tile_width": 16, "tile_height": 16},
+            )
+        self.assertTrue(player["flashlight_enabled"])
+        self.assertEqual(
+            [event["type"] for event in runtime["event_queue"]].count(
+                "flashlight_click"
+            ),
+            2,
+        )
+
+    def test_reload_does_not_accept_a_new_flashlight_toggle(self):
+        player = game.make_default_player(0, 0, 0)
+        player.update({
+            "flashlight_requested": False,
+            "flashlight_enabled": False,
+            "flashlight_transition": {
+                "progress": 0.0, "target": 0.0, "phase": "holstered",
+            },
+        })
+        runtime = g_audio.make_audio_runtime()
+        game.update_player_reload(
+            player, "pistol", True, 0.0, runtime, {"x": 0.0, "y": 0.0},
+        )
+        with mock.patch.object(game.pr, "is_key_pressed", return_value=True):
+            game.update_player_flashlight_toggle(
+                player, "play", "unpaused", runtime, 0.1,
+                {"tile_width": 16, "tile_height": 16},
+            )
+        self.assertFalse(player["flashlight_requested"])
+        self.assertFalse(player["reload_animation"]["restore_flashlight"])
+
+        game.update_player_reload(
+            player, "pistol", False, game.get_reload_time("pistol"), runtime,
+            {"x": 0.0, "y": 0.0},
+        )
+        self.assertFalse(player["flashlight_requested"])
+        self.assertEqual(player["flashlight_transition"]["target"], 0.0)
+
     def test_live_transition_defaults_are_not_pinned_to_player_state(self):
         player = game.make_default_player(0, 0, 0)
         with mock.patch.dict(
