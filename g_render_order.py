@@ -340,8 +340,8 @@ PLAYER_RELOAD_POSE_DEFAULTS = {
         "aim_direction": {"x": 0.42, "y": 0.91},
         # The spare hand meets the lowered pistol around its grip once the
         # flashlight has returned to its locomotion/holstered endpoint.
-        "far_hand_from_gun": {"x": 0.0, "y": 0.0},
-        "far_bend_side": 1.0,
+        "support_hand_from_gun": {"x": 0.0, "y": 0.0},
+        "support_bend_side": 1.0,
     },
     "down": {
         "near_hand_from_body_hip": {"x": 1.0, "y": -3.5},
@@ -888,6 +888,16 @@ def _player_weapon_transition_progress(player_entity):
     return progress if math.isfinite(progress) else 0.0
 
 
+def _player_rig_side_for_hand(direction, hand):
+    """Map anatomical hands onto the direction-dependent near/far rig slots."""
+    right_hand_is_near = direction in {"right", "up"}
+    if hand == "right":
+        return "near" if right_hand_is_near else "far"
+    if hand == "left":
+        return "far" if right_hand_is_near else "near"
+    raise ValueError(f"Unsupported player hand: {hand!r}")
+
+
 def _player_reload_pose_timing(player_entity):
     if player_entity.get("reload_state", "") != "reloading":
         return {"progress": 0.0, "enter": 0.0, "leave": 0.0}
@@ -917,7 +927,7 @@ def _player_reload_pose_amount(player_entity):
     return min(timing["enter"], timing["leave"])
 
 
-def _player_reload_far_pose_amount(player_entity, timing=None):
+def _player_reload_support_pose_amount(player_entity, timing=None):
     """Delay the support-hand entry until a deployed flashlight is stowed."""
     timing = timing or _player_reload_pose_timing(player_entity)
     # Exit remains shared by both hands so the complete reload pose resolves
@@ -1074,7 +1084,8 @@ def _build_player_locomotion_arm_pose(arm_phase, run_blend, movement_blend,
 def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
                                        facing_left, locomotion_pose=None,
                                        arm_settings=None, textures=None,
-                                       animation_direction=None):
+                                       animation_direction=None,
+                                       rig_side="near", rig_hand="right"):
     progress = _player_weapon_transition_progress(player_entity)
     if progress <= 0.000001:
         return []
@@ -1258,21 +1269,33 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
     gun_angle = math.degrees(math.atan2(gun_direction["y"], gun_direction["x"]))
     gun_angle -= recoil_degrees
 
+    arm_tint = (
+        PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"]
+        if rig_side == "far" else None
+    )
     upper_part = _make_player_cutout_part(
             textures["upper_arm"], source_shoulder, shoulder,
-            upper_angle, facing_left,
+            upper_angle, facing_left, arm_tint,
         )
     lower_part = _make_player_cutout_part(
             textures["lower_arm"], source_elbow, elbow,
-            lower_angle, facing_left,
+            lower_angle, facing_left, arm_tint,
         )
     gun_part = _make_player_cutout_part(
             textures["gun"], settings["gun_grip"], gun_grip,
             gun_angle, facing_left, source_canvas_width=settings["gun_source_size"],
         )
-    upper_part.update({"rig_side": "near", "rig_joint": "upper_arm"})
-    lower_part.update({"rig_side": "near", "rig_joint": "lower_arm"})
-    gun_part.update({"rig_side": "near", "rig_joint": "gun"})
+    upper_part.update({
+        "rig_side": rig_side, "rig_hand": rig_hand,
+        "rig_joint": "upper_arm",
+    })
+    lower_part.update({
+        "rig_side": rig_side, "rig_hand": rig_hand,
+        "rig_joint": "lower_arm",
+    })
+    gun_part.update({
+        "rig_side": rig_side, "rig_hand": rig_hand, "rig_joint": "gun",
+    })
     return [upper_part, lower_part, gun_part]
 
 
@@ -1291,7 +1314,7 @@ def _player_flashlight_transition_progress(player_entity):
 def _build_player_flashlight_cutout_parts(
         player_entity, body_hip, torso_angle, mirror_parts,
         locomotion_pose, arm_settings=None, textures=None,
-        animation_direction=None):
+        animation_direction=None, rig_side="far", rig_hand="left"):
     """Pose the spare arm with the weapon IK, substituting a held light."""
     progress = _player_flashlight_transition_progress(player_entity)
     if progress <= 0.000001:
@@ -1318,15 +1341,14 @@ def _build_player_flashlight_cutout_parts(
         locomotion_pose, arm_settings=flashlight_settings,
         textures=flashlight_textures,
         animation_direction=animation_direction,
+        rig_side=rig_side, rig_hand=rig_hand,
     )
     if len(parts) != 3:
         return []
-    for part in parts[:2]:
-        part["rig_side"] = "far"
-        part["tint"] = list(PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"])
     item = parts[2]
     item.update({
-        "rig_side": "far",
+        "rig_side": rig_side,
+        "rig_hand": rig_hand,
         "rig_joint": "flashlight",
         "placeholder_rect": True,
         "placeholder_size": dict(pose["placeholder_size"]),
@@ -1337,7 +1359,8 @@ def _build_player_flashlight_cutout_parts(
 
 
 def _build_player_side_reload_parts(player_entity, body_hip, torso_angle,
-                                    facing_left, locomotion_pose):
+                                    facing_left, locomotion_pose,
+                                    rig_side="near", rig_hand="right"):
     timing = _player_reload_pose_timing(player_entity)
     start_progress, start_aim = _player_reload_start_weapon_state(player_entity)
     direction = PLAYER_RELOAD_POSE_DEFAULTS["side"]["aim_direction"]
@@ -1362,6 +1385,7 @@ def _build_player_side_reload_parts(player_entity, body_hip, torso_angle,
     reload_player["weapon_visual_recoil"] = {"rotation_degrees": 0.0}
     parts = _build_player_weapon_cutout_parts(
         reload_player, body_hip, torso_angle, facing_left, locomotion_pose,
+        rig_side=rig_side, rig_hand=rig_hand,
     )
 
     # An aimed reload must depart from the exact visible aim pose, rather than
@@ -1378,6 +1402,7 @@ def _build_player_side_reload_parts(player_entity, body_hip, torso_angle,
         start_player["weapon_visual_recoil"] = {"rotation_degrees": 0.0}
         start_parts = _build_player_weapon_cutout_parts(
             start_player, body_hip, torso_angle, facing_left, locomotion_pose,
+            rig_side=rig_side, rig_hand=rig_hand,
         )
         parts = _lerp_player_cutout_parts(
             start_parts, parts, timing["enter"],
@@ -1388,10 +1413,11 @@ def _build_player_side_reload_parts(player_entity, body_hip, torso_angle,
 
 
 def _build_player_side_reload_support_parts(
-        player_entity, facing_left, locomotion_pose, gun_part):
+        player_entity, facing_left, locomotion_pose, gun_part,
+        rig_side="far", rig_hand="left"):
     """Move the spare side-view hand onto the lowered reload weapon."""
     timing = _player_reload_pose_timing(player_entity)
-    pose_amount = _player_reload_far_pose_amount(player_entity, timing)
+    pose_amount = _player_reload_support_pose_amount(player_entity, timing)
     settings = PLAYER_CUTOUT_ARM_DEFAULTS
     bind_pose = settings["bind_pose"]
     source_shoulder = bind_pose["shoulder"]
@@ -1407,7 +1433,7 @@ def _build_player_side_reload_support_parts(
     }
     upper_length = math.hypot(upper_bind["x"], upper_bind["y"])
     lower_length = math.hypot(lower_bind["x"], lower_bind["y"])
-    offset = PLAYER_RELOAD_POSE_DEFAULTS["side"]["far_hand_from_gun"]
+    offset = PLAYER_RELOAD_POSE_DEFAULTS["side"]["support_hand_from_gun"]
     target_hand = {
         "x": float(gun_part["pivot_local"]["x"])
              + (-float(offset["x"]) if facing_left else float(offset["x"])),
@@ -1424,7 +1450,7 @@ def _build_player_side_reload_support_parts(
     shoulder = locomotion_pose["shoulder"]
     elbow, hand = _solve_player_arm_ik(
         shoulder, requested_hand, upper_length, lower_length,
-        PLAYER_RELOAD_POSE_DEFAULTS["side"]["far_bend_side"],
+        PLAYER_RELOAD_POSE_DEFAULTS["side"]["support_bend_side"],
     )
     upper_angle = _rig_vector_angle_degrees(
         upper_bind,
@@ -1435,7 +1461,10 @@ def _build_player_side_reload_support_parts(
         lower_bind,
         {"x": hand["x"] - elbow["x"], "y": hand["y"] - elbow["y"]},
     )
-    tint = PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"]
+    tint = (
+        PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"]
+        if rig_side == "far" else None
+    )
     upper_part = _make_player_cutout_part(
         PLAYER_CUTOUT_TEXTURES["upper_arm"], source_shoulder, shoulder,
         upper_angle, facing_left, tint,
@@ -1445,17 +1474,19 @@ def _build_player_side_reload_support_parts(
         lower_angle, facing_left, tint,
     )
     upper_part.update({
-        "rig_side": "far", "rig_joint": "upper_arm", "rig_pose": "reload",
+        "rig_side": rig_side, "rig_hand": rig_hand,
+        "rig_joint": "upper_arm", "rig_pose": "reload",
     })
     lower_part.update({
-        "rig_side": "far", "rig_joint": "lower_arm", "rig_pose": "reload",
+        "rig_side": rig_side, "rig_hand": rig_hand,
+        "rig_joint": "lower_arm", "rig_pose": "reload",
     })
     return [upper_part, lower_part]
 
 
 def _build_player_front_reload_arm_parts(
         locomotion_pose, body_hip, torso_angle, direction, textures,
-        is_far, pose_amount):
+        is_far, pose_amount, rig_hand):
     arm_settings = PLAYER_FRONT_CUTOUT_ARM_DEFAULTS
     bind_pose = arm_settings["bind_pose"]
     source_shoulder = bind_pose["shoulder"]
@@ -1537,33 +1568,41 @@ def _build_player_front_reload_arm_parts(
         lower_angle, is_far, tint,
     )
     upper_part.update({
-        "rig_side": side, "rig_joint": "upper_arm", "rig_pose": "reload",
+        "rig_side": side, "rig_hand": rig_hand,
+        "rig_joint": "upper_arm", "rig_pose": "reload",
     })
     lower_part.update({
-        "rig_side": side, "rig_joint": "lower_arm", "rig_pose": "reload",
+        "rig_side": side, "rig_hand": rig_hand,
+        "rig_joint": "lower_arm", "rig_pose": "reload",
     })
     return [upper_part, lower_part]
 
 
 def _build_player_front_reload_parts(
         player_entity, body_hip, torso_angle, direction, textures,
-        near_arm, far_arm):
+        weapon_arm, support_arm, weapon_side, support_side):
     timing = _player_reload_pose_timing(player_entity)
     start_progress, start_aim = _player_reload_start_weapon_state(player_entity)
     if timing["enter"] <= 0.000001 and start_progress <= 0.000001:
         return None
     pose_settings = PLAYER_RELOAD_POSE_DEFAULTS[direction]
     if timing["enter"] < 0.999999:
-        far_amount = _player_reload_far_pose_amount(player_entity, timing)
-        near_amount = 1.0 if start_progress > 0.000001 else timing["enter"]
+        support_amount = _player_reload_support_pose_amount(
+            player_entity, timing,
+        )
+        weapon_amount = 1.0 if start_progress > 0.000001 else timing["enter"]
     else:
-        far_amount = _player_reload_far_pose_amount(player_entity, timing)
-        near_amount = timing["leave"]
-    far_parts = _build_player_front_reload_arm_parts(
-        far_arm, body_hip, torso_angle, direction, textures, True, far_amount,
+        support_amount = _player_reload_support_pose_amount(
+            player_entity, timing,
+        )
+        weapon_amount = timing["leave"]
+    support_parts = _build_player_front_reload_arm_parts(
+        support_arm, body_hip, torso_angle, direction, textures,
+        support_side == "far", support_amount, "left",
     )
-    near_parts = _build_player_front_reload_arm_parts(
-        near_arm, body_hip, torso_angle, direction, textures, False, near_amount,
+    weapon_parts = _build_player_front_reload_arm_parts(
+        weapon_arm, body_hip, torso_angle, direction, textures,
+        weapon_side == "far", weapon_amount, "right",
     )
     gun_offset = _rotate_rig_vector(
         pose_settings["gun_from_body_hip"]["x"],
@@ -1578,7 +1617,10 @@ def _build_player_front_reload_parts(
         gun_pivot, float(pose_settings["gun_degrees"]) + torso_angle,
         source_canvas_width=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS["gun_source_size"],
     )
-    gun.update({"rig_side": "near", "rig_joint": "gun", "rig_pose": "reload"})
+    gun.update({
+        "rig_side": weapon_side, "rig_hand": "right",
+        "rig_joint": "gun", "rig_pose": "reload",
+    })
 
     if (start_progress > 0.000001 and timing["enter"] < 0.999999
             and start_aim is not None):
@@ -1591,19 +1633,24 @@ def _build_player_front_reload_parts(
         }
         start_player["weapon_visual_recoil"] = {"rotation_degrees": 0.0}
         start_parts = _build_player_weapon_cutout_parts(
-            start_player, body_hip, torso_angle, False, near_arm,
+            start_player, body_hip, torso_angle, weapon_side == "far",
+            weapon_arm,
             arm_settings=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS,
             textures=textures,
             animation_direction=direction,
+            rig_side=weapon_side, rig_hand="right",
         )
         blended = _lerp_player_cutout_parts(
-            start_parts, [*near_parts, gun], timing["enter"],
+            start_parts, [*weapon_parts, gun], timing["enter"],
         )
-        near_parts = blended[:2]
+        weapon_parts = blended[:2]
         gun = blended[2]
-        for part in [*near_parts, gun]:
+        for part in [*weapon_parts, gun]:
             part["rig_pose"] = "reload"
-    return {"far": far_parts, "near": near_parts, "gun": gun}
+    return {
+        support_side: support_parts,
+        weapon_side: [*weapon_parts, gun],
+    }
 
 
 def _build_player_side_cutout_rig_parts(player_entity):
@@ -1714,39 +1761,65 @@ def _build_player_side_cutout_rig_parts(player_entity):
         facing_left,
     )
     head.update({"rig_joint": "head"})
+    weapon_side = _player_rig_side_for_hand(direction, "right")
+    flashlight_side = _player_rig_side_for_hand(direction, "left")
     weapon_progress = _player_weapon_transition_progress(player_entity)
-    far_motion_scale = 1.0 - weapon_progress * (
+    offhand_motion_scale = 1.0 - weapon_progress * (
         1.0 - float(PLAYER_CUTOUT_ARM_DEFAULTS["far_arm_aim_motion_scale"])
     )
     far_arm = _build_player_locomotion_arm_pose(
         phase, run_blend, blend, body_hip, torso_angle,
-        facing_left, is_far=True, motion_scale=far_motion_scale,
+        facing_left, is_far=True,
+        motion_scale=(
+            offhand_motion_scale if flashlight_side == "far" else 1.0
+        ),
     )
     near_arm = _build_player_locomotion_arm_pose(
         phase, run_blend, blend, body_hip, torso_angle,
         facing_left, is_far=False,
+        motion_scale=(
+            offhand_motion_scale if flashlight_side == "near" else 1.0
+        ),
     )
+    arms_by_side = {"near": near_arm, "far": far_arm}
+    for side, arm in arms_by_side.items():
+        hand = "right" if side == weapon_side else "left"
+        arm["upper_part"]["rig_hand"] = hand
+        arm["lower_part"]["rig_hand"] = hand
+    weapon_arm = arms_by_side[weapon_side]
+    flashlight_arm = arms_by_side[flashlight_side]
     weapon_parts = _build_player_weapon_cutout_parts(
-        player_entity, body_hip, torso_angle, facing_left, near_arm,
+        player_entity, body_hip, torso_angle, facing_left, weapon_arm,
+        animation_direction=direction,
+        rig_side=weapon_side, rig_hand="right",
     )
     flashlight_parts = _build_player_flashlight_cutout_parts(
-        player_entity, body_hip, torso_angle, facing_left, far_arm,
+        player_entity, body_hip, torso_angle, facing_left, flashlight_arm,
         animation_direction=direction,
+        rig_side=flashlight_side, rig_hand="left",
     )
-    side_reload_parts = None
+    support_parts = None
     if player_entity.get("reload_state", "") == "reloading":
         weapon_parts = _build_player_side_reload_parts(
-            player_entity, body_hip, torso_angle, facing_left, near_arm,
+            player_entity, body_hip, torso_angle, facing_left, weapon_arm,
+            rig_side=weapon_side, rig_hand="right",
         )
-        side_reload_parts = _build_player_side_reload_support_parts(
-            player_entity, facing_left, far_arm, weapon_parts[-1],
+        support_parts = _build_player_side_reload_support_parts(
+            player_entity, facing_left, flashlight_arm, weapon_parts[-1],
+            rig_side=flashlight_side, rig_hand="left",
         )
-    near_arm_parts = weapon_parts or [
-        near_arm["upper_part"], near_arm["lower_part"],
-    ]
-    far_arm_parts = flashlight_parts or side_reload_parts or [
-        far_arm["lower_part"], far_arm["upper_part"],
-    ]
+    arm_parts_by_side = {
+        "near": [near_arm["upper_part"], near_arm["lower_part"]],
+        "far": [far_arm["lower_part"], far_arm["upper_part"]],
+    }
+    if weapon_parts:
+        arm_parts_by_side[weapon_side] = weapon_parts
+    if flashlight_parts:
+        arm_parts_by_side[flashlight_side] = flashlight_parts
+    elif support_parts:
+        arm_parts_by_side[flashlight_side] = support_parts
+    near_arm_parts = arm_parts_by_side["near"]
+    far_arm_parts = arm_parts_by_side["far"]
     far_lower, far_upper = leg_parts[0]
     near_lower, near_upper = leg_parts[1]
     return [
@@ -2056,47 +2129,71 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     )
     head.update({"rig_joint": "head"})
 
+    weapon_side = _player_rig_side_for_hand(direction, "right")
+    flashlight_side = _player_rig_side_for_hand(direction, "left")
     weapon_progress = _player_weapon_transition_progress(player_entity)
-    far_motion_scale = 1.0 - weapon_progress * (
+    offhand_motion_scale = 1.0 - weapon_progress * (
         1.0 - float(
             PLAYER_FRONT_CUTOUT_ARM_DEFAULTS["far_arm_aim_motion_scale"]
         )
     )
     far_arm = _build_player_front_locomotion_arm_pose(
         phase, run_blend, blend, body_hip, torso_angle, direction, textures,
-        is_far=True, motion_scale=far_motion_scale,
+        is_far=True,
+        motion_scale=(
+            offhand_motion_scale if flashlight_side == "far" else 1.0
+        ),
     )
     near_arm = _build_player_front_locomotion_arm_pose(
         phase, run_blend, blend, body_hip, torso_angle, direction, textures,
         is_far=False,
+        motion_scale=(
+            offhand_motion_scale if flashlight_side == "near" else 1.0
+        ),
     )
+    arms_by_side = {"near": near_arm, "far": far_arm}
+    for side, arm in arms_by_side.items():
+        hand = "right" if side == weapon_side else "left"
+        arm["upper_part"]["rig_hand"] = hand
+        arm["lower_part"]["rig_hand"] = hand
+    weapon_arm = arms_by_side[weapon_side]
+    flashlight_arm = arms_by_side[flashlight_side]
     weapon_parts = _build_player_weapon_cutout_parts(
-        player_entity, body_hip, torso_angle, False, near_arm,
+        player_entity, body_hip, torso_angle, weapon_side == "far",
+        weapon_arm,
         arm_settings=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS,
         textures=textures,
         animation_direction=direction,
+        rig_side=weapon_side, rig_hand="right",
     )
     flashlight_parts = _build_player_flashlight_cutout_parts(
-        player_entity, body_hip, torso_angle, True, far_arm,
+        player_entity, body_hip, torso_angle, flashlight_side == "far",
+        flashlight_arm,
         arm_settings=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS,
         textures=textures, animation_direction=direction,
+        rig_side=flashlight_side, rig_hand="left",
     )
     reload_parts = None
     if player_entity.get("reload_state", "") == "reloading":
         reload_parts = _build_player_front_reload_parts(
             player_entity, body_hip, torso_angle, direction, textures,
-            near_arm, far_arm,
+            weapon_arm, flashlight_arm, weapon_side, flashlight_side,
         )
+    arm_parts_by_side = {
+        "near": [near_arm["upper_part"], near_arm["lower_part"]],
+        "far": [far_arm["lower_part"], far_arm["upper_part"]],
+    }
     if reload_parts is not None:
-        far_arm_parts = flashlight_parts or reload_parts["far"]
-        near_arm_parts = [*reload_parts["near"], reload_parts["gun"]]
+        arm_parts_by_side.update(reload_parts)
+        if flashlight_parts:
+            arm_parts_by_side[flashlight_side] = flashlight_parts
     else:
-        far_arm_parts = flashlight_parts or [
-            far_arm["lower_part"], far_arm["upper_part"],
-        ]
-        near_arm_parts = weapon_parts or [
-            near_arm["upper_part"], near_arm["lower_part"],
-        ]
+        if weapon_parts:
+            arm_parts_by_side[weapon_side] = weapon_parts
+        if flashlight_parts:
+            arm_parts_by_side[flashlight_side] = flashlight_parts
+    far_arm_parts = arm_parts_by_side["far"]
+    near_arm_parts = arm_parts_by_side["near"]
     far_lower, far_upper = leg_parts[0]
     near_lower, near_upper = leg_parts[1]
     far_parts = [
@@ -2108,6 +2205,14 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
         # Raised arms and the weapon travel behind the back-facing torso/head.
         return [
             *far_parts, *near_leg_parts, *near_arm_parts, torso, head,
+        ]
+    if weapon_side == "far" and (weapon_parts or reload_parts is not None):
+        # Facing down, the anatomical right/weapon arm occupies the mirrored
+        # far slot, but it still needs to draw in front of the torso. Near/far
+        # selects the limb geometry here; it is not a universal depth order.
+        return [
+            far_lower, far_upper, torso, *near_leg_parts,
+            *far_arm_parts, *near_arm_parts, head,
         ]
     return [
         *far_parts, torso, *near_leg_parts, *near_arm_parts, head,

@@ -366,18 +366,19 @@ class RenderOrderTests(unittest.TestCase):
             upper_arm["rotation"], lower_arm["rotation"],
         )
 
-    def test_front_aim_reach_straightens_down_center_and_right(self):
+    def test_front_aim_reach_straightens_down_center_and_weapon_side(self):
         def visual_bend(parts):
-            upper = self.rig_part(parts, "upper_arm", "near")
-            lower = self.rig_part(parts, "lower_arm", "near")
+            upper = self.rig_part(parts, "upper_arm", "far")
+            lower = self.rig_part(parts, "lower_arm", "far")
             bind = g_render_order.PLAYER_FRONT_CUTOUT_ARM_DEFAULTS["bind_pose"]
+            x_sign = -1.0 if upper["flip_x"] else 1.0
             upper_source = math.degrees(math.atan2(
                 bind["elbow"]["y"] - bind["shoulder"]["y"],
-                bind["elbow"]["x"] - bind["shoulder"]["x"],
+                (bind["elbow"]["x"] - bind["shoulder"]["x"]) * x_sign,
             ))
             lower_source = math.degrees(math.atan2(
                 bind["hand"]["y"] - bind["elbow"]["y"],
-                bind["hand"]["x"] - bind["elbow"]["x"],
+                (bind["hand"]["x"] - bind["elbow"]["x"]) * x_sign,
             ))
             difference = (
                 lower_source + lower["rotation"]
@@ -399,9 +400,9 @@ class RenderOrderTests(unittest.TestCase):
             }
             return g_render_order.build_player_cutout_rig_parts(player)
 
-        self.assertGreater(visual_bend(pose(135.0)), 10.0)
+        self.assertLess(visual_bend(pose(135.0)), 0.001)
         self.assertLess(visual_bend(pose(90.0)), 0.001)
-        self.assertLess(visual_bend(pose(45.0)), 0.001)
+        self.assertGreater(visual_bend(pose(45.0)), 10.0)
 
     def test_up_aim_transition_rotates_without_collapsing_at_the_shoulder(self):
         player = {
@@ -615,8 +616,12 @@ class RenderOrderTests(unittest.TestCase):
             for direction in ("left", "right", "down", "up")
         }
         for direction, parts in poses.items():
-            gun = self.rig_part(parts, "gun", "near")
+            weapon_side = (
+                "near" if direction in {"right", "up"} else "far"
+            )
+            gun = self.rig_part(parts, "gun", weapon_side)
             self.assertEqual(gun["rig_pose"], "reload", direction)
+            self.assertEqual(gun["rig_hand"], "right", direction)
             self.assertFalse(any(
                 part.get("rig_joint") == "flashlight" for part in parts
             ), direction)
@@ -634,14 +639,15 @@ class RenderOrderTests(unittest.TestCase):
 
         for direction in ("left", "right"):
             parts = poses[direction]
-            gun = self.rig_part(parts, "gun", "near")
-            shoulder = self.rig_part(parts, "upper_arm", "near")
+            weapon_side = "near" if direction == "right" else "far"
+            gun = self.rig_part(parts, "gun", weapon_side)
+            shoulder = self.rig_part(parts, "upper_arm", weapon_side)
             self.assertGreater(
                 gun["pivot_local"]["y"], shoulder["pivot_local"]["y"],
             )
 
         down = poses["down"]
-        down_gun = self.rig_part(down, "gun", "near")
+        down_gun = self.rig_part(down, "gun", "far")
         self.assertAlmostEqual(down_gun["pivot_local"]["x"], 16.0)
         self.assertEqual(
             len([part for part in down if part.get("rig_pose") == "reload"
@@ -694,8 +700,13 @@ class RenderOrderTests(unittest.TestCase):
             after = g_render_order.build_player_cutout_rig_parts(player)
 
             for joint in ("upper_arm", "lower_arm"):
-                flashlight_arm = self.rig_part(before, joint, "far")
-                reload_arm = self.rig_part(after, joint, "far")
+                flashlight_side = (
+                    "far" if direction in {"right", "up"} else "near"
+                )
+                flashlight_arm = self.rig_part(
+                    before, joint, flashlight_side,
+                )
+                reload_arm = self.rig_part(after, joint, flashlight_side)
                 self.assertAlmostEqual(
                     flashlight_arm["pivot_local"]["x"],
                     reload_arm["pivot_local"]["x"], places=4,
@@ -753,9 +764,12 @@ class RenderOrderTests(unittest.TestCase):
             reload_parts = g_render_order.build_player_cutout_rig_parts(
                 reload_player,
             )
+            weapon_side = (
+                "near" if direction in {"right", "up"} else "far"
+            )
             for joint in ("upper_arm", "lower_arm", "gun"):
-                before = self.rig_part(aimed_parts, joint, "near")
-                after = self.rig_part(reload_parts, joint, "near")
+                before = self.rig_part(aimed_parts, joint, weapon_side)
+                after = self.rig_part(reload_parts, joint, weapon_side)
                 self.assertEqual(
                     after["pivot_local"], before["pivot_local"],
                     (direction, joint),
@@ -1045,6 +1059,40 @@ class RenderOrderTests(unittest.TestCase):
             world["position"]["x"], world["grip_position"]["x"],
         )
 
+    def test_weapon_and_flashlight_keep_anatomical_hands_in_all_facings(self):
+        aims = {
+            "right": {"x": 1.0, "y": 0.0},
+            "left": {"x": -1.0, "y": 0.0},
+            "up": {"x": 0.0, "y": -1.0},
+            "down": {"x": 0.0, "y": 1.0},
+        }
+        for facing, aim in aims.items():
+            player = g_update_and_render.make_default_player(0, 0, 0)
+            player.update({
+                "animation_direction": facing,
+                "aim_direction": aim,
+                "aiming": True,
+                "weapon_transition": {
+                    "progress": 1.0, "target": 1.0,
+                    "phase": "unholstered",
+                },
+                "procedural_gait": {
+                    "phase": 0.0, "blend": 0.0, "run_blend": 0.0,
+                },
+            })
+            parts = g_render_order.build_player_cutout_rig_parts(player)
+            gun = self.rig_part(parts, "gun")
+            flashlight = self.rig_part(parts, "flashlight")
+            expected_weapon_side = (
+                "near" if facing in {"right", "up"} else "far"
+            )
+            self.assertEqual(gun["rig_hand"], "right", facing)
+            self.assertEqual(gun["rig_side"], expected_weapon_side, facing)
+            self.assertEqual(flashlight["rig_hand"], "left", facing)
+            self.assertNotEqual(
+                flashlight["rig_side"], expected_weapon_side, facing,
+            )
+
     def test_running_flashlight_arm_does_not_repeat_gait_swing(self):
         aims = {
             "right": {"x": 1.0, "y": 0.0},
@@ -1067,9 +1115,14 @@ class RenderOrderTests(unittest.TestCase):
                 player,
             )
 
+            flashlight_side = (
+                "far" if facing in {"right", "up"} else "near"
+            )
             for joint in ("upper_arm", "lower_arm", "flashlight"):
-                first = self.rig_part(contact, joint, "far")
-                second = self.rig_part(opposite_contact, joint, "far")
+                first = self.rig_part(contact, joint, flashlight_side)
+                second = self.rig_part(
+                    opposite_contact, joint, flashlight_side,
+                )
                 self.assertAlmostEqual(
                     first["rotation"], second["rotation"], msg=facing,
                 )
