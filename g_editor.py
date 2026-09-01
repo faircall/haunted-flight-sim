@@ -1318,12 +1318,8 @@ def draw_tile_edit_controls(ui_state, editor_state, tile_map):
     modes = ("appearance", "rain_exposure", "acoustic_zone", "footstep_overlay")
     mode = editor_state.get("tile_edit_mode", "appearance")
     mode = mode if mode in modes else "appearance"
-    pr.draw_text("Tile edit", 332, 32, 8, pr.WHITE)
-    mode, _ = g_ui.ui_dropdown(
-        ui_state, "tile:edit_mode", "", mode, modes,
-        pr.Rectangle(332, 42, 138, 15), 4,
-    )
     editor_state["tile_edit_mode"] = mode
+    pr.draw_text("Tile edit", 332, 32, 8, pr.WHITE)
 
     if mode == "appearance":
         return
@@ -1386,6 +1382,18 @@ def draw_tile_edit_controls(ui_state, editor_state, tile_map):
         editor_state.get("show_footstep_overlay", True),
         pr.Rectangle(332, 89, 138, 14),
     )
+
+
+def draw_tile_edit_mode_dropdown(ui_state, editor_state):
+    """Draw the tile-mode popup after the controls it can overlap."""
+    modes = ("appearance", "rain_exposure", "acoustic_zone", "footstep_overlay")
+    mode = editor_state.get("tile_edit_mode", "appearance")
+    mode = mode if mode in modes else "appearance"
+    mode, _ = g_ui.ui_dropdown(
+        ui_state, "tile:edit_mode", "", mode, modes,
+        pr.Rectangle(332, 42, 138, 15), 4,
+    )
+    editor_state["tile_edit_mode"] = mode
 
 def update_editor_shortcuts(entities, editor_state, ui_state, tile_map):
     if ui_state.get("focused_id") is not None:

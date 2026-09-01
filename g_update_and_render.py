@@ -9061,6 +9061,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
                 ui_state, "tile:audio_surface", "sound", tile_type.get("audio_surface", "generic"),
                 g_audio.AUDIO_SURFACES, pr.Rectangle(332, 78, 138, 15), 6,
             )
+        # Popups are overlays: emit the mode dropdown after every tile control
+        # it can cover so both paint order and hit testing agree.
+        g_editor.draw_tile_edit_mode_dropdown(ui_state, editor_state)
     elif editor_mode == "entity":
         pr.draw_text(entity_types[current_entity_selection], 275, 42, 8, pr.WHITE)
 

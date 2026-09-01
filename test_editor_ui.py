@@ -559,6 +559,93 @@ class EnvironmentEditorDataTests(unittest.TestCase):
 
 
 class ImmediateModeUIHelperTests(unittest.TestCase):
+    def test_open_dropdown_blocks_click_through_to_other_buttons(self):
+        state = g_ui.make_ui_state()
+        state["open_dropdown_id"] = "dropdown:a"
+        rect = g_editor.pr.Rectangle(0, 15, 80, 15)
+        with mock.patch.object(
+                g_ui, "get_mouse_position",
+                return_value=g_editor.pr.Vector2(10.0, 20.0)), \
+                mock.patch.object(
+                    g_ui.pr, "is_mouse_button_pressed", return_value=True), \
+                mock.patch.object(g_ui.pr, "draw_rectangle_rec"), \
+                mock.patch.object(g_ui.pr, "draw_rectangle_lines_ex"), \
+                mock.patch.object(g_ui.pr, "draw_text"):
+            pressed = g_ui.ui_button(state, "button:under-popup", "Under", rect)
+
+        self.assertFalse(pressed)
+        self.assertIsNone(state["active_id"])
+        self.assertNotEqual(state.get("hot_id_sound"), "button:under-popup")
+
+    def test_open_dropdown_options_remain_interactive(self):
+        state = g_ui.make_ui_state()
+        state["open_dropdown_id"] = "dropdown:a"
+        rect = g_editor.pr.Rectangle(0, 0, 80, 15)
+        with mock.patch.object(
+                g_ui, "get_mouse_position",
+                return_value=g_editor.pr.Vector2(10.0, 35.0)), \
+                mock.patch.object(
+                    g_ui.pr, "is_mouse_button_pressed", return_value=True), \
+                mock.patch.object(g_ui.pr, "get_mouse_wheel_move", return_value=0.0), \
+                mock.patch.object(g_ui.pr, "draw_rectangle_rec"), \
+                mock.patch.object(g_ui.pr, "draw_rectangle_lines_ex"), \
+                mock.patch.object(g_ui.pr, "draw_text"):
+            value, changed = g_ui.ui_dropdown(
+                state, "dropdown:a", "", "first", ("first", "second"),
+                rect, 2,
+            )
+
+        self.assertEqual(value, "second")
+        self.assertTrue(changed)
+        self.assertIsNone(state["open_dropdown_id"])
+
+    def test_dropdown_option_hover_sound_does_not_loop_via_covered_button(self):
+        state = g_ui.make_ui_state()
+        state["open_dropdown_id"] = "dropdown:a"
+        dropdown_rect = g_editor.pr.Rectangle(0, 0, 80, 15)
+        covered_rect = g_editor.pr.Rectangle(0, 30, 80, 15)
+        audio_runtime = {}
+        with mock.patch.object(
+                g_ui, "get_mouse_position",
+                return_value=g_editor.pr.Vector2(10.0, 35.0)), \
+                mock.patch.object(
+                    g_ui.pr, "is_mouse_button_pressed", return_value=False), \
+                mock.patch.object(g_ui.pr, "get_mouse_wheel_move", return_value=0.0), \
+                mock.patch.object(g_ui.pr, "draw_rectangle_rec"), \
+                mock.patch.object(g_ui.pr, "draw_rectangle_lines_ex"), \
+                mock.patch.object(g_ui.pr, "draw_text"), \
+                mock.patch.object(g_ui.g_audio, "queue_audio_event") as queue_event:
+            for _ in range(2):
+                g_ui.ui_begin_frame(state, audio_runtime)
+                g_ui.ui_button(state, "button:covered", "Covered", covered_rect)
+                g_ui.ui_dropdown(
+                    state, "dropdown:a", "", "first", ("first", "second"),
+                    dropdown_rect, 2,
+                )
+                g_ui.ui_end_frame(state)
+
+        queue_event.assert_called_once()
+        self.assertEqual(
+            queue_event.call_args.args[1]["source_id"],
+            "ui:dropdown:a:option:second",
+        )
+
+    def test_tile_edit_mode_dropdown_is_a_separate_overlay_pass(self):
+        state = g_ui.make_ui_state()
+        editor_state = g_editor.make_editor_state()
+        calls = []
+        with mock.patch.object(
+                g_ui, "ui_dropdown",
+                side_effect=lambda *args, **kwargs: (
+                    calls.append(args[1]) or (args[3], False)
+                )), \
+                mock.patch.object(g_editor.pr, "draw_text"):
+            g_editor.draw_tile_edit_controls(state, editor_state, {})
+            self.assertEqual(calls, [])
+            g_editor.draw_tile_edit_mode_dropdown(state, editor_state)
+
+        self.assertEqual(calls, ["tile:edit_mode"])
+
     def test_selected_button_keeps_active_fill_and_accent_border(self):
         state = g_ui.make_ui_state()
         rect = g_editor.pr.Rectangle(0, 0, 40, 15)

@@ -78,7 +78,24 @@ def ui_release_mouse(ui_state, commit_focused=True):
 def ui_point_in_rect(point, rect):
     return rect.x <= point.x <= rect.x + rect.width and rect.y <= point.y <= rect.y + rect.height
 
+def ui_interaction_blocked(ui_state, widget_id):
+    """Treat an open dropdown as a modal pointer target.
+
+    Immediate-mode controls drawn after a dropdown must not also react to a
+    click in the popup.  The dropdown header and its generated option widgets
+    remain interactive so the menu can be selected from or closed.
+    """
+    open_id = ui_state.get("open_dropdown_id")
+    if open_id is None:
+        return False
+    widget_id = str(widget_id)
+    open_id = str(open_id)
+    return widget_id != open_id and not widget_id.startswith(f"{open_id}:option:")
+
 def ui_hover(ui_state, widget_id, rect, does_sound = True):
+    if ui_interaction_blocked(ui_state, widget_id):
+        return False
+
     hovered = ui_point_in_rect(get_mouse_position(), rect)
 
     if hovered:        
@@ -349,7 +366,8 @@ def ui_number_input(ui_state, widget_id, label, value, integer=False, minimum=No
     focused = ui_state.get("focused_id") == widget_id
     changed = pending_changed
 
-    if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT):
+    if (not ui_interaction_blocked(ui_state, widget_id)
+            and pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_LEFT)):
         if ui_point_in_rect(get_mouse_position(), input_rect):
             if not focused:
                 ui_queue_focused_numeric_commit(ui_state, widget_id)
