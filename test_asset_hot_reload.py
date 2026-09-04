@@ -1,5 +1,6 @@
 import unittest
 from unittest import mock
+import os
 
 import g_main
 import g_update_and_render
@@ -13,6 +14,11 @@ class _FakeTexture:
 
 
 class AssetHotReloadTests(unittest.TestCase):
+    def test_redhead_cutout_texture_manifest_is_complete(self):
+        paths = g_update_and_render.REDHEAD_CUTOUT_TEXTURE_PATHS
+        self.assertEqual(len(paths), 18)
+        self.assertTrue(all(os.path.isfile(path) for path in paths.values()))
+
     def test_snapshot_diff_detects_modified_added_and_deleted_pngs(self):
         previous = {
             "art/modified.png": (1, 10),

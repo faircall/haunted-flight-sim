@@ -427,7 +427,7 @@ class EnvironmentEditorDataTests(unittest.TestCase):
                 f"{facing}_frame_start",
             )
 
-    def test_animation_redhead_track_steps_direction_frames(self):
+    def test_animation_redhead_track_previews_procedural_run_pose(self):
         redhead = {"id": 7, "type": "red head"}
         entities = {"brains": {7: redhead}, "pickups": {}}
         state = g_editor.make_editor_state()
@@ -437,8 +437,8 @@ class EnvironmentEditorDataTests(unittest.TestCase):
             "selected_id": 7,
         })
         state["animation_debug"].update({
-            "playback": "keyframe", "track": "direction poses",
-            "keyframe": 3, "target_key": ("brains", 7),
+            "playback": "keyframe", "track": "run", "facing": "left",
+            "keyframe": 2, "target_key": ("brains", 7),
         })
         override = g_editor.update_animation_debug_preview(
             state, "animation", entities, None, 0.0,
@@ -446,6 +446,48 @@ class EnvironmentEditorDataTests(unittest.TestCase):
         self.assertEqual(
             override["fields"]["animation_frame"], "left_frame_start",
         )
+        self.assertEqual(override["fields"]["animation_direction"], "left")
+        self.assertAlmostEqual(
+            override["fields"]["procedural_gait"]["phase"], math.pi,
+        )
+        self.assertEqual(
+            override["fields"]["procedural_gait"]["run_blend"], 1.0,
+        )
+
+    def test_animation_redhead_inspector_exposes_facing_dropdown(self):
+        redhead = {"id": 7, "type": "red head"}
+        entities = {"brains": {7: redhead}, "pickups": {}}
+        ui_state = g_ui.make_ui_state()
+        state = g_editor.make_editor_state()
+        state.update({
+            "selected_kind": "animation_entity",
+            "selected_collection": "brains",
+            "selected_id": 7,
+        })
+        state["animation_debug"]["track"] = "walk"
+        dropdown_ids = []
+
+        def dropdown(_ui_state, widget_id, _label, value, _options,
+                     *args, **kwargs):
+            dropdown_ids.append(widget_id)
+            return value, False
+
+        with mock.patch.object(g_ui, "ui_begin_panel"), \
+                mock.patch.object(g_ui, "ui_end_panel"), \
+                mock.patch.object(g_ui, "ui_label"), \
+                mock.patch.object(g_ui, "ui_separator"), \
+                mock.patch.object(g_ui, "ui_button", return_value=False), \
+                mock.patch.object(
+                    g_ui, "ui_number_input_float",
+                    side_effect=lambda _state, _id, _label, value,
+                    *_args, **_kwargs: (value, False)), \
+                mock.patch.object(g_ui, "ui_dropdown", side_effect=dropdown), \
+                mock.patch.object(g_editor, "update_animation_debug_shortcuts"):
+            g_editor.draw_animation_debug_inspector(
+                ui_state, state, entities, None,
+            )
+
+        self.assertIn("animation_inspector:facing", dropdown_ids)
 
     def test_animation_keyframe_step_wraps_and_freezes(self):
         state = g_editor.make_editor_state()

@@ -1875,9 +1875,26 @@ PLAYER_CUTOUT_TEXTURE_PATHS = {
     "player_cutout_lower_arm_down": "art/split_player/player_lower_arm_down.png",
 }
 
+REDHEAD_CUTOUT_TEXTURE_PATHS = {
+    f"redhead_cutout_{part}_{direction}":
+        f"art/split_redhead/redhead_{direction}_{part}.png"
+    for direction in ("right", "up", "down")
+    for part in (
+        "head", "torso", "upper_leg", "lower_leg",
+        "upper_arm", "lower_arm",
+    )
+}
+
 
 def ensure_player_cutout_textures(textures):
     for name, path in PLAYER_CUTOUT_TEXTURE_PATHS.items():
+        if name not in textures and os.path.isfile(path):
+            textures[name] = pr.load_texture(path)
+    return textures
+
+
+def ensure_redhead_cutout_textures(textures):
+    for name, path in REDHEAD_CUTOUT_TEXTURE_PATHS.items():
         if name not in textures and os.path.isfile(path):
             textures[name] = pr.load_texture(path)
     return textures
@@ -1895,6 +1912,7 @@ def load_textures():
     result["red_head_texture"] = pr.load_texture("art/RedHead.png")
     result["blue_oxford_texture"] = pr.load_texture("art/blue_oxford.png")
     ensure_player_cutout_textures(result)
+    ensure_redhead_cutout_textures(result)
     result["grey_tile_texture"] = pr.load_texture("art/grey_tile_16x.png")
     result["orange_tile_texture"] = pr.load_texture("art/orange_tile_16x.png")
 
@@ -4096,6 +4114,7 @@ def move_entity_with_velocity(entity, new_entity_velocity, tile_map, debug_queue
 
         animation_direction = direction_from_angle(motion_angle)
 
+        entity["animation_direction"] = animation_direction
         entity["animation_frame"] = (animation_frame_number_from_direction(animation_direction))
 
     return new_entity_position
@@ -4169,6 +4188,79 @@ def ensure_redhead_movement_settings(entity):
     settings = get_redhead_movement_settings(entity)
     entity["movement_settings"] = settings
     return settings
+
+
+def update_redhead_procedural_gait(entity, previous_world_position,
+                                   current_world_position, stride_distance,
+                                   dt):
+    """Blend red-head locomotion from collision-resolved travel and steps."""
+    gait = entity.setdefault("procedural_gait", {
+        "phase": 0.0, "blend": 0.0, "run_blend": 0.0,
+        "mode": "walk", "speed": 0.0,
+    })
+    try:
+        frame_dt = max(0.0, float(dt))
+        travelled = math.hypot(
+            float(current_world_position.get("x", 0.0))
+            - float(previous_world_position.get("x", 0.0)),
+            float(current_world_position.get("y", 0.0))
+            - float(previous_world_position.get("y", 0.0)),
+        )
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        frame_dt = 0.0
+        travelled = 0.0
+    if not math.isfinite(frame_dt) or not math.isfinite(travelled):
+        frame_dt = 0.0
+        travelled = 0.0
+    actual_speed = travelled / max(0.000001, frame_dt)
+    movement = get_redhead_movement_settings(entity)
+    maximum_speed = max(1.0, float(movement["max_speed"]))
+    rig = g_render_order.REDHEAD_CUTOUT_RIG_DEFAULTS
+
+    target_blend = max(0.0, min(1.0, actual_speed / (maximum_speed * 0.35)))
+    blend_step = max(
+        0.0, float(rig["movement_blend_response"]) * frame_dt,
+    )
+    current_blend = max(0.0, min(1.0, float(gait.get("blend", 0.0))))
+    if current_blend < target_blend:
+        current_blend = min(target_blend, current_blend + blend_step)
+    else:
+        current_blend = max(target_blend, current_blend - blend_step)
+
+    run_start = maximum_speed * float(
+        rig["run_blend_start_speed_fraction"]
+    )
+    run_full = maximum_speed * float(
+        rig["run_blend_full_speed_fraction"]
+    )
+    target_run_blend = max(0.0, min(
+        1.0, (actual_speed - run_start) / max(0.000001, run_full - run_start),
+    ))
+    profile_step = max(
+        0.0, float(rig["profile_blend_response"]) * frame_dt,
+    )
+    current_run_blend = max(
+        0.0, min(1.0, float(gait.get("run_blend", 0.0))),
+    )
+    if current_run_blend < target_run_blend:
+        current_run_blend = min(
+            target_run_blend, current_run_blend + profile_step,
+        )
+    else:
+        current_run_blend = max(
+            target_run_blend, current_run_blend - profile_step,
+        )
+
+    gait.update({
+        "phase": g_render_order.player_cutout_gait_phase_from_step_state(
+            entity.get("audio_step_state", {}), stride_distance,
+        ),
+        "blend": current_blend,
+        "run_blend": current_run_blend,
+        "mode": "run" if current_run_blend >= 0.5 else "walk",
+        "speed": actual_speed,
+    })
+    return gait
 
 
 def get_redhead_perception_settings(entity):
@@ -4378,6 +4470,7 @@ def face_redhead_towards_world_position(entity, world_position, tile_map):
         return False
     entity["sight_angle"] = angle_from_vector(direction) % 360.0
     animation_direction = direction_from_angle(entity["sight_angle"])
+    entity["animation_direction"] = animation_direction
     entity["animation_frame"] = animation_frame_number_from_direction(
         animation_direction,
     )
@@ -5098,7 +5191,8 @@ def idle_redhead_state(entity, current_state, player_info, tile_map, debug_queue
             # pick a new random direction...?
     entity["bored_timer"] = bored_timer
 
-    animation_direction = direction_from_angle(entity.get("sight_angle",0)) 
+    animation_direction = direction_from_angle(entity.get("sight_angle",0))
+    entity["animation_direction"] = animation_direction
     entity["animation_frame"] = animation_frame_number_from_direction(animation_direction)
     return next_state
 
@@ -7847,6 +7941,10 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
                     f"enemy:{entity_id}", "enemy", audio_runtime,
                     priority=0.75, gait="walk",
                 )
+            update_redhead_procedural_gait(
+                entity, previous_audio_position, current_audio_position,
+                enemy_stride, dt,
+            )
             if debug_queue is not None:
                 debug_queue.append(
                     make_redhead_hurtbox_debug_item(entity, tile_map)
@@ -8651,6 +8749,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         # cache already exists. Fill only missing entries so no restart is
         # needed and existing GPU resources are not reloaded every frame.
         ensure_player_cutout_textures(textures)
+        ensure_redhead_cutout_textures(textures)
 
     sprite_sheets = game_assets.get("sprite_sheets")
     if not sprite_sheets:

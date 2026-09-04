@@ -491,6 +491,17 @@ PLAYER_ANIMATION_DEBUG_POSE_NAMES = {
     "run": ("contact", "recoil / passing", "opposite contact", "flight / recovery"),
 }
 
+REDHEAD_ANIMATION_DEBUG_POSE_NAMES = {
+    "walk": (
+        "right-foot plant", "waddle across",
+        "left-foot plant", "waddle back",
+    ),
+    "run": (
+        "right-foot impact", "clumsy flight",
+        "left-foot impact", "scramble recovery",
+    ),
+}
+
 
 def player_animation_debug_pose_names(profile_name, profile):
     authored = PLAYER_ANIMATION_DEBUG_POSE_NAMES.get(profile_name, ())
@@ -513,14 +524,15 @@ def animation_debug_tracks_for_entity(entity, collection_name):
         }
     if str(entity.get("type", "")) == "red head":
         return {
-            "direction poses": {
-                "kind": "sprite_frames",
-                "pose_names": ("down", "right", "up", "left"),
-                "frames": (
-                    "down_frame_start", "right_frame_start",
-                    "up_frame_start", "left_frame_start",
+            profile_name: {
+                "kind": "procedural_gait",
+                "pose_names": REDHEAD_ANIMATION_DEBUG_POSE_NAMES.get(
+                    profile_name,
+                    tuple(f"pose {index + 1}" for index in range(len(profile))),
                 ),
-            },
+            }
+            for profile_name, profile in
+            g_render_order.REDHEAD_CUTOUT_GAIT_PROFILES.items()
         }
     return {}
 
@@ -2114,7 +2126,7 @@ def draw_animation_debug_inspector(ui_state, editor_state, entities,
     pose_names = tuple(track.get("pose_names", ("pose",)))
     pose_count = max(1, len(pose_names))
 
-    if collection_name == "player":
+    if track.get("kind") == "procedural_gait":
         debug["facing"], _ = g_ui.ui_dropdown(
             ui_state, "animation_inspector:facing", "facing",
             debug.get("facing", "right"), ("right", "left", "up", "down"),

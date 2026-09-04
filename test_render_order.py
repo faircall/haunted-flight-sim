@@ -191,6 +191,103 @@ class RenderOrderTests(unittest.TestCase):
             part["texture"] for part in parts
         ])
 
+    def test_redhead_builds_layered_cutout_rig_with_legacy_fallback(self):
+        redhead = {
+            "id": 7, "type": "red head", "current_state": "angry chase",
+            "position": {"tile_x": 2, "tile_y": 3, "x": 4.0, "y": 5.0},
+            "animation_direction": "right",
+            "animation_frame": "right_frame_start",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 0.0,
+            },
+        }
+        drawing = g_render_order.build_brain_render_item(
+            7, redhead, self.tile_map, self.assets,
+        )
+        parts = drawing["draw_data"]["cutout_rig_parts"]
+        self.assertEqual(len(parts), 10)
+        self.assertEqual(drawing["screen_snap"], "relative_motion")
+        self.assertIn(
+            "redhead_cutout_torso_right",
+            [part["texture"] for part in parts],
+        )
+        self.assertEqual(parts[-1]["texture"], "redhead_cutout_head_right")
+
+        dead = dict(redhead, current_state="dead")
+        dead_drawing = g_render_order.build_brain_render_item(
+            7, dead, self.tile_map, self.assets,
+        )
+        self.assertEqual(dead_drawing["draw_data"]["cutout_rig_parts"], [])
+
+    def test_redhead_left_pose_mirrors_right_pose(self):
+        entity = {
+            "type": "red head", "animation_direction": "right",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 1.0,
+            },
+        }
+        right = g_render_order.build_redhead_cutout_rig_parts(entity)
+        entity["animation_direction"] = "left"
+        left = g_render_order.build_redhead_cutout_rig_parts(entity)
+        right_leg = self.rig_part(right, "upper_leg", "near")
+        left_leg = self.rig_part(left, "upper_leg", "near")
+        self.assertFalse(right_leg["flip_x"])
+        self.assertTrue(left_leg["flip_x"])
+        self.assertAlmostEqual(
+            right_leg["pivot_local"]["x"] + left_leg["pivot_local"]["x"],
+            g_render_order.REDHEAD_CUTOUT_RIG_DEFAULTS["canvas_size"],
+        )
+        self.assertAlmostEqual(right_leg["rotation"], -left_leg["rotation"])
+
+    def test_redhead_front_facings_use_authored_art_and_mirrored_far_limbs(self):
+        entity = {
+            "type": "red head", "animation_direction": "down",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 0.0,
+            },
+        }
+        down = g_render_order.build_redhead_cutout_rig_parts(entity)
+        self.assertTrue(self.rig_part(
+            down, "upper_leg", "far",
+        )["flip_x"])
+        self.assertFalse(self.rig_part(
+            down, "upper_leg", "near",
+        )["flip_x"])
+        self.assertEqual(down[-1]["texture"], "redhead_cutout_head_down")
+
+        entity["animation_direction"] = "up"
+        up = g_render_order.build_redhead_cutout_rig_parts(entity)
+        self.assertEqual(up[-1]["texture"], "redhead_cutout_head_up")
+        torso_index = next(
+            index for index, part in enumerate(up)
+            if part.get("rig_joint") == "torso"
+        )
+        self.assertTrue(all(
+            index < torso_index for index, part in enumerate(up)
+            if part.get("rig_joint") in {"upper_arm", "lower_arm"}
+        ))
+
+    def test_redhead_walk_sways_and_run_adds_forward_lean(self):
+        entity = {
+            "type": "red head", "animation_direction": "right",
+            "procedural_gait": {
+                "phase": 0.0, "blend": 1.0, "run_blend": 0.0,
+            },
+        }
+        walk_contact = g_render_order.build_redhead_cutout_rig_parts(entity)
+        walk_torso = self.rig_part(walk_contact, "torso")
+        entity["procedural_gait"]["phase"] = math.pi
+        opposite_contact = g_render_order.build_redhead_cutout_rig_parts(entity)
+        opposite_torso = self.rig_part(opposite_contact, "torso")
+        self.assertGreater(
+            walk_torso["body_sway"], opposite_torso["body_sway"],
+        )
+
+        entity["procedural_gait"].update({"phase": 0.0, "run_blend": 1.0})
+        run = g_render_order.build_redhead_cutout_rig_parts(entity)
+        run_torso = self.rig_part(run, "torso")
+        self.assertGreater(run_torso["rotation"], walk_torso["rotation"])
+
     def test_near_and_far_limbs_use_independent_poses_and_shared_art(self):
         player = {
             "id": "player",

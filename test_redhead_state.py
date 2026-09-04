@@ -1,3 +1,4 @@
+import math
 import unittest
 from unittest import mock
 
@@ -768,6 +769,28 @@ class RedheadLocomotionTests(unittest.TestCase):
         self.assertEqual(settings["arrival_radius"], 6.0)
         self.assertEqual(settings["evade_speed_multiplier"], 1.25)
         self.assertIs(self.entity["movement_settings"], settings)
+
+    def test_procedural_gait_uses_resolved_speed_and_footstep_phase(self):
+        self.entity["audio_step_state"] = {
+            "distance": 7.5, "stride_index": 1,
+        }
+        gait = game.update_redhead_procedural_gait(
+            self.entity, {"x": 0.0, "y": 0.0},
+            {"x": 7.0, "y": 0.0}, 15.0, 0.1,
+        )
+        self.assertAlmostEqual(gait["speed"], 70.0)
+        self.assertEqual(gait["blend"], 1.0)
+        self.assertGreater(gait["run_blend"], 0.5)
+        self.assertEqual(gait["mode"], "run")
+        self.assertAlmostEqual(gait["phase"], math.pi * 1.5)
+
+        stopped = game.update_redhead_procedural_gait(
+            self.entity, {"x": 7.0, "y": 0.0},
+            {"x": 7.0, "y": 0.0}, 15.0, 0.1,
+        )
+        self.assertEqual(stopped["blend"], 0.0)
+        self.assertEqual(stopped["run_blend"], 0.0)
+        self.assertEqual(stopped["mode"], "walk")
 
     def test_pursuit_waypoints_route_collision_center_around_wall(self):
         tile_map = game.make_tile_map(10, 8, 16, 16)

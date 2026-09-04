@@ -123,6 +123,113 @@ PLAYER_CUTOUT_DIRECTION_TEXTURES = {
     },
 }
 
+# The red head uses the same aligned-canvas cutout convention as the player,
+# but keeps its smaller 24x24 authored silhouette.  Left mirrors the right
+# artwork; front and back have their own head/torso readability.
+REDHEAD_CUTOUT_TEXTURES = {
+    direction: {
+        part: f"redhead_cutout_{part}_{direction}"
+        for part in (
+            "head", "torso", "upper_leg", "lower_leg",
+            "upper_arm", "lower_arm",
+        )
+    }
+    for direction in ("right", "up", "down")
+}
+
+REDHEAD_CUTOUT_RIG_DEFAULTS = {
+    "enabled": True,
+    "canvas_size": 24.0,
+    "footfall_phase_degrees": 0.0,
+    "movement_blend_response": 16.0,
+    "profile_blend_response": 8.0,
+    "run_blend_start_speed_fraction": 0.52,
+    "run_blend_full_speed_fraction": 0.90,
+    "far_limb_tint": [182, 188, 184, 255],
+    "side": {
+        "hip": {"x": 11.5, "y": 16.5},
+        "near_hip": {"x": 11.5, "y": 16.5},
+        "far_hip": {"x": 12.25, "y": 16.5},
+        "knee": {"x": 11.5, "y": 18.5},
+        "foot": {"x": 11.5, "y": 21.0},
+        "neck": {"x": 11.5, "y": 13.0},
+        "shoulder": {"x": 12.5, "y": 13.5},
+        "near_shoulder": {"x": 12.5, "y": 13.5},
+        "far_shoulder": {"x": 11.75, "y": 13.5},
+        "elbow": {"x": 12.5, "y": 15.5},
+        "hand": {"x": 12.5, "y": 17.5},
+    },
+    "front": {
+        "hip": {"x": 12.0, "y": 16.5},
+        "limb_hip": {"x": 13.5, "y": 16.5},
+        "knee": {"x": 13.5, "y": 18.5},
+        "foot": {"x": 13.5, "y": 21.0},
+        "neck": {"x": 11.5, "y": 13.0},
+        "shoulder": {"x": 13.5, "y": 13.5},
+        # The diagonal arm pieces meet at the first pixel of the lower arm.
+        "elbow": {"x": 15.5, "y": 14.5},
+        "hand": {"x": 17.5, "y": 16.5},
+    },
+}
+
+# A four-pose two-step cycle. Walking deliberately transfers the body over
+# each planted foot for a playful penguin-like sway. Running retains that
+# imbalance while adding a pronounced forward pitch and uneven flight poses.
+REDHEAD_CUTOUT_GAIT_PROFILES = {
+    "walk": [
+        {"near_upper_leg_degrees": 12.0, "near_knee_bend_degrees": -5.0,
+         "far_upper_leg_degrees": -13.0, "far_knee_bend_degrees": 12.0,
+         "near_upper_arm_degrees": -12.0, "near_elbow_bend_degrees": 4.0,
+         "far_upper_arm_degrees": 12.0, "far_elbow_bend_degrees": -4.0,
+         "body_x_pixels": 0.75, "body_y_pixels": 0.0,
+         "side_torso_degrees": 4.0, "front_torso_degrees": 5.0},
+        {"near_upper_leg_degrees": -3.0, "near_knee_bend_degrees": 18.0,
+         "far_upper_leg_degrees": 4.0, "far_knee_bend_degrees": 5.0,
+         "near_upper_arm_degrees": 3.0, "near_elbow_bend_degrees": 5.0,
+         "far_upper_arm_degrees": -4.0, "far_elbow_bend_degrees": 5.0,
+         "body_x_pixels": 0.10, "body_y_pixels": -0.35,
+         "side_torso_degrees": -1.0, "front_torso_degrees": 0.5},
+        {"near_upper_leg_degrees": -13.0, "near_knee_bend_degrees": 12.0,
+         "far_upper_leg_degrees": 12.0, "far_knee_bend_degrees": -5.0,
+         "near_upper_arm_degrees": 12.0, "near_elbow_bend_degrees": -4.0,
+         "far_upper_arm_degrees": -12.0, "far_elbow_bend_degrees": 4.0,
+         "body_x_pixels": -0.75, "body_y_pixels": 0.0,
+         "side_torso_degrees": -4.0, "front_torso_degrees": -5.0},
+        {"near_upper_leg_degrees": 4.0, "near_knee_bend_degrees": 5.0,
+         "far_upper_leg_degrees": -3.0, "far_knee_bend_degrees": 18.0,
+         "near_upper_arm_degrees": -4.0, "near_elbow_bend_degrees": 5.0,
+         "far_upper_arm_degrees": 3.0, "far_elbow_bend_degrees": 5.0,
+         "body_x_pixels": -0.10, "body_y_pixels": -0.35,
+         "side_torso_degrees": 1.0, "front_torso_degrees": -0.5},
+    ],
+    "run": [
+        {"near_upper_leg_degrees": 42.0, "near_knee_bend_degrees": 24.0,
+         "far_upper_leg_degrees": -34.0, "far_knee_bend_degrees": 35.0,
+         "near_upper_arm_degrees": -38.0, "near_elbow_bend_degrees": 18.0,
+         "far_upper_arm_degrees": 34.0, "far_elbow_bend_degrees": 8.0,
+         "body_x_pixels": 0.45, "body_y_pixels": 0.0,
+         "side_torso_degrees": 14.0, "front_torso_degrees": 4.0},
+        {"near_upper_leg_degrees": -8.0, "near_knee_bend_degrees": 48.0,
+         "far_upper_leg_degrees": 14.0, "far_knee_bend_degrees": 34.0,
+         "near_upper_arm_degrees": -12.0, "near_elbow_bend_degrees": 20.0,
+         "far_upper_arm_degrees": 18.0, "far_elbow_bend_degrees": 15.0,
+         "body_x_pixels": -0.20, "body_y_pixels": -1.20,
+         "side_torso_degrees": 20.0, "front_torso_degrees": -3.0},
+        {"near_upper_leg_degrees": -34.0, "near_knee_bend_degrees": 35.0,
+         "far_upper_leg_degrees": 42.0, "far_knee_bend_degrees": 24.0,
+         "near_upper_arm_degrees": 34.0, "near_elbow_bend_degrees": 8.0,
+         "far_upper_arm_degrees": -38.0, "far_elbow_bend_degrees": 18.0,
+         "body_x_pixels": -0.45, "body_y_pixels": 0.0,
+         "side_torso_degrees": 13.0, "front_torso_degrees": -4.0},
+        {"near_upper_leg_degrees": 14.0, "near_knee_bend_degrees": 34.0,
+         "far_upper_leg_degrees": -8.0, "far_knee_bend_degrees": 48.0,
+         "near_upper_arm_degrees": 18.0, "near_elbow_bend_degrees": 15.0,
+         "far_upper_arm_degrees": -12.0, "far_elbow_bend_degrees": 20.0,
+         "body_x_pixels": 0.25, "body_y_pixels": -0.85,
+         "side_torso_degrees": 22.0, "front_torso_degrees": 3.0},
+    ],
+}
+
 # Arm pivots are taken from the authored neutral and aimed references. The
 # actual arm textures stay in their clean vertical bind pose; two-bone IK bends
 # that chain while the hand smoothsteps between hanging and fully aimed.
@@ -704,8 +811,10 @@ def _rotate_rig_vector(x, y, angle_degrees):
 def _make_player_cutout_part(texture_name, source_pivot, target_pivot,
                               rotation, facing_left=False, tint=None,
                               source_canvas_width=None, scale_x=1.0,
-                              scale_y=1.0):
-    canvas_size = float(PLAYER_CUTOUT_RIG_DEFAULTS["canvas_size"])
+                              scale_y=1.0, target_canvas_width=None):
+    canvas_size = float(
+        target_canvas_width or PLAYER_CUTOUT_RIG_DEFAULTS["canvas_size"]
+    )
     source_canvas_width = float(source_canvas_width or canvas_size)
     target_x = float(target_pivot["x"])
     origin_x = float(source_pivot["x"])
@@ -2238,6 +2347,229 @@ def build_player_cutout_rig_parts(player_entity):
     return []
 
 
+def _blended_redhead_cutout_gait_pose(phase, run_blend):
+    walk = sample_player_cutout_gait_profile(
+        REDHEAD_CUTOUT_GAIT_PROFILES["walk"], phase,
+    )
+    run = sample_player_cutout_gait_profile(
+        REDHEAD_CUTOUT_GAIT_PROFILES["run"], phase,
+    )
+    amount = max(0.0, min(1.0, float(run_blend)))
+    return {
+        key: float(walk.get(key, 0.0)) + (
+            float(run.get(key, walk.get(key, 0.0)))
+            - float(walk.get(key, 0.0))
+        ) * amount
+        for key in walk
+    }
+
+
+def _make_redhead_cutout_part(texture_name, source_pivot, target_pivot,
+                               rotation, mirror=False, tint=None):
+    canvas_size = float(REDHEAD_CUTOUT_RIG_DEFAULTS["canvas_size"])
+    return _make_player_cutout_part(
+        texture_name, source_pivot, target_pivot, rotation,
+        facing_left=mirror, tint=tint,
+        source_canvas_width=canvas_size,
+        target_canvas_width=canvas_size,
+    )
+
+
+def build_redhead_cutout_rig_parts(entity):
+    """Build the red head's cardinal, speed-blended procedural locomotion."""
+    settings = REDHEAD_CUTOUT_RIG_DEFAULTS
+    if (not settings.get("enabled", True)
+            or entity.get("current_state") == "dead"):
+        return []
+    direction = entity.get("animation_direction")
+    if direction is None:
+        frame_name = str(entity.get("animation_frame", ""))
+        direction = next((
+            name for name in ("left", "right", "up", "down")
+            if frame_name.startswith(name)
+        ), None)
+    if direction not in {"left", "right", "up", "down"}:
+        return []
+
+    gait = entity.get("procedural_gait", {})
+    try:
+        phase = (
+            float(gait.get("phase", 0.0))
+            + math.radians(float(settings["footfall_phase_degrees"]))
+        ) % math.tau
+        blend = max(0.0, min(1.0, float(gait.get("blend", 0.0))))
+        run_blend = max(
+            0.0, min(1.0, float(gait.get("run_blend", 0.0)))
+        )
+    except (TypeError, ValueError, OverflowError):
+        phase = 0.0
+        blend = 0.0
+        run_blend = 0.0
+    if not math.isfinite(phase):
+        phase = 0.0
+    if not math.isfinite(blend):
+        blend = 0.0
+    if not math.isfinite(run_blend):
+        run_blend = 0.0
+
+    pose = _blended_redhead_cutout_gait_pose(phase, run_blend)
+    front_facing = direction in {"up", "down"}
+    rig = settings["front" if front_facing else "side"]
+    texture_direction = direction if direction != "left" else "right"
+    textures = REDHEAD_CUTOUT_TEXTURES[texture_direction]
+    facing_left = direction == "left"
+    body_x = float(pose.get("body_x_pixels", 0.0)) * blend
+    body_y = float(pose.get("body_y_pixels", 0.0)) * blend
+    torso_key = (
+        "front_torso_degrees" if front_facing else "side_torso_degrees"
+    )
+    torso_angle = float(pose.get(torso_key, 0.0)) * blend
+    bind_hip = rig["hip"]
+    body_hip = {
+        "x": float(bind_hip["x"]) + body_x,
+        "y": float(bind_hip["y"]) + body_y,
+    }
+    neck = rig["neck"]
+    neck_offset = _rotate_rig_vector(
+        float(neck["x"]) - float(bind_hip["x"]),
+        float(neck["y"]) - float(bind_hip["y"]), torso_angle,
+    )
+    body_neck = {
+        "x": body_hip["x"] + neck_offset["x"],
+        "y": body_hip["y"] + neck_offset["y"],
+    }
+
+    torso = _make_redhead_cutout_part(
+        textures["torso"], bind_hip, body_hip, torso_angle, facing_left,
+    )
+    torso.update({
+        "rig_joint": "torso", "body_bob": body_y,
+        "body_sway": body_x,
+    })
+    head = _make_redhead_cutout_part(
+        textures["head"], neck, body_neck, 0.0, facing_left,
+    )
+    head.update({"rig_joint": "head"})
+
+    if front_facing:
+        source_hip = rig["limb_hip"]
+        source_shoulder = rig["shoulder"]
+    else:
+        source_hip = rig["hip"]
+        source_shoulder = rig["shoulder"]
+    source_knee = rig["knee"]
+    source_foot = rig["foot"]
+    source_elbow = rig["elbow"]
+    upper_leg_vector = {
+        "x": float(source_knee["x"]) - float(source_hip["x"]),
+        "y": float(source_knee["y"]) - float(source_hip["y"]),
+    }
+    upper_arm_vector = {
+        "x": float(source_elbow["x"]) - float(source_shoulder["x"]),
+        "y": float(source_elbow["y"]) - float(source_shoulder["y"]),
+    }
+
+    legs = {}
+    arms = {}
+    for is_far in (True, False):
+        side = "far" if is_far else "near"
+        mirror_part = facing_left or (front_facing and is_far)
+        tint = settings["far_limb_tint"] if is_far else None
+        # Front-facing far pieces are mirrored by the part renderer. Build
+        # their canonical pivots with inverse body sway so both sides follow
+        # the same screen-space weight transfer after mirroring.
+        canonical_body_hip = dict(body_hip)
+        if front_facing and is_far:
+            canonical_body_hip["x"] = float(bind_hip["x"]) - body_x
+
+        if front_facing:
+            hip_attachment = source_hip
+            shoulder_attachment = source_shoulder
+        else:
+            hip_attachment = rig[f"{side}_hip"]
+            shoulder_attachment = rig[f"{side}_shoulder"]
+        hip_offset = _rotate_rig_vector(
+            float(hip_attachment["x"]) - float(bind_hip["x"]),
+            float(hip_attachment["y"]) - float(bind_hip["y"]),
+            torso_angle,
+        )
+        shoulder_offset = _rotate_rig_vector(
+            float(shoulder_attachment["x"]) - float(bind_hip["x"]),
+            float(shoulder_attachment["y"]) - float(bind_hip["y"]),
+            torso_angle,
+        )
+        target_hip = {
+            "x": canonical_body_hip["x"] + hip_offset["x"],
+            "y": canonical_body_hip["y"] + hip_offset["y"],
+        }
+        target_shoulder = {
+            "x": canonical_body_hip["x"] + shoulder_offset["x"],
+            "y": canonical_body_hip["y"] + shoulder_offset["y"],
+        }
+
+        upper_leg_angle = float(
+            pose.get(f"{side}_upper_leg_degrees", 0.0)
+        ) * blend
+        lower_leg_angle = upper_leg_angle + float(
+            pose.get(f"{side}_knee_bend_degrees", 0.0)
+        ) * blend
+        knee_offset = _rotate_rig_vector(
+            upper_leg_vector["x"], upper_leg_vector["y"],
+            upper_leg_angle,
+        )
+        target_knee = {
+            "x": target_hip["x"] + knee_offset["x"],
+            "y": target_hip["y"] + knee_offset["y"],
+        }
+        upper_leg = _make_redhead_cutout_part(
+            textures["upper_leg"], source_hip, target_hip,
+            upper_leg_angle, mirror_part, tint,
+        )
+        lower_leg = _make_redhead_cutout_part(
+            textures["lower_leg"], source_knee, target_knee,
+            lower_leg_angle, mirror_part, tint,
+        )
+        upper_leg.update({"rig_side": side, "rig_joint": "upper_leg"})
+        lower_leg.update({"rig_side": side, "rig_joint": "lower_leg"})
+        legs[side] = [lower_leg, upper_leg]
+
+        upper_arm_angle = torso_angle + float(
+            pose.get(f"{side}_upper_arm_degrees", 0.0)
+        ) * blend
+        lower_arm_angle = upper_arm_angle + float(
+            pose.get(f"{side}_elbow_bend_degrees", 0.0)
+        ) * blend
+        elbow_offset = _rotate_rig_vector(
+            upper_arm_vector["x"], upper_arm_vector["y"],
+            upper_arm_angle,
+        )
+        target_elbow = {
+            "x": target_shoulder["x"] + elbow_offset["x"],
+            "y": target_shoulder["y"] + elbow_offset["y"],
+        }
+        upper_arm = _make_redhead_cutout_part(
+            textures["upper_arm"], source_shoulder, target_shoulder,
+            upper_arm_angle, mirror_part, tint,
+        )
+        lower_arm = _make_redhead_cutout_part(
+            textures["lower_arm"], source_elbow, target_elbow,
+            lower_arm_angle, mirror_part, tint,
+        )
+        upper_arm.update({"rig_side": side, "rig_joint": "upper_arm"})
+        lower_arm.update({"rig_side": side, "rig_joint": "lower_arm"})
+        arms[side] = [lower_arm, upper_arm]
+
+    if direction == "up":
+        return [
+            *arms["far"], *legs["far"], *legs["near"],
+            *arms["near"], torso, head,
+        ]
+    return [
+        *arms["far"], *legs["far"], torso,
+        *legs["near"], *arms["near"], head,
+    ]
+
+
 def player_cutout_gun_barrel_world(player_entity, tile_map):
     """Return the rendered gun-tip position and direction in world space."""
     parts = build_player_cutout_rig_parts(player_entity)
@@ -2433,7 +2765,19 @@ def build_brain_render_item(object_id, entity, tile_map, game_assets):
     if entity_type == "red head":
         sprite_sheet = game_assets.get("sprite_sheets", {}).get("red_head_texture_sheet", {})
         frame_number = sprite_sheet.get(entity.get("animation_frame", 0), 0)
-        return make_world_render_item("entity", entity_type, f"brains:{object_id}", object_id, entity, world_position, 24.0, 24.0, make_texture_reference("sprite_sheets", "red_head_texture_sheet", "sheet"), {"x": float(frame_number) * 24.0, "y": 0.0, "width": 24.0, "height": 24.0})
+        cutout_parts = build_redhead_cutout_rig_parts(entity)
+        render_item = make_world_render_item(
+            "entity", entity_type, f"brains:{object_id}", object_id,
+            entity, world_position, 24.0, 24.0,
+            make_texture_reference(
+                "sprite_sheets", "red_head_texture_sheet", "sheet",
+            ),
+            {"x": float(frame_number) * 24.0, "y": 0.0,
+             "width": 24.0, "height": 24.0},
+            {"cutout_rig_parts": cutout_parts},
+        )
+        render_item["screen_snap"] = "relative_motion"
+        return render_item
     width = _asset_dimension(game_assets, "textures", "buddha_texture", "width", 128.0)
     height = _asset_dimension(game_assets, "textures", "buddha_texture", "height", 128.0)
     return make_world_render_item("entity", entity_type, f"brains:{object_id}", object_id, entity, world_position, width, height, make_texture_reference("textures", "buddha_texture"), {"x": 0.0, "y": 0.0, "width": width, "height": height})

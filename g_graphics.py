@@ -1670,7 +1670,7 @@ def _color_from_components(components):
     ])
 
 
-def _draw_player_cutout_rig(render_item, game_camera, game_assets):
+def _draw_cutout_rig(render_item, game_camera, game_assets):
     parts = render_item.get("draw_data", {}).get("cutout_rig_parts", [])
     if not parts or game_assets is None:
         return False
@@ -1739,8 +1739,7 @@ def _draw_player_cutout_rig(render_item, game_camera, game_assets):
 
 def _draw_render_item_main_shape(render_item, texture, game_camera,
                                  game_assets=None):
-    if (render_item.get("source") == "player"
-            and _draw_player_cutout_rig(render_item, game_camera, game_assets)):
+    if _draw_cutout_rig(render_item, game_camera, game_assets):
         return
     source = render_item["source_rect"]
     destination = render_item["dest_rect"]
