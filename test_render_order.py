@@ -301,7 +301,7 @@ class RenderOrderTests(unittest.TestCase):
         lifts = []
         for run in (0.0, 1.0):
             feet = []
-            for phase in (0.0, math.pi / 2):
+            for phase in (0.0, 3 * math.pi / 2):
                 parts = g_render_order.build_redhead_cutout_rig_parts({
                     "animation_direction": "right",
                     "procedural_gait": {"phase": phase, "blend": 1.0,
@@ -319,7 +319,7 @@ class RenderOrderTests(unittest.TestCase):
         self.assertGreater(lifts[0], 1.0)
         self.assertGreater(lifts[1], lifts[0] + 1.0)
 
-    def test_redhead_walk_sways_and_run_adds_forward_lean(self):
+    def test_redhead_walk_keeps_forward_lean_and_run_adds_pitch(self):
         entity = {
             "type": "red head", "animation_direction": "right",
             "procedural_gait": {
@@ -331,9 +331,10 @@ class RenderOrderTests(unittest.TestCase):
         entity["procedural_gait"]["phase"] = math.pi
         opposite_contact = g_render_order.build_redhead_cutout_rig_parts(entity)
         opposite_torso = self.rig_part(opposite_contact, "torso")
-        self.assertGreater(
-            walk_torso["body_sway"], opposite_torso["body_sway"],
-        )
+        self.assertEqual(walk_torso["body_sway"], 0.0)
+        self.assertEqual(opposite_torso["body_sway"], 0.0)
+        self.assertGreater(walk_torso["rotation"], 0.0)
+        self.assertGreater(opposite_torso["rotation"], 0.0)
 
         entity["procedural_gait"].update({"phase": 0.0, "run_blend": 1.0})
         run = g_render_order.build_redhead_cutout_rig_parts(entity)
