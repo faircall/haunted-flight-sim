@@ -267,6 +267,58 @@ class RenderOrderTests(unittest.TestCase):
             if part.get("rig_joint") in {"upper_arm", "lower_arm"}
         ))
 
+    def test_redhead_front_feet_stay_in_vertical_lanes_through_blends(self):
+        for direction in ("up", "down"):
+            for run in (0.0, 0.5, 1.0):
+                tracks = {side: [] for side in ("near", "far")}
+                for step in range(32):
+                    parts = g_render_order.build_redhead_cutout_rig_parts({
+                        "animation_direction": direction,
+                        "procedural_gait": {"phase": step * math.tau / 32,
+                                            "blend": 1.0, "run_blend": run},
+                    })
+                    for side in tracks:
+                        leg = self.rig_part(parts, "lower_leg", side)
+                        self.assertEqual(leg["rotation"], 0.0)
+                        tracks[side].append(leg["pivot_local"])
+                for track in tracks.values():
+                    self.assertLess(max(p["x"] for p in track)
+                                    - min(p["x"] for p in track), 0.001)
+                    self.assertGreater(max(p["y"] for p in track)
+                                       - min(p["y"] for p in track), 1.0)
+                self.assertGreater(tracks["near"][0]["x"], tracks["far"][0]["x"])
+
+    def test_redhead_side_recovery_lifts_foot_and_run_reaches_forward(self):
+        def endpoint(part, source):
+            offset = g_render_order._rotate_rig_vector(
+                source["x"] - part["origin"]["x"],
+                source["y"] - part["origin"]["y"], part["rotation"],
+            )
+            return {axis: part["pivot_local"][axis] + offset[axis]
+                    for axis in ("x", "y")}
+
+        rig = g_render_order.REDHEAD_CUTOUT_RIG_DEFAULTS["side"]
+        lifts = []
+        for run in (0.0, 1.0):
+            feet = []
+            for phase in (0.0, math.pi / 2):
+                parts = g_render_order.build_redhead_cutout_rig_parts({
+                    "animation_direction": "right",
+                    "procedural_gait": {"phase": phase, "blend": 1.0,
+                                        "run_blend": run},
+                })
+                feet.append(endpoint(self.rig_part(parts, "lower_leg", "near"),
+                                     rig["foot"])["y"])
+                if run == 1.0:
+                    hands = [endpoint(self.rig_part(parts, "lower_arm", side),
+                                      rig["hand"])["x"]
+                             for side in ("near", "far")]
+                    torso_x = self.rig_part(parts, "torso")["pivot_local"]["x"]
+                    self.assertGreater(max(hands), torso_x + 2.0)
+            lifts.append(feet[0] - feet[1])
+        self.assertGreater(lifts[0], 1.0)
+        self.assertGreater(lifts[1], lifts[0] + 1.0)
+
     def test_redhead_walk_sways_and_run_adds_forward_lean(self):
         entity = {
             "type": "red head", "animation_direction": "right",

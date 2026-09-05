@@ -1670,6 +1670,15 @@ def _color_from_components(components):
     ])
 
 
+def draw_screen_cutout_preview(parts, origin, zoom, game_assets):
+    """Use the regular cutout renderer at a fixed UI origin, independent of camera."""
+    scaled = [dict(part, pivot_local={axis: value * zoom for axis, value in part["pivot_local"].items()},
+                   scale={axis: part.get("scale", {}).get(axis, 1.0) * zoom for axis in ("x", "y")})
+              for part in parts]
+    return _draw_cutout_rig({"dest_rect": origin, "draw_data": {"cutout_rig_parts": scaled}},
+                            pr.Vector2(0, 0), game_assets)
+
+
 def _draw_cutout_rig(render_item, game_camera, game_assets):
     parts = render_item.get("draw_data", {}).get("cutout_rig_parts", [])
     if not parts or game_assets is None:

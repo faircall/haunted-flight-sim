@@ -4,6 +4,9 @@ import sys
 import os
 import importlib
 import time
+import g_animation
+import g_animation_authoring
+import g_animation_editor_ui
 from pyrsistent import m, pmap, v
 
 import cyminiaudio as cma
@@ -16,6 +19,11 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_animation_redhead_data", g_animation.data),
+    ("g_animation_player_data", g_animation_authoring.player_data),
+    ("g_animation", g_animation),
+    ("g_animation_authoring", g_animation_authoring),
+    ("g_animation_editor_ui", g_animation_editor_ui),
     ("g_audio", update_and_render_module.g_audio),
     ("g_light_visibility", update_and_render_module.g_graphics.light_visibility),
     ("g_effects", update_and_render_module.g_effects),
@@ -151,11 +159,16 @@ def reload_modules_if_needed(module_write_times, game_assets=None):
                 if name == "g_audio" and game_assets is not None:
                     mod.shutdown_audio_runtime(game_assets)
                     game_assets.pop("audio_runtime", None)
-                mod = importlib.reload(mod)
+                if name == "g_animation_redhead_data":
+                    g_animation_authoring.reload_data()
+                elif name == "g_animation_player_data":
+                    g_animation_authoring.reload_data(character="player")
+                else:
+                    mod = importlib.reload(mod)
                 render_error_message("reloaded module!")
                 module_write_times[name] = get_file_write_time(file_name)
                 reloaded_module_names.add(name)
-            except (ImportError, SyntaxError) as e:
+            except (ImportError, SyntaxError, ValueError, OSError, TypeError) as e:
                 render_error_message(f"An error occurred while reloading the file: {e}")
 
     return reloaded_module_names

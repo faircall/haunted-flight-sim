@@ -3,6 +3,8 @@ import math
 
 import pyray as pr
 
+import g_animation_editor_ui
+import g_animation_authoring
 import g_audio
 import g_effects
 import g_render_order
@@ -49,6 +51,8 @@ def make_editor_state():
             "phase": 0.0,
             "cycle_seconds": 1.0,
             "target_key": None,
+            "preview_source": "Level selection",
+            "preview_zoom": "4x",
         },
         "rain_debug": {
             "show_exposure_overlay": False,
@@ -429,7 +433,24 @@ def iter_animation_debug_entities(entities, player_entity=None):
                 yield collection_name, entity_id, entity
 
 
+ANIMATION_PREVIEW_SOURCES = ("Level selection", "Redhead preview", "Player preview")
+
+
+def animation_preview_identity(editor_state):
+    source = editor_state.get("animation_debug", {}).get("preview_source", "Level selection")
+    if source in ANIMATION_PREVIEW_SOURCES[1:]:
+        return "__animation_preview__", source
+    return editor_state.get("selected_collection"), editor_state.get("selected_id")
+
+
 def get_selected_animation_entity(entities, player_entity, editor_state):
+    collection, source = animation_preview_identity(editor_state)
+    if collection == "__animation_preview__":
+        # Disposable render-only specimens: never inserted into a level collection.
+        return {"id": "player" if source == "Player preview" else "animation_preview",
+                "type": "player" if source == "Player preview" else "red head",
+                "animation_direction": "right"}
+
     if editor_state.get("selected_kind") != "animation_entity":
         return None
     collection_name = editor_state.get("selected_collection")
@@ -477,6 +498,7 @@ def select_animation_entity_at(entities, player_entity, editor_state,
         })
         return None
     chosen = min(candidates, key=lambda candidate: candidate["sort_key"])
+    editor_state.setdefault("animation_debug", {})["preview_source"] = "Level selection"
     editor_state.update({
         "selected_kind": "animation_entity",
         "selected_collection": chosen["collection"],
@@ -489,17 +511,6 @@ def select_animation_entity_at(entities, player_entity, editor_state,
 PLAYER_ANIMATION_DEBUG_POSE_NAMES = {
     "walk": ("contact", "passing", "opposite contact", "recovery"),
     "run": ("contact", "recoil / passing", "opposite contact", "flight / recovery"),
-}
-
-REDHEAD_ANIMATION_DEBUG_POSE_NAMES = {
-    "walk": (
-        "right-foot plant", "waddle across",
-        "left-foot plant", "waddle back",
-    ),
-    "run": (
-        "right-foot impact", "clumsy flight",
-        "left-foot impact", "scramble recovery",
-    ),
 }
 
 
@@ -526,7 +537,7 @@ def animation_debug_tracks_for_entity(entity, collection_name):
         return {
             profile_name: {
                 "kind": "procedural_gait",
-                "pose_names": REDHEAD_ANIMATION_DEBUG_POSE_NAMES.get(
+                "pose_names": g_animation_authoring.data.REDHEAD_ANIMATION_DEBUG_POSE_NAMES.get(
                     profile_name,
                     tuple(f"pose {index + 1}" for index in range(len(profile))),
                 ),
@@ -546,8 +557,7 @@ def update_animation_debug_preview(editor_state, editor_mode, entities,
     )
     if entity is None:
         return None
-    collection_name = editor_state.get("selected_collection")
-    entity_id = editor_state.get("selected_id")
+    collection_name, entity_id = animation_preview_identity(editor_state)
     tracks = animation_debug_tracks_for_entity(entity, collection_name)
     if not tracks:
         return None
@@ -596,6 +606,8 @@ def update_animation_debug_preview(editor_state, editor_mode, entities,
         phase = math.tau * keyframe / pose_count
     debug["phase"] = phase
     debug["keyframe"] = keyframe
+    # A separate clock keeps the selection visible even on a frozen keyframe.
+    debug["highlight_time"] = (debug.get("highlight_time", 0.0) + max(0.0, float(dt))) % 1.0
 
     fields = {}
     if track.get("kind") == "procedural_gait":
@@ -626,6 +638,17 @@ def update_animation_debug_preview(editor_state, editor_mode, entities,
         frames = tuple(track.get("frames", ()))
         if frames:
             fields["animation_frame"] = frames[keyframe % len(frames)]
+
+    character = "player" if entity.get("id") == "player" or collection_name == "player" else "redhead"
+    draft = editor_state.get(character + "_animation_draft")
+    if draft and draft.get("preview"):
+        fields["animation_profile_override"] = draft["document"]
+    if (debug.get("authoring")
+            and debug.get("highlight_component")):
+        fields["animation_component_highlight"] = {
+            "field": debug.get("edit_field", ""),
+            "amount": 0.5 + 0.5 * math.cos(debug["highlight_time"] * math.tau * 2.0),
+        }
 
     return {
         "collection": collection_name,
@@ -732,6 +755,8 @@ def draw_gameplay_entity_selection(editor_state, entities, game_camera, tile_map
 
 def draw_animation_entity_selection(editor_state, entities, player_entity,
                                     game_camera, tile_map):
+    if animation_preview_identity(editor_state)[0] == "__animation_preview__":
+        return
     entity = get_selected_animation_entity(
         entities, player_entity, editor_state,
     )
@@ -2061,6 +2086,42 @@ def update_animation_debug_shortcuts(editor_state, pose_count, ui_state):
         step_animation_debug_keyframe(editor_state, pose_count, 1)
 
 
+def draw_fixed_animation_preview(ui_state, editor_state, entities, player_entity, game_assets):
+    if (animation_preview_identity(editor_state)[0] != "__animation_preview__"
+            or ui_state.get("open_dropdown_id") == "toolbar:mode"):
+        return
+    import g_graphics
+
+    stage = pr.Rectangle(8, 48, 288, 212)
+    g_ui.ui_hover(ui_state, "animation:stage", stage, False)
+    pr.draw_rectangle_rec(stage, g_ui.UI_BACKGROUND)
+    pr.draw_rectangle_lines_ex(stage, 1, g_ui.UI_NORMAL)
+    debug = editor_state["animation_debug"]
+    preview = update_animation_debug_preview(editor_state, "animation", entities, player_entity, 0.0)
+    if preview is None:
+        return
+    specimen = get_selected_animation_entity(entities, player_entity, editor_state)
+    specimen.update(preview["fields"])
+    player = specimen["id"] == "player"
+    parts = (g_render_order.build_player_cutout_rig_parts(specimen) if player
+             else g_render_order.build_redhead_cutout_rig_parts(specimen))
+    scale = float(debug["preview_zoom"][:-1])
+    canvas = 32.0 if player else 24.0
+    ground_y = 232.0
+    origin = {"x": 152.0 - canvas * scale / 2,
+              "y": ground_y - (30.0 if player else 21.0) * scale}
+    pr.draw_line(28, int(ground_y), 276, int(ground_y), g_ui.UI_NORMAL)
+    pr.begin_scissor_mode(9, 72, 286, 180)
+    drawn = g_graphics.draw_screen_cutout_preview(parts, origin, scale, game_assets)
+    pr.end_scissor_mode()
+    if not drawn:
+        pr.draw_text("Preview textures unavailable", 18, 86, 8, g_ui.UI_MUTED)
+
+    debug["preview_zoom"], _ = g_ui.ui_dropdown(
+        ui_state, "animation:zoom", "", debug.get("preview_zoom", "4x"),
+        ("1x", "2x", "4x", "6x"), pr.Rectangle(250, 52, 40, 16), max_visible=4)
+
+
 def draw_animation_debug_inspector(ui_state, editor_state, entities,
                                    player_entity):
     collapse_rect = pr.Rectangle(308, 40, 14, 14)
@@ -2089,16 +2150,27 @@ def draw_animation_debug_inspector(ui_state, editor_state, entities,
         g_ui.ui_end_panel(ui_state)
         return
 
-    collection_name = editor_state.get("selected_collection")
-    entity_id = editor_state.get("selected_id")
+    collection_name, entity_id = animation_preview_identity(editor_state)
     entity_name = (
         "player" if collection_name == "player"
         else str(entity.get("type", "entity"))
     )
     g_ui.ui_label(
         ui_state, "animation_inspector:selected",
-        f"{entity_name} [{entity_id}]", color=g_ui.UI_ACCENT, font_size=8,
+        (entity_name + " preview" if collection_name == "__animation_preview__"
+         else f"{entity_name} [{entity_id}]"), color=g_ui.UI_ACCENT, font_size=8,
     )
+    if str(entity.get("type", "")) == "red head" or entity.get("id") == "player" or collection_name == "player":
+        debug = editor_state["animation_debug"]
+        if g_ui.ui_button(ui_state, "animation_inspector:edit",
+                          "< Playback" if debug.get("authoring") else "Edit animation >"):
+            debug["authoring"] = not debug.get("authoring", False)
+            debug["edit_keyframe"] = debug.get("keyframe", 0)
+        if debug.get("authoring"):
+            g_animation_editor_ui.draw(ui_state, editor_state,
+                                       "player" if entity.get("id") == "player" or collection_name == "player" else "redhead")
+            g_ui.ui_end_panel(ui_state)
+            return
     tracks = animation_debug_tracks_for_entity(entity, collection_name)
     if not tracks:
         g_ui.ui_label(
@@ -2138,7 +2210,7 @@ def draw_animation_debug_inspector(ui_state, editor_state, entities,
         ANIMATION_DEBUG_PLAYBACK_MODES, max_visible=2,
     )
     debug["cycle_seconds"], _ = g_ui.ui_number_input_float(
-        ui_state, "animation_inspector:cycle_seconds", "cycle seconds",
+        ui_state, "animation_inspector:cycle_seconds", "cycle sec",
         debug.get("cycle_seconds", 1.0), 0.1, 10.0,
     )
     keyframe = int(debug.get("keyframe", 0)) % pose_count
@@ -2166,7 +2238,7 @@ def draw_animation_debug_inspector(ui_state, editor_state, entities,
     g_ui.ui_end_panel(ui_state)
 
 
-def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None, redhead_perception_defaults=None, redhead_flee_defaults=None, player_entity=None):
+def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_profile, fog_profile, wind_profile, game_camera, tile_map, show_editor, rain_profile=None, audio_profile=None, audio_runtime=None, redhead_movement_defaults=None, redhead_evade_defaults=None, redhead_perception_defaults=None, redhead_flee_defaults=None, player_entity=None, game_assets=None):
     if not show_editor:
         return editor_mode
     editor_mode = draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map)
@@ -2196,10 +2268,19 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
             redhead_flee_defaults,
         )
     elif editor_mode == "animation":
+        draw_fixed_animation_preview(ui_state, editor_state, entities, player_entity, game_assets)
+
         draw_animation_debug_inspector(
             ui_state, editor_state, entities, player_entity,
         )
 
+    if editor_mode == "animation" and ui_state.get("open_dropdown_id") != "toolbar:mode":
+        debug = editor_state["animation_debug"]
+        source, changed = g_ui.ui_dropdown(
+            ui_state, "animation:preview_source", "", debug.get("preview_source", "Level selection"),
+            ANIMATION_PREVIEW_SOURCES, pr.Rectangle(2, 20, 180, 16), max_visible=3)
+        if changed:
+            debug.update(preview_source=source, target_key=None, phase=0.0, keyframe=0, edit_keyframe=0)
     return editor_mode
 
 ENVIRONMENT_OBJECT_REGISTRY = {

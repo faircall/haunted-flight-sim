@@ -9140,7 +9140,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         redhead_evade_defaults=REDHEAD_EVADE_DEFAULTS,
         redhead_perception_defaults=REDHEAD_PERCEPTION_DEFAULTS,
         redhead_flee_defaults=REDHEAD_FLEE_DEFAULTS,
-        player_entity=player_info,
+        player_entity=player_info, game_assets=game_assets,
     )
     if editor_mode == "tile":
         g_editor.draw_tile_edit_controls(ui_state, editor_state, tile_map)

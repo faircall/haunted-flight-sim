@@ -1,554 +1,27 @@
 import copy
 import math
+import g_animation
+import g_animation_player_data as player_animation_data
+from contextvars import ContextVar
+
+# importlib.reload retains removed globals. Clear the old data aliases when
+# upgrading a running session so __getattr__ can resolve the extracted module.
+for _old_redhead_name in ("REDHEAD_CUTOUT_TEXTURES", "REDHEAD_CUTOUT_RIG_DEFAULTS",
+                          "REDHEAD_CUTOUT_GAIT_PROFILES"):
+    globals().pop(_old_redhead_name, None)
 
 
 SORT_LAYER_ORDER = {"floor": 0, "world": 100, "overlay": 200}
 ENTITY_RENDER_METADATA_VERSION = 1
-PLAYER_WEAPON_BEZIER_DEFAULTS = {
-    # Local-space values: X is along the aim direction and Y is perpendicular.
-    "control_1_radial_fraction": 0.99,
-    "control_1_perpendicular": 1.5,
-    "control_2_radial_fraction": 0.99,
-    "control_2_perpendicular": 1.0,
-}
+_PLAYER_ANIMATION_NAMES = ('PLAYER_WEAPON_BEZIER_DEFAULTS', 'PLAYER_CUTOUT_RIG_DEFAULTS', 'PLAYER_CUTOUT_GAIT_PROFILES', 'PLAYER_CUTOUT_TEXTURES', 'PLAYER_CUTOUT_DIRECTION_TEXTURES', 'PLAYER_CUTOUT_ARM_DEFAULTS', 'PLAYER_FLASHLIGHT_POSE_DEFAULTS', 'PLAYER_FRONT_CUTOUT_RIG_DEFAULTS', 'PLAYER_FRONT_CUTOUT_LEG_PROFILES', 'PLAYER_FRONT_CUTOUT_ARM_DEFAULTS', 'PLAYER_RELOAD_POSE_DEFAULTS', 'PLAYER_FRONT_CUTOUT_ARM_PROFILES')
+for _old_player_name in _PLAYER_ANIMATION_NAMES:
+    globals().pop(_old_player_name, None)
+_PLAYER_PREVIEW_DATA = ContextVar("player_animation_preview", default=None)
 
-# First-pass cutout rig tuning. These values deliberately live in the
-# reloadable render module so the animation can be tuned while the game runs.
-# All pivots are in the shared 32x32 player-asset coordinate space.
-PLAYER_CUTOUT_RIG_DEFAULTS = {
-    "enabled": True,
-    # Footstep distance comes from the audio profile. Zero degrees means that
-    # queued footfalls land exactly on keyframes 0 and 2 below.
-    "footfall_phase_degrees": 0.0,
-    "movement_blend_response": 14.0,
-    "profile_blend_response": 10.0,
-    "canvas_size": 32.0,
-    # The torso keeps the original bind hip while each leg gets its own
-    # attachment. The far attachment sits one pixel toward the back and one
-    # pixel higher in the right-facing source pose; X mirrors when facing left.
-    "hip": {"x": 16.0, "y": 22.0},
-    "near_hip": {"x": 16.0, "y": 22.0},
-    "far_hip": {"x": 16.0, "y": 22.0},
-    "knee": {"x": 16.0, "y": 26.0},
-    "neck": {"x": 16.0, "y": 10.0},
-    "far_leg_tint": [190, 190, 205, 255],
-    "far_arm_tint": [190, 190, 205, 255],
-}
 
-# Four equally spaced poses make up each complete two-step cycle. Numeric
-# values are smoothstepped between poses and wrap from pose 3 back to pose 0.
-# Near and far limbs are authored independently on the same timeline. This
-# keeps alternating contacts while preventing both sides from retracing the
-# same silhouette with only a tint and half-cycle offset to distinguish them.
-PLAYER_CUTOUT_GAIT_PROFILES = {
-    "walk": [
-        # Contact, passing, opposite contact, recovery.
-        {"near_upper_leg_degrees": 24.0, "near_knee_bend_degrees": 0.0,
-         "far_upper_leg_degrees": -24.0, "far_knee_bend_degrees": -10.0,
-         "near_upper_arm_degrees": -15.0, "near_elbow_bend_degrees": 18.0,
-         "far_upper_arm_degrees": 1.0, "far_elbow_bend_degrees": -20.0,
-         "body_y_pixels": 0.0, "torso_degrees": 0.5},
-        {"near_upper_leg_degrees": 0.0, "near_knee_bend_degrees": 22.0,
-         "far_upper_leg_degrees": -8.0, "far_knee_bend_degrees": 30.0,
-         "near_upper_arm_degrees": -4.0, "near_elbow_bend_degrees": 24.0,
-         "far_upper_arm_degrees": -5.0, "far_elbow_bend_degrees": 32.0,
-         "body_y_pixels": -0.75, "torso_degrees": -1.0},
-        {"near_upper_leg_degrees": -24.0, "near_knee_bend_degrees": -6.0,
-         "far_upper_leg_degrees": 20.0, "far_knee_bend_degrees": 4.0,
-         "near_upper_arm_degrees": 40.0, "near_elbow_bend_degrees": 28.0,
-         "far_upper_arm_degrees": -18.0, "far_elbow_bend_degrees": 20.0,
-         "body_y_pixels": 0.0, "torso_degrees": 0.5},
-        {"near_upper_leg_degrees": 0.0, "near_knee_bend_degrees": -10.0,
-         "far_upper_leg_degrees": 7.0, "far_knee_bend_degrees": 24.0,
-         "near_upper_arm_degrees": 4.0, "near_elbow_bend_degrees": 28.0,
-         "far_upper_arm_degrees": -6.0, "far_elbow_bend_degrees": 28.0,
-         "body_y_pixels": -0.75, "torso_degrees": 1.5},
-    ],
-    "run": [
-        # Contact, recoil/passing, opposite contact, flight/recovery.
-        {"near_upper_leg_degrees": 65.0, "near_knee_bend_degrees": 60.0,
-         "far_upper_leg_degrees": -56.0, "far_knee_bend_degrees": 24.0,
-         "near_upper_arm_degrees": -38.0, "near_elbow_bend_degrees": 90.0,
-         "far_upper_arm_degrees": 42.0, "far_elbow_bend_degrees": 0.0,
-         "body_y_pixels": 0.0, "torso_degrees": 10.0},
-        {"near_upper_leg_degrees": -4.0, "near_knee_bend_degrees": 58.0,
-         "far_upper_leg_degrees": 12.0, "far_knee_bend_degrees": 52.0,
-         "near_upper_arm_degrees": -16.0, "near_elbow_bend_degrees": 60.0,
-         "far_upper_arm_degrees": 24.0, "far_elbow_bend_degrees": 48.0,
-         "body_y_pixels": -1.75, "torso_degrees": 10.5},
-        {"near_upper_leg_degrees": -52.0, "near_knee_bend_degrees": 18.0,
-         "far_upper_leg_degrees": 52.0, "far_knee_bend_degrees": 70.0,
-         "near_upper_arm_degrees": 60.0, "near_elbow_bend_degrees": 10.0,
-         "far_upper_arm_degrees": -30.0, "far_elbow_bend_degrees": 72.0,
-         "body_y_pixels": 0.0, "torso_degrees": 10.0},
-        {"near_upper_leg_degrees": 6.0, "near_knee_bend_degrees": 64.0,
-         "far_upper_leg_degrees": -10.0, "far_knee_bend_degrees": 54.0,
-         "near_upper_arm_degrees": 8.0, "near_elbow_bend_degrees": 64.0,
-         "far_upper_arm_degrees": -14.0, "far_elbow_bend_degrees": 56.0,
-         "body_y_pixels": -1.75, "torso_degrees": 10.0},
-    ],
-}
-
-PLAYER_CUTOUT_TEXTURES = {
-    "head": "player_cutout_head_right",
-    "torso": "player_cutout_torso_right",
-    "upper_leg": "player_cutout_upper_leg_right",
-    "lower_leg": "player_cutout_lower_leg_right",
-    "upper_arm": "player_cutout_upper_arm_right",
-    "lower_arm": "player_cutout_lower_arm_right",
-    "gun": "player_cutout_gun_right",
-}
-
-PLAYER_CUTOUT_DIRECTION_TEXTURES = {
-    "right": PLAYER_CUTOUT_TEXTURES,
-    # Left continues to mirror the right-facing art.
-    "left": PLAYER_CUTOUT_TEXTURES,
-    "up": {
-        "head": "player_cutout_head_up",
-        "torso": "player_cutout_torso_up",
-        "upper_leg": "player_cutout_upper_leg_up",
-        "lower_leg": "player_cutout_lower_leg_up",
-        "upper_arm": "player_cutout_upper_arm_up",
-        "lower_arm": "player_cutout_lower_arm_up",
-        "gun": "player_cutout_gun_right",
-    },
-    "down": {
-        "head": "player_cutout_head_down",
-        "torso": "player_cutout_torso_down",
-        "upper_leg": "player_cutout_upper_leg_down",
-        "lower_leg": "player_cutout_lower_leg_down",
-        "upper_arm": "player_cutout_upper_arm_down",
-        "lower_arm": "player_cutout_lower_arm_down",
-        "gun": "player_cutout_gun_right",
-    },
-}
-
-# The red head uses the same aligned-canvas cutout convention as the player,
-# but keeps its smaller 24x24 authored silhouette.  Left mirrors the right
-# artwork; front and back have their own head/torso readability.
-REDHEAD_CUTOUT_TEXTURES = {
-    direction: {
-        part: f"redhead_cutout_{part}_{direction}"
-        for part in (
-            "head", "torso", "upper_leg", "lower_leg",
-            "upper_arm", "lower_arm",
-        )
-    }
-    for direction in ("right", "up", "down")
-}
-
-REDHEAD_CUTOUT_RIG_DEFAULTS = {
-    "enabled": True,
-    "canvas_size": 24.0,
-    "footfall_phase_degrees": 0.0,
-    "movement_blend_response": 16.0,
-    "profile_blend_response": 8.0,
-    "run_blend_start_speed_fraction": 0.52,
-    "run_blend_full_speed_fraction": 0.90,
-    "far_limb_tint": [182, 188, 184, 255],
-    "side": {
-        "hip": {"x": 11.5, "y": 16.5},
-        "near_hip": {"x": 11.5, "y": 16.5},
-        "far_hip": {"x": 12.25, "y": 16.5},
-        "knee": {"x": 11.5, "y": 18.5},
-        "foot": {"x": 11.5, "y": 21.0},
-        "neck": {"x": 11.5, "y": 13.0},
-        "shoulder": {"x": 12.5, "y": 13.5},
-        "near_shoulder": {"x": 12.5, "y": 13.5},
-        "far_shoulder": {"x": 11.75, "y": 13.5},
-        "elbow": {"x": 12.5, "y": 15.5},
-        "hand": {"x": 12.5, "y": 17.5},
-    },
-    "front": {
-        "hip": {"x": 12.0, "y": 16.5},
-        "limb_hip": {"x": 13.5, "y": 16.5},
-        "knee": {"x": 13.5, "y": 18.5},
-        "foot": {"x": 13.5, "y": 21.0},
-        "neck": {"x": 11.5, "y": 13.0},
-        "shoulder": {"x": 13.5, "y": 13.5},
-        # The diagonal arm pieces meet at the first pixel of the lower arm.
-        "elbow": {"x": 15.5, "y": 14.5},
-        "hand": {"x": 17.5, "y": 16.5},
-    },
-}
-
-# A four-pose two-step cycle. Walking deliberately transfers the body over
-# each planted foot for a playful penguin-like sway. Running retains that
-# imbalance while adding a pronounced forward pitch and uneven flight poses.
-REDHEAD_CUTOUT_GAIT_PROFILES = {
-    "walk": [
-        {"near_upper_leg_degrees": 12.0, "near_knee_bend_degrees": -5.0,
-         "far_upper_leg_degrees": -13.0, "far_knee_bend_degrees": 12.0,
-         "near_upper_arm_degrees": -12.0, "near_elbow_bend_degrees": 4.0,
-         "far_upper_arm_degrees": 12.0, "far_elbow_bend_degrees": -4.0,
-         "body_x_pixels": 0.75, "body_y_pixels": 0.0,
-         "side_torso_degrees": 4.0, "front_torso_degrees": 5.0},
-        {"near_upper_leg_degrees": -3.0, "near_knee_bend_degrees": 18.0,
-         "far_upper_leg_degrees": 4.0, "far_knee_bend_degrees": 5.0,
-         "near_upper_arm_degrees": 3.0, "near_elbow_bend_degrees": 5.0,
-         "far_upper_arm_degrees": -4.0, "far_elbow_bend_degrees": 5.0,
-         "body_x_pixels": 0.10, "body_y_pixels": -0.35,
-         "side_torso_degrees": -1.0, "front_torso_degrees": 0.5},
-        {"near_upper_leg_degrees": -13.0, "near_knee_bend_degrees": 12.0,
-         "far_upper_leg_degrees": 12.0, "far_knee_bend_degrees": -5.0,
-         "near_upper_arm_degrees": 12.0, "near_elbow_bend_degrees": -4.0,
-         "far_upper_arm_degrees": -12.0, "far_elbow_bend_degrees": 4.0,
-         "body_x_pixels": -0.75, "body_y_pixels": 0.0,
-         "side_torso_degrees": -4.0, "front_torso_degrees": -5.0},
-        {"near_upper_leg_degrees": 4.0, "near_knee_bend_degrees": 5.0,
-         "far_upper_leg_degrees": -3.0, "far_knee_bend_degrees": 18.0,
-         "near_upper_arm_degrees": -4.0, "near_elbow_bend_degrees": 5.0,
-         "far_upper_arm_degrees": 3.0, "far_elbow_bend_degrees": 5.0,
-         "body_x_pixels": -0.10, "body_y_pixels": -0.35,
-         "side_torso_degrees": 1.0, "front_torso_degrees": -0.5},
-    ],
-    "run": [
-        {"near_upper_leg_degrees": 42.0, "near_knee_bend_degrees": 24.0,
-         "far_upper_leg_degrees": -34.0, "far_knee_bend_degrees": 35.0,
-         "near_upper_arm_degrees": -38.0, "near_elbow_bend_degrees": 18.0,
-         "far_upper_arm_degrees": 34.0, "far_elbow_bend_degrees": 8.0,
-         "body_x_pixels": 0.45, "body_y_pixels": 0.0,
-         "side_torso_degrees": 14.0, "front_torso_degrees": 4.0},
-        {"near_upper_leg_degrees": -8.0, "near_knee_bend_degrees": 48.0,
-         "far_upper_leg_degrees": 14.0, "far_knee_bend_degrees": 34.0,
-         "near_upper_arm_degrees": -12.0, "near_elbow_bend_degrees": 20.0,
-         "far_upper_arm_degrees": 18.0, "far_elbow_bend_degrees": 15.0,
-         "body_x_pixels": -0.20, "body_y_pixels": -1.20,
-         "side_torso_degrees": 20.0, "front_torso_degrees": -3.0},
-        {"near_upper_leg_degrees": -34.0, "near_knee_bend_degrees": 35.0,
-         "far_upper_leg_degrees": 42.0, "far_knee_bend_degrees": 24.0,
-         "near_upper_arm_degrees": 34.0, "near_elbow_bend_degrees": 8.0,
-         "far_upper_arm_degrees": -38.0, "far_elbow_bend_degrees": 18.0,
-         "body_x_pixels": -0.45, "body_y_pixels": 0.0,
-         "side_torso_degrees": 13.0, "front_torso_degrees": -4.0},
-        {"near_upper_leg_degrees": 14.0, "near_knee_bend_degrees": 34.0,
-         "far_upper_leg_degrees": -8.0, "far_knee_bend_degrees": 48.0,
-         "near_upper_arm_degrees": 18.0, "near_elbow_bend_degrees": 15.0,
-         "far_upper_arm_degrees": -12.0, "far_elbow_bend_degrees": 20.0,
-         "body_x_pixels": 0.25, "body_y_pixels": -0.85,
-         "side_torso_degrees": 22.0, "front_torso_degrees": 3.0},
-    ],
-}
-
-# Arm pivots are taken from the authored neutral and aimed references. The
-# actual arm textures stay in their clean vertical bind pose; two-bone IK bends
-# that chain while the hand smoothsteps between hanging and fully aimed.
-PLAYER_CUTOUT_ARM_DEFAULTS = {
-    # These describe pixels in the authored vertical source art and normally
-    # should not be tuned with the animation pose.
-    "bind_pose": {
-        "shoulder": {"x": 15.5, "y": 11.0},
-        "elbow": {"x": 15.5, "y": 14.0},
-        "hand": {"x": 15.5, "y": 17.5},
-    },
-    # Independently tunable torso attachment points. The existing shoulder is
-    # retained as the near-arm position so previous tuning remains valid.
-    "shoulder": {"x": 15.5, "y": 12.0},
-    "far_shoulder": {"x": 14.5, "y": 11.0},
-    "aim_reach": 6.5,
-    "gun_grip": {"x": 0.0, "y": 2.0},
-    "gun_source_size": 4.0,
-    # Authored points in player_gun_right.png. The barrel occupies the upper
-    # row; it does not pass through the lower grip pivot.
-    "gun_muzzle": {"x": 4.0, "y": 0.5},
-    "gun_barrel_direction": {"x": 1.0, "y": 0.0},
-    # The hand meets the top of the grip; the gun pivot sits one pixel below
-    # the aim line, matching player_aim_reference_right.png.
-    "gun_grip_perpendicular_offset": 1.0,
-    "ik_bend_side": 1.0,
-    "far_arm_aim_motion_scale": 0.25,
-}
-
-# Spare-arm held-light prototype. The optional texture is expected to be a
-# small right-facing prop with its grip at (0, 1); until it exists the same
-# transform draws a compact rectangle, so animation tuning can proceed now.
-PLAYER_FLASHLIGHT_POSE_DEFAULTS = {
-    "texture": "player_cutout_flashlight_right",
-    "grip": {"x": 0.0, "y": 1.0},
-    "source_width": 5.0,
-    "placeholder_size": {"x": 5.0, "y": 2.0},
-    "placeholder_color": [205, 210, 196, 255],
-    "aim_reach": 6.0,
-    # Keep the spare hand on the opposite side of the aim line from the gun.
-    "grip_perpendicular_offset": -0.75,
-    "tip_distance": 5.0,
-}
-
-# Up/down artwork is authored as the screen-right limb on the same aligned
-# 32x32 canvas. The opposite limb is a mirrored instance with its own gait
-# pose, so it remains independently animated without requiring duplicate art.
-# These settings are deliberately separate from the side-view rig: the front
-# and back views need much smaller screen-plane swings and their own joints.
-PLAYER_FRONT_CUTOUT_RIG_DEFAULTS = {
-    "body_hip": {"x": 16.0, "y": 20.0},
-    "neck": {"x": 16.0, "y": 10.0},
-    "leg_bind_pose": {
-        "hip": {"x": 17.5, "y": 20.0},
-        "knee": {"x": 17.5, "y": 25.0},
-        "foot": {"x": 17.5, "y": 31.0},
-    },
-    "near_hip": {"x": 17.5, "y": 20.0},
-    "far_hip": {"x": 16.5, "y": 20.0},
-    # The down idle art retains its angled feet, while locomotion borrows the
-    # straight-footed up leg pieces. Torso, head and arms remain down-facing.
-    "down_locomotion_uses_up_leg_art": True,
-    "locomotion_leg_art_blend_threshold": 0.02,
-    "leg_lateral_scale": 1.0,
-    "leg_lift_scale": 1.0,
-    "arm_angle_scale": 0.42,
-    "elbow_angle_scale": 0.34,
-    "torso_angle_scale": 0.12,
-}
-
-# Front/back legs are posed as joint targets rather than side-view angles.
-# X values provide only a little separation; negative Y values shorten/lift a
-# limb into the screen. Contact poses remain at 0 and 2, matching footsteps.
-PLAYER_FRONT_CUTOUT_LEG_PROFILES = {
-    "up": {
-        "walk": [
-            # Near contact; far leg lifted.
-            {"near_knee_x_pixels": 0.35, "near_knee_y_pixels": 0.0,
-             "near_foot_x_pixels": 0.0, "near_foot_y_pixels": 0.0,
-             "far_knee_x_pixels": 0, "far_knee_y_pixels": -0.5,
-             "far_foot_x_pixels": 0.0, "far_foot_y_pixels": -2.0,
-             "body_y_pixels": 0.0, "torso_degrees": 0.5},
-            # Passing: near lifts while far extends toward contact.
-            {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -0.8,
-             "near_foot_x_pixels": 0.25, "near_foot_y_pixels": -1.6,
-             "far_knee_x_pixels": 0.2, "far_knee_y_pixels": -0.2,
-             "far_foot_x_pixels": 0.4, "far_foot_y_pixels": -0.4,
-             "body_y_pixels": -0.6, "torso_degrees": -0.5},
-            # Far contact; near leg lifted.
-            {"near_knee_x_pixels": -0.15, "near_knee_y_pixels": -0.5,
-             "near_foot_x_pixels": -0.00, "near_foot_y_pixels": -2.0,
-             "far_knee_x_pixels": 0.35, "far_knee_y_pixels": 0.0,
-             "far_foot_x_pixels": 0.0, "far_foot_y_pixels": 0.0,
-             "body_y_pixels": 0.0, "torso_degrees": 0.5},
-            # Passing: far lifts while near extends toward contact.
-            {"near_knee_x_pixels": 0.2, "near_knee_y_pixels": -0.2,
-             "near_foot_x_pixels": 0.4, "near_foot_y_pixels": -0.4,
-             "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -0.8,
-             "far_foot_x_pixels": 0.25, "far_foot_y_pixels": -1.6,
-             "body_y_pixels": -0.6, "torso_degrees": 0.5},
-        ],
-        "run": [
-            # Near contact; far knee tucked high.
-            {"near_knee_x_pixels": 0.45, "near_knee_y_pixels": 0.0,
-             "near_foot_x_pixels": -1.8, "near_foot_y_pixels": 0.0,
-             "far_knee_x_pixels": -0.2, "far_knee_y_pixels": -1.4,
-             "far_foot_x_pixels": -0.35, "far_foot_y_pixels": -3.6,
-             "body_y_pixels": 0.0, "torso_degrees": 1.0},
-            # Flight: both legs are compressed beneath the body.
-            {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -1.0,
-             "near_foot_x_pixels": -0.2, "near_foot_y_pixels": -2.8,
-             "far_knee_x_pixels": 0.1, "far_knee_y_pixels": -0.8,
-             "far_foot_x_pixels": 0.2, "far_foot_y_pixels": -2.2,
-             "body_y_pixels": -1.5, "torso_degrees": 1.5},
-            # Far contact; near knee tucked high.
-            {"near_knee_x_pixels": -0.2, "near_knee_y_pixels": -1.4,
-             "near_foot_x_pixels": -0.35, "near_foot_y_pixels": -3.6,
-             "far_knee_x_pixels": 0.45, "far_knee_y_pixels": 0.0,
-             "far_foot_x_pixels": -1.8, "far_foot_y_pixels": 0.0,
-             "body_y_pixels": 0.0, "torso_degrees": 1.0},
-            # Flight: opposite compression before the next contact.
-            {"near_knee_x_pixels": 0.1, "near_knee_y_pixels": -0.8,
-             "near_foot_x_pixels": 0.2, "near_foot_y_pixels": -2.2,
-             "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -1.0,
-             "far_foot_x_pixels": -0.2, "far_foot_y_pixels": -2.8,
-             "body_y_pixels": -1.5, "torso_degrees": 1.5},
-        ],
-    },
-    "down": {
-        "walk": [
-            # Near contact; far leg lifted.
-            {"near_knee_x_pixels": 0.35, "near_knee_y_pixels": 0.0,
-             "near_foot_x_pixels": 0.0, "near_foot_y_pixels": 0.0,
-             "far_knee_x_pixels": -0.15, "far_knee_y_pixels": -0.5,
-             "far_foot_x_pixels": -1.25, "far_foot_y_pixels": -2.0,
-             "body_y_pixels": 0.0, "torso_degrees": 0.5},
-            # Passing: near lifts while far extends toward contact.
-            {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -0.8,
-             "near_foot_x_pixels": -0.25, "near_foot_y_pixels": -1.6,
-             "far_knee_x_pixels": 0.2, "far_knee_y_pixels": -0.2,
-             "far_foot_x_pixels": 0.4, "far_foot_y_pixels": -0.4,
-             "body_y_pixels": -0.6, "torso_degrees": -0.5},
-            # Far contact; near leg lifted.
-            {"near_knee_x_pixels": -0.15, "near_knee_y_pixels": -0.5,
-             "near_foot_x_pixels": -1.25, "near_foot_y_pixels": -2.0,
-             "far_knee_x_pixels": 0.35, "far_knee_y_pixels": 0.0,
-             "far_foot_x_pixels": 0.0, "far_foot_y_pixels": 0.0,
-             "body_y_pixels": 0.0, "torso_degrees": 0.5},
-            # Passing: far lifts while near extends toward contact.
-            {"near_knee_x_pixels": 0.2, "near_knee_y_pixels": -0.2,
-             "near_foot_x_pixels": 0.4, "near_foot_y_pixels": -0.4,
-             "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -0.8,
-             "far_foot_x_pixels": -0.25, "far_foot_y_pixels": -1.6,
-             "body_y_pixels": -0.6, "torso_degrees": 0.5},
-        ],
-        "run": [
-            # Near contact; far knee tucked high.
-            {"near_knee_x_pixels": 0.45, "near_knee_y_pixels": 0.0,
-             "near_foot_x_pixels": -1.5, "near_foot_y_pixels": 0.0,
-             "far_knee_x_pixels": -0.2, "far_knee_y_pixels": -1.4,
-             "far_foot_x_pixels": -1.35, "far_foot_y_pixels": -3.6,
-             "body_y_pixels": 0.0, "torso_degrees": 1.0},
-            # Flight: both legs are compressed beneath the body.
-            {"near_knee_x_pixels": -0.1, "near_knee_y_pixels": -1.0,
-             "near_foot_x_pixels": -0.2, "near_foot_y_pixels": -2.8,
-             "far_knee_x_pixels": 0.1, "far_knee_y_pixels": -0.8,
-             "far_foot_x_pixels": 0.2, "far_foot_y_pixels": -2.2,
-             "body_y_pixels": -1.5, "torso_degrees": 1.5},
-            # Far contact; near knee tucked high.
-            {"near_knee_x_pixels": -0.2, "near_knee_y_pixels": -1.4,
-             "near_foot_x_pixels": -1.35, "near_foot_y_pixels": -3.6,
-             "far_knee_x_pixels": 0.45, "far_knee_y_pixels": 0.0,
-             "far_foot_x_pixels": -1.5, "far_foot_y_pixels": 0.0,
-             "body_y_pixels": 0.0, "torso_degrees": 1.0},
-            # Flight: opposite compression before the next contact.
-            {"near_knee_x_pixels": 0.1, "near_knee_y_pixels": -0.8,
-             "near_foot_x_pixels": 0.2, "near_foot_y_pixels": -2.2,
-             "far_knee_x_pixels": -0.1, "far_knee_y_pixels": -1.0,
-             "far_foot_x_pixels": -0.2, "far_foot_y_pixels": -2.8,
-             "body_y_pixels": -1.5, "torso_degrees": 1.5},
-        ],
-    },
-}
-
-PLAYER_FRONT_CUTOUT_ARM_DEFAULTS = {
-    "bind_pose": {
-        "shoulder": {"x": 19.5, "y": 11.0},
-        "elbow": {"x": 20.0, "y": 15.0},
-        "hand": {"x": 20.0, "y": 19.0},
-    },
-    "shoulder": {"x": 19.5, "y": 11.0},
-    "far_shoulder": {"x": 18.5, "y": 11.0},
-    "aim_reach": 6.5,
-    # Up aiming and the centre/right portion of down aiming use the arm's full
-    # authored length. Down-left is a cross-body pose and can retain a bend.
-    "straight_aim_reach_scale": 1.0,
-    "down_cross_body_aim_reach": 6.5,
-    "down_cross_body_reach_exponent": 1.0,
-    "down_cross_body_ik_bend_side": -1.0,
-    "gun_grip": {"x": 0.0, "y": 2.0},
-    "gun_source_size": 4.0,
-    "gun_grip_perpendicular_offset": 1.0,
-    "ik_bend_side": 1.0,
-    "far_arm_aim_motion_scale": 0.25,
-}
-
-# Reload poses share the ordinary arm and gun art. Progress is supplied by the
-# gameplay reload state, while these hot-reloadable values control only the
-# visual pose. Hand and gun positions for up/down are offsets from body_hip in
-# the canonical (screen-right limb) 32x32 canvas.
-PLAYER_RELOAD_POSE_DEFAULTS = {
-    "enter_fraction": 0.16,
-    "exit_fraction": 0.14,
-    "side": {
-        "aim_direction": {"x": 0.42, "y": 0.91},
-        # The spare hand meets the lowered pistol around its grip once the
-        # flashlight has returned to its locomotion/holstered endpoint.
-        "support_hand_from_gun": {"x": 0.0, "y": 0.0},
-        "support_bend_side": 1.0,
-    },
-    "down": {
-        "near_hand_from_body_hip": {"x": 1.0, "y": -3.5},
-        "far_hand_from_body_hip": {"x": 1.0, "y": -3.5},
-        "gun_from_body_hip": {"x": 0.0, "y": -3.5},
-        "gun_degrees": 90.0,
-        "near_bend_side": 1.0,
-        "far_bend_side": 1.0,
-    },
-    "up": {
-        "near_hand_from_body_hip": {"x": 0.8, "y": -2.5},
-        "far_hand_from_body_hip": {"x": 0.8, "y": -2.5},
-        "gun_from_body_hip": {"x": 0.0, "y": -1.8},
-        "gun_degrees": 90.0,
-        "near_bend_side": 1.0,
-        "far_bend_side": 1.0,
-    },
-}
-
-# Front/back arm animation is authored independently for each facing. Walking
-# uses angular shoulder/elbow poses; running uses screen-space compression and
-# extension so the arms pump in depth rather than swinging sideways.
-PLAYER_FRONT_CUTOUT_ARM_PROFILES = {
-    "up": {
-        "walk": [
-            {"near_upper_arm_degrees": -15.0,
-             "near_elbow_bend_degrees": 18.0,
-             "far_upper_arm_degrees": 15.0,
-             "far_elbow_bend_degrees": -45.0},
-            {"near_upper_arm_degrees": -4.0,
-             "near_elbow_bend_degrees": 12.0,
-             "far_upper_arm_degrees": -5.0,
-             "far_elbow_bend_degrees": 12.0},
-            {"near_upper_arm_degrees": 40.0,
-             "near_elbow_bend_degrees": 28.0,
-             "far_upper_arm_degrees": -18.0,
-             "far_elbow_bend_degrees": 20.0},
-            {"near_upper_arm_degrees": 4.0,
-             "near_elbow_bend_degrees": 12.0,
-             "far_upper_arm_degrees": -1.0,
-             "far_elbow_bend_degrees": 12.0},
-        ],
-        "run": [
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.8,
-             "near_hand_x_pixels": -2.0, "near_hand_y_pixels": -4.4,
-             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": 0.15,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": 0.4},
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.45,
-             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -1.2,
-             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.2,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -0.6},
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": 0.15,
-             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": 0.4,
-             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.8,
-             "far_hand_x_pixels": -2.0, "far_hand_y_pixels": -4.5},
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.2,
-             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -0.6,
-             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.45,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -1.2},
-        ],
-    },
-    "down": {
-        "walk": [
-            {"near_upper_arm_degrees": -15.0,
-             "near_elbow_bend_degrees": 18.0,
-             "far_upper_arm_degrees": 10.0,
-             "far_elbow_bend_degrees": -50.0},
-            {"near_upper_arm_degrees": -4.0,
-             "near_elbow_bend_degrees": 14.0,
-             "far_upper_arm_degrees": -1.0,
-             "far_elbow_bend_degrees": 12.0},
-            {"near_upper_arm_degrees": 40.0,
-             "near_elbow_bend_degrees": 28.0,
-             "far_upper_arm_degrees": -18.0,
-             "far_elbow_bend_degrees": 20.0},
-            {"near_upper_arm_degrees": 4.0,
-             "near_elbow_bend_degrees": 28.0,
-             "far_upper_arm_degrees": -1.0,
-             "far_elbow_bend_degrees": 12.0},
-        ],
-        "run": [
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -2.8,
-             "near_hand_x_pixels": 1.0, "near_hand_y_pixels": -1.0,
-             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": 0.15,
-             "far_hand_x_pixels": -1.4, "far_hand_y_pixels": -2.4},
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.45,
-             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -1.2,
-             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.2,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -0.6},
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": 0.15,
-             "near_hand_x_pixels": -1.0, "near_hand_y_pixels": -1.0,
-             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.8,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -2.0},
-            {"near_elbow_x_pixels": 0.0, "near_elbow_y_pixels": -0.2,
-             "near_hand_x_pixels": 0.0, "near_hand_y_pixels": -0.6,
-             "far_elbow_x_pixels": 0.0, "far_elbow_y_pixels": -0.45,
-             "far_hand_x_pixels": 0.0, "far_hand_y_pixels": -1.2},
-        ],
-    },
-}
+def _player_animation_setting(name):
+    draft = _PLAYER_PREVIEW_DATA.get()
+    return draft[name] if draft is not None and name in draft else getattr(player_animation_data, name)
 
 
 def world_to_screen_pixel(world_x, world_y, game_camera):
@@ -773,7 +246,7 @@ def cubic_bezier_scalar(start, control_1, control_2, end, progress):
 
 def player_weapon_bezier_world_position(center, aim, end_distance, progress,
                                          settings=None):
-    settings = settings or PLAYER_WEAPON_BEZIER_DEFAULTS
+    settings = settings or _player_animation_setting("PLAYER_WEAPON_BEZIER_DEFAULTS")
     end_distance = float(end_distance)
     radial = cubic_bezier_scalar(
         0.0,
@@ -799,38 +272,18 @@ def player_weapon_bezier_world_position(center, aim, end_distance, progress,
 
 
 def _rotate_rig_vector(x, y, angle_degrees):
-    angle = math.radians(float(angle_degrees))
-    cosine = math.cos(angle)
-    sine = math.sin(angle)
-    return {
-        "x": float(x) * cosine - float(y) * sine,
-        "y": float(x) * sine + float(y) * cosine,
-    }
+    return g_animation._rotate_rig_vector(x, y, angle_degrees)
 
 
 def _make_player_cutout_part(texture_name, source_pivot, target_pivot,
                               rotation, facing_left=False, tint=None,
                               source_canvas_width=None, scale_x=1.0,
                               scale_y=1.0, target_canvas_width=None):
-    canvas_size = float(
-        target_canvas_width or PLAYER_CUTOUT_RIG_DEFAULTS["canvas_size"]
+    return g_animation.make_cutout_part(
+        texture_name, source_pivot, target_pivot, rotation, facing_left, tint,
+        source_canvas_width, scale_x, scale_y,
+        target_canvas_width or _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["canvas_size"],
     )
-    source_canvas_width = float(source_canvas_width or canvas_size)
-    target_x = float(target_pivot["x"])
-    origin_x = float(source_pivot["x"])
-    if facing_left:
-        target_x = canvas_size - target_x
-        origin_x = source_canvas_width - origin_x
-        rotation = -float(rotation)
-    return {
-        "texture": texture_name,
-        "pivot_local": {"x": target_x, "y": float(target_pivot["y"])},
-        "origin": {"x": origin_x, "y": float(source_pivot["y"])},
-        "rotation": float(rotation),
-        "flip_x": bool(facing_left),
-        "scale": {"x": float(scale_x), "y": float(scale_y)},
-        "tint": list(tint or [255, 255, 255, 255]),
-    }
 
 
 def player_cutout_gait_phase_from_step_state(step_state, stride_distance):
@@ -844,38 +297,15 @@ def player_cutout_gait_phase_from_step_state(step_state, stride_distance):
 
 
 def sample_player_cutout_gait_profile(profile, phase):
-    """Smoothly sample an equally spaced, cyclic gait pose profile."""
-    poses = profile if isinstance(profile, (list, tuple)) else []
-    if not poses:
-        return {}
-    try:
-        normalized_phase = (float(phase) % math.tau) / math.tau
-    except (TypeError, ValueError, OverflowError):
-        normalized_phase = 0.0
-    if not math.isfinite(normalized_phase):
-        normalized_phase = 0.0
-    scaled_phase = normalized_phase * len(poses)
-    pose_index = int(math.floor(scaled_phase)) % len(poses)
-    next_index = (pose_index + 1) % len(poses)
-    amount = scaled_phase - math.floor(scaled_phase)
-    amount = amount * amount * (3.0 - 2.0 * amount)
-    current = poses[pose_index]
-    following = poses[next_index]
-    return {
-        key: float(current.get(key, 0.0)) + (
-            float(following.get(key, current.get(key, 0.0)))
-            - float(current.get(key, 0.0))
-        ) * amount
-        for key in current
-    }
+    return g_animation.sample_gait_profile(profile, phase)
 
 
 def _blended_player_cutout_gait_pose(phase, run_blend):
     walk = sample_player_cutout_gait_profile(
-        PLAYER_CUTOUT_GAIT_PROFILES["walk"], phase,
+        _player_animation_setting("PLAYER_CUTOUT_GAIT_PROFILES")["walk"], phase,
     )
     run = sample_player_cutout_gait_profile(
-        PLAYER_CUTOUT_GAIT_PROFILES["run"], phase,
+        _player_animation_setting("PLAYER_CUTOUT_GAIT_PROFILES")["run"], phase,
     )
     amount = max(0.0, min(1.0, float(run_blend)))
     return {
@@ -888,7 +318,7 @@ def _blended_player_cutout_gait_pose(phase, run_blend):
 
 
 def _blended_player_front_leg_pose(direction, phase, run_blend):
-    direction_profiles = PLAYER_FRONT_CUTOUT_LEG_PROFILES[direction]
+    direction_profiles = _player_animation_setting("PLAYER_FRONT_CUTOUT_LEG_PROFILES")[direction]
     walk = sample_player_cutout_gait_profile(
         direction_profiles["walk"], phase,
     )
@@ -1019,10 +449,10 @@ def _player_reload_pose_timing(player_entity):
     if not math.isfinite(progress):
         progress = 0.0
     enter = max(0.0001, float(
-        PLAYER_RELOAD_POSE_DEFAULTS["enter_fraction"]
+        _player_animation_setting("PLAYER_RELOAD_POSE_DEFAULTS")["enter_fraction"]
     ))
     exit_fraction = max(0.0001, float(
-        PLAYER_RELOAD_POSE_DEFAULTS["exit_fraction"]
+        _player_animation_setting("PLAYER_RELOAD_POSE_DEFAULTS")["exit_fraction"]
     ))
     entering = max(0.0, min(1.0, progress / enter))
     leaving = max(0.0, min(1.0, (1.0 - progress) / exit_fraction))
@@ -1053,7 +483,7 @@ def _player_reload_support_pose_amount(player_entity, timing=None):
     except (TypeError, ValueError, OverflowError):
         release = 0.0
     enter_fraction = max(
-        0.0001, float(PLAYER_RELOAD_POSE_DEFAULTS["enter_fraction"]),
+        0.0001, float(_player_animation_setting("PLAYER_RELOAD_POSE_DEFAULTS")["enter_fraction"]),
     )
     amount = max(
         0.0, min(1.0, (timing["progress"] - release) / enter_fraction),
@@ -1115,10 +545,10 @@ def _lerp_player_cutout_parts(start_parts, end_parts, amount):
 
 
 def _player_arm_shoulder(body_hip, torso_angle, is_far=False):
-    attachment = PLAYER_CUTOUT_ARM_DEFAULTS[
+    attachment = _player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS")[
         "far_shoulder" if is_far else "shoulder"
     ]
-    hip = PLAYER_CUTOUT_RIG_DEFAULTS["hip"]
+    hip = _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["hip"]
     shoulder_from_hip = _rotate_rig_vector(
         float(attachment["x"]) - float(hip["x"]),
         float(attachment["y"]) - float(hip["y"]),
@@ -1133,7 +563,7 @@ def _player_arm_shoulder(body_hip, torso_angle, is_far=False):
 def _build_player_locomotion_arm_pose(arm_phase, run_blend, movement_blend,
                                        body_hip, torso_angle, facing_left,
                                        is_far=False, motion_scale=1.0):
-    settings = PLAYER_CUTOUT_ARM_DEFAULTS
+    settings = _player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS")
     bind_pose = settings["bind_pose"]
     source_shoulder = bind_pose["shoulder"]
     source_elbow = bind_pose["elbow"]
@@ -1170,13 +600,13 @@ def _build_player_locomotion_arm_pose(arm_phase, run_blend, movement_blend,
         "x": elbow["x"] + hand_offset["x"],
         "y": elbow["y"] + hand_offset["y"],
     }
-    tint = PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"] if is_far else None
+    tint = _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["far_arm_tint"] if is_far else None
     upper_part = _make_player_cutout_part(
-        PLAYER_CUTOUT_TEXTURES["upper_arm"], source_shoulder, shoulder,
+        _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["upper_arm"], source_shoulder, shoulder,
         upper_angle, facing_left, tint,
     )
     lower_part = _make_player_cutout_part(
-        PLAYER_CUTOUT_TEXTURES["lower_arm"], source_elbow, elbow,
+        _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["lower_arm"], source_elbow, elbow,
         lower_angle, facing_left, tint,
     )
     upper_part.update({"rig_side": side, "rig_joint": "upper_arm"})
@@ -1199,8 +629,8 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
     if progress <= 0.000001:
         return []
 
-    settings = arm_settings or PLAYER_CUTOUT_ARM_DEFAULTS
-    textures = textures or PLAYER_CUTOUT_TEXTURES
+    settings = arm_settings or _player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS")
+    textures = textures or _player_animation_setting("PLAYER_CUTOUT_TEXTURES")
     bind_pose = settings["bind_pose"]
     source_shoulder = bind_pose["shoulder"]
     source_elbow = bind_pose["elbow"]
@@ -1379,7 +809,7 @@ def _build_player_weapon_cutout_parts(player_entity, body_hip, torso_angle,
     gun_angle -= recoil_degrees
 
     arm_tint = (
-        PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"]
+        _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["far_arm_tint"]
         if rig_side == "far" else None
     )
     upper_part = _make_player_cutout_part(
@@ -1428,13 +858,13 @@ def _build_player_flashlight_cutout_parts(
     progress = _player_flashlight_transition_progress(player_entity)
     if progress <= 0.000001:
         return []
-    pose = PLAYER_FLASHLIGHT_POSE_DEFAULTS
+    pose = _player_animation_setting("PLAYER_FLASHLIGHT_POSE_DEFAULTS")
     flashlight_player = dict(player_entity)
     flashlight_player["weapon_transition"] = {
         "progress": progress, "target": 1.0, "phase": "unholstering",
     }
     flashlight_player["weapon_visual_recoil"] = {"rotation_degrees": 0.0}
-    flashlight_settings = dict(arm_settings or PLAYER_CUTOUT_ARM_DEFAULTS)
+    flashlight_settings = dict(arm_settings or _player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS"))
     flashlight_settings.update({
         "aim_reach": float(pose["aim_reach"]),
         "gun_grip": dict(pose["grip"]),
@@ -1443,7 +873,7 @@ def _build_player_flashlight_cutout_parts(
             pose["grip_perpendicular_offset"]
         ),
     })
-    flashlight_textures = dict(textures or PLAYER_CUTOUT_TEXTURES)
+    flashlight_textures = dict(textures or _player_animation_setting("PLAYER_CUTOUT_TEXTURES"))
     flashlight_textures["gun"] = pose["texture"]
     parts = _build_player_weapon_cutout_parts(
         flashlight_player, body_hip, torso_angle, mirror_parts,
@@ -1472,7 +902,7 @@ def _build_player_side_reload_parts(player_entity, body_hip, torso_angle,
                                     rig_side="near", rig_hand="right"):
     timing = _player_reload_pose_timing(player_entity)
     start_progress, start_aim = _player_reload_start_weapon_state(player_entity)
-    direction = PLAYER_RELOAD_POSE_DEFAULTS["side"]["aim_direction"]
+    direction = _player_animation_setting("PLAYER_RELOAD_POSE_DEFAULTS")["side"]["aim_direction"]
     reload_player = dict(player_entity)
     reload_player["aim_direction"] = {
         "x": -float(direction["x"]) if facing_left else float(direction["x"]),
@@ -1527,7 +957,7 @@ def _build_player_side_reload_support_parts(
     """Move the spare side-view hand onto the lowered reload weapon."""
     timing = _player_reload_pose_timing(player_entity)
     pose_amount = _player_reload_support_pose_amount(player_entity, timing)
-    settings = PLAYER_CUTOUT_ARM_DEFAULTS
+    settings = _player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS")
     bind_pose = settings["bind_pose"]
     source_shoulder = bind_pose["shoulder"]
     source_elbow = bind_pose["elbow"]
@@ -1542,7 +972,7 @@ def _build_player_side_reload_support_parts(
     }
     upper_length = math.hypot(upper_bind["x"], upper_bind["y"])
     lower_length = math.hypot(lower_bind["x"], lower_bind["y"])
-    offset = PLAYER_RELOAD_POSE_DEFAULTS["side"]["support_hand_from_gun"]
+    offset = _player_animation_setting("PLAYER_RELOAD_POSE_DEFAULTS")["side"]["support_hand_from_gun"]
     target_hand = {
         "x": float(gun_part["pivot_local"]["x"])
              + (-float(offset["x"]) if facing_left else float(offset["x"])),
@@ -1559,7 +989,7 @@ def _build_player_side_reload_support_parts(
     shoulder = locomotion_pose["shoulder"]
     elbow, hand = _solve_player_arm_ik(
         shoulder, requested_hand, upper_length, lower_length,
-        PLAYER_RELOAD_POSE_DEFAULTS["side"]["support_bend_side"],
+        _player_animation_setting("PLAYER_RELOAD_POSE_DEFAULTS")["side"]["support_bend_side"],
     )
     upper_angle = _rig_vector_angle_degrees(
         upper_bind,
@@ -1571,15 +1001,15 @@ def _build_player_side_reload_support_parts(
         {"x": hand["x"] - elbow["x"], "y": hand["y"] - elbow["y"]},
     )
     tint = (
-        PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"]
+        _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["far_arm_tint"]
         if rig_side == "far" else None
     )
     upper_part = _make_player_cutout_part(
-        PLAYER_CUTOUT_TEXTURES["upper_arm"], source_shoulder, shoulder,
+        _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["upper_arm"], source_shoulder, shoulder,
         upper_angle, facing_left, tint,
     )
     lower_part = _make_player_cutout_part(
-        PLAYER_CUTOUT_TEXTURES["lower_arm"], source_elbow, elbow,
+        _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["lower_arm"], source_elbow, elbow,
         lower_angle, facing_left, tint,
     )
     upper_part.update({
@@ -1596,7 +1026,7 @@ def _build_player_side_reload_support_parts(
 def _build_player_front_reload_arm_parts(
         locomotion_pose, body_hip, torso_angle, direction, textures,
         is_far, pose_amount, rig_hand):
-    arm_settings = PLAYER_FRONT_CUTOUT_ARM_DEFAULTS
+    arm_settings = _player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_DEFAULTS")
     bind_pose = arm_settings["bind_pose"]
     source_shoulder = bind_pose["shoulder"]
     source_elbow = bind_pose["elbow"]
@@ -1612,7 +1042,7 @@ def _build_player_front_reload_arm_parts(
     upper_length = math.hypot(upper_bind["x"], upper_bind["y"])
     lower_length = math.hypot(lower_bind["x"], lower_bind["y"])
     side = "far" if is_far else "near"
-    pose_settings = PLAYER_RELOAD_POSE_DEFAULTS[direction]
+    pose_settings = _player_animation_setting("PLAYER_RELOAD_POSE_DEFAULTS")[direction]
     hand_offset = pose_settings[f"{side}_hand_from_body_hip"]
     rotated_offset = _rotate_rig_vector(
         hand_offset["x"], hand_offset["y"], torso_angle,
@@ -1667,7 +1097,7 @@ def _build_player_front_reload_arm_parts(
         lower_bind,
         {"x": hand["x"] - elbow["x"], "y": hand["y"] - elbow["y"]},
     )
-    tint = PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"] if is_far else None
+    tint = _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["far_arm_tint"] if is_far else None
     upper_part = _make_player_cutout_part(
         textures["upper_arm"], source_shoulder, shoulder,
         upper_angle, is_far, tint,
@@ -1694,7 +1124,7 @@ def _build_player_front_reload_parts(
     start_progress, start_aim = _player_reload_start_weapon_state(player_entity)
     if timing["enter"] <= 0.000001 and start_progress <= 0.000001:
         return None
-    pose_settings = PLAYER_RELOAD_POSE_DEFAULTS[direction]
+    pose_settings = _player_animation_setting("PLAYER_RELOAD_POSE_DEFAULTS")[direction]
     if timing["enter"] < 0.999999:
         support_amount = _player_reload_support_pose_amount(
             player_entity, timing,
@@ -1722,9 +1152,9 @@ def _build_player_front_reload_parts(
         "y": float(body_hip["y"]) + gun_offset["y"],
     }
     gun = _make_player_cutout_part(
-        textures["gun"], PLAYER_FRONT_CUTOUT_ARM_DEFAULTS["gun_grip"],
+        textures["gun"], _player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_DEFAULTS")["gun_grip"],
         gun_pivot, float(pose_settings["gun_degrees"]) + torso_angle,
-        source_canvas_width=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS["gun_source_size"],
+        source_canvas_width=_player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_DEFAULTS")["gun_source_size"],
     )
     gun.update({
         "rig_side": weapon_side, "rig_hand": "right",
@@ -1744,7 +1174,7 @@ def _build_player_front_reload_parts(
         start_parts = _build_player_weapon_cutout_parts(
             start_player, body_hip, torso_angle, weapon_side == "far",
             weapon_arm,
-            arm_settings=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS,
+            arm_settings=_player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_DEFAULTS"),
             textures=textures,
             animation_direction=direction,
             rig_side=weapon_side, rig_hand="right",
@@ -1764,7 +1194,7 @@ def _build_player_front_reload_parts(
 
 def _build_player_side_cutout_rig_parts(player_entity):
     """Build one composite side-view pose from the aligned cutout textures."""
-    settings = PLAYER_CUTOUT_RIG_DEFAULTS
+    settings = _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")
     if not settings.get("enabled", True):
         return []
     direction = player_entity.get("animation_direction")
@@ -1847,11 +1277,11 @@ def _build_player_side_cutout_rig_parts(player_entity):
         }
         tint = settings["far_leg_tint"] if is_far else None
         lower_part = _make_player_cutout_part(
-                PLAYER_CUTOUT_TEXTURES["lower_leg"], knee, target_knee,
+                _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["lower_leg"], knee, target_knee,
                 lower_angle, facing_left, tint,
             )
         upper_part = _make_player_cutout_part(
-                PLAYER_CUTOUT_TEXTURES["upper_leg"], hip, target_hip,
+                _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["upper_leg"], hip, target_hip,
                 upper_angle, facing_left, tint,
             )
         lower_part.update({"rig_side": side, "rig_joint": "lower_leg"})
@@ -1859,14 +1289,14 @@ def _build_player_side_cutout_rig_parts(player_entity):
         leg_parts.append((lower_part, upper_part))
 
     torso = _make_player_cutout_part(
-        PLAYER_CUTOUT_TEXTURES["torso"], hip, body_hip, torso_angle,
+        _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["torso"], hip, body_hip, torso_angle,
         facing_left,
     )
     torso.update({"rig_joint": "torso", "body_bob": bob})
     # Keeping the head level makes the torso movement readable without making
     # the character's view look mechanically tied to every step.
     head = _make_player_cutout_part(
-        PLAYER_CUTOUT_TEXTURES["head"], neck, body_neck, 0.0,
+        _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["head"], neck, body_neck, 0.0,
         facing_left,
     )
     head.update({"rig_joint": "head"})
@@ -1874,7 +1304,7 @@ def _build_player_side_cutout_rig_parts(player_entity):
     flashlight_side = _player_rig_side_for_hand(direction, "left")
     weapon_progress = _player_weapon_transition_progress(player_entity)
     offhand_motion_scale = 1.0 - weapon_progress * (
-        1.0 - float(PLAYER_CUTOUT_ARM_DEFAULTS["far_arm_aim_motion_scale"])
+        1.0 - float(_player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS")["far_arm_aim_motion_scale"])
     )
     far_arm = _build_player_locomotion_arm_pose(
         phase, run_blend, blend, body_hip, torso_angle,
@@ -1941,8 +1371,8 @@ def _build_player_side_cutout_rig_parts(player_entity):
 def _build_player_front_locomotion_arm_pose(
         arm_phase, run_blend, movement_blend, body_hip, torso_angle,
         direction, textures, is_far=False, motion_scale=1.0):
-    rig_settings = PLAYER_FRONT_CUTOUT_RIG_DEFAULTS
-    arm_settings = PLAYER_FRONT_CUTOUT_ARM_DEFAULTS
+    rig_settings = _player_animation_setting("PLAYER_FRONT_CUTOUT_RIG_DEFAULTS")
+    arm_settings = _player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_DEFAULTS")
     bind_pose = arm_settings["bind_pose"]
     source_shoulder = bind_pose["shoulder"]
     source_elbow = bind_pose["elbow"]
@@ -1957,7 +1387,7 @@ def _build_player_front_locomotion_arm_pose(
     }
     swing_scale = max(0.0, float(motion_scale)) * float(movement_blend)
     side = "far" if is_far else "near"
-    direction_profiles = PLAYER_FRONT_CUTOUT_ARM_PROFILES[direction]
+    direction_profiles = _player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_PROFILES")[direction]
     body_bind_hip = rig_settings["body_hip"]
     attachment = arm_settings[
         "far_shoulder" if is_far else "shoulder"
@@ -2055,7 +1485,7 @@ def _build_player_front_locomotion_arm_pose(
     lower_scale = math.hypot(
         target_lower["x"], target_lower["y"],
     ) / max(0.0001, math.hypot(lower_bind["x"], lower_bind["y"]))
-    tint = PLAYER_CUTOUT_RIG_DEFAULTS["far_arm_tint"] if is_far else None
+    tint = _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["far_arm_tint"] if is_far else None
     upper_part = _make_player_cutout_part(
         textures["upper_arm"], source_shoulder, shoulder,
         upper_angle, is_far, tint, scale_y=upper_scale,
@@ -2076,14 +1506,14 @@ def _build_player_front_locomotion_arm_pose(
 
 
 def _build_player_front_cutout_rig_parts(player_entity, direction):
-    settings = PLAYER_FRONT_CUTOUT_RIG_DEFAULTS
-    textures = PLAYER_CUTOUT_DIRECTION_TEXTURES[direction]
+    settings = _player_animation_setting("PLAYER_FRONT_CUTOUT_RIG_DEFAULTS")
+    textures = _player_animation_setting("PLAYER_CUTOUT_DIRECTION_TEXTURES")[direction]
     gait = player_entity.get("procedural_gait", {})
     try:
         phase = (
             float(gait.get("phase", 0.0))
             + math.radians(float(
-                PLAYER_CUTOUT_RIG_DEFAULTS["footfall_phase_degrees"]
+                _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["footfall_phase_degrees"]
             ))
         ) % math.tau
         blend = max(0.0, min(1.0, float(gait.get("blend", 0.0))))
@@ -2106,7 +1536,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
             and settings.get("down_locomotion_uses_up_leg_art", True)
             and blend > float(settings["locomotion_leg_art_blend_threshold"])):
         leg_texture_direction = "up"
-    leg_textures = PLAYER_CUTOUT_DIRECTION_TEXTURES[leg_texture_direction]
+    leg_textures = _player_animation_setting("PLAYER_CUTOUT_DIRECTION_TEXTURES")[leg_texture_direction]
 
     body_pose = _blended_player_front_leg_pose(
         direction, phase, run_blend,
@@ -2214,7 +1644,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
             target_lower_vector["x"], target_lower_vector["y"],
         ) / source_lower_length
         tint = (
-            PLAYER_CUTOUT_RIG_DEFAULTS["far_leg_tint"]
+            _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS")["far_leg_tint"]
             if is_far else None
         )
         lower_part = _make_player_cutout_part(
@@ -2243,7 +1673,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     weapon_progress = _player_weapon_transition_progress(player_entity)
     offhand_motion_scale = 1.0 - weapon_progress * (
         1.0 - float(
-            PLAYER_FRONT_CUTOUT_ARM_DEFAULTS["far_arm_aim_motion_scale"]
+            _player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_DEFAULTS")["far_arm_aim_motion_scale"]
         )
     )
     far_arm = _build_player_front_locomotion_arm_pose(
@@ -2270,7 +1700,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     weapon_parts = _build_player_weapon_cutout_parts(
         player_entity, body_hip, torso_angle, weapon_side == "far",
         weapon_arm,
-        arm_settings=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS,
+        arm_settings=_player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_DEFAULTS"),
         textures=textures,
         animation_direction=direction,
         rig_side=weapon_side, rig_hand="right",
@@ -2278,7 +1708,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     flashlight_parts = _build_player_flashlight_cutout_parts(
         player_entity, body_hip, torso_angle, flashlight_side == "far",
         flashlight_arm,
-        arm_settings=PLAYER_FRONT_CUTOUT_ARM_DEFAULTS,
+        arm_settings=_player_animation_setting("PLAYER_FRONT_CUTOUT_ARM_DEFAULTS"),
         textures=textures, animation_direction=direction,
         rig_side=flashlight_side, rig_hand="left",
     )
@@ -2328,9 +1758,9 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
     ]
 
 
-def build_player_cutout_rig_parts(player_entity):
+def _build_player_cutout_rig_parts(player_entity):
     """Build the procedural player cutout for any cardinal facing."""
-    if not PLAYER_CUTOUT_RIG_DEFAULTS.get("enabled", True):
+    if not _player_animation_setting("PLAYER_CUTOUT_RIG_DEFAULTS").get("enabled", True):
         return []
     direction = player_entity.get("animation_direction")
     if direction is None:
@@ -2347,227 +1777,29 @@ def build_player_cutout_rig_parts(player_entity):
     return []
 
 
-def _blended_redhead_cutout_gait_pose(phase, run_blend):
-    walk = sample_player_cutout_gait_profile(
-        REDHEAD_CUTOUT_GAIT_PROFILES["walk"], phase,
-    )
-    run = sample_player_cutout_gait_profile(
-        REDHEAD_CUTOUT_GAIT_PROFILES["run"], phase,
-    )
-    amount = max(0.0, min(1.0, float(run_blend)))
-    return {
-        key: float(walk.get(key, 0.0)) + (
-            float(run.get(key, walk.get(key, 0.0)))
-            - float(walk.get(key, 0.0))
-        ) * amount
-        for key in walk
-    }
-
-
-def _make_redhead_cutout_part(texture_name, source_pivot, target_pivot,
-                               rotation, mirror=False, tint=None):
-    canvas_size = float(REDHEAD_CUTOUT_RIG_DEFAULTS["canvas_size"])
-    return _make_player_cutout_part(
-        texture_name, source_pivot, target_pivot, rotation,
-        facing_left=mirror, tint=tint,
-        source_canvas_width=canvas_size,
-        target_canvas_width=canvas_size,
-    )
+def build_player_cutout_rig_parts(player_entity):
+    # Nested aim/reload helpers share this call-local draft without mutating defaults.
+    token = _PLAYER_PREVIEW_DATA.set(player_entity.get("animation_profile_override"))
+    try:
+        parts = _build_player_cutout_rig_parts(player_entity)
+        return g_animation.highlight_component_parts(
+            parts, player_entity.get("animation_component_highlight", {}))
+    finally:
+        _PLAYER_PREVIEW_DATA.reset(token)
 
 
 def build_redhead_cutout_rig_parts(entity):
-    """Build the red head's cardinal, speed-blended procedural locomotion."""
-    settings = REDHEAD_CUTOUT_RIG_DEFAULTS
-    if (not settings.get("enabled", True)
-            or entity.get("current_state") == "dead"):
-        return []
-    direction = entity.get("animation_direction")
-    if direction is None:
-        frame_name = str(entity.get("animation_frame", ""))
-        direction = next((
-            name for name in ("left", "right", "up", "down")
-            if frame_name.startswith(name)
-        ), None)
-    if direction not in {"left", "right", "up", "down"}:
-        return []
+    return g_animation.build_redhead_cutout_rig_parts(entity)
 
-    gait = entity.get("procedural_gait", {})
-    try:
-        phase = (
-            float(gait.get("phase", 0.0))
-            + math.radians(float(settings["footfall_phase_degrees"]))
-        ) % math.tau
-        blend = max(0.0, min(1.0, float(gait.get("blend", 0.0))))
-        run_blend = max(
-            0.0, min(1.0, float(gait.get("run_blend", 0.0)))
-        )
-    except (TypeError, ValueError, OverflowError):
-        phase = 0.0
-        blend = 0.0
-        run_blend = 0.0
-    if not math.isfinite(phase):
-        phase = 0.0
-    if not math.isfinite(blend):
-        blend = 0.0
-    if not math.isfinite(run_blend):
-        run_blend = 0.0
 
-    pose = _blended_redhead_cutout_gait_pose(phase, run_blend)
-    front_facing = direction in {"up", "down"}
-    rig = settings["front" if front_facing else "side"]
-    texture_direction = direction if direction != "left" else "right"
-    textures = REDHEAD_CUTOUT_TEXTURES[texture_direction]
-    facing_left = direction == "left"
-    body_x = float(pose.get("body_x_pixels", 0.0)) * blend
-    body_y = float(pose.get("body_y_pixels", 0.0)) * blend
-    torso_key = (
-        "front_torso_degrees" if front_facing else "side_torso_degrees"
-    )
-    torso_angle = float(pose.get(torso_key, 0.0)) * blend
-    bind_hip = rig["hip"]
-    body_hip = {
-        "x": float(bind_hip["x"]) + body_x,
-        "y": float(bind_hip["y"]) + body_y,
-    }
-    neck = rig["neck"]
-    neck_offset = _rotate_rig_vector(
-        float(neck["x"]) - float(bind_hip["x"]),
-        float(neck["y"]) - float(bind_hip["y"]), torso_angle,
-    )
-    body_neck = {
-        "x": body_hip["x"] + neck_offset["x"],
-        "y": body_hip["y"] + neck_offset["y"],
-    }
-
-    torso = _make_redhead_cutout_part(
-        textures["torso"], bind_hip, body_hip, torso_angle, facing_left,
-    )
-    torso.update({
-        "rig_joint": "torso", "body_bob": body_y,
-        "body_sway": body_x,
-    })
-    head = _make_redhead_cutout_part(
-        textures["head"], neck, body_neck, 0.0, facing_left,
-    )
-    head.update({"rig_joint": "head"})
-
-    if front_facing:
-        source_hip = rig["limb_hip"]
-        source_shoulder = rig["shoulder"]
-    else:
-        source_hip = rig["hip"]
-        source_shoulder = rig["shoulder"]
-    source_knee = rig["knee"]
-    source_foot = rig["foot"]
-    source_elbow = rig["elbow"]
-    upper_leg_vector = {
-        "x": float(source_knee["x"]) - float(source_hip["x"]),
-        "y": float(source_knee["y"]) - float(source_hip["y"]),
-    }
-    upper_arm_vector = {
-        "x": float(source_elbow["x"]) - float(source_shoulder["x"]),
-        "y": float(source_elbow["y"]) - float(source_shoulder["y"]),
-    }
-
-    legs = {}
-    arms = {}
-    for is_far in (True, False):
-        side = "far" if is_far else "near"
-        mirror_part = facing_left or (front_facing and is_far)
-        tint = settings["far_limb_tint"] if is_far else None
-        # Front-facing far pieces are mirrored by the part renderer. Build
-        # their canonical pivots with inverse body sway so both sides follow
-        # the same screen-space weight transfer after mirroring.
-        canonical_body_hip = dict(body_hip)
-        if front_facing and is_far:
-            canonical_body_hip["x"] = float(bind_hip["x"]) - body_x
-
-        if front_facing:
-            hip_attachment = source_hip
-            shoulder_attachment = source_shoulder
-        else:
-            hip_attachment = rig[f"{side}_hip"]
-            shoulder_attachment = rig[f"{side}_shoulder"]
-        hip_offset = _rotate_rig_vector(
-            float(hip_attachment["x"]) - float(bind_hip["x"]),
-            float(hip_attachment["y"]) - float(bind_hip["y"]),
-            torso_angle,
-        )
-        shoulder_offset = _rotate_rig_vector(
-            float(shoulder_attachment["x"]) - float(bind_hip["x"]),
-            float(shoulder_attachment["y"]) - float(bind_hip["y"]),
-            torso_angle,
-        )
-        target_hip = {
-            "x": canonical_body_hip["x"] + hip_offset["x"],
-            "y": canonical_body_hip["y"] + hip_offset["y"],
-        }
-        target_shoulder = {
-            "x": canonical_body_hip["x"] + shoulder_offset["x"],
-            "y": canonical_body_hip["y"] + shoulder_offset["y"],
-        }
-
-        upper_leg_angle = float(
-            pose.get(f"{side}_upper_leg_degrees", 0.0)
-        ) * blend
-        lower_leg_angle = upper_leg_angle + float(
-            pose.get(f"{side}_knee_bend_degrees", 0.0)
-        ) * blend
-        knee_offset = _rotate_rig_vector(
-            upper_leg_vector["x"], upper_leg_vector["y"],
-            upper_leg_angle,
-        )
-        target_knee = {
-            "x": target_hip["x"] + knee_offset["x"],
-            "y": target_hip["y"] + knee_offset["y"],
-        }
-        upper_leg = _make_redhead_cutout_part(
-            textures["upper_leg"], source_hip, target_hip,
-            upper_leg_angle, mirror_part, tint,
-        )
-        lower_leg = _make_redhead_cutout_part(
-            textures["lower_leg"], source_knee, target_knee,
-            lower_leg_angle, mirror_part, tint,
-        )
-        upper_leg.update({"rig_side": side, "rig_joint": "upper_leg"})
-        lower_leg.update({"rig_side": side, "rig_joint": "lower_leg"})
-        legs[side] = [lower_leg, upper_leg]
-
-        upper_arm_angle = torso_angle + float(
-            pose.get(f"{side}_upper_arm_degrees", 0.0)
-        ) * blend
-        lower_arm_angle = upper_arm_angle + float(
-            pose.get(f"{side}_elbow_bend_degrees", 0.0)
-        ) * blend
-        elbow_offset = _rotate_rig_vector(
-            upper_arm_vector["x"], upper_arm_vector["y"],
-            upper_arm_angle,
-        )
-        target_elbow = {
-            "x": target_shoulder["x"] + elbow_offset["x"],
-            "y": target_shoulder["y"] + elbow_offset["y"],
-        }
-        upper_arm = _make_redhead_cutout_part(
-            textures["upper_arm"], source_shoulder, target_shoulder,
-            upper_arm_angle, mirror_part, tint,
-        )
-        lower_arm = _make_redhead_cutout_part(
-            textures["lower_arm"], source_elbow, target_elbow,
-            lower_arm_angle, mirror_part, tint,
-        )
-        upper_arm.update({"rig_side": side, "rig_joint": "upper_arm"})
-        lower_arm.update({"rig_side": side, "rig_joint": "lower_arm"})
-        arms[side] = [lower_arm, upper_arm]
-
-    if direction == "up":
-        return [
-            *arms["far"], *legs["far"], *legs["near"],
-            *arms["near"], torso, head,
-        ]
-    return [
-        *arms["far"], *legs["far"], torso,
-        *legs["near"], *arms["near"], head,
-    ]
+def __getattr__(name):
+    # Compatibility for existing gameplay callers; always resolve current data.
+    if name in {"REDHEAD_CUTOUT_TEXTURES", "REDHEAD_CUTOUT_RIG_DEFAULTS",
+                "REDHEAD_CUTOUT_GAIT_PROFILES"}:
+        return getattr(g_animation.data, name)
+    if name in _PLAYER_ANIMATION_NAMES:
+        return getattr(player_animation_data, name)
+    raise AttributeError(name)
 
 
 def player_cutout_gun_barrel_world(player_entity, tile_map):
@@ -2579,9 +1811,9 @@ def player_cutout_gun_barrel_world(player_entity, tile_map):
     if gun is None:
         return None
     grip = gun.get("pivot_local", {})
-    source_grip = PLAYER_CUTOUT_ARM_DEFAULTS["gun_grip"]
-    source_muzzle = PLAYER_CUTOUT_ARM_DEFAULTS["gun_muzzle"]
-    source_direction = PLAYER_CUTOUT_ARM_DEFAULTS["gun_barrel_direction"]
+    source_grip = _player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS")["gun_grip"]
+    source_muzzle = _player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS")["gun_muzzle"]
+    source_direction = _player_animation_setting("PLAYER_CUTOUT_ARM_DEFAULTS")["gun_barrel_direction"]
     muzzle_from_grip = {
         "x": float(source_muzzle["x"]) - float(source_grip["x"]),
         "y": float(source_muzzle["y"]) - float(source_grip["y"]),
@@ -2745,7 +1977,7 @@ def build_player_render_item(player_entity, tile_map, game_assets):
         "weapon_visible": transition_progress > 0.000001,
         "cutout_rig_parts": cutout_parts,
         "weapon_in_cutout_rig": any(
-            part.get("texture") == PLAYER_CUTOUT_TEXTURES["gun"]
+            part.get("texture") == _player_animation_setting("PLAYER_CUTOUT_TEXTURES")["gun"]
             for part in cutout_parts
         ),
     }
