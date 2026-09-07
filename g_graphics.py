@@ -11,6 +11,8 @@ import g_render_order
 import g_update_and_render as game
 
 CINEMATIC_SHADOW_DEBUG_ENABLED = False
+# Hot-reloadable master toggle; per-entity contact_shadow settings are retained.
+CHARACTER_CONTACT_SHADOWS_ENABLED = False
 
 ENTITY_SELF_SHADOW_MODES = {"none": 0, "upright_box": 1, "directional_profiles": 2}
 _REPORTED_DIRECTIONAL_PROFILE_ASSET_ERRORS = set()
@@ -1488,7 +1490,7 @@ def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_positio
     near_center = game.vec2_add(floor_anchor, game.vec2_scale(projection_direction, near_offset))
     far_center = game.vec2_add(near_center, game.vec2_add(game.vec2_scale(projection_direction, length), game.vec2_scale(side_direction, lateral_skew * length)))
 
-    return {
+    quad = {
         "floor_anchor": floor_anchor,
         "near_center": near_center,
         "far_center": far_center,
@@ -1500,6 +1502,22 @@ def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_positio
         "cast_height": cast_height,
         "light_height": light_height
     }
+
+    if "pose_bounds" in sprite_info:
+        bounds, anchor = sprite_info["pose_bounds"], sprite_info["pose_anchor"]
+        def project(x, y):
+            v = y / max(1.0, anchor["y"])
+            centre = {axis: far_center[axis] + (near_center[axis] - far_center[axis]) * v for axis in ("x", "y")}
+            # Affine projection keeps the root fixed as mask padding changes.
+            # A tapered two-triangle quad would make the interior silhouette swim.
+            half_width = (far_half_width + near_half_width) * 0.5
+            lateral = (x - anchor["x"]) * 2.0 / max(1.0, sprite_info["sprite_width"])
+            return {axis: centre[axis] + side_direction[axis] * half_width * lateral for axis in ("x", "y")}
+        x, y, w, h = (bounds[k] for k in ("x", "y", "width", "height"))
+        quad.update(far_left=project(x, y), far_right=project(x + w, y),
+                    near_left=project(x, y + h), near_right=project(x + w, y + h))
+    return quad
+
 
 def resolve_texture_reference(reference, game_assets):
     """Resolve the serialisable {collection, name, optional field} asset shape."""
@@ -2194,7 +2212,112 @@ def draw_entity_direction_basis_debug(render_items, game_camera, prepared_lights
         rectangles_drawn += 1
     return rectangles_drawn
 
+def cutout_shadow_bounds(parts, textures):
+    """Conservative transformed bounds, including equipment outside the canvas."""
+    points = []
+    for part in parts:
+        texture = textures.get(part.get("texture"))
+        if texture is None and not part.get("placeholder_rect"):
+            return None
+        size = part.get("placeholder_size", {})
+        width = float(texture.width if texture is not None else size.get("x", 5.0))
+        height = float(texture.height if texture is not None else size.get("y", 2.0))
+        origin, pivot, scale = part["origin"], part["pivot_local"], part.get("scale", {})
+        for x, y in ((0, 0), (width, 0), (width, height), (0, height)):
+            vector = g_render_order._rotate_rig_vector(
+                (x - origin["x"]) * scale.get("x", 1.0),
+                (y - origin["y"]) * scale.get("y", 1.0), part["rotation"])
+            points.append((pivot["x"] + vector["x"], pivot["y"] + vector["y"]))
+    if not points:
+        return None
+    left, top = math.floor(min(p[0] for p in points)) - 1, math.floor(min(p[1] for p in points)) - 1
+    right, bottom = math.ceil(max(p[0] for p in points)) + 1, math.ceil(max(p[1] for p in points)) + 1
+    return {"x": left, "y": top, "width": right - left, "height": bottom - top}
+
+
+def prepare_character_shadow_atlas(frame_data, game_assets):
+    animated = [s["sprite_info"] for s in frame_data["shadows"] if s["sprite_info"].get("pose_parts")]
+    if not animated:
+        return
+    def power_of_two(value):
+        return 1 << (max(1, int(value)) - 1).bit_length()
+    cell_width = power_of_two(max(s["pose_bounds"]["width"] for s in animated))
+    cell_height = power_of_two(max(s["pose_bounds"]["height"] for s in animated))
+    columns = math.ceil(math.sqrt(len(animated)))
+    rows = math.ceil(len(animated) / columns)
+    old = game_assets.get("render_targets", {}).get("character_shadow_atlas")
+    # A single resource grows to peak usage; it is not keyed by changing phase or IDs.
+    width = max(power_of_two(columns * cell_width), old.texture.width if old else 1)
+    height = max(power_of_two(rows * cell_height), old.texture.height if old else 1)
+    target = get_or_create_render_target(game_assets, "character_shadow_atlas", width, height)
+    shader = game_assets["shaders"]["character_shadow_mask"]["shader"]
+    pr.begin_texture_mode(target)
+    pr.clear_background(pr.BLANK)
+    pr.begin_shader_mode(shader)
+    for index, info in enumerate(animated):
+        bounds = info["pose_bounds"]
+        x, y = (index % columns) * cell_width, (index // columns) * cell_height
+        parts = [dict(p, tint=[255, 255, 255, 255], placeholder_color=[255, 255, 255, 255])
+                 for p in info["pose_parts"]]
+        item = {"dest_rect": {"x": x - bounds["x"], "y": y - bounds["y"]},
+                "draw_data": {"cutout_rig_parts": parts}}
+        _draw_cutout_rig(item, pr.Vector2(0, 0), game_assets)
+        info["texture"] = target.texture
+        # Our custom quad consumes literal UVs; render textures are vertically inverted.
+        info["source_rect"] = pr.Rectangle(x, height - y, bounds["width"], -bounds["height"])
+    pr.end_shader_mode()
+    pr.end_texture_mode()
+
+
+def character_foot_contacts(render_item):
+    policy = render_item.get("contact_shadow", {})
+    if not policy.get("enabled", True):
+        return []
+    destination = render_item.get("dest_rect", {})
+    result = []
+    for part in render_item.get("draw_data", {}).get("cutout_rig_parts", []):
+        foot = part.get("foot_local")
+        if foot is None:
+            continue
+        ground = part["foot_ground_y"]
+        lift = max(0.0, ground - foot["y"])
+        weight = max(0.0, 1.0 - lift / max(0.001, float(policy.get("fade_height", 4.0))))
+        result.append({"x": destination["x"] + foot["x"], "y": destination["y"] + ground,
+                       "opacity": max(0.0, min(1.0, float(policy.get("opacity", 0.28)))) * weight * weight,
+                       "radius_x": max(0.0, float(policy.get("radius_x", 1.8))) * (0.7 + 0.3 * weight),
+                       "radius_y": max(0.0, float(policy.get("radius_y", 0.65))),
+                       "side": part.get("rig_side"), "lift": lift})
+    return result
+
+
+def draw_character_contact_shadows(scene, game_camera, render_items):
+    if not CHARACTER_CONTACT_SHADOWS_ENABLED:
+        return
+    pr.begin_texture_mode(scene)
+    for item in render_items:
+        snap = (g_render_order.moving_world_to_screen_pixel if item.get("screen_snap") == "relative_motion"
+                else g_render_order.world_to_screen_pixel)
+        for contact in character_foot_contacts(item):
+            if contact["opacity"] <= 0.001:
+                continue
+            screen = snap(contact["x"], contact["y"], game_camera)
+            pr.draw_ellipse(int(screen["x"]), int(screen["y"]), contact["radius_x"], contact["radius_y"],
+                            pr.Color(5, 4, 9, round(contact["opacity"] * 255)))
+    pr.end_texture_mode()
+
+
 def get_render_item_shadow_sprite_info(render_item, game_assets):
+    parts = render_item.get("draw_data", {}).get("cutout_rig_parts", [])
+    bounds = cutout_shadow_bounds(parts, game_assets.get("textures", {})) if parts else None
+    if bounds is not None:
+        destination = render_item["dest_rect"]
+        base = render_item["base_world"]
+        return {"pose_parts": parts, "pose_bounds": bounds,
+                "pose_anchor": {"x": base["x"] - destination["x"],
+                                "y": base["y"] - destination["y"]},
+                "texture": None, "source_rect": None, "base_world": dict(base),
+                "sprite_width": destination["width"], "sprite_height": destination["height"],
+                "visual_height": render_item.get("visual_height", destination["height"])}
     texture = resolve_render_item_texture(render_item, game_assets)
     if texture is None:
         return None
@@ -2919,6 +3042,8 @@ def render_and_apply_cinematic_entity_shadows(scene, game_camera, render_items, 
 
     if frame_data is None:
         return
+
+    prepare_character_shadow_atlas(frame_data, game_assets)
 
     width = scene.texture.width
     height = scene.texture.height

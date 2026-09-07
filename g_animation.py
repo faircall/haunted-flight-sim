@@ -91,6 +91,19 @@ def _make_redhead_cutout_part(texture_name, source_pivot, target_pivot,
     )
 
 
+def attach_foot_marker(part, source_foot, canvas_size):
+    """Describe the visible foot using the exact mirrored/scaled limb transform."""
+    x = canvas_size - source_foot["x"] if part.get("flip_x") else source_foot["x"]
+    scale = part.get("scale", {})
+    offset = _rotate_rig_vector(
+        (x - part["origin"]["x"]) * scale.get("x", 1.0),
+        (source_foot["y"] - part["origin"]["y"]) * scale.get("y", 1.0),
+        part["rotation"],
+    )
+    part["foot_local"] = {axis: part["pivot_local"][axis] + offset[axis] for axis in ("x", "y")}
+    part["foot_ground_y"] = float(source_foot["y"])
+
+
 def highlight_component_parts(parts, highlight):
     """Tint only the selected texture instance; selection is never authored data."""
     field = highlight.get("field", "")
@@ -298,6 +311,7 @@ def build_redhead_cutout_rig_parts(entity):
         )
         upper_leg.update({"rig_side": side, "rig_joint": "upper_leg"})
         lower_leg.update({"rig_side": side, "rig_joint": "lower_leg"})
+        attach_foot_marker(lower_leg, source_foot, settings["canvas_size"])
         legs[side] = [lower_leg, upper_leg]
 
         upper_arm_angle = torso_angle + float(

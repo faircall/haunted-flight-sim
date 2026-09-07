@@ -12,7 +12,7 @@ for _old_redhead_name in ("REDHEAD_CUTOUT_TEXTURES", "REDHEAD_CUTOUT_RIG_DEFAULT
 
 
 SORT_LAYER_ORDER = {"floor": 0, "world": 100, "overlay": 200}
-ENTITY_RENDER_METADATA_VERSION = 1
+ENTITY_RENDER_METADATA_VERSION = 2
 _PLAYER_ANIMATION_NAMES = ('PLAYER_WEAPON_BEZIER_DEFAULTS', 'PLAYER_CUTOUT_RIG_DEFAULTS', 'PLAYER_CUTOUT_GAIT_PROFILES', 'PLAYER_CUTOUT_TEXTURES', 'PLAYER_CUTOUT_DIRECTION_TEXTURES', 'PLAYER_CUTOUT_ARM_DEFAULTS', 'PLAYER_FLASHLIGHT_POSE_DEFAULTS', 'PLAYER_FRONT_CUTOUT_RIG_DEFAULTS', 'PLAYER_FRONT_CUTOUT_LEG_PROFILES', 'PLAYER_FRONT_CUTOUT_ARM_DEFAULTS', 'PLAYER_RELOAD_POSE_DEFAULTS', 'PLAYER_FRONT_CUTOUT_ARM_PROFILES')
 for _old_player_name in _PLAYER_ANIMATION_NAMES:
     globals().pop(_old_player_name, None)
@@ -71,12 +71,14 @@ def make_default_entity_render_metadata(entity_type):
     }
     presets = {
         "player": {
+            "contact_shadow": {"enabled": True, "opacity": 0.28, "radius_x": 1.8, "radius_y": 0.65, "fade_height": 4.0},
             "render_anchor_offset": {"x": -16.0, "y": -16.0}, "render_base_offset": {"x": 0.0, "y": 14.0}, "visual_height": 32.0, "light_sample_height": 18.0,
             "ground_footprint": {"shape": "rectangle", "offset": {"x": 0.0, "y": -2.0}, "size": {"x": 12.0, "y": 7.0}},
             "self_shadow": {"mode": "upright_box", "strength": 0.78, "softness": 0.12, "back_fill": 0.08},
             "outline": {"policy": "player_when_occluded", "color": [0.50, 0.66, 0.74, 0.52], "width": 1.25, "priority": 30}
         },
         "red head": {
+            "contact_shadow": {"enabled": True, "opacity": 0.28, "radius_x": 1.5, "radius_y": 0.6, "fade_height": 3.0},
             "render_anchor_offset": {"x": -24.0, "y": -24.0}, "render_base_offset": {"x": -12.0, "y": -3.0}, "visual_height": 24.0, "light_sample_height": 14.0,
             "ground_footprint": {"shape": "rectangle", "offset": {"x": 0.0, "y": 0.0}, "size": {"x": 14.0, "y": 8.0}},
             "self_shadow": {"mode": "upright_box", "strength": 0.86, "softness": 0.10, "back_fill": 0.06},
@@ -219,7 +221,8 @@ def make_world_render_item(kind, source, source_id, object_id, entity, world_pos
         "light_sample_height": float(entity.get("light_sample_height", entity.get("visual_height", height) * 0.55)), "ground_footprint": entity.get("ground_footprint", {}),
         "self_shadow": entity.get("self_shadow", {}), "entity_light_occluder": entity.get("entity_light_occluder", {}), "shadow": entity.get("shadow", {}), "render_style": entity.get("render_style", "world"),
         "outline": entity.get("outline", {}), "occludes_render_items": bool(entity.get("occludes_render_items", False)), "fog_interaction": entity.get("fog_interaction", {"mode": "standard"}),
-        "water_interaction": entity.get("water_interaction", {"mode": "standard"}), "draw_data": draw_data or {}
+        "water_interaction": entity.get("water_interaction", {"mode": "standard"}), "draw_data": draw_data or {},
+        "contact_shadow": entity.get("contact_shadow", {})
     }
 
 
@@ -1285,6 +1288,7 @@ def _build_player_side_cutout_rig_parts(player_entity):
                 upper_angle, facing_left, tint,
             )
         lower_part.update({"rig_side": side, "rig_joint": "lower_leg"})
+        g_animation.attach_foot_marker(lower_part, {"x": knee["x"], "y": 31.0}, settings["canvas_size"])
         upper_part.update({"rig_side": side, "rig_joint": "upper_leg"})
         leg_parts.append((lower_part, upper_part))
 
@@ -1656,6 +1660,7 @@ def _build_player_front_cutout_rig_parts(player_entity, direction):
             upper_angle, is_far, tint, scale_y=upper_scale,
         )
         lower_part.update({"rig_side": side, "rig_joint": "lower_leg"})
+        g_animation.attach_foot_marker(lower_part, source_foot, 32.0)
         upper_part.update({"rig_side": side, "rig_joint": "upper_leg"})
         leg_parts.append((lower_part, upper_part))
 

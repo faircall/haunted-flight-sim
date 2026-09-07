@@ -35,6 +35,7 @@ g_reloadable_modules = [
 ]
 
 g_shader_source_files = (
+    "shaders/character_shadow_mask.fs",
     "shaders/tile_mask.fs",
     "shaders/cinematic_shadow_projection.fs",
     "shaders/cinematic_shadow_composite.fs",

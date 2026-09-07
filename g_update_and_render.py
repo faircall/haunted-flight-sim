@@ -1683,6 +1683,7 @@ def load_shaders():
         "shape_index_location": pr.get_shader_location(tile_mask, "shapeIndex")
     }
 
+    result["character_shadow_mask"] = {"shader": pr.load_shader("", "shaders/character_shadow_mask.fs")}
     cinematic_shadow_projection = pr.load_shader("", "shaders/cinematic_shadow_projection.fs")
     result["cinematic_shadow_projection"] = {
         "shader": cinematic_shadow_projection,
@@ -8763,7 +8764,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         name in shaders and shaders[name].get("shader") is not None
         for name in ("effect_fire", "effect_smoke", "effect_sparks")
     )
-    if not shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader or "self_shadow_mode_location" not in entity_self_shadow_shader or "self_shadow_pass_location" not in entity_self_shadow_shader or not effect_shaders_valid:
+    if not shaders or "character_shadow_mask" not in shaders or "cinematic_shadow_projection" not in shaders or "cinematic_shadow_composite" not in shaders or "render_item_outline" not in shaders or "entity_self_shadow" not in shaders or "light_posterize_enabled_location" not in lighting_composite_shader or "readability_light_texture_location" not in lighting_composite_shader or "self_shadow_mode_location" not in entity_self_shadow_shader or "self_shadow_pass_location" not in entity_self_shadow_shader or not effect_shaders_valid:
         if shaders:
             unload_shaders(shaders)
         shaders = load_shaders()
@@ -9030,6 +9031,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         )
 
     if render_environment_effects and not do_load_level:
+        g_graphics.draw_character_contact_shadows(render_target, camera_3d.position, sorted_world_items)
         g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, sorted_world_items, game_assets, prepared_flashlight)
 
     entity_light_target = None

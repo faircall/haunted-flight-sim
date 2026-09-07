@@ -13,6 +13,21 @@ The renderer uses serialisable authored dictionaries, transient flat render-item
 
 Entities without a dedicated corpse type can adopt the grounded policy by merging the fresh dictionary returned by `g_render_order.make_grounded_entity_render_metadata()` into their authored render metadata.
 
+Animated player/redhead casters now project alpha masks composed from their
+evaluated cutout parts, including equipment. A reusable GPU atlas is rebuilt
+from the current render snapshot, with no CPU image readback. Padding preserves
+the ground anchor; animated masks use an affine projection to avoid distortion
+as their bounds change. Static sprites retain the previous projection path.
+Existing per-entity cast-shadow enablement and light visibility rules still apply.
+
+Both character rigs expose transformed foot markers. Small floor contact
+shadows follow these markers and fade with pose-based foot lift, independently
+of whether a flashlight cast shadow is available. The entity `contact_shadow`
+policy controls `enabled`, `opacity`, `radius_x`, `radius_y`, and `fade_height`.
+Defaults live with the render metadata in `g_render_order.py`. Contact shadows
+are drawn before world lighting and atmosphere. These remain camera-view 2D
+silhouettes, not light-relative or wall-projected shadows.
+
 ## 2. Emitters and wind — next
 
 Add serialisable emitter definitions and transient flat particle arrays. Particles must select an existing semantic pass (`floor`, `ground_projected`, `sorted_world`, `atmospheric`, or `readability`) and reuse render-item sorting when appropriate. Do not place GPU state in emitters.
