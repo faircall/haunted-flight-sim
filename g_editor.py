@@ -11,8 +11,10 @@ import g_render_order
 import g_ui
 import g_puzzles
 import g_puzzle_ui
+import g_sequences
+import g_sequence_editor
 
-EDITOR_MODES = ("play", "tile", "entity", "animation", "environment")
+EDITOR_MODES = ("play", "tile", "entity", "animation", "environment", "sequences")
 EDITOR_TOOLS = ("select", "place")
 ANIMATION_DEBUG_PLAYBACK_MODES = ("continuous", "keyframe")
 PLACEMENT_TYPES = ()
@@ -1264,7 +1266,7 @@ def capture_editor_ui_regions(ui_state, editor_state, editor_mode,
     inspector_rect = pr.Rectangle(306, 38, 174, 232)
 
     inspector_visible = editor_mode in {
-        "environment", "entity", "animation",
+        "environment", "entity", "animation", "sequences",
     } and not editor_state.get("inspector_collapsed", False)
 
     if g_ui.ui_point_in_rect(mouse, toolbar_rect) or (inspector_visible and g_ui.ui_point_in_rect(mouse, inspector_rect)):
@@ -1454,6 +1456,9 @@ def update_editor_shortcuts(entities, editor_state, ui_state, tile_map):
 def draw_editor_toolbar(ui_state, editor_state, editor_mode, entities, tile_map):
     pr.draw_rectangle(0, 0, 480, 38, g_ui.UI_BACKGROUND)
     editor_mode, _ = g_ui.ui_dropdown(ui_state, "toolbar:mode", "", editor_mode, EDITOR_MODES, pr.Rectangle(2, 2, 78, 16), 5)
+    if editor_mode == "sequences":
+        g_sequence_editor.toolbar(ui_state, editor_state)
+        return editor_mode
     if editor_mode == "animation":
         g_ui.ui_label(
             ui_state, "toolbar:animation_hint",

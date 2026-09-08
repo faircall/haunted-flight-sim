@@ -269,6 +269,13 @@ def reset_progress(arena):
     for identity in arena["puzzle_state"]["spawns"].values():
         arena["entities"].get("brains", {}).pop(identity, None)
     arena = arena.remove("puzzle_state").remove("puzzle_runtime")
+    had_sequences = "sequence_state" in arena
+    for key in ("sequence_state", "sequence_runtime"):
+        if key in arena:
+            arena = arena.remove(key)
     arena = ensure_arena(arena)
+    if had_sequences:
+        import g_sequences
+        arena = g_sequences.ensure(arena)
     sync_door_tiles(arena)
     return arena

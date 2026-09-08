@@ -19,6 +19,9 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_sequence_data", update_and_render_module.g_sequences.data),
+    ("g_sequences", update_and_render_module.g_sequences),
+    ("g_sequence_editor", update_and_render_module.g_sequence_editor),
     ("g_puzzle_data", update_and_render_module.g_puzzles.data),
     ("g_puzzles", update_and_render_module.g_puzzles),
     ("g_puzzle_ui", update_and_render_module.g_puzzle_ui),

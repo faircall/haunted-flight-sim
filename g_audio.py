@@ -1534,7 +1534,7 @@ def update_loop_voices(runtime, dt, listener, profile):
     for key, loop in list(runtime.setdefault("loop_voices", {}).items()):
         if loop.get("last_requested_frame") != runtime.get("frame"):
             loop["target_gain"] = 0.0
-        duration = profile["loop_attack_seconds"] if loop["target_gain"] > loop["current_gain"] else profile["loop_release_seconds"]
+        duration = loop.get("fade_seconds", profile["loop_attack_seconds"] if loop["target_gain"] > loop["current_gain"] else profile["loop_release_seconds"])
         loop["current_gain"] = _approach(loop["current_gain"], loop["target_gain"], dt, duration)
         treatment = loop.get("treatment", {})
         muffled_paths = (
@@ -1711,7 +1711,7 @@ def _request_environment_loops(runtime, listener, tile_map, entities, rain_profi
         scale = _clamp((float(size.get("x", 16.0)) + float(size.get("y", 16.0))) / 64.0, 0.25, 1.5)
         context = resolve_source_listener_acoustic_context(position, listener_position, tile_map)
         family = "fire.fire_bed_large" if scale > 0.85 else "fire.fire_bed_small"
-        request_loop(runtime, f"fire:{emitter_id}:bed", family, 0.55 * scale,
+        request_loop(runtime, f"fire:{emitter_id}:bed", family, 0.55 * scale * float(emitter.get("activation_gain", 1.)),
                      position, True, context)
         distance = math.hypot(position["x"] - float(listener_position.get("x", 0.0)),
                               position["y"] - float(listener_position.get("y", 0.0)))
@@ -1726,6 +1726,23 @@ def _request_environment_loops(runtime, listener, tile_map, entities, rain_profi
         source_state["next_crackle"] = next_crackle
     fire_sources.sort(key=lambda item: item["distance"])
     runtime["stats"]["nearest_fire_loop_sources"] = fire_sources[:4]
+
+
+def request_sequence_music(runtime):
+    import g_sequence_data
+    desired = runtime.get("sequence_music", {"track": "silence", "fade": 1.})
+    track = desired["track"]
+    fade = max(0., float(desired.get("fade", 1.)))
+    for key, loop in runtime.get("loop_voices", {}).items():
+        if key.startswith("sequence_music:"):
+            loop["fade_seconds"] = fade
+    definition = g_sequence_data.MUSIC.get(track)
+    if not definition:
+        return
+    runtime["manifest"].setdefault("sequence_music", {})[track] = _family(
+        fallback=definition["path"], base_gain=definition.get("gain", 1.), voice_count=1, bus="ambience")
+    loop = request_loop(runtime, "sequence_music:"+track, "sequence_music."+track, 1.)
+    loop["fade_seconds"] = fade
 
 
 def update_audio(audio_runtime, engine, dt, listener, tile_map, entities,
@@ -1769,6 +1786,7 @@ def update_audio(audio_runtime, engine, dt, listener, tile_map, entities,
     )
     # Crackles requested above are intentionally deferred to the next frame so
     # all event arbitration still happens at one stable processing boundary.
+    request_sequence_music(audio_runtime)
     update_loop_voices(audio_runtime, dt, listener, profile)
     _retire_finished_voices(audio_runtime)
     # Remove exactly the frame-start batch. Environment schedulers above may

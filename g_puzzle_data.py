@@ -41,4 +41,9 @@ def ritual_door(arena, event):
     return p.message(arena, "The ritual lock releases. Something stirs nearby.")
 
 
-HANDLERS = {"key_door": key_door, "ritual_door": ritual_door}
+def sequence_locked(arena, event):
+    import g_puzzles as p
+    return p.message(arena, "Defeat the courtyard guardians to release this lock.")
+
+
+HANDLERS = {"key_door": key_door, "ritual_door": ritual_door, "sequence_locked": sequence_locked}

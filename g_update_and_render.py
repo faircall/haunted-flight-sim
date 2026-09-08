@@ -18,6 +18,8 @@ import g_render_order
 import g_ui
 import g_puzzles
 import g_puzzle_ui
+import g_sequences
+import g_sequence_editor
 
 
 
@@ -1167,7 +1169,8 @@ def transition_editor_state(current):
         "tile": "entity",
         "entity": "animation",
         "animation": "environment",
-        "environment": "play"
+        "environment": "sequences",
+        "sequences": "play"
     }
     return state_transitions.get(g_editor.migrate_editor_mode(current), "tile")
 
@@ -1571,7 +1574,11 @@ def save_state(arena):
     file_path = os.path.join(directory, file_name)        
     try:
         with open(file_path, "wb") as f:
-            pickle.dump(arena.remove("puzzle_runtime") if "puzzle_runtime" in arena else arena, f)
+            saved_arena = arena
+            for transient_key in ("puzzle_runtime", "sequence_runtime"):
+                if transient_key in saved_arena:
+                    saved_arena = saved_arena.remove(transient_key)
+            pickle.dump(saved_arena, f)
         pr.draw_text(f"saved editor state {file_path}", 400, 40, 30, pr.WHITE)        
         print(f"saved editor state")
     except Exception as e:        
@@ -8804,6 +8811,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     g_editor.migrate_environment_data(entities)
     main_arena = g_puzzles.ensure_arena(main_arena.set("entities", entities).set("tile_map", tile_map).set("player_info", player_info))
+    main_arena = g_sequences.ensure(main_arena)
     g_puzzles.sync_door_tiles(main_arena)
     g_effects.discard_legacy_particle_systems(entities)
     collision_index_signature = actor_collision_index_signature(
@@ -8891,6 +8899,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     screen_height = main_arena.get("screen_height")
     tile_size = 32
         
+    main_arena = g_sequence_editor.update_editor(main_arena, editor_state, ui_state,
+        camera_3d.position, editor_mode == "sequences" and show_editor, dt)
     # Puzzle input runs before movement; a keypad owns gameplay input while open.
     puzzle_modal = bool(main_arena["puzzle_runtime"].get("keypad"))
     main_arena = g_puzzle_ui.update_input(main_arena,
@@ -8980,9 +8990,18 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if tile_map and editor_mode == "entity" and not ui_state.get("mouse_captured"):
         current_entity_selection = g_ui.update_mousewheel_selection(current_entity_selection, len(entity_types))
 
-    preview_environment = editor_mode == "environment" and editor_state.get("preview_effects", True)
+    if editor_mode == "play" and pause_state != "paused" and not puzzle_modal and not do_load_level and not show_options:
+        main_arena = g_sequences.update(main_arena, dt)
+        entities, tile_map, player_info = main_arena["entities"], main_arena["tile_map"], main_arena["player_info"]
+    sequence_preview = g_sequence_editor.state(editor_state).get("preview") if editor_mode == "sequences" else None
+    presentation_entities = g_sequences.presentation_entities(main_arena, sequence_preview)
+    for event in main_arena["sequence_runtime"]["sounds"]:
+        g_audio.queue_audio_event(audio_runtime, event)
+    main_arena["sequence_runtime"]["sounds"].clear()
+    audio_runtime["sequence_music"] = main_arena["sequence_state"]["music"]
+    preview_environment = editor_mode in {"environment", "sequences"} and editor_state.get("preview_effects", True)
     render_environment_effects = editor_mode == "play" or preview_environment
-    authored_effect_emitters = entities.get("emitters", {})
+    authored_effect_emitters = presentation_entities.get("emitters", {})
     g_effects.update_effects(
         effects_runtime,
         authored_effect_emitters,
@@ -9011,7 +9030,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
                     frame_effect_emitters = dict(authored_effect_emitters)
                 frame_effect_emitters["runtime:player_muzzle_flame"] = muzzle_flame
     apply_effect_events_to_world(g_effects.drain_effect_events(effects_runtime), tile_map)
-    fire_light_emitters = entities.get("emitters", {})
+    fire_light_emitters = presentation_entities.get("emitters", {})
     if editor_mode == "environment":
         fire_light_emitters = {key: value for key, value in fire_light_emitters.items() if value.get("preview_enabled", True)}
     fire_lights = g_effects.build_fire_runtime_lights(fire_light_emitters, tile_map, time_elapsed) if render_environment_effects else {}
@@ -9022,7 +9041,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         runtime_lights,
         g_effects.collect_transient_effect_lights(effects_runtime),
     )
-    lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, entities, player_info, tile_map, render_target, game_assets)
+    lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, presentation_entities, player_info, tile_map, render_target, game_assets)
     if (editor_mode == "play" and pause_state != "paused"
             and debug_state != "dumb entities"):
         update_redhead_flashlight_awareness(
@@ -9050,6 +9069,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
     if not do_load_level:
         g_puzzle_ui.draw_world(main_arena, camera_3d.position, editor_mode != "play")
+        g_sequence_editor.draw_torches(main_arena, camera_3d.position)
     pr.end_texture_mode()
 
     if render_environment_effects and not do_load_level:
@@ -9106,6 +9126,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     pr.begin_texture_mode(render_target)
     if not do_load_level:
         g_puzzle_ui.draw_overlay(main_arena, camera_3d.position, editor_mode == "play")
+        if editor_mode == "sequences" and show_editor:
+            g_sequence_editor.draw_world(main_arena, editor_state, camera_3d.position)
 
     if debug_queue:
         debug_queue = sorted(debug_queue, key=lambda x: x.get("z_sort", 0), reverse=True)
@@ -9175,6 +9197,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         redhead_flee_defaults=REDHEAD_FLEE_DEFAULTS,
         player_entity=player_info, game_assets=game_assets,
     )
+    if editor_mode == "sequences" and show_editor:
+        g_sequence_editor.inspector(main_arena, editor_state, ui_state)
     if editor_mode == "tile":
         g_editor.draw_tile_edit_controls(ui_state, editor_state, tile_map)
         if editor_state.get("tile_edit_mode", "appearance") == "appearance":
@@ -9217,7 +9241,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     reset_all = False
 
     if show_options and g_ui.do_button(audio_runtime, pr.Vector2(10, 42), name="reset all"):
-        for puzzle_key in ("puzzle_state", "puzzle_runtime"):
+        for puzzle_key in ("puzzle_state", "puzzle_runtime", "world_sequences", "sequence_state", "sequence_runtime"):
             if puzzle_key in main_arena:
                 main_arena = main_arena.remove(puzzle_key)
         player_info = None
@@ -9290,7 +9314,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         audio_runtime, cma_engine, dt,
         {"source_id": "player", "world_position": listener_position},
         tile_map or {}, entities or {}, rain_profile,
-        (entities or {}).get("emitters", {}), audio_profile,
+        g_sequence_editor.audio_emitters(presentation_entities, sequence_preview,
+            g_sequence_editor.state(editor_state)["audition"]), audio_profile,
     )
 
 
