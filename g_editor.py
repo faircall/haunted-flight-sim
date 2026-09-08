@@ -9,6 +9,8 @@ import g_audio
 import g_effects
 import g_render_order
 import g_ui
+import g_puzzles
+import g_puzzle_ui
 
 EDITOR_MODES = ("play", "tile", "entity", "animation", "environment")
 EDITOR_TOOLS = ("select", "place")
@@ -387,9 +389,11 @@ def delete_selected_environment_object(entities, editor_state):
     editor_state["drag_kind"] = None
     return True
 
-GAMEPLAY_ENTITY_COLLECTIONS = ("brains", "pickups")
+GAMEPLAY_ENTITY_COLLECTIONS = ("brains", "pickups", "puzzles")
 
 def gameplay_entity_selection_bounds(entity, tile_map):
+    if entity.get("type") in g_puzzles.data.OBJECTS:
+        return g_puzzles.bounds(entity, tile_map)
     entity_type = str(entity.get("type", ""))
     world = tile_position_to_world(entity.get("position", {}), tile_map)
     anchor = entity.get("render_anchor_offset", {})
@@ -1914,6 +1918,9 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
         f"state: {entity.get('current_state', 'n/a')}",
         color=g_ui.UI_MUTED, font_size=8,
     )
+
+    if entity_type in g_puzzles.data.OBJECTS:
+        g_puzzle_ui.inspect(ui_state, editor_state, entity)
 
     if entity_type == "red head" and isinstance(movement_defaults, dict):
         movement = entity.setdefault("movement_settings", {})

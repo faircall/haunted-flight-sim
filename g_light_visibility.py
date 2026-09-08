@@ -50,12 +50,12 @@ def build_light_collision_grid(tile_map, collidable_tile_indices):
     edge_values = {}
 
     for tile_index, tile in enumerate(tile_map["tiles"]):
-        if tile.get("index", 0) not in collidable_tile_indices:
+        if tile.get("index", 0) not in collidable_tile_indices and not tile.get("puzzle_blocked", False):
             continue
 
         tile_x = tile_index % map_width
         tile_y = tile_index // map_width
-        shape_index = int(tile.get("shape_index", 0))
+        shape_index = 0 if tile.get("puzzle_blocked") else int(tile.get("shape_index", 0))
         vertices = tile_shape_world_vertices(tile_x, tile_y, shape_index, tile_width, tile_height)
 
         if len(vertices) < 3:

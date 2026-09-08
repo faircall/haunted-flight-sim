@@ -16,6 +16,8 @@ import g_effects
 import g_editor
 import g_render_order
 import g_ui
+import g_puzzles
+import g_puzzle_ui
 
 
 
@@ -308,7 +310,7 @@ def point_inside_tile_shape(shape_index, local_x, local_y, tile_width, tile_heig
 
 def tile_is_collidable(tile, tile_map):
     """Resolve physical/pathfinding collision for one placed tile instance."""
-    if bool(tile.get("force_collidable", False)):
+    if bool(tile.get("force_collidable", False)) or tile.get("puzzle_blocked", False):
         return True
     tile_types = tile_map.get("tile_types", [])
     tile_index = int(tile.get("index", 0))
@@ -374,7 +376,7 @@ def get_tile_shape_collision(position, tile_map):
             "normal": None,
         }
 
-    shape_index = tile.get("shape_index", 0)
+    shape_index = 0 if tile.get("puzzle_blocked") else tile.get("shape_index", 0)
 
     collides = point_inside_tile_shape(shape_index, position.get("x", 0), position.get("y", 0), tile_map["tile_width"], tile_map["tile_height"])
 
@@ -1207,7 +1209,9 @@ def make_projectile(responsible, spawn_pos, velocity, id, type,
 
 
 def give_entity_stats_from_type(entity, entity_type):
-    if entity_type == "red head":
+    if entity_type in g_puzzles.data.OBJECTS:
+        g_puzzles.init_object(entity, entity_type)
+    elif entity_type == "red head":
         entity["health"] = 60
         entity["max_health"] = 60
         entity["attack_damage"] = 5
@@ -1567,7 +1571,7 @@ def save_state(arena):
     file_path = os.path.join(directory, file_name)        
     try:
         with open(file_path, "wb") as f:
-            pickle.dump(arena, f)
+            pickle.dump(arena.remove("puzzle_runtime") if "puzzle_runtime" in arena else arena, f)
         pr.draw_text(f"saved editor state {file_path}", 400, 40, 30, pr.WHITE)        
         print(f"saved editor state")
     except Exception as e:        
@@ -1589,9 +1593,11 @@ def load_entity_types():
         "pistol_ammo_pickup",
         "health_pickup"
     ]
-    return entity_types
+    return entity_types + list(g_puzzles.data.OBJECTS)
 
 def categorise_entity_type(entity_type):
+    if entity_type in g_puzzles.data.OBJECTS:
+        return "puzzles"
     category_map =  {
         "buddha" : "brains",
         "red head" : "brains",
@@ -8771,7 +8777,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         game_assets["shaders"] = shaders
 
     entity_types = game_assets.get("entity_types")
-    if not entity_types:
+    if entity_types != load_entity_types():
         entity_types = load_entity_types()
         game_assets["entity_types"] = entity_types
 
@@ -8797,6 +8803,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         entities = {}
 
     g_editor.migrate_environment_data(entities)
+    main_arena = g_puzzles.ensure_arena(main_arena.set("entities", entities).set("tile_map", tile_map).set("player_info", player_info))
+    g_puzzles.sync_door_tiles(main_arena)
     g_effects.discard_legacy_particle_systems(entities)
     collision_index_signature = actor_collision_index_signature(
         tile_map, player_info, entities,
@@ -8832,6 +8840,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     # captures the mouse for unbounded relative turning during normal play.
     update_play_mouse_capture(game_assets, aim_controls_active and not show_editor)
     editor_state = g_editor.get_or_create_editor_state(game_assets)
+    if editor_state.pop("reset_puzzles_requested", False):
+        editor_state["puzzle_reset_blocked"] = any(g_puzzles.door_is_occupied(main_arena, obj) for obj in g_puzzles.objects(main_arena) if obj["type"] in g_puzzles.DOOR_TYPES)
+        if not editor_state["puzzle_reset_blocked"]:
+            main_arena = g_puzzles.reset_progress(main_arena)
+            rebuild_actor_collision_index(tile_map, player_info, entities)
     game_assets["rain_debug"] = editor_state.get("rain_debug", {})
     g_ui.ui_begin_frame(ui_state, audio_runtime)
     g_editor.capture_editor_ui_regions(
@@ -8878,16 +8891,30 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     screen_height = main_arena.get("screen_height")
     tile_size = 32
         
+    # Puzzle input runs before movement; a keypad owns gameplay input while open.
+    puzzle_modal = bool(main_arena["puzzle_runtime"].get("keypad"))
+    main_arena = g_puzzle_ui.update_input(main_arena,
+        editor_mode == "play" and pause_state != "paused" and not do_load_level
+        and not show_options and ui_state.get("focused_id") is None
+        and not g_mouse_is_ui_captured, dt)
+    entities, tile_map, player_info = (main_arena["entities"], main_arena["tile_map"], main_arena["player_info"])
+    puzzle_modal = puzzle_modal or bool(main_arena["puzzle_runtime"].get("keypad"))
+    if puzzle_modal:
+        update_play_mouse_capture(game_assets, False)
+    for event in main_arena["puzzle_runtime"]["sounds"]:
+        g_audio.queue_audio_event(audio_runtime, event)
+    main_arena["puzzle_runtime"]["sounds"].clear()
+
     #input handling
 
-    if pause_state != "paused":
+    if pause_state != "paused" and not puzzle_modal:
         player_info["position"] = update_player_position(
             entity=player_info, editor_mode=editor_mode, collision_mode=collision_mode,
             dt=dt, audio_runtime=audio_runtime, audio_profile=audio_profile,
             tile_map=tile_map, debug_queue=debug_queue,
         )
     
-    if pause_state != "paused":
+    if pause_state != "paused" and not puzzle_modal:
         # I think we want to have the current 'hot spots' in terms of bullets cached
         # then when we check an entity, we can just check
         # IF that region has an active bullet we need to do a check on
@@ -8910,7 +8937,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if ui_state.get("focused_id") is None and editor_state.get("drag_kind") is None:
         camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
 
-    if editor_mode == "play":
+    if editor_mode == "play" and not puzzle_modal:
         aim_mouse_delta = pr.get_mouse_delta()
         if game_assets.pop("suppress_aim_mouse_delta_once", False):
             aim_mouse_delta = pr.Vector2(0.0, 0.0)
@@ -9021,6 +9048,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     pr.clear_background(color_to_draw)
     update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
     draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
+    if not do_load_level:
+        g_puzzle_ui.draw_world(main_arena, camera_3d.position, editor_mode != "play")
     pr.end_texture_mode()
 
     if render_environment_effects and not do_load_level:
@@ -9075,6 +9104,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     g_graphics.draw_render_item_occlusion_outlines(render_target, outlined_items, camera_3d.position, game_assets)
 
     pr.begin_texture_mode(render_target)
+    if not do_load_level:
+        g_puzzle_ui.draw_overlay(main_arena, camera_3d.position, editor_mode == "play")
 
     if debug_queue:
         debug_queue = sorted(debug_queue, key=lambda x: x.get("z_sort", 0), reverse=True)
@@ -9165,8 +9196,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         # Popups are overlays: emit the mode dropdown after every tile control
         # it can cover so both paint order and hit testing agree.
         g_editor.draw_tile_edit_mode_dropdown(ui_state, editor_state)
-    elif editor_mode == "entity":
-        pr.draw_text(entity_types[current_entity_selection], 275, 42, 8, pr.WHITE)
+    elif (editor_mode == "entity" and show_editor
+          and not pr.is_key_down(pr.KeyboardKey.KEY_H)
+          and ui_state.get("open_dropdown_id") not in {"toolbar:mode", "toolbar:tool"}):
+        placement_label = f"Place: {entity_types[current_entity_selection]}   (wheel to change)"
+        pr.draw_text(placement_label, 4, 23, 8, g_ui.UI_TEXT)
 
     if show_options:
         if g_ui.do_button(audio_runtime, pr.Vector2(10, 100), name="reload assets"):
@@ -9183,6 +9217,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     reset_all = False
 
     if show_options and g_ui.do_button(audio_runtime, pr.Vector2(10, 42), name="reset all"):
+        for puzzle_key in ("puzzle_state", "puzzle_runtime"):
+            if puzzle_key in main_arena:
+                main_arena = main_arena.remove(puzzle_key)
         player_info = None
         tile_map = None
         game_assets["textures"] = None
@@ -9203,6 +9240,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if load_saved_data:
         main_arena = load_state(saved_files[selected_save_index])
+        player_info = main_arena.get("player_info") or make_default_player(0, 0, 0)
         tile_map = main_arena.get("tile_map")
         loaded_entities = main_arena.get("entities")
         lighting_profile = main_arena.get("lighting_profile") or g_graphics.make_lighting_profile("inky")

@@ -19,6 +19,9 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_puzzle_data", update_and_render_module.g_puzzles.data),
+    ("g_puzzles", update_and_render_module.g_puzzles),
+    ("g_puzzle_ui", update_and_render_module.g_puzzle_ui),
     ("g_animation_redhead_data", g_animation.data),
     ("g_animation_player_data", g_animation_authoring.player_data),
     ("g_animation", g_animation),
@@ -262,6 +265,8 @@ def g_main():
     pr.set_config_flags(pr.ConfigFlags.FLAG_WINDOW_RESIZABLE)
     
     pr.init_window(g_screen_width, g_screen_height, program_name)
+    # Escape belongs to game/editor UI; the window close button still exits.
+    pr.set_exit_key(pr.KeyboardKey.KEY_NULL)
     pr.rl_disable_backface_culling()
     pr.set_target_fps(60)
 
