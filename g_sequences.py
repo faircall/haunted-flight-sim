@@ -2,6 +2,7 @@
 import copy
 import math
 import uuid
+import zlib
 
 import g_sequence_data as data
 import g_puzzles as puzzles
@@ -16,6 +17,12 @@ def new_id(prefix):
     return prefix + ":" + uuid.uuid4().hex
 
 
+def fire_seed(identity):
+    """Stable across reloads/processes, within the fire shader's seed range."""
+    seed = 1 + zlib.crc32(str(identity).encode("utf-8")) % 65520
+    return 2208 if seed == 2207 else seed
+
+
 def definition_id(arena, kind, name):
     definitions = arena["world_sequences"][kind]
     if name in definitions:
@@ -28,6 +35,12 @@ def definition_id(arena, kind, name):
 
 def ensure(arena):
     arena = puzzles.ensure_arena(arena)
+    for identity, emitter in arena["entities"].get("emitters", {}).items():
+        if emitter.get("sequence_torch") and not emitter.get("individual_fire_seed"):
+            # Upgrade old torches once; retain seeds already tuned in the editor.
+            if emitter.get("seed", 2207) == 2207:
+                emitter["seed"] = fire_seed(identity)
+            emitter["individual_fire_seed"] = True
     if "world_sequences" not in arena:
         arena = arena.set("world_sequences", {"sequences": {}, "triggers": {}, "encounters": {}})
     if "sequence_state" not in arena:
@@ -94,7 +107,8 @@ def tile_position(point, tile_map):
 def create_torch(arena, point):
     identity = new_id("torch")
     torch = g_effects.make_default_fire_emitter(tile_position(point, arena["tile_map"]))
-    torch.update(sequence_torch=True, initially_lit=False, size={"x": 9., "y": 17.},
+    torch.update(sequence_torch=True, seed=fire_seed(identity), individual_fire_seed=True,
+                 initially_lit=False, size={"x": 9., "y": 17.},
                  area_size={"x": 5., "y": 3.})
     torch["light"].update(radius=58., intensity=0.8)
     arena["entities"].setdefault("emitters", {})[identity] = torch
@@ -444,7 +458,8 @@ def presentation_entities(arena, preview=None):
             elif weight > 0:
                 key = f"sequence_path:{record_id}:{index}"
                 emitter = g_effects.make_default_fire_emitter(tile_position(site["point"], arena["tile_map"]))
-                emitter.update(size={"x": 8., "y": 14.}, area_size={"x": 4., "y": 2.}, opacity=.94*weight)
+                emitter.update(seed=fire_seed(key), size={"x": 8., "y": 14.},
+                               area_size={"x": 4., "y": 2.}, opacity=.94*weight)
                 emitter["light"].update(enabled=index % max(1, math.ceil(len(sites)/MAX_PATH_LIGHTS)) == 0,
                                         intensity=.5*weight, radius=45.)
                 entities["emitters"][key] = emitter

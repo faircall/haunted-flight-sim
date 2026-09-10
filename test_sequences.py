@@ -35,6 +35,24 @@ class SequenceTests(unittest.TestCase):
         s.start_sequence(self.arena, "test")
         self.assertEqual(len(self.arena["sequence_runtime"]["sounds"]), 5)
 
+    def test_torch_seeds_upgrade_once_and_survive_save(self):
+        with patch.object(s, "new_id", side_effect=["torch:a", "torch:b", "torch:c"]):
+            definition = self.sequence()
+        torches = [s.resolve(self.arena, ref) for ref in definition["targets"]]
+        self.assertEqual(len({obj["seed"] for obj in torches}), 3)
+        for obj in torches:
+            obj.pop("individual_fire_seed")
+        torches[0]["seed"] = 2207
+        torches[1].pop("seed")
+        torches[2]["seed"] = 123
+        self.arena = s.ensure(self.arena)
+        self.assertEqual([obj["seed"] for obj in torches],
+                         [s.fire_seed("torch:a"), s.fire_seed("torch:b"), 123])
+        # After migration, even an intentional default seed is left alone.
+        torches[0]["seed"] = 2207
+        restored = s.ensure(pickle.loads(pickle.dumps(self.arena)))
+        self.assertEqual(restored["entities"]["emitters"], self.arena["entities"]["emitters"])
+
     def test_save_mid_sequence_preserves_cursor_without_replaying_cues(self):
         self.sequence()
         s.start_sequence(self.arena, "test")
@@ -71,6 +89,12 @@ class SequenceTests(unittest.TestCase):
         emitters = s.presentation_entities(self.arena, preview)["emitters"]
         self.assertLessEqual(sum(obj["light"]["enabled"] for obj in emitters.values()), s.MAX_PATH_LIGHTS)
         self.assertEqual(set(emitters), set(s.presentation_entities(self.arena, preview)["emitters"]))
+        seeds = {key: obj["seed"] for key, obj in emitters.items()}
+        self.assertEqual(len(set(seeds.values())), len(seeds))
+        preview = pickle.loads(pickle.dumps(preview))
+        preview["elapsed"] += 1.
+        self.assertEqual(seeds, {key: obj["seed"] for key, obj in
+                                s.presentation_entities(self.arena, preview)["emitters"].items()})
 
     def test_pulse_and_fill_timing(self):
         definition = self.sequence(2)

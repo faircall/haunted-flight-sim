@@ -645,6 +645,9 @@ def update_animation_debug_preview(editor_state, editor_mode, entities,
         if frames:
             fields["animation_frame"] = frames[keyframe % len(frames)]
 
+    if debug.get("authoring"):
+        fields["elevation"] = debug.get("elevation_preview", 0.)
+        fields["height_profile"] = debug.get("height_preview", "auto")
     character = "player" if entity.get("id") == "player" or collection_name == "player" else "redhead"
     draft = editor_state.get(character + "_animation_draft")
     if draft and draft.get("preview"):
@@ -2121,7 +2124,7 @@ def draw_fixed_animation_preview(ui_state, editor_state, entities, player_entity
     canvas = 32.0 if player else 24.0
     ground_y = 232.0
     origin = {"x": 152.0 - canvas * scale / 2,
-              "y": ground_y - (30.0 if player else 21.0) * scale}
+              "y": ground_y - ((30.0 if player else 21.0) + float(specimen.get("elevation", 0.))) * scale}
     pr.draw_line(28, int(ground_y), 276, int(ground_y), g_ui.UI_NORMAL)
     pr.begin_scissor_mode(9, 72, 286, 180)
     drawn = g_graphics.draw_screen_cutout_preview(parts, origin, scale, game_assets)

@@ -5,6 +5,7 @@ import math
 import pyray as pr
 import g_ui
 import g_animation_authoring as authoring
+import g_height
 
 
 def row(ui, actions):
@@ -53,11 +54,27 @@ def draw(ui, state, character="redhead"):
         # Keep the edited pose stable while continuous playback advances separately.
         if changed or track_changed:
             debug.update(playback="keyframe", keyframe=index, phase=index * math.tau / 4)
-        group_options = ("legs", "arms", "body", "rig") if character == "player" else ("side legs", "front legs", "arms", "body", "rig")
+        group_options = ("legs", "arms", "body", "rig", "height") if character == "player" else ("side legs", "front legs", "arms", "body", "rig", "height")
         group, _ = g_ui.ui_dropdown(ui, "animation_edit:group", "group",
                                     debug.get("edit_group", "side legs"),
                                     group_options, max_visible=5)
         debug["edit_group"] = group
+        if group == "height":
+            debug["height_preview"], _ = g_ui.ui_dropdown(ui, "height:profile", "profile",
+                debug.get("height_preview", "auto"), ("auto", "upright", "fallen"), max_visible=3)
+            debug["elevation_preview"], _ = g_ui.ui_number_input_float(ui, "height:elevation", "elevation",
+                debug.get("elevation_preview", 0.), 0., 64.)
+            profile = g_height.data.PROFILES["fallen"]
+            profile["body_height"], _ = g_ui.ui_number_input_float(ui, "height:body", "fallen height", profile["body_height"], 0.1, 24.)
+            profile["sample_height"], _ = g_ui.ui_number_input_float(ui, "height:sample", "fallen light", profile["sample_height"], 0., 24.)
+            def save_heights():
+                from pathlib import Path
+                import pprint
+                Path(g_height.data.__file__).write_text('"""Physical render profiles, in world units."""\nPROFILES = '+pprint.pformat(g_height.data.PROFILES, sort_dicts=False)+'\n', encoding="utf-8")
+            row(ui, (("height_save", "Save heights to code", save_heights),))
+            row(ui, (("height_reset", "Reset elevation preview", lambda: debug.update(elevation_preview=0., height_preview="auto")),))
+            g_ui.ui_label(ui, "Fallen settings apply globally", font_size=8)
+            return
         profile_path = authoring.pose_path(character, debug["facing"], group, track)
         pose = authoring.get_path(draft["document"], profile_path)[index]
         rig_name = "PLAYER_CUTOUT_RIG_DEFAULTS" if character == "player" else "REDHEAD_CUTOUT_RIG_DEFAULTS"

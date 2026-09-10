@@ -19,6 +19,8 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_height_data", update_and_render_module.g_render_order.g_height.data),
+    ("g_height", update_and_render_module.g_render_order.g_height),
     ("g_sequence_data", update_and_render_module.g_sequences.data),
     ("g_sequences", update_and_render_module.g_sequences),
     ("g_sequence_editor", update_and_render_module.g_sequence_editor),

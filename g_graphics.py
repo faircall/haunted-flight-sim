@@ -1503,6 +1503,30 @@ def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_positio
         "light_height": light_height
     }
 
+    elevation = max(0., float(shadow_settings.get("elevation", 0.)))
+    if shadow_settings.get("mode") == "grounded" and "ground_rect" in sprite_info:
+        rect = sprite_info["ground_rect"]
+        bounds = sprite_info.get("pose_bounds", {"x": 0., "y": 0., "width": rect["width"], "height": rect["height"]})
+        maximum = max(0., float(shadow_settings.get("maximum_length", 72.)))
+        def ground_project(x, y):
+            return g_render_order.g_height.project({"x": rect["x"]+x, "y": rect["y"]+y},
+                elevation+cast_height, flashlight_position, light_height, maximum)
+        x, y, w, h = (bounds[k] for k in ("x", "y", "width", "height"))
+        quad.update(far_left=ground_project(x, y), far_right=ground_project(x+w, y),
+                    near_left=ground_project(x, y+h), near_right=ground_project(x+w, y+h))
+        return quad
+
+    if elevation > 0.:
+        maximum = max(0., float(shadow_settings.get("maximum_length", 72.)))
+        elevated_base = g_render_order.g_height.project(floor_anchor, elevation, flashlight_position, light_height, maximum)
+        elevated_top = g_render_order.g_height.project(floor_anchor, elevation+cast_height, flashlight_position, light_height, maximum)
+        near_center.update(elevated_base)
+        far_center.update(elevated_top)
+        quad.update(near_left=game.vec2_subtract(near_center, game.vec2_scale(side_direction, near_half_width)),
+                    near_right=game.vec2_add(near_center, game.vec2_scale(side_direction, near_half_width)),
+                    far_left=game.vec2_subtract(far_center, game.vec2_scale(side_direction, far_half_width)),
+                    far_right=game.vec2_add(far_center, game.vec2_scale(side_direction, far_half_width)))
+
     if "pose_bounds" in sprite_info:
         bounds, anchor = sprite_info["pose_bounds"], sprite_info["pose_anchor"]
         def project(x, y):
@@ -2280,9 +2304,10 @@ def character_foot_contacts(render_item):
         if foot is None:
             continue
         ground = part["foot_ground_y"]
-        lift = max(0.0, ground - foot["y"])
+        elevation = render_item.get("physical_height", {}).get("elevation", 0.)
+        lift = max(0.0, ground - foot["y"]) + elevation
         weight = max(0.0, 1.0 - lift / max(0.001, float(policy.get("fade_height", 4.0))))
-        result.append({"x": destination["x"] + foot["x"], "y": destination["y"] + ground,
+        result.append({"x": destination["x"] + foot["x"], "y": destination["y"] + ground + elevation,
                        "opacity": max(0.0, min(1.0, float(policy.get("opacity", 0.28)))) * weight * weight,
                        "radius_x": max(0.0, float(policy.get("radius_x", 1.8))) * (0.7 + 0.3 * weight),
                        "radius_y": max(0.0, float(policy.get("radius_y", 0.65))),
@@ -2307,14 +2332,18 @@ def draw_character_contact_shadows(scene, game_camera, render_items):
 
 
 def get_render_item_shadow_sprite_info(render_item, game_assets):
+    elevation = render_item.get("physical_height", {}).get("elevation", 0.)
+    ground_rect = dict(render_item.get("dest_rect", {}))
+    ground_rect["x"] = ground_rect.get("x", render_item.get("base_world", {}).get("x", 0.))
+    ground_rect["y"] = ground_rect.get("y", render_item.get("base_world", {}).get("y", 0.)) + elevation
     parts = render_item.get("draw_data", {}).get("cutout_rig_parts", [])
     bounds = cutout_shadow_bounds(parts, game_assets.get("textures", {})) if parts else None
     if bounds is not None:
         destination = render_item["dest_rect"]
         base = render_item["base_world"]
-        return {"pose_parts": parts, "pose_bounds": bounds,
+        return {"pose_parts": parts, "pose_bounds": bounds, "ground_rect": ground_rect,
                 "pose_anchor": {"x": base["x"] - destination["x"],
-                                "y": base["y"] - destination["y"]},
+                                "y": base["y"] - destination["y"] - elevation},
                 "texture": None, "source_rect": None, "base_world": dict(base),
                 "sprite_width": destination["width"], "sprite_height": destination["height"],
                 "visual_height": render_item.get("visual_height", destination["height"])}
@@ -2324,6 +2353,7 @@ def get_render_item_shadow_sprite_info(render_item, game_assets):
     source = render_item.get("source_rect", {})
     return {
         "texture": texture,
+        "ground_rect": ground_rect,
         "source_rect": pr.Rectangle(float(source.get("x", 0.0)), float(source.get("y", 0.0)), float(source.get("width", texture.width)), float(source.get("height", texture.height))),
         "base_world": dict(render_item.get("base_world", {})),
         "sprite_width": float(render_item.get("dest_rect", {}).get("width", source.get("width", texture.width))),
@@ -3091,6 +3121,15 @@ def draw_cinematic_shadow_debug(game_camera, render_items, game_assets, prepared
         far_center = world_point_to_screen(quad["far_center"], game_camera)
         pr.draw_circle(int(near_center["x"]), int(near_center["y"]), 2.0, near_color)
         pr.draw_circle(int(far_center["x"]), int(far_center["y"]), 2.0, far_color)
+        item = shadow["render_item"]
+        physical = item.get("physical_height", {})
+        base = world_point_to_screen(item["base_world"], game_camera)
+        elevation = physical.get("elevation", 0.)
+        pr.draw_line(int(base["x"]), int(base["y"]), int(base["x"]), int(base["y"]-elevation-physical.get("body_height", 0.)), pr.GREEN)
+        pr.draw_text(f"z={elevation:.1f} body={physical.get('body_height', 0.):.1f}", int(base["x"]+3), int(base["y"]-10), 7, pr.GREEN)
+        footprint = item.get("ground_footprint", {})
+        size, offset = footprint.get("size", {}), footprint.get("offset", {})
+        pr.draw_rectangle_lines(int(base["x"]+offset.get("x", 0.)-size.get("x", 0.)*.5), int(base["y"]+offset.get("y", 0.)-size.get("y", 0.)*.5), int(size.get("x", 0.)), int(size.get("y", 0.)), pr.GREEN)
         pr.draw_text(f"{shadow['render_item'].get('source_id')} {shadow['settings'].get('mode')} h={quad['cast_height']:.0f}/{quad['light_height']:.0f} len={quad['length']:.0f}", int(near_center["x"] + 3), int(near_center["y"] + 3), 7, quad_color)
 
     for index, skipped in enumerate(frame_data.get("skipped", [])):

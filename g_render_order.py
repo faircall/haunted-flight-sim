@@ -1,6 +1,7 @@
 import copy
 import math
 import g_animation
+import g_height
 import g_animation_player_data as player_animation_data
 from contextvars import ContextVar
 
@@ -215,15 +216,29 @@ def make_world_render_item(kind, source, source_id, object_id, entity, world_pos
     anchor = entity.get("render_anchor_offset", {})
     base = offset_point(world_position, entity.get("render_base_offset", {}))
     dest = {"x": world_position["x"] + float(anchor.get("x", 0.0)), "y": world_position["y"] + float(anchor.get("y", 0.0)), "width": float(width), "height": float(height)}
-    return {
+    physical = g_height.resolve(entity)
+    dest["y"] -= physical["elevation"]
+    shadow = dict(entity.get("shadow", {}))
+    shadow["elevation"] = physical["elevation"]
+    if physical["profile"] != "upright" or "body_height" in entity.get("height_overrides", {}):
+        shadow.update(mode=physical["projection"], cast_height=physical["body_height"])
+    result = {
         "kind": kind, "source": source, "source_id": source_id, "id": object_id, "texture": texture, "source_rect": dict(source_rect), "dest_rect": dest,
         "sort_layer": "world", "sort_y": float(base["y"]), "base_world": base, "bounds_world": dict(dest), "visual_height": float(entity.get("visual_height", height)),
         "light_sample_height": float(entity.get("light_sample_height", entity.get("visual_height", height) * 0.55)), "ground_footprint": entity.get("ground_footprint", {}),
-        "self_shadow": entity.get("self_shadow", {}), "entity_light_occluder": entity.get("entity_light_occluder", {}), "shadow": entity.get("shadow", {}), "render_style": entity.get("render_style", "world"),
+        "self_shadow": entity.get("self_shadow", {}), "entity_light_occluder": entity.get("entity_light_occluder", {}), "shadow": shadow, "render_style": entity.get("render_style", "world"),
         "outline": entity.get("outline", {}), "occludes_render_items": bool(entity.get("occludes_render_items", False)), "fog_interaction": entity.get("fog_interaction", {"mode": "standard"}),
         "water_interaction": entity.get("water_interaction", {"mode": "standard"}), "draw_data": draw_data or {},
         "contact_shadow": entity.get("contact_shadow", {})
     }
+    result.update(physical_height=physical, visual_height=physical["body_height"],
+                  light_sample_height=physical["sample_height"])
+    if physical["projection"] == "grounded":
+        result["self_shadow"] = dict(mode="none", strength=0., back_fill=1.)
+        result["ground_footprint"] = dict(shape="rectangle",
+            offset={"x": dest["x"]+width*.5-base["x"], "y": dest["y"]+physical["elevation"]+height*.5-base["y"]},
+            size={"x": width, "y": height})
+    return result
 
 
 def _asset_dimension(game_assets, collection, name, dimension, fallback):
