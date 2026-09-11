@@ -111,6 +111,7 @@ def make_default_fire_emitter(position):
             "height": 18.0,
             "flicker_strength": 0.15,
             "flicker_speed": 7.0,
+            "flicker_flutter": 0.25,
             "affects_world": True,
             "affects_entities": True,
             "affects_fog": True,
@@ -977,6 +978,32 @@ def collect_gameplay_burst_particles(runtime, render_group=None, material=None):
     return result
 
 
+def fire_light_flicker(time_elapsed, seed, speed=7.0, flutter=0.25):
+    """Bounded, smooth brightness variation; no mutable random or frame state.
+
+    Speed retains the old radians/second scale, but now drives noise rather
+    than a repeating oscillator. Independent bands avoid a shared torch beat.
+    """
+    rate = max(0.0, float(speed)) / math.tau
+    if rate == 0.0:
+        return 0.0
+    flutter = max(0.0, min(1.0, float(flutter)))
+
+    def band(frequency, channel):
+        phase = procedural_hash(0, channel, seed) * 100.0
+        variation = 0.85 + 0.3 * procedural_hash(1, channel, seed)
+        position = float(time_elapsed) * rate * frequency * variation + phase
+        cell = math.floor(position)
+        fraction = position - cell
+        blend = fraction**3 * (fraction * (fraction * 6.0 - 15.0) + 10.0)
+        a = procedural_hash(cell, channel, seed)
+        b = procedural_hash(cell + 1, channel, seed)
+        return 2.0 * (a + (b - a) * blend) - 1.0
+
+    slow = 0.65 * band(0.35, 17) + 0.35 * band(1.15, 31)
+    return (1.0 - flutter) * slow + flutter * band(3.8, 53)
+
+
 def build_fire_runtime_lights(emitters, tile_map, time_elapsed):
     lights = {}
     for emitter_id, emitter in (emitters or {}).items():
@@ -986,11 +1013,11 @@ def build_fire_runtime_lights(emitters, tile_map, time_elapsed):
         if not settings.get("enabled", False):
             continue
         position = position_to_world(emitter.get("position", {}), tile_map)
-        seed_phase = (int(emitter.get("seed", 1)) % 997) / 997.0 * math.tau
-        flicker = math.sin(float(time_elapsed) * float(settings.get("flicker_speed", 7.0)) + seed_phase)
-        intensity = float(settings.get("intensity", 0.8)) * (
+        flicker = fire_light_flicker(time_elapsed, int(emitter.get("seed", 1)),
+            settings.get("flicker_speed", 7.0), settings.get("flicker_flutter", 0.25))
+        intensity = max(0.0, float(settings.get("intensity", 0.8)) * (
             1.0 + flicker * float(settings.get("flicker_strength", 0.15))
-        )
+        ))
         light_id = f"effect:fire:{emitter_id}"
         lights[light_id] = {
             "type": "point", "position": position,

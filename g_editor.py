@@ -1584,6 +1584,12 @@ def inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map):
         light["enabled"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:light", "linked light", light.get("enabled", True))
         light["radius"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_radius", "light radius", light.get("radius", 70.0), 0.0, 2000.0)
         light["intensity"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_intensity", "light intensity", light.get("intensity", 0.8), 0.0, 10.0)
+        for name, label, default, maximum in (
+                ("flicker_strength", "flicker amount", 0.15, 1.0),
+                ("flicker_speed", "flicker speed", 7.0, 30.0),
+                ("flicker_flutter", "flicker flutter", 0.25, 1.0)):
+            light[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", label,
+                light.get(name, default), 0.0, maximum)
     elif effect_type == "ember":
         emitter["size"], _ = g_ui.ui_vec2_input(ui_state, f"{widget_id}:size", "field size", emitter.get("size", {"x": 24.0, "y": 42.0}), 1.0, 1000.0)
         for name, minimum, maximum in (("turbulence", 0.0, 2.0), ("wind_response", 0.0, 4.0)):

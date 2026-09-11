@@ -315,6 +315,41 @@ class ProceduralReferenceAndBoundsTests(unittest.TestCase):
 
 
 class FireAndBloodTests(unittest.TestCase):
+    def test_flicker_is_smooth_bounded_and_not_a_shared_period(self):
+        import math
+        sample = g_effects.fire_light_flicker
+        times = [i / 120.0 for i in range(3600)]
+        values = [sample(t, 2207) for t in times]
+        self.assertTrue(all(-1.0 <= value <= 1.0 for value in values))
+        self.assertLess(max(abs(b-a) for a, b in zip(values, values[1:])), .08)
+        self.assertGreater(max(values)-min(values), .3)
+        # Sampling in another order or after serialization cannot change phase.
+        restored_seed = pickle.loads(pickle.dumps(2207))
+        self.assertEqual(values[::-1], [sample(t, restored_seed) for t in reversed(times)])
+        old_period = math.tau / 7.0
+        self.assertGreater(sum(abs(sample(t+old_period, 2207)-v) for t, v in zip(times, values))/len(times), .05)
+        self.assertGreater(sum(abs(sample(t, 9831)-v) for t, v in zip(times, values))/len(times), .05)
+        self.assertTrue(all(sample(t, 2207, speed=0.) == 0. for t in times[:10]))
+
+    def test_light_flicker_preserves_sequence_envelope_and_other_properties(self):
+        emitter = g_effects.make_default_fire_emitter(POSITION)
+        settings = emitter["light"]
+        def light(time):
+            return g_effects.build_fire_runtime_lights({"a": emitter}, TILE_MAP, time)["effect:fire:a"]
+        original = copy.deepcopy(emitter)
+        full = light(3.25)
+        self.assertEqual(emitter, original)
+        settings["intensity"] *= .25
+        faded = light(3.25)
+        self.assertAlmostEqual(faded["intensity"], full["intensity"]*.25)
+        for key in ("position", "radius", "color", "height"):
+            self.assertEqual(full[key], faded[key])
+        settings["intensity"] = 0.
+        self.assertEqual(light(1.)["intensity"], 0.)
+        settings.update(intensity=.8, flicker_strength=0.)
+        self.assertEqual(light(1.)["intensity"], .8)
+        self.assertEqual(light(123.)["intensity"], .8)
+
     def test_fire_produces_at_most_one_deterministic_runtime_light(self):
         emitters = {"a": g_effects.make_default_fire_emitter(POSITION)}
         first = g_effects.build_fire_runtime_lights(emitters, TILE_MAP, 3.25)
