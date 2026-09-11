@@ -112,6 +112,7 @@ def make_default_fire_emitter(position):
             "flicker_strength": 0.15,
             "flicker_speed": 7.0,
             "flicker_flutter": 0.25,
+            "flame_light_coupling": 0.6,
             "affects_world": True,
             "affects_entities": True,
             "affects_fog": True,
@@ -464,6 +465,10 @@ def emitter_world_bounds(emitter, tile_map=None):
         size = emitter.get("size", {})
         width = max(area_width, float(size.get("x", area_width)))
         height = max(area_height, float(size.get("y", area_height)))
+        if effect_type == "fire":
+            amount = fire_flame_coupling(emitter)
+            width *= 1.0 + 0.4 * amount
+            height *= 1.0 + 0.65 * amount
         extra_height = float(emitter.get("ember_height", 0.0)) if effect_type == "fire" else 0.0
         wind_pad = min(height * 0.45, abs(float(emitter.get("wind_response", 0.0))) * 10.0)
         direction = emitter.get("direction")
@@ -1004,6 +1009,30 @@ def fire_light_flicker(time_elapsed, seed, speed=7.0, flutter=0.25):
     return (1.0 - flutter) * slow + flutter * band(3.8, 53)
 
 
+def fire_flame_coupling(emitter):
+    settings = emitter.get("light", {})
+    return (max(0.0, min(1.0, float(settings.get("flame_light_coupling", 0.6))))
+            * max(0.0, min(1.0, float(settings.get("flicker_strength", 0.15)))))
+
+
+def fire_activity(emitter, time_elapsed):
+    prepared = emitter.get("_fire_activity")
+    if prepared is not None and prepared[0] == time_elapsed:
+        return prepared[1]
+    settings = emitter.get("light", {})
+    return fire_light_flicker(time_elapsed, int(emitter.get("seed", 1)),
+        settings.get("flicker_speed", 7.0), settings.get("flicker_flutter", 0.25))
+
+
+def prepare_fire_activity(emitters, time_elapsed):
+    """Frame-local copies share one sample across lighting and both flame passes."""
+    result = dict(emitters)
+    for identity, emitter in emitters.items():
+        if emitter.get("type") == "fire":
+            result[identity] = dict(emitter, _fire_activity=(time_elapsed, fire_activity(emitter, time_elapsed)))
+    return result
+
+
 def build_fire_runtime_lights(emitters, tile_map, time_elapsed):
     lights = {}
     for emitter_id, emitter in (emitters or {}).items():
@@ -1013,8 +1042,7 @@ def build_fire_runtime_lights(emitters, tile_map, time_elapsed):
         if not settings.get("enabled", False):
             continue
         position = position_to_world(emitter.get("position", {}), tile_map)
-        flicker = fire_light_flicker(time_elapsed, int(emitter.get("seed", 1)),
-            settings.get("flicker_speed", 7.0), settings.get("flicker_flutter", 0.25))
+        flicker = fire_activity(emitter, time_elapsed)
         intensity = max(0.0, float(settings.get("intensity", 0.8)) * (
             1.0 + flicker * float(settings.get("flicker_strength", 0.15))
         ))

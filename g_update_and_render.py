@@ -8995,6 +8995,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         entities, tile_map, player_info = main_arena["entities"], main_arena["tile_map"], main_arena["player_info"]
     sequence_preview = g_sequence_editor.state(editor_state).get("preview") if editor_mode == "sequences" else None
     presentation_entities = g_sequences.presentation_entities(main_arena, sequence_preview)
+    presentation_entities["emitters"] = g_effects.prepare_fire_activity(
+        presentation_entities.get("emitters", {}), time_elapsed)
     for event in main_arena["sequence_runtime"]["sounds"]:
         g_audio.queue_audio_event(audio_runtime, event)
     main_arena["sequence_runtime"]["sounds"].clear()

@@ -315,6 +315,39 @@ class ProceduralReferenceAndBoundsTests(unittest.TestCase):
 
 
 class FireAndBloodTests(unittest.TestCase):
+    def test_fire_activity_is_shared_without_mutating_authored_emitters(self):
+        from unittest.mock import patch
+        emitter = g_effects.make_default_fire_emitter(POSITION)
+        original = copy.deepcopy(emitter)
+        with patch.object(g_effects, "fire_light_flicker", return_value=.75) as sample:
+            prepared = g_effects.prepare_fire_activity({"a": emitter}, 2.)
+            light = g_effects.build_fire_runtime_lights(prepared, TILE_MAP, 2.)["effect:fire:a"]
+            for _ in range(2):
+                self.assertEqual(g_effects.fire_activity(prepared["a"], 2.), .75)
+            self.assertEqual(sample.call_count, 1)
+            self.assertAlmostEqual(light["intensity"], .8*(1.+.75*.15))
+            g_effects.fire_activity(prepared["a"], 3.)
+            self.assertEqual(sample.call_count, 2)
+        self.assertEqual(emitter, original)
+        self.assertNotIn("_fire_activity", emitter)
+
+    def test_flame_coupling_can_be_disabled_and_bounds_allow_growth(self):
+        emitter = g_effects.make_default_fire_emitter(POSITION)
+        emitter["ember_height"] = 0.
+        emitter["light"].update(flame_light_coupling=0.)
+        neutral = g_effects.emitter_world_bounds(emitter, TILE_MAP)
+        light = g_effects.build_fire_runtime_lights({"a": emitter}, TILE_MAP, 4.)
+        self.assertEqual(g_effects.fire_flame_coupling(emitter), 0.)
+        emitter["light"].update(flame_light_coupling=1., flicker_strength=1.)
+        larger = g_effects.emitter_world_bounds(emitter, TILE_MAP)
+        self.assertEqual(neutral["anchor_y"], larger["anchor_y"])
+        self.assertGreater(larger["width"], neutral["width"])
+        self.assertLessEqual(larger["y"], larger["anchor_y"]-emitter["size"]["y"]*1.65)
+        emitter["light"]["flicker_strength"] = .15
+        self.assertEqual(light, g_effects.build_fire_runtime_lights({"a": emitter}, TILE_MAP, 4.))
+        emitter["light"]["flicker_strength"] = 0.
+        self.assertEqual(g_effects.fire_flame_coupling(emitter), 0.)
+
     def test_flicker_is_smooth_bounded_and_not_a_shared_period(self):
         import math
         sample = g_effects.fire_light_flicker

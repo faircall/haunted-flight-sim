@@ -16,6 +16,7 @@ uniform float seed;
 uniform float density;
 uniform float speed;
 uniform float turbulence;
+uniform float fireActivity; // Signed shared light variation, scaled by coupling.
 uniform float windResponse;
 uniform float opacity;
 uniform float posterizeLevels;
@@ -107,8 +108,9 @@ void main()
     if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x >= boundsSize.x || pixel.y >= boundsSize.y)
         discard;
 
-    float flameHeight = max(1.0, effectSize.y);
-    float flameWidth = max(1.0, effectSize.x);
+    float activity = clamp(fireActivity, -1.0, 1.0);
+    float flameHeight = max(1.0, effectSize.y) * (1.0 + activity * 0.65);
+    float flameWidth = max(1.0, effectSize.x) * (1.0 + activity * 0.4);
     vec2 flameDirection = effectDirection;
     if (dot(flameDirection, flameDirection) < 0.000001)
         flameDirection = vec2(0.0, -1.0);
@@ -177,7 +179,7 @@ void main()
     }
     else
     {
-        float core = quantize(clamp(body * 1.18 - abs(x) * 1.25 - y * 0.18, 0.0, 1.0), posterizeLevels);
+        float core = quantize(clamp(body * 1.18 - abs(x) * 1.25 - y * 0.18 + activity * 0.5, 0.0, 1.0), posterizeLevels);
         if (core <= 0.0)
             discard;
         vec3 color = mix(colorHot.rgb, colorCore.rgb, core);

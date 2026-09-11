@@ -1587,7 +1587,8 @@ def inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map):
         for name, label, default, maximum in (
                 ("flicker_strength", "flicker amount", 0.15, 1.0),
                 ("flicker_speed", "flicker speed", 7.0, 30.0),
-                ("flicker_flutter", "flicker flutter", 0.25, 1.0)):
+                ("flicker_flutter", "flicker flutter", 0.25, 1.0),
+                ("flame_light_coupling", "flame/light link", 0.6, 1.0)):
             light[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", label,
                 light.get(name, default), 0.0, maximum)
     elif effect_type == "ember":

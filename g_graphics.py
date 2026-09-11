@@ -245,7 +245,7 @@ _EFFECT_SHADER_UNIFORMS = {
         "resolution", "boundsMin", "boundsSize", "anchorInBounds", "effectSize",
         "effectDirection", "wind", "time", "seed", "density", "speed", "turbulence",
         "windResponse", "opacity", "posterizeLevels", "emberDensity",
-        "emberHeight", "passMode", "colorCore", "colorHot", "colorMid",
+        "emberHeight", "passMode", "fireActivity", "colorCore", "colorHot", "colorMid",
         "colorOuter",
     ),
     "effect_smoke": (
@@ -3354,6 +3354,8 @@ def _bind_effect_uniforms(info, emitter, bounds, game_camera, tile_map, wind_pro
     _set_effect_float(info, "emberDensity", emitter.get("ember_density", emitter.get("density", 0.2)))
     _set_effect_float(info, "emberHeight", emitter.get("ember_height", size.get("y", 24.0)))
     _set_effect_int(info, "passMode", pass_mode)
+    _set_effect_float(info, "fireActivity", g_effects.fire_activity(emitter, time_elapsed)
+        * g_effects.fire_flame_coupling(emitter) if effect_type == "fire" else 0.0)
     if effect_type == "fire":
         palette = emitter.get("palette", {})
         _set_effect_vec4(info, "colorCore", palette.get("core"), [1.0, 0.94, 0.55, 1.0])
