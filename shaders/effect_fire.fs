@@ -17,6 +17,9 @@ uniform float density;
 uniform float speed;
 uniform float turbulence;
 uniform float fireActivity; // Signed shared light variation, scaled by coupling.
+uniform sampler2D occlusionTexture;
+uniform float occlusionEnabled;
+uniform float effectGroundDepth;
 uniform float windResponse;
 uniform float opacity;
 uniform float posterizeLevels;
@@ -105,6 +108,11 @@ void main()
 {
     vec2 screenPixel = floor(vec2(gl_FragCoord.x, resolution.y - gl_FragCoord.y));
     vec2 pixel = screenPixel - boundsMin;
+    if (occlusionEnabled > 0.5) {
+        vec4 blocker = texture(occlusionTexture, gl_FragCoord.xy / resolution);
+        float depth = (round(blocker.r*255.0)*256.0 + round(blocker.g*255.0))/16.0 - 2048.0;
+        if (blocker.a > 0.5 && depth > effectGroundDepth + 0.0625) discard;
+    }
     if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x >= boundsSize.x || pixel.y >= boundsSize.y)
         discard;
 

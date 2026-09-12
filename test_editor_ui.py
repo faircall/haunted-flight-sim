@@ -557,6 +557,7 @@ class EnvironmentEditorDataTests(unittest.TestCase):
 
         with mock.patch.object(g_ui, "ui_button", return_value=False), \
                 mock.patch.object(g_ui, "ui_point_in_rect", return_value=False), \
+                mock.patch.object(g_ui, "ui_checkbox", side_effect=lambda ui, key, label, value: (value, False)), \
                 mock.patch.object(g_ui, "get_mouse_position", return_value=object()), \
                 mock.patch.object(g_ui, "ui_begin_panel"), \
                 mock.patch.object(g_ui, "ui_end_panel"), \

@@ -245,7 +245,7 @@ _EFFECT_SHADER_UNIFORMS = {
         "resolution", "boundsMin", "boundsSize", "anchorInBounds", "effectSize",
         "effectDirection", "wind", "time", "seed", "density", "speed", "turbulence",
         "windResponse", "opacity", "posterizeLevels", "emberDensity",
-        "emberHeight", "passMode", "fireActivity", "colorCore", "colorHot", "colorMid",
+        "emberHeight", "passMode", "fireActivity", "occlusionTexture", "occlusionEnabled", "effectGroundDepth", "colorCore", "colorHot", "colorMid",
         "colorOuter",
     ),
     "effect_smoke": (
@@ -3312,12 +3312,15 @@ def _procedural_effect_submission(emitter, render_group):
     return None
 
 def _bind_effect_uniforms(info, emitter, bounds, game_camera, tile_map, wind_profile,
-                          time_elapsed, pass_mode, viewport_width, viewport_height):
+                          time_elapsed, pass_mode, viewport_width, viewport_height, game_assets=None):
     effect_type = emitter.get("type")
     world = bounds["world"]
     anchor_x = world["anchor_x"] - world["x"]
     anchor_y = world["anchor_y"] - world["y"]
     position = g_effects.position_to_world(emitter.get("position", {}), tile_map)
+    occlusion = (game_assets or {}).get("render_targets", {}).get("effect_occlusion")
+    _set_effect_float(info, "occlusionEnabled", 1.0 if occlusion else 0.0)
+    _set_effect_float(info, "effectGroundDepth", position["y"]-game_camera.y)
     area = emitter.get("area_size", {})
     area_width = max(1.0, float(area.get("x", 1.0)))
     area_height = max(1.0, float(area.get("y", 1.0)))
@@ -3374,9 +3377,10 @@ def _draw_procedural_submission(submission, emitter_id, emitter, bounds, scene, 
     info = game_assets["shaders"][submission["shader"]]
     _bind_effect_uniforms(
         info, emitter, bounds, game_camera, tile_map, wind_profile, time_elapsed,
-        submission["pass_mode"], scene.texture.width, scene.texture.height,
+        submission["pass_mode"], scene.texture.width, scene.texture.height, game_assets,
     )
     pr.begin_shader_mode(info["shader"])
+    bind_effect_occlusion_texture(info, game_assets)
     pr.draw_rectangle_rec(bounds["clip"], pr.WHITE)
     pr.end_shader_mode()
     runtime.setdefault("debug_submissions", []).append({
@@ -3386,6 +3390,12 @@ def _draw_procedural_submission(submission, emitter_id, emitter, bounds, scene, 
         "bounds": (bounds["left"], bounds["top"], bounds["width"], bounds["height"]),
         "world": (bounds["world"]["anchor_x"], bounds["world"]["anchor_y"]),
     })
+
+def bind_effect_occlusion_texture(info, game_assets):
+    target = game_assets.get("render_targets", {}).get("effect_occlusion")
+    if target:
+        set_shader_texture(info["shader"], info.get("occlusionTexture_location", -1), target.texture)
+
 
 def render_effect_group(scene, game_camera, game_assets, lighting_profile, lighting_target,
                         render_group, apply_world_lighting=True, emitters=None,

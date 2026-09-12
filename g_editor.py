@@ -7,6 +7,7 @@ import g_animation_editor_ui
 import g_animation_authoring
 import g_audio
 import g_effects
+import g_glow
 import g_render_order
 import g_ui
 import g_puzzles
@@ -1591,6 +1592,7 @@ def inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map):
                 ("flame_light_coupling", "flame/light link", 0.6, 1.0)):
             light[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", label,
                 light.get(name, default), 0.0, maximum)
+        g_glow.inspect(ui_state, emitter, widget_id+":glow", effect=True)
     elif effect_type == "ember":
         emitter["size"], _ = g_ui.ui_vec2_input(ui_state, f"{widget_id}:size", "field size", emitter.get("size", {"x": 24.0, "y": 42.0}), 1.0, 1000.0)
         for name, minimum, maximum in (("turbulence", 0.0, 2.0), ("wind_response", 0.0, 4.0)):
@@ -1923,6 +1925,7 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
         return
 
     entity_id = editor_state.get("selected_id")
+    g_glow.inspect(ui_state, entity, "entity:glow")
     entity_type = str(entity.get("type", "entity"))
     g_ui.ui_label(
         ui_state, "entity_inspector:selected",

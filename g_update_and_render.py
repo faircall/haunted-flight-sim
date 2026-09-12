@@ -13,6 +13,7 @@ from pyrsistent import m, pmap, v
 import g_graphics
 import g_audio
 import g_effects
+import g_glow
 import g_editor
 import g_render_order
 import g_ui
@@ -1849,6 +1850,7 @@ def load_shaders():
     }
 
     g_graphics.load_effect_shaders(result)
+    g_glow.load_shaders(result)
 
     return result
 
@@ -9056,6 +9058,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     )
     prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
     sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
+    if render_environment_effects:
+        g_glow.prepare_effect_occlusion(render_target, camera_3d.position, game_assets, sorted_world_items)
     major_entity_light_occluders = g_render_order.build_major_entity_light_occluders(sorted_world_items)
     entity_lighting_started = time.perf_counter()
     entity_self_shadow_frame = g_graphics.prepare_entity_self_shadows(sorted_world_items, lighting_frame["prepared_lights"], major_entity_light_occluders, lighting_frame["collision_grid"], game_assets.get("show_entity_lighting_debug", False))
@@ -9115,6 +9119,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             lighting_target, "emissive", False, frame_effect_emitters,
             tile_map, wind_profile, time_elapsed, editor_mode == "environment",
         )
+        if not do_load_level:
+            g_glow.render(render_target, camera_3d.position, game_assets,
+                sorted_world_items, main_arena, frame_effect_emitters, wind_profile,
+                time_elapsed, editor_mode == "environment")
         rain_exposure_texture = g_graphics.ensure_rain_exposure_texture(game_assets, tile_map)
         g_graphics.apply_rain_composite(
             render_target, lighting_target, rain_exposure_texture, rain_profile,

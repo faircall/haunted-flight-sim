@@ -229,7 +229,8 @@ def make_world_render_item(kind, source, source_id, object_id, entity, world_pos
         "self_shadow": entity.get("self_shadow", {}), "entity_light_occluder": entity.get("entity_light_occluder", {}), "shadow": shadow, "render_style": entity.get("render_style", "world"),
         "outline": entity.get("outline", {}), "occludes_render_items": bool(entity.get("occludes_render_items", False)), "fog_interaction": entity.get("fog_interaction", {"mode": "standard"}),
         "water_interaction": entity.get("water_interaction", {"mode": "standard"}), "draw_data": draw_data or {},
-        "contact_shadow": entity.get("contact_shadow", {})
+        "contact_shadow": entity.get("contact_shadow", {}),
+        "glow": entity.get("glow", {}), "glow_transition": entity.get("glow_transition")
     }
     result.update(physical_height=physical, visual_height=physical["body_height"],
                   light_sample_height=physical["sample_height"])
