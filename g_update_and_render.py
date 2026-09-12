@@ -14,6 +14,7 @@ import g_graphics
 import g_audio
 import g_effects
 import g_glow
+import g_placement_preview
 import g_editor
 import g_render_order
 import g_ui
@@ -1720,6 +1721,8 @@ def load_shaders():
         "outline_color_location": pr.get_shader_location(render_item_outline, "outlineColor"),
         "outline_width_location": pr.get_shader_location(render_item_outline, "outlineWidth")
     }
+    for key, uniform in (("darkness_enabled","darknessEnabled"),("scene_texture","sceneTexture"),("sample_rect","sampleRect"),("darkness_range","darknessRange")):
+        result["render_item_outline"][key+"_location"] = pr.get_shader_location(render_item_outline,uniform)
 
     entity_self_shadow = pr.load_shader("", "shaders/entity_self_shadow.fs")
     result["entity_self_shadow"] = {
@@ -2009,6 +2012,7 @@ def reload_image_assets(game_assets):
     old_sprite_sheets = game_assets.get("sprite_sheets")
     game_assets["textures"] = new_textures
     game_assets["sprite_sheets"] = new_sprite_sheets
+    game_assets.pop("glow_particles", None)
     unloaded_count = unload_image_asset_collections(
         old_textures, old_sprite_sheets,
     )
@@ -9003,7 +9007,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         g_audio.queue_audio_event(audio_runtime, event)
     main_arena["sequence_runtime"]["sounds"].clear()
     audio_runtime["sequence_music"] = main_arena["sequence_state"]["music"]
-    preview_environment = editor_mode in {"environment", "sequences"} and editor_state.get("preview_effects", True)
+    preview_environment = editor_mode in {"entity", "environment", "sequences"} and editor_state.get("preview_effects", True)
     render_environment_effects = editor_mode == "play" or preview_environment
     authored_effect_emitters = presentation_entities.get("emitters", {})
     g_effects.update_effects(
@@ -9045,6 +9049,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         runtime_lights,
         g_effects.collect_transient_effect_lights(effects_runtime),
     )
+    g_glow.replace_runtime_lights(game_assets["runtime_lights"],
+        g_glow.build_runtime_lights(main_arena,game_assets,time_elapsed) if render_environment_effects and not do_load_level else {})
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, presentation_entities, player_info, tile_map, render_target, game_assets)
     if (editor_mode == "play" and pause_state != "paused"
             and debug_state != "dumb entities"):
@@ -9132,6 +9138,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
 
     g_graphics.draw_render_item_occlusion_outlines(render_target, outlined_items, camera_3d.position, game_assets)
+    if render_environment_effects:
+        g_graphics.draw_player_darkness_outline(render_target,sorted_world_items,outlined_items,camera_3d.position,game_assets)
+    if show_editor and not do_load_level and not g_mouse_is_ui_captured:
+        g_placement_preview.draw(render_target,camera_3d.position,game_assets,tile_map,
+            editor_state,editor_mode,current_tile_selection,current_shape_selection,
+            current_entity_selection,time_elapsed)
 
     pr.begin_texture_mode(render_target)
     if not do_load_level:

@@ -6,6 +6,29 @@ from test_puzzles import make_arena
 
 
 class GlowTests(unittest.TestCase):
+    def test_linked_light_tracks_color_pulse_center_and_cleanup(self):
+        arena = make_arena()
+        statue = dict(type="buddha",id="statue",position=dict(tile_x=4,tile_y=5,x=8.,y=8.))
+        arena["entities"].setdefault("brains",{})["statue"] = statue
+        glow.set_glow(arena,"brains:statue",strength=.8,color=[.1,.8,.3],pulse="periodic",
+                      pulse_speed=.5,pulse_depth=1.,light=dict(enabled=True,radius=90.,intensity=2.))
+        before = copy.deepcopy(statue)
+        lights = glow.build_runtime_lights(arena,{},0.)
+        light = lights["effect:glow:brains:statue"]
+        self.assertEqual(light["position"],{"x":72.,"y":88.})
+        self.assertAlmostEqual(light["intensity"],1.6)
+        self.assertEqual(light["color"],[.1,.8,.3])
+        self.assertEqual(light["owner_id"],"brains:statue")
+        self.assertEqual(statue,before)
+        self.assertEqual(glow.build_runtime_lights(arena,{},1.),{})
+        runtime = dict(lights, unrelated={"enabled":True})
+        glow.replace_runtime_lights(runtime,{})
+        self.assertEqual(runtime,{"unrelated":{"enabled":True}})
+        statue["position"]["x"] += 3.
+        self.assertEqual(glow.build_runtime_lights(arena,{},2.)["effect:glow:brains:statue"]["position"]["x"],75.)
+        glow.set_glow(arena,"brains:statue",enabled=False)
+        self.assertEqual(glow.build_runtime_lights(arena,{},2.),{})
+
     def test_rim_width_pulses_independently_of_brightness(self):
         obj = {"glow": dict(enabled=True, mode="edge", pulse="periodic",
                             pulse_speed=.5, pulse_depth=0., edge_width=5., edge_pulse=1.)}
@@ -13,6 +36,11 @@ class GlowTests(unittest.TestCase):
         self.assertEqual(peak["edge_width"], 5.)
         self.assertEqual(trough["edge_width"], 1.)
         self.assertEqual(peak["strength"], trough["strength"])
+        obj["glow"]["edge_min_width"] = 0.
+        self.assertEqual(glow.settings(obj, 1.)["edge_width"], 0.)
+        self.assertEqual(glow.settings(obj, 1.)["strength"], peak["strength"])
+        obj["glow"]["edge_min_width"] = 10.
+        self.assertEqual(glow.settings(obj, 1.)["edge_width"], 5.)
         obj["glow"]["edge_pulse"] = 0.
         self.assertEqual(glow.settings(obj, 1.)["edge_width"], 5.)
 

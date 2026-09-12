@@ -546,7 +546,7 @@ def collect_light_records(entities, player_entity, tile_map, game_assets):
             "light": apply_light_capability_defaults(muzzle_flash),
         })
     records.append({"id": "runtime:player_flashlight", "light": apply_light_capability_defaults(make_player_flashlight(player_entity, tile_map))})
-    records.append({"id": "runtime:player_readability", "light": apply_light_capability_defaults(make_player_pointlight(player_entity, tile_map))})
+    # Player visibility in darkness comes from an outline, not a fill light.
     return records
 
 def radial_light_intersects_viewport(world_position, radius, game_camera, scene_target):
@@ -3536,8 +3536,23 @@ def draw_render_item_occlusion_outline(scene, render_item, game_camera, game_ass
     set_shader_vec2(shader, outline_shader["resolution_location"], width, height)
     set_shader_vec4(shader, outline_shader["outline_color_location"], color[0], color[1], color[2], color[3])
     set_shader_float(shader, outline_shader["outline_width_location"], max(0.5, float(outline.get("width", 1.0))))
+    darkness = bool(render_item.get("darkness_outline", False))
+    set_shader_float(shader, outline_shader.get("darkness_enabled_location", -1), 1. if darkness else 0.)
+    snapshot = None
+    if darkness:
+        snapshot = get_or_create_render_target(game_assets,"player_darkness_scene",width,height)
+        pr.begin_texture_mode(snapshot)
+        pr.clear_background(pr.BLANK)
+        pr.draw_texture_pro(scene.texture,full_source,full_destination,pr.Vector2(0,0),0,pr.WHITE)
+        pr.end_texture_mode()
+        rect = render_item["dest_rect"]
+        screen = g_render_order.moving_world_to_screen_pixel(rect["x"],rect["y"],game_camera)
+        set_shader_vec4(shader,outline_shader.get("sample_rect_location",-1),screen["x"],screen["y"],rect["width"],rect["height"])
+        set_shader_vec2(shader,outline_shader.get("darkness_range_location",-1),.03,.12)
     pr.begin_texture_mode(scene)
     pr.begin_shader_mode(shader)
+    if snapshot:
+        set_shader_texture(shader,outline_shader.get("scene_texture_location",-1),snapshot.texture)
     pr.draw_texture_pro(mask_target.texture, full_source, full_destination, pr.Vector2(0, 0), 0, pr.WHITE)
     pr.end_shader_mode()
     pr.end_texture_mode()
@@ -3545,6 +3560,15 @@ def draw_render_item_occlusion_outline(scene, render_item, game_camera, game_ass
 def draw_render_item_occlusion_outlines(scene, outlined_items, game_camera, game_assets):
     for entry in outlined_items:
         draw_render_item_occlusion_outline(scene, entry.get("item"), game_camera, game_assets)
+
+
+def draw_player_darkness_outline(scene, items, outlined_items, camera, assets):
+    player = next((item for item in items if item.get("source_id") == "player"),None)
+    if player is None or any(entry.get("item",{}).get("source_id") == "player" for entry in outlined_items):
+        return
+    item = dict(player,darkness_outline=True,
+                outline={"color":[.5,.66,.74,.55],"width":1.})
+    draw_render_item_occlusion_outline(scene,item,camera,assets)
 
 
 def _rain_debug_mode(debug):

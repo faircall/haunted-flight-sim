@@ -2,6 +2,7 @@
 import pyray as pr
 import math
 import zlib
+import g_glow_particles
 
 SPREADS = ("small", "medium", "wide")
 RADII = (1.0, 2.0, 4.0)
@@ -46,15 +47,16 @@ def settings(obj, now=0.0, effect=False, apply_pulse=True):
         strength *= pulse_multiplier(authored, now)
     pulsing = authored.get("pulse", "none") != "none"
     maximum_width = max(1., min(6., float(authored.get("edge_width", 3. if pulsing else 1.))))
+    minimum_width = max(0., min(maximum_width, float(authored.get("edge_min_width", 1.))))
     width_depth = max(0., min(1., float(authored.get("edge_pulse", 1.))))
     wave = pulse_multiplier(dict(authored, pulse_depth=1.), now)
-    edge_width = 1. + (maximum_width-1.)*(1.-width_depth+width_depth*wave)
+    edge_width = minimum_width + (maximum_width-minimum_width)*(1.-width_depth+width_depth*wave)
     return dict(strength=strength, color=[max(0., min(1., float(c))) for c in authored.get("color", [0.3, .7, 1.])[:3]],
                 spread=authored.get("spread", "medium"), mode=authored.get("mode", "whole"), edge_width=edge_width)
 
 
 def set_glow(arena, identity, enabled=True, color=None, strength=None, spread=None, fade=0.0, mode=None,
-             pulse=None, pulse_speed=None, pulse_depth=None, pulse_seed=None, edge_width=None, edge_pulse=None):
+             pulse=None, pulse_speed=None, pulse_depth=None, pulse_seed=None, edge_width=None, edge_pulse=None, particles=None, edge_min_width=None, light=None):
     """Address player, collection:id, or a persistent_id; return the arena."""
     matches = []
     player = arena.get("player_info", {})
@@ -99,9 +101,15 @@ def set_glow(arena, identity, enabled=True, color=None, strength=None, spread=No
         value["pulse_seed"] = int(pulse_seed)
     if edge_width is not None:
         value["edge_width"] = max(1., min(6., float(edge_width)))
+    if edge_min_width is not None:
+        value["edge_min_width"] = max(0., min(6., float(edge_min_width)))
     if edge_pulse is not None:
         value["edge_pulse"] = max(0., min(1., float(edge_pulse)))
     obj["glow"] = value
+    if particles is not None:
+        value["particles"] = dict(particles)
+    if light is not None:
+        value["light"] = dict(light)
     obj.pop("glow_transition", None)
     if fade > 0.:
         obj["glow_transition"] = dict(start=now, duration=float(fade), **{"from": previous})
@@ -136,9 +144,31 @@ def inspect(ui, obj, key="glow", effect=False):
         if not effect and value.get("mode", "whole") == "edge":
             value["edge_width"], edit = g_ui.ui_number_input_float(ui, key+":edge_width", "max rim width", value.get("edge_width", 3. if value["pulse"] != "none" else 1.), 1., 6.)
             changed |= edit
+            value["edge_min_width"], edit = g_ui.ui_number_input_float(ui, key+":edge_min_width", "min rim width", value.get("edge_min_width", 1.), 0., value["edge_width"])
+            changed |= edit
             value["edge_pulse"], edit = g_ui.ui_number_input_float(ui, key+":edge_pulse", "rim expansion", value.get("edge_pulse", 1.), 0., 1.)
             changed |= edit
         if not effect:
+            linked = dict(value.get("light", {}))
+            linked["enabled"], edit = g_ui.ui_checkbox(ui,key+":linked_light","Glow light",linked.get("enabled",False))
+            changed |= edit
+            if linked["enabled"]:
+                for field,label,default,maximum in (("radius","light radius",80.,400.),("intensity","light intensity",1.,4.)):
+                    linked[field], edit = g_ui.ui_number_input_float(ui,key+":linked_light:"+field,label,linked.get(field,default),0.,maximum)
+                    changed |= edit
+            value["light"] = linked
+            policy = dict(value.get("particles", {}))
+            policy["enabled"], edit = g_ui.ui_checkbox(ui, key+":particles", "Edge particles", policy.get("enabled", False))
+            changed |= edit
+            if policy["enabled"]:
+                for field, label, default, low, high in (("rate","motes/sec",12.,0.,40.), ("lifetime","mote lifetime",1.5,.1,4.), ("drift","mote drift",7.,0.,30.)):
+                    policy[field], edit = g_ui.ui_number_input_float(ui,key+":particles:"+field,label,policy.get(field,default),low,high)
+                    changed |= edit
+                policy["pulse_link"], edit = g_ui.ui_checkbox(ui,key+":particles:pulse","Pulse emission",policy.get("pulse_link",True))
+                changed |= edit
+                policy["color"], edit = g_ui.ui_color3_editor(ui,key+":particles:color","mote color",policy.get("color",value.get("color",[.3,.7,1.])))
+                changed |= edit
+            value["particles"] = policy
             value["color"], edit = g_ui.ui_color3_editor(ui, key+":color", "glow color", value.get("color", [.3, .7, 1.]))
             changed |= edit
     if changed:
@@ -146,7 +176,64 @@ def inspect(ui, obj, key="glow", effect=False):
         obj.pop("glow_transition", None)
 
 
+def build_runtime_lights(arena, assets, now):
+    """Derive lights from glow state; never persist generated light instances."""
+    import copy
+    import g_render_order as render
+    import g_puzzles
+    lights = {}
+    tile_map = arena["tile_map"]
+    candidates = [("player", "player", arena.get("player_info"))]
+    for collection in ("brains","pickups","puzzles"):
+        candidates.extend((collection,key,obj) for key,obj in arena["entities"].get(collection,{}).items())
+    for collection, key, obj in candidates:
+        if obj is None:
+            continue
+        policy = obj.get("glow", {}).get("light", {})
+        if not policy.get("enabled",False):
+            continue
+        value = settings(obj,now)
+        intensity = value["strength"]*max(0.,min(4.,float(policy.get("intensity",1.))))
+        radius = max(0.,min(400.,float(policy.get("radius",80.))))
+        if intensity <= .00001 or radius <= 0.:
+            continue
+        owner = "player" if collection == "player" else f"{collection}:{key}"
+        if collection == "puzzles":
+            if g_puzzles.object_state(arena,obj).get("collected") or obj.get("type") == "puzzle spawn":
+                continue
+            bounds = g_puzzles.bounds(obj,tile_map)
+            height = 4.
+        else:
+            specimen = copy.deepcopy(obj)
+            if collection == "player":
+                item = render.build_player_render_item(specimen,tile_map,assets)
+            else:
+                item = (render.build_brain_render_item if collection == "brains" else render.build_pickup_render_item)(key,specimen,tile_map,assets)
+            if item is None:
+                continue
+            bounds = item["dest_rect"]
+            physical = item.get("physical_height", {})
+            height = physical.get("elevation",0.) + physical.get("body_height",0.)*.5
+        lights["effect:glow:"+owner] = dict(type="point",owner_id=owner,
+            position={"x":bounds["x"]+bounds["width"]*.5,"y":bounds["y"]+bounds["height"]*.5},
+            height=height,color=list(value["color"]),radius=radius,intensity=intensity,
+            falloff=1.6,enabled=True,affects_scene=True,affects_world=True,
+            affects_entities=True,affects_fog=True,affects_ai=False,gameplay_intensity=0.,
+            casts_wall_shadows=True,casts_cinematic_shadows=False,mobility="dynamic",render_style="world",shadow_bias=.25)
+    return lights
+
+
+def replace_runtime_lights(runtime_lights, lights):
+    for key in list(runtime_lights):
+        if str(key).startswith("effect:glow:"):
+            del runtime_lights[key]
+    runtime_lights.update(lights)
+    return runtime_lights
+
+
 def load_shaders(result):
+    shader = pr.load_shader("", "shaders/glow_particles.fs")
+    result["glow_particles"] = dict(shader=shader, **{key:pr.get_shader_location(shader,key) for key in ("occlusionTexture","resolution","groundDepth","maskEnabled")})
     for name, uniforms in (("glow_source", ("emissionColor", "emissionStrength", "edgeOnly", "maskStep", "edgeWidth")), ("glow_blur", ("blurStep",)), ("effect_occlusion", ("groundDepth",))):
         shader = pr.load_shader("", "shaders/"+name+".fs")
         result[name] = dict(shader=shader, **{key: pr.get_shader_location(shader, key) for key in uniforms})
@@ -182,11 +269,14 @@ def render(scene, camera, assets, items, arena, emitters, wind, now, preview=Fal
                if not p.object_state(arena, obj).get("collected") and obj.get("type") != "puzzle spawn"]
     effects = [(key, obj, settings(obj, now, True)) for key, obj in emitters.items()
                if obj.get("enabled", True) and (not preview or obj.get("preview_enabled", True))]
+    particle_objects = objects + [(dict(obj, dest_rect=p.bounds(obj,arena["tile_map"]), source_id=obj["persistent_id"], placeholder_edges=True),value) for obj,value in puzzles]
+    particles = g_glow_particles.update(assets, particle_objects, camera, width, height, now)
     active = {value["spread"] for _, value in objects+puzzles if value["strength"] > 0.}
+    active.update(particle["spread"] for particle in particles)
     active.update(value["spread"] for _, _, value in effects if value["strength"] > 0.)
     if not active:
         return
-    if "glow_source" not in assets["shaders"]:
+    if "glow_particles" not in assets["shaders"]:
         load_shaders(assets["shaders"])
     source = g.get_or_create_render_target(assets, "glow_source", width, height)
     scratch = g.get_or_create_render_target(assets, "glow_scratch", width, height)
@@ -243,6 +333,9 @@ def render(scene, camera, assets, items, arena, emitters, wind, now, preview=Fal
             else:
                 g._draw_render_item_main_shape(item, texture, camera, assets)
         pr.end_shader_mode()
+        pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
+        g_glow_particles.draw(assets,camera,spread,width,height)
+        pr.end_blend_mode()
         pr.end_texture_mode()
         # Sharp object emission remains visible even in an unlit room.
         pr.begin_texture_mode(scene)

@@ -57,6 +57,11 @@ try:
     pr.unload_image(image)
     pulsing = dict(edge, glow=dict(edge["glow"], pulse="periodic", pulse_depth=1., pulse_speed=.5))
     expanding = dict(edge, glow=dict(edge["glow"], pulse="periodic", pulse_depth=0., pulse_speed=.5, edge_width=5.))
+    zero_rim = dict(expanding, glow=dict(expanding["glow"], edge_min_width=0.))
+    image = draw([zero_rim], 1.)
+    assert pr.get_image_color(image, 32, 44).b == 0, "zero-width rim still emits"
+    assert pr.get_image_color(image, 30, 44).b == 0, "zero-width rim still blooms"
+    pr.unload_image(image)
     image = draw([expanding], 0.)
     wide_rim = pr.get_image_color(image, 29, 44).b
     assert pr.get_image_color(image, 52, 44).b == 0
@@ -101,6 +106,43 @@ try:
             pr.unload_image(image)
             assert (lit == 0) if hidden else (lit > 0), (depth, pass_mode, lit)
     print("Glow GPU check passed: halo, orientation, foreground mask, disabled state, target reuse")
+    import time
+    import statistics
+    pr.unload_render_texture(scene)
+    scene = pr.load_render_texture(480,270)
+    buddha = pr.load_texture("art/buddha_128.png")
+    assets["textures"]["benchmark_buddha"] = buddha
+    try:
+        statues = [dict(item, source_id=f"statue:{i}", sort_y=120.+(i//4)*110,
+            texture={"collection":"textures","name":"benchmark_buddha"},
+            source_rect=dict(x=0,y=0,width=128,height=128),
+            dest_rect=dict(x=25+(i%4)*110,y=10+(i//4)*120,width=64,height=96),
+            glow=dict(enabled=True,strength=.7,mode="edge",spread="small",edge_width=2.,color=[.2,.7,1.],
+                      particles=dict(enabled=False,rate=30.,lifetime=2.))) for i in range(8)]
+        samples = {}
+        clock = 5.
+        for enabled in (False,True):
+            for statue in statues:
+                statue["glow"]["particles"]["enabled"] = enabled
+            timings = []
+            for frame in range(150):
+                clock += 1./60.
+                started = time.perf_counter()
+                pr.begin_texture_mode(scene); pr.clear_background(pr.BLACK); pr.end_texture_mode()
+                g_glow.prepare_effect_occlusion(scene,camera,assets,statues)
+                g_glow.render(scene,camera,assets,statues,make_arena(),{},wind,clock)
+                pr.rl_draw_render_batch_active()
+                if frame >= 30:
+                    timings.append((time.perf_counter()-started)*1000.)
+            samples[enabled] = statistics.median(timings)
+        runtime = assets["glow_particles"]
+        assert runtime["readbacks"] == 1, "eight statues should share one texture readback"
+        assert 100 < len(runtime["particles"]) <= 8*48
+        image = pr.load_image_from_texture(scene.texture); pr.image_flip_vertical(image)
+        pr.export_image(image,"artifacts/glow/edge-motes.png"); pr.unload_image(image)
+        print(f"Eight statues CPU submission median: off={samples[False]:.3f}ms on={samples[True]:.3f}ms; motes={len(runtime['particles'])}; readbacks={runtime['readbacks']}")
+    finally:
+        pr.unload_texture(buddha)
 finally:
     for info in assets["shaders"].values():
         pr.unload_shader(info["shader"])

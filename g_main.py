@@ -19,6 +19,8 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_placement_preview", update_and_render_module.g_placement_preview),
+    ("g_glow_particles", update_and_render_module.g_glow.g_glow_particles),
     ("g_glow", update_and_render_module.g_glow),
     ("g_height_data", update_and_render_module.g_render_order.g_height.data),
     ("g_height", update_and_render_module.g_render_order.g_height),
@@ -44,6 +46,7 @@ g_reloadable_modules = [
 ]
 
 g_shader_source_files = (
+    "shaders/glow_particles.fs",
     "shaders/glow_source.fs",
     "shaders/effect_occlusion.fs",
     "shaders/glow_blur.fs",

@@ -1915,6 +1915,8 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
         ui_state, "entity_inspector:panel", panel_rect, "Entity",
         editor_state.get("entity_inspector_scroll", 0.0),
     )
+    editor_state["preview_effects"], _ = g_ui.ui_checkbox(
+        ui_state, "entity:preview_effects", "Preview effects", editor_state.get("preview_effects", True))
     entity = get_selected_gameplay_entity(entities, editor_state)
     if entity is None:
         g_ui.ui_label(
@@ -2273,8 +2275,7 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
         update_environment_world(entities, editor_state, ui_state, game_camera, tile_map)
         draw_environment_handles(entities, editor_state, game_camera, tile_map)
 
-        if editor_state.get("tool") == "place" and not ui_state.get("mouse_captured"):
-            draw_placement_preview(editor_state, game_camera, tile_map)
+        # Placement ghosts (including handles) are drawn in the world overlay pass.
 
         draw_inspector(
             ui_state, editor_state, entities, lighting_profile, fog_profile,

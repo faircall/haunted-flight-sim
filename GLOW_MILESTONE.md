@@ -1,5 +1,46 @@
 # Selective glow
 
+## Linked light
+
+Enable **Glow light** in the entity inspector to illuminate nearby surfaces,
+entities and fog. Radius and intensity are independent controls; colour, pulse
+and scripted brightness fades follow the glow. Light intensity multiplies the
+evaluated glow strength. The source follows the centre of the displayed entity;
+height follows half its body height plus elevation. It skips its own entity as
+an occluder and respects other occluders and tile walls. It does not affect AI
+visibility or add cinematic projected shadows. Zero brightness removes the
+runtime light, and disabling preview removes these generated lights too.
+
+Example: `set_glow(arena, door_id, light={"enabled": True, "radius": 80,
+"intensity": 1.5})`. The same call accepts the glow colour and pulse settings.
+Generated lights live only in runtime assets and use stable owner-based IDs.
+
+## Edge motes
+
+Enable **Edge particles** in the object's Glow inspector. Adjust motes/sec,
+lifetime, drift, colour, and **Pulse emission**. Start at 12/sec and 1.5 seconds.
+Particles float outward/upward and fade, contributing to the existing bloom.
+They use the actual texture alpha boundary (or the evaluated rig's component
+boundaries, rejecting covered seams). Puzzle placeholder objects use their
+rectangular boundary. Foreground sprites obstruct motes through the shared mask.
+
+Scripts can pass `particles={"enabled": True, "rate": 12, "lifetime": 1.5,
+"drift": 7, "pulse_link": True}` to `set_glow`. An optional RGB `color` overrides
+the glow colour. Turn emission off to let existing motes finish fading.
+
+Limits: 512 live motes globally, 48 per object, 40/sec per object. Off-screen
+objects stop spawning; elapsed-time jumps do not create catch-up bursts.
+Texture alpha is read back only on a cache miss (at most one new texture/frame),
+then shared across instances. There are at most 64 cached textures, each at most
+262144 pixels; unsupported/oversized textures skip emission. PNG reload clears
+the cache. Particle pools and caches live in game assets, not saved levels.
+
+The hidden GPU stress test with eight statues, 30/sec and 380 live motes measured
+5.614 ms without motes versus 7.814 ms with motes (median CPU submission time on
+this machine, not a GPU timing guarantee). It verified one shared texture
+readback. See `artifacts/glow/edge-motes.png`. Restart once for the new module and
+shader reload registration.
+
 Restart once to register `g_glow` and the two shaders with the hot-reload watcher.
 
 Select an entity (including puzzle doors, keys, levers and keypads) in the
@@ -27,6 +68,14 @@ of brightness depth: set pulse depth to zero for a steady-brightness moving rim.
 Set rim expansion to zero for fixed width. Existing pulsing rims without an
 authored width now breathe between 1 and 3 pixels. Non-pulsing rims retain 1 pixel.
 Scripts can set `edge_width` and `edge_pulse` through `set_glow`.
+**Min rim width** (`edge_min_width` in code) sets the contracted width, including
+zero for no rim. Values below one pixel fade coverage smoothly to zero. The
+minimum is clamped to the maximum width. Rim width and brightness are independent
+controls sharing the pulse timing: brightness minimum is strength × (1 − pulse
+depth), so depth 1 allows completely off. Use rim expansion 1 to reach the chosen
+minimum width. Seeded random pulses approach their range endpoints rather than
+guaranteeing a fully-off moment each cycle. Existing motes finish their lifetimes
+even if the rim disappears.
 The fire emitter inspector also has glow strength and spread; fire inherits its
 animated core colour. Fire, embers and sparks have restrained glow by default.
 Other objects opt in. Ember/spark glow can also be configured through their

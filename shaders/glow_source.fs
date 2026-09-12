@@ -32,7 +32,8 @@ void main() {
                     expanded = max(expanded, maskAlpha(fragTexCoord + vec2(x,y)*maskStep) * coverage);
             }
         }
-        edge = 1.0 - inside;
+        // Subpixel rims fade their coverage; zero emits no rim or rim bloom.
+        edge = (1.0 - inside) * clamp(edgeWidth, 0.0, 1.0);
         alpha = expanded;
     }
     if (alpha < 0.01) discard;
