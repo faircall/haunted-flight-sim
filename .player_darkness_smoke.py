@@ -12,6 +12,12 @@ assets = {"shaders":game.load_shaders(),"textures":{"test":texture}}
 item = dict(source_id="player",texture={"collection":"textures","name":"test"},
             source_rect=dict(x=0,y=0,width=8,height=8),dest_rect=dict(x=20,y=16,width=16,height=24))
 try:
+    assert not g.PLAYER_DARKNESS_OUTLINE_ENABLED
+    pr.begin_texture_mode(scene);pr.clear_background(pr.BLACK);pr.end_texture_mode()
+    g.draw_player_darkness_outline(scene,[item],[],pr.Vector2(0,0),assets)
+    assert "player_darkness_scene" not in assets.get("render_targets",{})
+    # Keep testing the optional treatment without changing its game default.
+    g.PLAYER_DARKNESS_OUTLINE_ENABLED = True
     for bright in (False,True):
         pr.begin_texture_mode(scene);pr.clear_background(pr.WHITE if bright else pr.BLACK);pr.end_texture_mode()
         g.draw_player_darkness_outline(scene,[item],[],pr.Vector2(0,0),assets)
@@ -27,6 +33,7 @@ try:
         pr.unload_image(image)
     print("Player darkness GPU check passed: dark rim, unlit interior, bright-light suppression")
 finally:
+    g.PLAYER_DARKNESS_OUTLINE_ENABLED = False
     for info in assets["shaders"].values():pr.unload_shader(info["shader"])
     for target in assets.get("render_targets",{}).values():pr.unload_render_texture(target)
     pr.unload_texture(texture);pr.unload_render_texture(scene);pr.close_window()

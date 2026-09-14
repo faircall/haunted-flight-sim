@@ -20,6 +20,8 @@ import g_render_order
 import g_ui
 import g_puzzles
 import g_puzzle_ui
+import g_interactions
+import g_editor_history
 import g_sequences
 import g_sequence_editor
 
@@ -62,7 +64,7 @@ g_default_entity_height = 16
 
 g_test_see_through_walls = False
 
-g_infinite_ammo = True
+g_infinite_ammo = False
 
 g_mute = False
 
@@ -1535,6 +1537,9 @@ def update_player_reload(player, gun_type, reload_requested, dt,
     )
     ammo[gun_type] = current_bullets + clip_to_load
     ammo[spare_key] = spare_bullets - clip_to_load
+    if gun_type == "pistol" and "inventory" in player:
+        g_interactions.inventory.consume(player["inventory"], "ammo", clip_to_load)
+        g_interactions.inventory.sync_ammo(player)
     player["reload_timer"] = 0.0
     player["reload_state"] = "reloaded"
     reload_animation = player.get("reload_animation", {})
@@ -1577,7 +1582,7 @@ def save_state(arena):
     try:
         with open(file_path, "wb") as f:
             saved_arena = arena
-            for transient_key in ("puzzle_runtime", "sequence_runtime"):
+            for transient_key in ("puzzle_runtime", "sequence_runtime", "interaction_runtime"):
                 if transient_key in saved_arena:
                     saved_arena = saved_arena.remove(transient_key)
             pickle.dump(saved_arena, f)
@@ -7819,67 +7824,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
     
     if "pickups" not in entities:
         entities["pickups"] = {}
-    for key, pickup in entities["pickups"].items():             
-        # we might want to handle this in player interactions,
-        # in which case we could have an 'e to pickup'
-        # system
-        
-        # to use minkowsky sum approach
-        # currently it feels awful
-        pickup_rad = 10
-
-        # bad test actually but still not working
-
-        pickup_pos_abs = tile_and_offset_to_absolute(tile_map, pickup.get("position",{}))
-        player_pos_abs = tile_and_offset_to_absolute(tile_map, player_pos)
-        player_pos_abs["x"] += 12
-        player_pos_abs["y"] += 12
-        # player_pos_abs["x"] += player_info["entity_width"]/2
-        # player_pos_abs["y"] += player_info["entity_height"]/2
-        
-        minkowski_rect = {
-            "x" : pickup_pos_abs["x"] - player_info["entity_width"] - 12,
-            "y" : pickup_pos_abs["y"] - player_info["entity_height"] - 12,
-            "width" : 24 + player_info["entity_width"] + 12,
-            "height": 24 + player_info["entity_height"] + 12
-        }
-
-        if debug_queue is not None:
-                minkowski_debug_item = {
-                    "type" : "rectangle",
-                    "drawing_function" : draw_debug_rect,
-                    "x" : minkowski_rect["x"],                    
-                    "y" : minkowski_rect["y"],                    
-                    "width" : minkowski_rect["width"],                    
-                    "height" : minkowski_rect["height"],                    
-                    "color" : "GREEN",
-                    "z_sort" : 0,   
-                    "debug_modes" : ["collisions"]                 
-                }
-                debug_queue.append(minkowski_debug_item)
-
-                debug_item = {
-                    "type" : "circle",
-                    "drawing_function" : draw_debug_circle_abs,
-                    "pos" : player_pos_abs,                                        
-                    "radius" : 8,
-                    "color" : "RED",
-                    "z_sort" : 0,                    
-                    "debug_modes" : ["collisions"]                 
-                }
-                debug_queue.append(debug_item)
-
-        if point_in_rect(player_pos_abs, minkowski_rect):#vec2_distance(player_pos, pickup["position"]) < pickup_rad:
-            deletions.append({"subdict": "pickups", "id" : pickup["id"]})            
-            if pickup.get("type") == "pistol_ammo_pickup":
-                print("got ammo")
-                player_info["ammo"]["spare_pistol"] += pickup.get("value", 0)
-                queue_gameplay_audio(audio_runtime, "pickup_ammo", "player", "player", player_pos_abs, 1.1)
-            elif pickup.get("type") == "health_pickup":
-                print("got health")
-                player_info["health"] += pickup.get("value", 0)
-                queue_gameplay_audio(audio_runtime, "pickup_health", "player", "player", player_pos_abs, 1.1)
-        
+    # Pickups are transferred by g_interactions after explicit confirmation.
 
     if "projectiles" not in entities:
         entities["projectiles"] = {}
@@ -8662,6 +8607,7 @@ g_internal_height = 270
 
 
 def update_and_render(render_target, lighting_target, main_arena, game_assets, cma_engine):
+    main_arena = g_editor_history.begin(main_arena, game_assets)
     global g_mouse_is_ui_captured
     global g_interacted_ui_this_frame 
     global g_last_interacted_ui_id
@@ -8852,7 +8798,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     )
     # F10-visible editor UI keeps an absolute pointer available. Hiding it
     # captures the mouse for unbounded relative turning during normal play.
-    update_play_mouse_capture(game_assets, aim_controls_active and not show_editor)
+    update_play_mouse_capture(game_assets, aim_controls_active and not show_editor
+        and not main_arena.get("interaction_runtime", {}).get("modal")
+        and not main_arena.get("puzzle_runtime", {}).get("keypad"))
     editor_state = g_editor.get_or_create_editor_state(game_assets)
     if editor_state.pop("reset_puzzles_requested", False):
         editor_state["puzzle_reset_blocked"] = any(g_puzzles.door_is_occupied(main_arena, obj) for obj in g_puzzles.objects(main_arena) if obj["type"] in g_puzzles.DOOR_TYPES)
@@ -8874,6 +8822,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if editor_mode == "tile" and g_ui.ui_point_in_rect(g_ui.get_mouse_position(), pr.Rectangle(330, 30, 142, 110)):
         g_ui.ui_capture_mouse(ui_state)
 
+    if game_assets.get("editor_history", {}).get("suppress_mouse"):
+        ui_state["mouse_captured"] = True
     g_mouse_is_ui_captured = ui_state.get("mouse_captured", False)
 
     
@@ -8907,14 +8857,19 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         
     main_arena = g_sequence_editor.update_editor(main_arena, editor_state, ui_state,
         camera_3d.position, editor_mode == "sequences" and show_editor, dt)
-    # Puzzle input runs before movement; a keypad owns gameplay input while open.
+    # Shared modal input runs first; opening AND closing frames consume gameplay input.
+    interaction_enabled = (editor_mode == "play" and pause_state != "paused" and not do_load_level
+        and not show_options and (bool(main_arena.get("interaction_runtime", {}).get("modal"))
+            or (ui_state.get("focused_id") is None and not g_mouse_is_ui_captured)))
+    main_arena, interaction_modal = g_interactions.update(main_arena, interaction_enabled, game_assets)
+    # A keypad keeps its own numeric entry UI.
     puzzle_modal = bool(main_arena["puzzle_runtime"].get("keypad"))
     main_arena = g_puzzle_ui.update_input(main_arena,
         editor_mode == "play" and pause_state != "paused" and not do_load_level
         and not show_options and ui_state.get("focused_id") is None
-        and not g_mouse_is_ui_captured, dt)
+        and not g_mouse_is_ui_captured, dt, allow_interact=False)
     entities, tile_map, player_info = (main_arena["entities"], main_arena["tile_map"], main_arena["player_info"])
-    puzzle_modal = puzzle_modal or bool(main_arena["puzzle_runtime"].get("keypad"))
+    puzzle_modal = interaction_modal or puzzle_modal or bool(main_arena["puzzle_runtime"].get("keypad"))
     if puzzle_modal:
         update_play_mouse_capture(game_assets, False)
     for event in main_arena["puzzle_runtime"]["sounds"]:
@@ -9052,7 +9007,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     g_glow.replace_runtime_lights(game_assets["runtime_lights"],
         g_glow.build_runtime_lights(main_arena,game_assets,time_elapsed) if render_environment_effects and not do_load_level else {})
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, presentation_entities, player_info, tile_map, render_target, game_assets)
-    if (editor_mode == "play" and pause_state != "paused"
+    if (editor_mode == "play" and pause_state != "paused" and not puzzle_modal
             and debug_state != "dumb entities"):
         update_redhead_flashlight_awareness(
             entities, player_info, tile_map, lighting_frame, dt,
@@ -9322,6 +9277,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     if editor_mode != "play" or not game_assets.get("play_mouse_captured", False):
         mp = g_ui.get_mouse_position()
         pr.draw_circle(int(mp.x), int(mp.y), 4 if editor_mode != "play" else 1, pr.WHITE)
+    if editor_mode == "play" and not do_load_level and not show_options:
+        g_interactions.draw(main_arena, game_assets)
+    if editor_mode != "play":
+        g_editor_history.draw(game_assets)
     pr.end_texture_mode()
     g_ui.ui_end_frame(ui_state)
     ui_state["show_editor"] = show_editor
@@ -9349,7 +9308,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["collision_mode"] = collision_mode
     changes["editor_mode"] = editor_mode
     changes["do_load_level"] = do_load_level
-    changes["time_elapsed"] = time_elapsed + dt
+    changes["time_elapsed"] = time_elapsed + (0.0 if puzzle_modal else dt)
     changes["current_tile_selection"] = current_tile_selection
     changes["current_shape_selection"] = current_shape_selection
     changes["current_tile_force_collidable"] = current_tile_force_collidable
@@ -9368,7 +9327,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     changes["rain_profile"] = rain_profile
     changes["audio_profile"] = audio_profile
 
-    result = changes.persistent()    
+    result = changes.persistent()
+    g_editor_history.end(result, game_assets, reset=reset_all or bool(load_saved_data))
     
     game_assets["camera_3d"] = camera_3d
     if reset_all:

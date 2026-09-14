@@ -16,6 +16,8 @@ def init_object(entity, kind):
     entity.update(persistent_id="puzzle:" + uuid.uuid4().hex,
                   puzzle_group=1, label=definition["label"],
                   entity_width=16, entity_height=16)
+    if kind == "inspectable":
+        entity["description_id"] = "old_inscription"
     if "handler" in definition:
         entity["on_unlock"] = definition["handler"]
     if "code" in definition:
@@ -55,6 +57,9 @@ def set_fact(arena, name, value):
 
 
 def has_key(arena, obj):
+    if "inventory" in arena["player_info"]:
+        return any(s and s["kind"] == "key" and s.get("group") == str(obj["puzzle_group"])
+                   for s in arena["player_info"]["inventory"])
     return arena["puzzle_state"]["inventory"].get(str(obj["puzzle_group"]), 0) > 0
 
 
@@ -189,6 +194,10 @@ def interact(arena, target, code=None):
         return message(arena, "This object no longer exists.")
     state = object_state(arena, obj)
     kind = obj["type"]
+    if kind == "puzzle key" and "inventory" in arena["player_info"]:
+        import g_interactions
+        key = next(k for k, value in arena["entities"]["puzzles"].items() if value is obj)
+        return g_interactions.activate(arena, ("puzzles", key, obj))
     if kind == "puzzle key":
         if not state.get("collected"):
             state["collected"] = True
@@ -266,6 +275,12 @@ def nearest_interactable(arena, radius=26.0):
 
 
 def reset_progress(arena):
+    player = arena["player_info"]
+    if "inventory" in player:
+        player["inventory"][:] = [None if s and s["kind"] == "key" else s for s in player["inventory"]]
+        player["inventory_overflow"] = [s for s in player.get("inventory_overflow", []) if s["kind"] != "key"]
+    if "interaction_runtime" in arena:
+        arena = arena.remove("interaction_runtime")
     for identity in arena["puzzle_state"]["spawns"].values():
         arena["entities"].get("brains", {}).pop(identity, None)
     arena = arena.remove("puzzle_state").remove("puzzle_runtime")

@@ -5,7 +5,7 @@ import g_puzzles as p
 import g_ui
 
 
-def update_input(arena, enabled, dt):
+def update_input(arena, enabled, dt, allow_interact=True):
     runtime = arena["puzzle_runtime"]
     runtime["message_time"] = max(0.0, runtime["message_time"] - dt)
     if not enabled:
@@ -31,7 +31,7 @@ def update_input(arena, enabled, dt):
             arena = p.interact(arena, keypad["persistent_id"], runtime["digits"])
             runtime["digits"] = ""
         return arena
-    if target is not None and pr.is_key_pressed(pr.KeyboardKey.KEY_E):
+    if allow_interact and target is not None and pr.is_key_pressed(pr.KeyboardKey.KEY_E):
         # Discard text typed before opening the keypad.
         while pr.get_char_pressed():
             pass
@@ -110,6 +110,10 @@ def draw_overlay(arena, camera, playing):
 
 
 def inspect(ui_state, editor_state, obj):
+    if obj["type"] == "inspectable":
+        import g_interaction_data
+        obj["description_id"], _ = g_ui.ui_dropdown(ui_state, "puzzle:description", "description",
+            obj.get("description_id", "old_inscription"), list(g_interaction_data.DESCRIPTIONS))
     obj["puzzle_group"], _ = g_ui.ui_number_input_int(
         ui_state, "puzzle:group", "puzzle group", obj["puzzle_group"], 1, 999)
     g_ui.ui_label(ui_state, "puzzle:link", "Same group = connected", font_size=8)

@@ -13,6 +13,8 @@ import g_update_and_render as game
 CINEMATIC_SHADOW_DEBUG_ENABLED = False
 # Hot-reloadable master toggle; per-entity contact_shadow settings are retained.
 CHARACTER_CONTACT_SHADOWS_ENABLED = False
+# Optional darkness readability treatment; occlusion outlines are independent.
+PLAYER_DARKNESS_OUTLINE_ENABLED = False
 
 ENTITY_SELF_SHADOW_MODES = {"none": 0, "upright_box": 1, "directional_profiles": 2}
 _REPORTED_DIRECTIONAL_PROFILE_ASSET_ERRORS = set()
@@ -3563,6 +3565,8 @@ def draw_render_item_occlusion_outlines(scene, outlined_items, game_camera, game
 
 
 def draw_player_darkness_outline(scene, items, outlined_items, camera, assets):
+    if not PLAYER_DARKNESS_OUTLINE_ENABLED:
+        return
     player = next((item for item in items if item.get("source_id") == "player"),None)
     if player is None or any(entry.get("item",{}).get("source_id") == "player" for entry in outlined_items):
         return

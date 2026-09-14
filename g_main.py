@@ -19,6 +19,11 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_editor_history", update_and_render_module.g_editor_history),
+    ("g_interaction_data", update_and_render_module.g_interactions.data),
+    ("g_inventory", update_and_render_module.g_interactions.inventory),
+    ("g_narrative_text", update_and_render_module.g_interactions.text),
+    ("g_interactions", update_and_render_module.g_interactions),
     ("g_placement_preview", update_and_render_module.g_placement_preview),
     ("g_glow_particles", update_and_render_module.g_glow.g_glow_particles),
     ("g_glow", update_and_render_module.g_glow),
@@ -434,6 +439,7 @@ def g_main():
         cma_engine.close()
     except Exception:
         pass
+    update_and_render_module.g_interactions.text.unload(game_assets)
     pr.close_window()
 
 if __name__ == '__main__':

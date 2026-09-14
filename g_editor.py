@@ -1942,6 +1942,16 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
     if entity_type in g_puzzles.data.OBJECTS:
         g_puzzle_ui.inspect(ui_state, editor_state, entity)
 
+    if entity_type == "buddha":
+        import g_interaction_data
+        description, changed = g_ui.ui_dropdown(ui_state, "entity:description", "description",
+            entity.get("description_id", "none"), ["none"] + list(g_interaction_data.DESCRIPTIONS))
+        if changed:
+            if description == "none":
+                entity.pop("description_id", None)
+            else:
+                entity["description_id"] = description
+
     if entity_type == "red head" and isinstance(movement_defaults, dict):
         movement = entity.setdefault("movement_settings", {})
         if not isinstance(movement, dict):

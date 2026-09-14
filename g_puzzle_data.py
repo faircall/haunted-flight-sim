@@ -1,6 +1,7 @@
 """Hot-reloaded puzzle definitions and procedural example handlers."""
 
 OBJECTS = {
+    "inspectable": {"label": "Inscription", "color": (150, 155, 170)},
     "key door": {"label": "Key door", "color": (184, 133, 49), "handler": "key_door"},
     "authored door": {"label": "Ritual door", "color": (154, 73, 178), "handler": "ritual_door"},
     "lever door": {"label": "Lever door", "color": (60, 159, 143)},
