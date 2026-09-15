@@ -1,5 +1,8 @@
 """Hot-reloaded inventory and narrative authoring. IDs are save-game stable."""
 SLOT_COUNT = 8
+# Dialogue/prompt panels and dialogue screen dimming; inventory has its own background.
+SHOW_NARRATIVE_BACKGROUNDS = False
+NARRATIVE_BACKGROUND_OPACITY = 1.0  # 0..1; lower for translucent backgrounds when enabled.
 LANGUAGE = "zh_hant"  # en, zh_hans, zh_hant
 ITEMS = {
     "health": {"name": "health", "description": "health_description", "stack": 1},

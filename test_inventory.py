@@ -105,6 +105,7 @@ class InventoryTests(unittest.TestCase):
         ui.update_prompt(runtime, None, ui.PROMPT_FADE_SECONDS)
         self.assertEqual(runtime["prompt"]["label"], "")
 
+    @patch.object(ui.data, "SHOW_NARRATIVE_BACKGROUNDS", True)
     def test_page_transition_keeps_panel_and_ignores_repeated_continue(self):
         arena = ui.open_dialogue(make_arena(), ["old", "new"])
         modal = arena["interaction_runtime"]["modal"]
@@ -123,6 +124,7 @@ class InventoryTests(unittest.TestCase):
         self.assertNotIn("closing_elapsed", modal)
         self.assertNotIn("page_elapsed", modal)
 
+    @patch.object(ui.data, "SHOW_NARRATIVE_BACKGROUNDS", True)
     def test_closing_blocks_repeated_actions_and_fades_entire_dialogue(self):
         arena = ui.open_dialogue(make_arena(), ["test"], on_complete="inscription_button", target="demo")
         modal = arena["interaction_runtime"]["modal"]

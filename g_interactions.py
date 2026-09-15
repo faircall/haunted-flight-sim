@@ -203,12 +203,15 @@ def update(arena, enabled, assets):
 
 
 def draw(arena, assets):
+    background_opacity = (max(0.0, min(1.0, data.NARRATIVE_BACKGROUND_OPACITY))
+        if data.SHOW_NARRATIVE_BACKGROUNDS else 0.0)
     runtime = arena.get("interaction_runtime", {})
     modal = runtime.get("modal")
     prompt = runtime.get("prompt", {})
     prompt_opacity = ease(prompt.get("amount", 0.0))
     if prompt_opacity:
-        pr.draw_rectangle(16, 238, 448, 20, tint(pr.Color(12, 14, 23, 240), prompt_opacity))
+        if background_opacity:
+            pr.draw_rectangle(16, 238, 448, 20, tint(pr.Color(12, 14, 23, 240), prompt_opacity * background_opacity))
         text.draw(assets, "[E] " + prompt["label"] + "    [Tab] Inventory", 24, 242, tint(pr.WHITE, prompt_opacity))
     if not modal:
         return
@@ -221,8 +224,8 @@ def draw(arena, assets):
     def faded(color):
         return tint(color, opacity)
 
-    pr.draw_rectangle(0, 0, 480, 270, faded(pr.Color(0, 0, 0, 120)))
     if modal["kind"] == "inventory":
+        pr.draw_rectangle(0, 0, 480, 270, faded(pr.Color(0, 0, 0, 120)))
         pr.draw_rectangle(16, 12, 448, 246, pr.Color(14, 18, 27, 255))
         text.draw(assets, "inventory", 28, 22)
         slots = arena["player_info"]["inventory"]
@@ -242,18 +245,25 @@ def draw(arena, assets):
         if arena["player_info"].get("inventory_overflow"):
             text.draw(assets, "R: claim items retained from an older save", 28, 240, pr.YELLOW)
     else:
+        if background_opacity:
+            pr.draw_rectangle(0, 0, 480, 270, tint(pr.Color(0, 0, 0, 120), opacity * background_opacity))
         if modal.get("speaker"):
-            pr.draw_rectangle(16, 124, 448, 20, faded(pr.Color(14, 18, 27, 255)))
+            if background_opacity:
+                pr.draw_rectangle(16, 124, 448, 20, tint(pr.Color(14, 18, 27, 255), opacity * background_opacity))
             text.draw(assets, modal["speaker"], 28, 128, faded(pr.YELLOW))
-        pr.draw_rectangle(16, 144, 448, 114, faded(pr.Color(14, 18, 27, 255)))
+        if background_opacity:
+            pr.draw_rectangle(16, 144, 448, 114, tint(pr.Color(14, 18, 27, 255), opacity * background_opacity))
         lines = text.wrap(assets, modal["pages"][modal["page"]], 416)
         for i, line in enumerate(lines[modal["scroll"]:modal["scroll"] + 4]):
             text.draw(assets, line, 28, 154 + i * 15, tint(pr.WHITE, text_opacity))
         final = modal["page"] == len(modal["pages"]) - 1 and modal["scroll"] + 4 >= len(lines)
         if final and modal["choices"]:
             x = 28
+            marker_width = text.width(assets, "> ")
             for i, choice in enumerate(modal["choices"]):
-                label = ("> " if i == modal["choice"] else "  ") + text.localize(choice["label"])
-                text.draw(assets, label, x, 220, tint(pr.YELLOW if i == modal["choice"] else pr.WHITE, text_opacity))
-                x += text.width(assets, label) + 20
+                label = text.localize(choice["label"])
+                if i == modal["choice"]:
+                    text.draw(assets, ">", x, 220, tint(pr.YELLOW, text_opacity))
+                text.draw(assets, label, x + marker_width, 220, tint(pr.YELLOW if i == modal["choice"] else pr.WHITE, text_opacity))
+                x += marker_width + text.width(assets, label) + 20
         text.draw(assets, "dialogue_controls", 28, 242, faded(pr.WHITE))
