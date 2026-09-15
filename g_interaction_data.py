@@ -1,6 +1,6 @@
 """Hot-reloaded inventory and narrative authoring. IDs are save-game stable."""
 SLOT_COUNT = 8
-LANGUAGE = "en"  # en, zh_hans, zh_hant
+LANGUAGE = "zh_hant"  # en, zh_hans, zh_hant
 ITEMS = {
     "health": {"name": "health", "description": "health_description", "stack": 1},
     "ammo": {"name": "ammo", "description": "ammo_description", "stack": 60},

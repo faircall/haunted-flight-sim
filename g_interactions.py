@@ -5,6 +5,50 @@ import g_interaction_data as data
 import g_narrative_text as text
 import g_puzzles as puzzles
 
+DIALOGUE_FADE_IN_SECONDS = 0.45
+DIALOGUE_FADE_OUT_SECONDS = 0.3
+PAGE_FADE_SECONDS = 0.18
+PROMPT_FADE_SECONDS = 0.25
+
+
+def ease(value):
+    value = max(0.0, min(1.0, value))
+    return value * value * (3.0 - 2.0 * value)
+
+
+def tint(color, opacity):
+    if isinstance(color, tuple):
+        color = pr.Color(*color)
+    return pr.Color(color.r, color.g, color.b, round(color.a * opacity))
+
+
+def update_prompt(runtime, candidate, dt):
+    prompt = runtime.setdefault("prompt", {"identity": None, "label": "", "amount": 0.0})
+    identity = candidate[:2] if candidate else None
+    same = identity is not None and identity == prompt["identity"]
+    prompt["amount"] = max(0.0, min(1.0,
+        prompt["amount"] + (1 if same else -1) * dt / PROMPT_FADE_SECONDS))
+    if prompt["amount"] == 0.0:
+        prompt["identity"] = identity
+        prompt["label"] = candidate[2].get("label", candidate[2]["type"]) if candidate else ""
+
+
+def finish_dialogue(arena, modal):
+    arena["interaction_runtime"]["modal"] = None
+    if modal.get("cancelled"):
+        return arena
+    choices = modal["choices"]
+    choice = choices[modal["choice"]] if choices else {}
+    handler = choice.get("handler") if choices else modal.get("on_complete")
+    if handler == "pickup":
+        return take(arena, modal["target"])
+    if handler:
+        callback = data.HANDLERS.get(handler)
+        if callback is None:
+            return open_dialogue(arena, ["Unknown dialogue handler: " + handler])
+        return callback(arena, {"target": modal["target"], "choice": modal["choice"]})
+    return arena
+
 
 def ensure(arena):
     arena = inventory.ensure(arena)
@@ -17,7 +61,7 @@ def open_dialogue(arena, pages, choices=None, target=None, on_complete=None, spe
     arena = ensure(arena)
     arena["interaction_runtime"]["modal"] = dict(kind="dialogue", pages=list(pages) or [""],
         page=0, scroll=0, choices=choices or [], choice=max(0, len(choices or []) - 1), target=target,
-        on_complete=on_complete, speaker=speaker)
+        on_complete=on_complete, speaker=speaker, fade_elapsed=0.0)
     return arena
 
 
@@ -98,11 +142,23 @@ def update(arena, enabled, assets):
     modal = runtime["modal"]
     if not enabled:
         runtime["modal"] = None
+        runtime.pop("prompt", None)
         return arena, bool(modal)
+    dt = max(0.0, pr.get_frame_time())
+    candidate = nearest(arena) if not modal and not arena["puzzle_runtime"].get("keypad") else None
+    update_prompt(runtime, candidate, dt)
     pressed = lambda name: pr.is_key_pressed(getattr(pr.KeyboardKey, "KEY_" + name))
     if modal:
+        if "closing_elapsed" in modal:
+            modal["closing_elapsed"] += dt
+            if modal["closing_elapsed"] >= DIALOGUE_FADE_OUT_SECONDS:
+                arena = finish_dialogue(arena, modal)
+            return arena, True
         if pressed("ESCAPE") or (modal["kind"] == "inventory" and pressed("TAB")):
-            runtime["modal"] = None
+            if modal["kind"] == "inventory":
+                runtime["modal"] = None
+            else:
+                modal.update(closing_elapsed=0.0, cancelled=True)
             return arena, True
         if modal["kind"] == "inventory":
             slots = arena["player_info"]["inventory"]
@@ -115,35 +171,32 @@ def update(arena, enabled, assets):
                 arena["player_info"]["inventory_overflow"] = [item for item in overflow if not inventory.add(slots, item)]
                 inventory.sync_ammo(arena["player_info"])
             return arena, True
+        modal["fade_elapsed"] = min(DIALOGUE_FADE_IN_SECONDS,
+            modal.get("fade_elapsed", DIALOGUE_FADE_IN_SECONDS) + dt)
+        if "page_elapsed" in modal:
+            modal["page_elapsed"] += dt
+            if modal["page_elapsed"] >= PAGE_FADE_SECONDS and "next_page" in modal:
+                modal["page"], modal["scroll"] = modal.pop("next_page")
+            if modal["page_elapsed"] >= 2 * PAGE_FADE_SECONDS:
+                del modal["page_elapsed"]
+            return arena, True
         choices = modal["choices"]
         if choices and (pressed("LEFT") or pressed("RIGHT")):
             modal["choice"] = (modal["choice"] + (1 if pressed("RIGHT") else -1)) % len(choices)
         if pressed("E") or pressed("ENTER"):
             lines = text.wrap(assets, modal["pages"][modal["page"]], 416)
             if modal["scroll"] + 4 < len(lines):
-                modal["scroll"] += 4
+                modal.update(page_elapsed=0.0, next_page=(modal["page"], modal["scroll"] + 4))
             elif modal["page"] + 1 < len(modal["pages"]):
-                modal["page"] += 1
-                modal["scroll"] = 0
+                modal.update(page_elapsed=0.0, next_page=(modal["page"] + 1, 0))
             else:
-                runtime["modal"] = None
-                choice = choices[modal["choice"]] if choices else {}
-                handler = choice.get("handler") if choices else modal.get("on_complete")
-                if handler == "pickup":
-                    arena = take(arena, modal["target"])
-                elif handler:
-                    callback = data.HANDLERS.get(handler)
-                    if callback is None:
-                        arena = open_dialogue(arena, ["Unknown dialogue handler: " + handler])
-                    else:
-                        arena = callback(arena, {"target": modal["target"], "choice": modal["choice"]})
+                modal["closing_elapsed"] = 0.0
         return arena, True
     if arena["puzzle_runtime"].get("keypad"):
         return arena, False
     if pressed("TAB"):
         runtime["modal"] = {"kind": "inventory", "message": ""}
         return arena, True
-    candidate = nearest(arena)
     if candidate and pressed("E"):
         return activate(arena, candidate), True
     return arena, False
@@ -152,13 +205,23 @@ def update(arena, enabled, assets):
 def draw(arena, assets):
     runtime = arena.get("interaction_runtime", {})
     modal = runtime.get("modal")
+    prompt = runtime.get("prompt", {})
+    prompt_opacity = ease(prompt.get("amount", 0.0))
+    if prompt_opacity:
+        pr.draw_rectangle(16, 238, 448, 20, tint(pr.Color(12, 14, 23, 240), prompt_opacity))
+        text.draw(assets, "[E] " + prompt["label"] + "    [Tab] Inventory", 24, 242, tint(pr.WHITE, prompt_opacity))
     if not modal:
-        candidate = nearest(arena)
-        if candidate:
-            pr.draw_rectangle(16, 238, 448, 20, pr.Color(12, 14, 23, 240))
-            text.draw(assets, "[E] " + candidate[2].get("label", candidate[2]["type"]) + "    [Tab] Inventory", 24, 242)
         return
-    pr.draw_rectangle(0, 0, 480, 270, pr.Color(0, 0, 0, 120))
+    progress = max(0.0, min(1.0, modal.get("fade_elapsed", DIALOGUE_FADE_IN_SECONDS) / DIALOGUE_FADE_IN_SECONDS))
+    opacity = ease(progress) * (1.0 - ease(modal.get("closing_elapsed", 0.0) / DIALOGUE_FADE_OUT_SECONDS))
+    page_elapsed = modal.get("page_elapsed")
+    text_opacity = opacity
+    if page_elapsed is not None:
+        text_opacity *= ease(abs(page_elapsed / PAGE_FADE_SECONDS - 1.0))
+    def faded(color):
+        return tint(color, opacity)
+
+    pr.draw_rectangle(0, 0, 480, 270, faded(pr.Color(0, 0, 0, 120)))
     if modal["kind"] == "inventory":
         pr.draw_rectangle(16, 12, 448, 246, pr.Color(14, 18, 27, 255))
         text.draw(assets, "inventory", 28, 22)
@@ -180,17 +243,17 @@ def draw(arena, assets):
             text.draw(assets, "R: claim items retained from an older save", 28, 240, pr.YELLOW)
     else:
         if modal.get("speaker"):
-            pr.draw_rectangle(16, 124, 448, 20, pr.Color(14, 18, 27, 255))
-            text.draw(assets, modal["speaker"], 28, 128, pr.YELLOW)
-        pr.draw_rectangle(16, 144, 448, 114, pr.Color(14, 18, 27, 255))
+            pr.draw_rectangle(16, 124, 448, 20, faded(pr.Color(14, 18, 27, 255)))
+            text.draw(assets, modal["speaker"], 28, 128, faded(pr.YELLOW))
+        pr.draw_rectangle(16, 144, 448, 114, faded(pr.Color(14, 18, 27, 255)))
         lines = text.wrap(assets, modal["pages"][modal["page"]], 416)
         for i, line in enumerate(lines[modal["scroll"]:modal["scroll"] + 4]):
-            text.draw(assets, line, 28, 154 + i * 15)
+            text.draw(assets, line, 28, 154 + i * 15, tint(pr.WHITE, text_opacity))
         final = modal["page"] == len(modal["pages"]) - 1 and modal["scroll"] + 4 >= len(lines)
         if final and modal["choices"]:
             x = 28
             for i, choice in enumerate(modal["choices"]):
                 label = ("> " if i == modal["choice"] else "  ") + text.localize(choice["label"])
-                text.draw(assets, label, x, 220, pr.YELLOW if i == modal["choice"] else pr.WHITE)
+                text.draw(assets, label, x, 220, tint(pr.YELLOW if i == modal["choice"] else pr.WHITE, text_opacity))
                 x += text.width(assets, label) + 20
-        text.draw(assets, "dialogue_controls", 28, 242)
+        text.draw(assets, "dialogue_controls", 28, 242, faded(pr.WHITE))

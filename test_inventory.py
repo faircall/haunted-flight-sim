@@ -78,13 +78,66 @@ class InventoryTests(unittest.TestCase):
         with patch.object(ui.pr, "is_key_pressed", side_effect=lambda k: k == ui.pr.KeyboardKey.KEY_ESCAPE):
             arena, owned = ui.update(arena, True, {})
         self.assertTrue(owned)
+        self.assertTrue(arena["interaction_runtime"]["modal"]["cancelled"])
+        with patch.object(ui.pr, "get_frame_time", return_value=ui.DIALOGUE_FADE_OUT_SECONDS):
+            arena, owned = ui.update(arena, True, {})
         self.assertIsNone(arena["interaction_runtime"]["modal"])
         self.assertEqual(arena["puzzle_state"]["facts"], {})
         arena = ui.open_dialogue(arena, ["test"], [{"label":"yes", "handler":"inscription_button"}], "demo")
         with patch.object(ui.pr, "is_key_pressed", side_effect=lambda k: k == ui.pr.KeyboardKey.KEY_ENTER), patch.object(ui.text, "wrap", return_value=["test"]):
             arena, owned = ui.update(arena, True, {})
+        self.assertNotIn("inscription_button:demo", arena["puzzle_state"]["facts"])
+        with patch.object(ui.pr, "get_frame_time", return_value=ui.DIALOGUE_FADE_OUT_SECONDS):
+            arena, owned = ui.update(arena, True, {})
         self.assertTrue(arena["puzzle_state"]["facts"]["inscription_button:demo"])
         self.assertEqual(arena["interaction_runtime"]["modal"]["page"], 0)
+
+    def test_prompt_retains_label_and_reverses_fade_on_reapproach(self):
+        runtime = {}
+        candidate = ("puzzles", "one", {"type": "inspectable", "label": "Statue"})
+        ui.update_prompt(runtime, candidate, 0)
+        ui.update_prompt(runtime, candidate, ui.PROMPT_FADE_SECONDS)
+        ui.update_prompt(runtime, None, ui.PROMPT_FADE_SECONDS / 2)
+        self.assertEqual(runtime["prompt"]["amount"], .5)
+        self.assertEqual(runtime["prompt"]["label"], "Statue")
+        ui.update_prompt(runtime, candidate, ui.PROMPT_FADE_SECONDS / 4)
+        self.assertEqual(runtime["prompt"]["amount"], .75)
+        ui.update_prompt(runtime, None, ui.PROMPT_FADE_SECONDS)
+        self.assertEqual(runtime["prompt"]["label"], "")
+
+    def test_page_transition_keeps_panel_and_ignores_repeated_continue(self):
+        arena = ui.open_dialogue(make_arena(), ["old", "new"])
+        modal = arena["interaction_runtime"]["modal"]
+        modal["fade_elapsed"] = ui.DIALOGUE_FADE_IN_SECONDS
+        with patch.object(ui.pr, "get_frame_time", return_value=0), patch.object(ui.pr, "is_key_pressed", side_effect=lambda k: k == ui.pr.KeyboardKey.KEY_ENTER), patch.object(ui.text, "wrap", side_effect=lambda assets, value, width: [value]):
+            ui.update(arena, True, {})
+        self.assertEqual(modal["page"], 0)
+        with patch.object(ui.pr, "get_frame_time", return_value=ui.PAGE_FADE_SECONDS), patch.object(ui.pr, "is_key_pressed", side_effect=lambda k: k == ui.pr.KeyboardKey.KEY_ENTER):
+            ui.update(arena, True, {})
+            self.assertEqual(modal["page"], 1)
+            with patch.object(ui.pr, "draw_rectangle") as panels, patch.object(ui.text, "draw") as labels, patch.object(ui.text, "wrap", return_value=["new"]):
+                ui.draw(arena, {})
+            self.assertEqual(panels.call_args_list[-1].args[-1].a, 255)
+            self.assertEqual(labels.call_args_list[0].args[-1].a, 0)
+            ui.update(arena, True, {})
+        self.assertNotIn("closing_elapsed", modal)
+        self.assertNotIn("page_elapsed", modal)
+
+    def test_closing_blocks_repeated_actions_and_fades_entire_dialogue(self):
+        arena = ui.open_dialogue(make_arena(), ["test"], on_complete="inscription_button", target="demo")
+        modal = arena["interaction_runtime"]["modal"]
+        modal.update(fade_elapsed=ui.DIALOGUE_FADE_IN_SECONDS, closing_elapsed=0.0)
+        with patch.object(ui.pr, "get_frame_time", return_value=ui.DIALOGUE_FADE_OUT_SECONDS / 2), patch.object(ui.pr, "is_key_pressed", return_value=True):
+            arena, owned = ui.update(arena, True, {})
+            self.assertTrue(owned)
+            self.assertEqual(arena["puzzle_state"]["facts"], {})
+            with patch.object(ui.pr, "draw_rectangle") as panels, patch.object(ui.text, "draw") as labels, patch.object(ui.text, "wrap", return_value=["test"]):
+                ui.draw(arena, {})
+            self.assertEqual(panels.call_args_list[-1].args[-1].a, 128)
+            self.assertEqual(labels.call_args_list[0].args[-1].a, 128)
+            arena, owned = ui.update(arena, True, {})
+        self.assertTrue(arena["puzzle_state"]["facts"]["inscription_button:demo"])
+        self.assertIsNot(arena["interaction_runtime"]["modal"], modal)
 
 
 if __name__ == "__main__":
