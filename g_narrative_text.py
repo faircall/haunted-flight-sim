@@ -1,5 +1,6 @@
 """UTF-8 font atlas and shared measurement/wrapping for narrative UI."""
 from pathlib import Path
+import re
 import pyray as pr
 import g_interaction_data as data
 
@@ -47,13 +48,56 @@ def font(assets, extra=""):
     return cache["font"]
 
 
+def styled_characters(value):
+    """Parse colour tags; unknown or unmatched tags remain visible as authored."""
+    stack = [None]
+    for part in re.split(r"(\[color=[^\]\n]+\]|\[/color\])", localize(value)):
+        if part.startswith("[color=") and part[7:-1] in data.TEXT_COLORS:
+            stack.append(part[7:-1])
+        elif part == "[/color]" and len(stack) > 1:
+            stack.pop()
+        else:
+            yield from ((char, stack[-1]) for char in part)
+
+
+def plain_width(assets, value):
+    return pr.measure_text_ex(font(assets, value), value, FONT_SIZE, 0).x
+
+
 def width(assets, text):
-    return pr.measure_text_ex(font(assets, text), text, FONT_SIZE, 0).x
+    return plain_width(assets, "".join(char for char, _ in styled_characters(text)))
 
 
 def draw(assets, text, x, y, color=None):
-    text = localize(text)
-    pr.draw_text_ex(font(assets, text), text, pr.Vector2(x, y), FONT_SIZE, 0, color or pr.WHITE)
+    characters = list(styled_characters(text))
+    loaded = font(assets, "".join(char for char, _ in characters))
+    base = pr.WHITE if color is None else color
+    if isinstance(base, tuple):
+        base = pr.Color(*base)
+    # Measure the whole line prefix so spaces at colour boundaries retain their advance.
+    from itertools import groupby
+    prefix = ""
+    for style, group in groupby(characters, key=lambda item: item[1]):
+        value = "".join(char for char, _ in group)
+        ink = pr.Color(*data.TEXT_COLORS[style], base.a) if style else base
+        pr.draw_text_ex(loaded, value, pr.Vector2(x + plain_width(assets, prefix), y), FONT_SIZE, 0, ink)
+        prefix += value
+
+
+def encode_line(characters):
+    """Make each wrapped line independently drawable, including continued colours."""
+    result, active = [], None
+    for char, style in characters:
+        if style != active:
+            if active:
+                result.append("[/color]")
+            if style:
+                result.append("[color=" + style + "]")
+            active = style
+        result.append(char)
+    if active:
+        result.append("[/color]")
+    return "".join(result)
 
 
 def wrap(assets, text, maximum):
@@ -61,23 +105,31 @@ def wrap(assets, text, maximum):
     lines = []
     closing = set("，。！？、；：）》】」』,.!?;:")
     opening = set("（《【「『(")
-    for paragraph in localize(text).split("\n"):
-        line = ""
-        for char in paragraph:
-            if line and width(assets, line + char) > maximum and char not in closing:
+    paragraphs = [[]]
+    for item in styled_characters(text):
+        if item[0] == "\n":
+            paragraphs.append([])
+        else:
+            paragraphs[-1].append(item)
+    for paragraph in paragraphs:
+        line = []
+        for item in paragraph:
+            char = item[0]
+            visible = "".join(c for c, _ in line)
+            if line and plain_width(assets, visible + char) > maximum and char not in closing:
                 # Prefer an English word boundary; CJK can break between glyphs.
-                split = line.rfind(" ")
+                split = visible.rfind(" ")
                 if split > 0 and char.isascii() and char.isalpha():
-                    lines.append(line[:split])
+                    lines.append(encode_line(line[:split]))
                     line = line[split + 1:]
-                elif line[-1] in opening and len(line) > 1:
-                    lines.append(line[:-1])
-                    line = line[-1]
+                elif line[-1][0] in opening and len(line) > 1:
+                    lines.append(encode_line(line[:-1]))
+                    line = line[-1:]
                 else:
-                    lines.append(line)
-                    line = ""
-            line += char
-        lines.append(line)
+                    lines.append(encode_line(line))
+                    line = []
+            line.append(item)
+        lines.append(encode_line(line))
     return lines
 
 

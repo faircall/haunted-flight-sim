@@ -1,9 +1,17 @@
 """Hot-reloaded inventory and narrative authoring. IDs are save-game stable."""
 SLOT_COUNT = 8
+# Use inline tags in any language: "A [color=red]dangerous[/color] place."
+# Tags can span wrapped lines; closing a tag restores the surrounding colour.
+TEXT_COLORS = {
+    "red": (255, 95, 95),
+    "green": (110, 225, 135),
+    "yellow": (255, 220, 100),
+    "blue": (115, 185, 255),
+}
 # Dialogue/prompt panels and dialogue screen dimming; inventory has its own background.
 SHOW_NARRATIVE_BACKGROUNDS = False
 NARRATIVE_BACKGROUND_OPACITY = 1.0  # 0..1; lower for translucent backgrounds when enabled.
-LANGUAGE = "zh_hant"  # en, zh_hans, zh_hant
+LANGUAGE = "zh_hans"  # en, zh_hans, zh_hant
 ITEMS = {
     "health": {"name": "health", "description": "health_description", "stack": 1},
     "ammo": {"name": "ammo", "description": "ammo_description", "stack": 60},
@@ -33,8 +41,8 @@ DESCRIPTIONS = {
         {"en": "An old inscription reads: Only those who remember may pass.",
          "zh_hans": "古老的铭文写着：唯有铭记之人，方可通行。",
          "zh_hant": "古老的銘文寫著：唯有銘記之人，方可通行。"},
-        {"en": "There is a small button beneath the inscription. Press it?",
-         "zh_hans": "铭文下方有一个小按钮。按下它吗？",
+        {"en": "There is a [color=green]small button[/color] beneath the inscription. Press it?",
+         "zh_hans": "铭文下方有一个[color=green]小按钮[/color]。按下它吗？",
          "zh_hant": "銘文下方有一個小按鈕。按下它嗎？"}],
         "choices": [{"label": "yes", "handler": "inscription_button"}, {"label": "no"}]},
     "statue": {"pages": [{"en": "The statue's expression is serene. Someone has left fresh offerings at its feet.",
