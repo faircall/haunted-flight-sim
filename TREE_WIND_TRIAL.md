@@ -70,6 +70,23 @@ same animated texture feeds scene lighting, occlusion, and cinematic shadows.
 Deleted trees release their render targets. The placement ghost uses the static
 reference image. Trees currently act as scenery, without physical trunk collision.
 
+## Lighting response
+
+The four `willow_tree_trunk_response_{down,up,left,right}.png` files are read as
+luminance and packed at runtime in RGBA order. Their alpha is not coverage: the
+original trunk sprite supplies coverage. Changes to these maps reload automatically.
+
+A second animated texture stores directional response in exactly the same pose
+as the visible tree. Trunk response comes from the authored maps; foliage uses
+stable small regions with a broad two-sided response (minimum 55% direct-light
+survival) and mild directional variation. This is a stylised transmission
+approximation, not a physical scattering simulation. No wood masks are required
+for this first pass; the small woody areas inside foliage layers get leaf shading.
+
+Ambient light and world occlusion retain their existing behaviour. Cast-shadow
+transmission/density is a separate future change. The planned generated-strand
+alternative is described in `TREE_GENERATED_STRANDS_PLAN.md`.
+
 For a reproducible hidden render:
 
 `python tree_wind_trial.py --capture artifacts/tree-wind/trial.png --time 3`

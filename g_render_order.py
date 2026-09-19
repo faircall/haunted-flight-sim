@@ -2031,6 +2031,9 @@ def build_brain_render_item(object_id, entity, tile_map, game_assets):
         item = make_world_render_item("entity", entity_type, f"brains:{object_id}", object_id,
             entity, world_position, size, size, reference,
             {"x": 0., "y": 0., "width": size, "height": size})
+        if animated and texture_name in game_assets.get("tree_responses", {}):
+            item["self_shadow"] = dict(mode="directional_profiles", strength=1., minimum_direct=0.,
+                response_texture=make_texture_reference("tree_responses", texture_name), fallback_mode="none")
         if not animated:
             # The editor ghost uses the unpadded reference image, at the same root.
             item["dest_rect"]["x"] += 16.

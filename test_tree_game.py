@@ -8,6 +8,15 @@ import g_update_and_render as game
 
 
 class TreeGameTests(unittest.TestCase):
+    def test_response_is_bound_per_tree_without_changing_saved_metadata(self):
+        tree = dict(type="willow tree", id=1, position=dict(tile_x=10, tile_y=12, x=0., y=0.))
+        game.give_entity_stats_from_type(tree, "willow tree")
+        assets = dict(tree_textures={"1": object()}, tree_responses={"1": object()})
+        item = render.build_brain_render_item(1, tree, dict(tile_width=16, tile_height=16), assets)
+        self.assertEqual(item["self_shadow"]["mode"], "directional_profiles")
+        self.assertIs(g_graphics.resolve_texture_reference(item["self_shadow"]["response_texture"], assets), assets["tree_responses"]["1"])
+        self.assertNotIn("response_texture", tree["self_shadow"])
+
     def test_placed_numeric_id_resolves_animated_texture(self):
         entity_id = g_editor.allocate_gameplay_entity_id({})
         self.assertIsInstance(entity_id, int)

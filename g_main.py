@@ -25,7 +25,7 @@ g_reloadable_modules = [
     ("g_interaction_data", update_and_render_module.g_interactions.data),
     ("g_inventory", update_and_render_module.g_interactions.inventory),
     ("g_narrative_text", update_and_render_module.g_interactions.text),
-    ("g_interactions", update_and_render_module.g_interactions),
+    ("g_interactions", update_and_render_module.g_interactions),    
     ("g_placement_preview", update_and_render_module.g_placement_preview),
     ("g_glow_particles", update_and_render_module.g_glow.g_glow_particles),
     ("g_glow", update_and_render_module.g_glow),
