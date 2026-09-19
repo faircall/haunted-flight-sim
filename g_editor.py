@@ -403,6 +403,7 @@ def gameplay_entity_selection_bounds(entity, tile_map):
     default_size = {
         "player": (32.0, 32.0),
         "buddha": (128.0, 128.0),
+        "willow tree": (160.0, 160.0),
         "red head": (24.0, 24.0),
         "pistol_ammo_pickup": (24.0, 24.0),
         "health_pickup": (24.0, 24.0),
@@ -1941,6 +1942,14 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
 
     if entity_type in g_puzzles.data.OBJECTS:
         g_puzzle_ui.inspect(ui_state, editor_state, entity)
+
+    if entity_type == "willow tree":
+        entity["tree_mesh"], _ = g_ui.ui_dropdown(
+            ui_state, "tree:mesh", "Foliage motion", entity.get("tree_mesh", "grid"), ["grid", "strips"])
+        entity["wind_response"], _ = g_ui.ui_number_input_float(
+            ui_state, "tree:wind_response", "Wind response", entity.get("wind_response", 1.), 0., 3.)
+        entity["tree_seed"], _ = g_ui.ui_number_input_float(
+            ui_state, "tree:seed", "Wind seed", entity.get("tree_seed", 17), 0., 10000.)
 
     if entity_type == "buddha":
         import g_interaction_data

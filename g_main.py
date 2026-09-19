@@ -19,6 +19,8 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_tree_animation", update_and_render_module.g_tree_render.rig),
+    ("g_tree_render", update_and_render_module.g_tree_render),
     ("g_editor_history", update_and_render_module.g_editor_history),
     ("g_interaction_data", update_and_render_module.g_interactions.data),
     ("g_inventory", update_and_render_module.g_interactions.inventory),
@@ -440,6 +442,7 @@ def g_main():
     except Exception:
         pass
     update_and_render_module.g_interactions.text.unload(game_assets)
+    update_and_render_module.g_tree_render.unload(game_assets)
     pr.close_window()
 
 if __name__ == '__main__':

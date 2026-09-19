@@ -71,6 +71,13 @@ def make_default_entity_render_metadata(entity_type):
         "water_interaction": {"mode": "standard"}
     }
     presets = {
+        "willow tree": {
+            "render_anchor_offset": {"x": -100.0, "y": -139.0},
+            "visual_height": 120.0, "light_sample_height": 65.0,
+            "ground_footprint": {"shape": "rectangle", "offset": {"x": 0.0, "y": -3.0}, "size": {"x": 20.0, "y": 8.0}},
+            "occludes_render_items": True,
+            "shadow": {"mode": "upright", "cast_height": 120.0, "maximum_length": 160.0, "opacity": 0.4},
+        },
         "player": {
             "contact_shadow": {"enabled": True, "opacity": 0.28, "radius_x": 1.8, "radius_y": 0.65, "fade_height": 4.0},
             "render_anchor_offset": {"x": -16.0, "y": -16.0}, "render_base_offset": {"x": 0.0, "y": 14.0}, "visual_height": 32.0, "light_sample_height": 18.0,
@@ -212,7 +219,7 @@ def make_texture_reference(collection, name, field=None):
 
 
 def make_world_render_item(kind, source, source_id, object_id, entity, world_position, width, height, texture, source_rect, draw_data=None):
-    ensure_entity_render_metadata(entity, source if source in {"player", "red head", "buddha"} else kind)
+    ensure_entity_render_metadata(entity, source if source in {"player", "red head", "buddha", "willow tree"} else kind)
     anchor = entity.get("render_anchor_offset", {})
     base = offset_point(world_position, entity.get("render_base_offset", {}))
     dest = {"x": world_position["x"] + float(anchor.get("x", 0.0)), "y": world_position["y"] + float(anchor.get("y", 0.0)), "width": float(width), "height": float(height)}
@@ -2012,9 +2019,24 @@ def build_brain_render_item(object_id, entity, tile_map, game_assets):
         game_assets, "brains", object_id, entity,
     )
     entity_type = get_entity_render_type(entity)
-    if entity_type not in {"red head", "buddha"}:
+    if entity_type not in {"red head", "buddha", "willow tree"}:
         return None
     world_position = position_to_world(entity.get("position", {}), tile_map)
+    if entity_type == "willow tree":
+        texture_name = str(object_id)
+        animated = texture_name in game_assets.get("tree_textures", {})
+        size = 160.0 if animated else 128.0
+        reference = (make_texture_reference("tree_textures", texture_name) if animated else
+                     make_texture_reference("textures", "willow_tree_reference"))
+        item = make_world_render_item("entity", entity_type, f"brains:{object_id}", object_id,
+            entity, world_position, size, size, reference,
+            {"x": 0., "y": 0., "width": size, "height": size})
+        if not animated:
+            # The editor ghost uses the unpadded reference image, at the same root.
+            item["dest_rect"]["x"] += 16.
+            item["dest_rect"]["y"] += 16.
+            item["bounds_world"] = dict(item["dest_rect"])
+        return item
     if entity_type == "red head":
         sprite_sheet = game_assets.get("sprite_sheets", {}).get("red_head_texture_sheet", {})
         frame_number = sprite_sheet.get(entity.get("animation_frame", 0), 0)

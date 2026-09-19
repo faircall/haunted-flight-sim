@@ -13,6 +13,7 @@ from pyrsistent import m, pmap, v
 import g_graphics
 import g_audio
 import g_effects
+import g_tree_render
 import g_glow
 import g_placement_preview
 import g_editor
@@ -1251,6 +1252,8 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["attack_windup_duration"] = attack_windup_duration
     elif entity_type == "buddha":
         entity["health"] = 600
+    elif entity_type == "willow tree":
+        entity.update(wind_response=1.0, tree_seed=17, tree_irregular=True)
     elif entity_type == "pistol_ammo_pickup":
         entity["value"] = 20
     elif entity_type == "health_pickup":
@@ -1605,7 +1608,8 @@ def load_entity_types():
         "buddha", 
         "red head",
         "pistol_ammo_pickup",
-        "health_pickup"
+        "health_pickup",
+        "willow tree",
     ]
     return entity_types + list(g_puzzles.data.OBJECTS)
 
@@ -1614,6 +1618,7 @@ def categorise_entity_type(entity_type):
         return "puzzles"
     category_map =  {
         "buddha" : "brains",
+        "willow tree": "brains",
         "red head" : "brains",
         "pistol_ammo_pickup" : "pickups",
         "health_pickup" : "pickups",
@@ -1946,6 +1951,7 @@ def load_textures():
     
 
     result["buddha_texture"] = pr.load_texture("art/buddha_128.png")
+    result["willow_tree_reference"] = pr.load_texture("art/split_tree/willow_tree_reference.png")
     if os.path.isfile("art/buddha_light_response.png"):
         result["buddha_light_response"] = pr.load_texture("art/buddha_light_response.png")
     return result
@@ -9018,6 +9024,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         )
     )
     prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
+    g_tree_render.prepare(game_assets, {} if do_load_level else entities, tile_map, wind_profile, time_elapsed)
     sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
     if render_environment_effects:
         g_glow.prepare_effect_occlusion(render_target, camera_3d.position, game_assets, sorted_world_items)
