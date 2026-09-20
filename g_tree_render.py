@@ -58,12 +58,44 @@ def draw_layer(texture, quads=None):
     pr.rl_begin(pr.RL_QUADS)
     pr.rl_color4ub(255, 255, 255, 255)
     pr.rl_normal3f(0, 0, 1)
+    # These hot-path calls accept only numeric scalars. Calling the underlying
+    # CFFI binding avoids pyray's generic argument-conversion wrapper per vertex.
+    tex_coord = pr.rl.rlTexCoord2f
+    vertex = pr.rl.rlVertex2f
     for quad in quads:
         for x, y, u, v in quad:
-            pr.rl_tex_coord2f(u, v)
-            pr.rl_vertex2f(x + PADDING, y + PADDING)
+            tex_coord(u, v)
+            vertex(x + PADDING, y + PADDING)
     pr.rl_end()
     pr.rl_set_texture(0)
+
+
+def update_mesh(runtime, part, profile, elapsed, position):
+    """Share GPU topology across trees; upload one position buffer per section."""
+    key = (tuple(part["bounds"]), tuple(part["pivot"]), profile.get("tree_mesh", "grid") == "strips")
+    cached = runtime.setdefault("meshes", {})
+    if key not in cached:
+        points, _, indices = rig.mesh_topology(*key)
+        mesh = pr.ffi.new("Mesh *")
+        mesh.vertexCount = len(points)
+        mesh.triangleCount = len(indices) // 3
+        # Raylib owns these allocations: UnloadMesh releases CPU and GPU buffers.
+        mesh.vertices = pr.ffi.cast("float *", pr.rl.MemAlloc(len(points) * 3 * 4))
+        mesh.texcoords = pr.ffi.cast("float *", pr.rl.MemAlloc(len(points) * 2 * 4))
+        mesh.indices = pr.ffi.cast("unsigned short *", pr.rl.MemAlloc(len(indices) * 2))
+        for i, (x, y) in enumerate(points):
+            mesh.vertices[i*3:i*3+3] = (x + PADDING, y + PADDING, 0.)
+            mesh.texcoords[i*2:i*2+2] = (x / 128., y / 128.)
+        mesh.indices[0:len(indices)] = indices
+        pr.rl.UploadMesh(mesh, True)
+        cached[key] = mesh
+    mesh = cached[key]
+    positions, angle = rig.mesh_pose(part, elapsed, profile, position)
+    for i, (x, y) in enumerate(positions):
+        mesh.vertices[i*3] = x + PADDING
+        mesh.vertices[i*3+1] = y + PADDING
+    pr.rl.UpdateMeshBuffer(mesh[0], 0, mesh.vertices, mesh.vertexCount * 3 * 4, 0)
+    return mesh, angle
 
 
 def compose(target, textures, meshes, runtime, angles, response=False):
@@ -90,7 +122,25 @@ def compose(target, textures, meshes, runtime, angles, response=False):
                                     pr.ShaderUniformDataType.SHADER_UNIFORM_FLOAT)
             # A batch flush releases auxiliary texture bindings.
             pr.set_shader_value_texture(shader, locations["trunkResponse"], runtime["trunk_response"])
-        draw_layer(textures[name], meshes.get(name))
+        mesh = meshes.get(name)
+        if mesh is not None and not isinstance(mesh, list):
+            # Flush the trunk/preceding immediate geometry before a direct draw.
+            pr.rl_draw_render_batch_active()
+            material = runtime.get("mesh_material")
+            if material is None:
+                material = runtime["mesh_material"] = pr.load_material_default()
+                runtime["mesh_default_shader"] = pr.ffi.new("Shader *", material.shader)
+                runtime["mesh_identity"] = pr.matrix_identity()
+            material.shader = runtime["response_shader"] if response else runtime["mesh_default_shader"][0]
+            material.maps[0].texture = textures[name]
+            if response:
+                material.shader.locs[int(pr.ShaderLocationIndex.SHADER_LOC_MAP_METALNESS)] = locations["trunkResponse"]
+                material.maps[1].texture = runtime["trunk_response"]
+            else:
+                material.maps[1].texture.id = 0
+            pr.rl.DrawMesh(mesh[0], material, runtime["mesh_identity"])
+        else:
+            draw_layer(textures[name], mesh)
     pr.rl_draw_render_batch_active()
     if response:
         pr.end_blend_mode()
@@ -140,8 +190,9 @@ def prepare(assets, entities, tile_map, wind, elapsed):
         profile["strength"] = profile.get("strength", 8.) * amount
         profile["gust_strength"] = profile.get("gust_strength", 5.) * amount
         position = (world["x"], world["y"])
-        meshes = {part["name"]: list(rig.foliage_mesh(part, elapsed, profile, position)) for part in rig.PARTS}
-        angles = {part["name"]: rig.motion(part, elapsed, profile, position)[0] for part in rig.PARTS}
+        meshes, angles = {}, {}
+        for part in rig.PARTS:
+            meshes[part["name"]], angles[part["name"]] = update_mesh(runtime, part, profile, elapsed, position)
         compose(target, textures, meshes, runtime, angles)
         compose(response_targets[key], textures, meshes, runtime, angles, response=True)
         outputs[str(key)] = target.texture
@@ -150,6 +201,11 @@ def prepare(assets, entities, tile_map, wind, elapsed):
 
 def unload(assets):
     runtime = assets.pop("tree_runtime", {})
+    for mesh in runtime.get("meshes", {}).values():
+        pr.rl.UnloadMesh(mesh[0])
+    if runtime.get("mesh_material") is not None:
+        # Material textures/shaders are borrowed and released by their owners below.
+        pr.rl.MemFree(runtime["mesh_material"].maps)
     for target in runtime.get("targets", {}).values():
         pr.unload_render_texture(target)
     for target in runtime.get("response_targets", {}).values():

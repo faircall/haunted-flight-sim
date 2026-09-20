@@ -5,6 +5,34 @@ import g_tree_animation as rig
 
 
 class TreeAnimationTests(unittest.TestCase):
+    def test_cached_pose_matches_original_triangles(self):
+        for mesh in ("grid", "strips"):
+            for irregular in (True, False):
+                for strength in (0., 8., 42.):
+                    profile = dict(g_effects.make_wind_profile(), tree_mesh=mesh,
+                                   tree_irregular=irregular, strength=strength,
+                                   gust_strength=strength * .7, tree_seed=93)
+                    for part in rig.PARTS:
+                        topology = rig.mesh_topology(tuple(part["bounds"]), tuple(part["pivot"]), mesh == "strips")
+                        for elapsed in (0., 3., 17.):
+                            positions, angle = rig.mesh_pose(part, elapsed, profile, (137., -43.))
+                            self.assertEqual(angle, rig.motion(part, elapsed, profile, (137., -43.))[0])
+                            expected = [quad[i] for quad in rig.foliage_mesh(part, elapsed, profile, (137., -43.))
+                                        for i in (0, 1, 2, 0, 2, 3)]
+                            for index, vertex in zip(topology[2], expected):
+                                self.assertEqual(positions[index], vertex[:2])
+                                self.assertEqual(tuple(v / 128. for v in topology[0][index]), vertex[2:])
+                            self.assertEqual(len(topology[2]), len(expected))
+
+    def test_topology_cache_keys_include_edited_bounds_pivot_and_mode(self):
+        part = rig.PARTS[0]
+        key = (tuple(part["bounds"]), tuple(part["pivot"]))
+        original = rig.mesh_topology(*key)
+        self.assertIs(original, rig.mesh_topology(*key))
+        self.assertIsNot(original, rig.mesh_topology(key[0], (55, 20)))
+        self.assertIsNot(original, rig.mesh_topology((34, 10, 68, 68), key[1]))
+        self.assertIsNot(original, rig.mesh_topology(*key, True))
+
     def test_grid_shared_vertices_are_identical_and_triangles_do_not_fold(self):
         profile = dict(g_effects.make_wind_profile(), strength=42., gust_strength=27.)
         for part in rig.PARTS:
