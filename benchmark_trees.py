@@ -23,13 +23,16 @@ def verify_pixels(assets, profile):
         1: dict(type="willow tree", position=dict(x=-137., y=43.), tree_seed=93),
     }}
     optimized = trees.update_mesh
+    worst_pixels = 0
+    total_pixels = 0
+    compared_pixels = 0
     cases = ((0., True), (1., True), (3., True), (1., False))
     try:
         for mesh in ("grid", "strips"):
             for amount, irregular in cases:
                 for tree in entities["brains"].values():
                     tree.update(tree_mesh=mesh, wind_response=amount, tree_irregular=irregular)
-                for elapsed in (0., 3., 17.):
+                for elapsed in (0., 3., 17., 123.456, 1000000.):
                     captures = []
                     for update in (reference_mesh, optimized):
                         trees.update_mesh = update
@@ -44,10 +47,24 @@ def verify_pixels(assets, profile):
                                 finally:
                                     pr.unload_image(image)
                         captures.append(pixels)
-                    assert captures[0] == captures[1], (mesh, amount, irregular, elapsed,
-                        [sum(a != b for a, b in zip(old, new)) for old, new in zip(*captures)])
+                    differences = [sum(old[i:i+4] != new[i:i+4] for i in range(0, len(old), 4))
+                                   for old, new in zip(*captures)]
+                    worst_pixels = max(worst_pixels, *differences)
+                    total_pixels += sum(differences)
+                    compared_pixels += len(captures[0]) * trees.SIZE * trees.SIZE
+                    # Float GPU arithmetic can cross a nearest-sampled texel edge.
+                    # Allow at most 8 pixels (0.032% of a target); calm must be exact.
+                    assert max(differences) <= (0 if amount == 0 else 8), (mesh, amount, irregular, elapsed, differences)
         # GPU grids are shared by topology, not allocated for each tree/frame.
-        assert len(assets["tree_runtime"]["meshes"]) == len(rig.PARTS) * 2
+        assert len(assets["tree_runtime"]["gpu_meshes"]) == len(rig.PARTS) * 2
+        # Shader hot reload must recreate both GPU programs without losing meshes.
+        runtime = assets["tree_runtime"]
+        old_shader = runtime["gpu_color"].id
+        runtime["gpu_color_stamp"] = None
+        runtime["gpu_response_stamp"] = None
+        trees.ensure_gpu_resources(runtime)
+        assert runtime["gpu_color"].id != old_shader
+        trees.prepare(assets, entities, dict(tile_width=16, tile_height=16), profile, 3.)
         trees.prepare(assets, {"brains": {}}, {}, profile, 0.)
         assert not assets["tree_runtime"]["targets"]
         assert not assets["tree_runtime"]["response_targets"]
@@ -56,15 +73,17 @@ def verify_pixels(assets, profile):
         # The timed run below also exercises recreating everything after unload.
     finally:
         trees.update_mesh = optimized
-    print("Pixel-identical color/response maps: two trees, grid/strips, calm/normal/strong/regular wind, three times")
+    print(f"GPU comparison: at most {worst_pixels} changed pixels per 160x160 texture; {total_pixels}/{compared_pixels} overall; calm exact")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output",type=Path,required=True)
     parser.add_argument("--frames",type=int,default=20)
-    parser.add_argument("--verify", action="store_true", help="Compare old and optimized rendering pixel-for-pixel first")
-    parser.add_argument("--reference", action="store_true", help="Benchmark the previous immediate-mode renderer")
+    parser.add_argument("--verify", action="store_true", help="Compare GPU output with CPU reference within pixel-error bounds")
+    renderer = parser.add_mutually_exclusive_group()
+    renderer.add_argument("--reference", action="store_true", help="Benchmark the previous immediate-mode renderer")
+    renderer.add_argument("--cpu", action="store_true", help="Benchmark the previous batched CPU deformation")
     args = parser.parse_args()
     if args.frames < 1:
         parser.error("--frames must be positive")
@@ -79,6 +98,8 @@ def main():
             verify_pixels(assets, profile)
         if args.reference:
             trees.update_mesh = reference_mesh
+        elif args.cpu:
+            trees.update_mesh = trees.update_cpu_mesh
         for count in (1,5,10,25):
             entities = {"brains": {i:dict(type="willow tree",position=dict(x=i*37.,y=i*13.)) for i in range(count)}}
             submit,complete = [],[]
@@ -101,7 +122,7 @@ def main():
             results.append(row)
             print(row)
         data = dict(scope=__doc__,frames=args.frames,results=results,
-                    renderer="reference" if args.reference else "batched",
+                    renderer="reference" if args.reference else "cpu" if args.cpu else "gpu",
                     quads_per_tree=sum(len(list(rig.foliage_mesh(p,1.,profile))) for p in rig.PARTS))
         args.output.parent.mkdir(parents=True,exist_ok=True)
         args.output.write_text(json.dumps(data,indent=2),encoding="utf-8")
