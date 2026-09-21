@@ -1,3 +1,4 @@
+import g_tree_assets
 import copy
 import math
 import g_animation
@@ -142,6 +143,10 @@ def make_default_entity_render_metadata(entity_type):
         }
     }
     result = copy.deepcopy(common)
+    if entity_type in g_tree_assets.VARIANTS:
+        presets[entity_type] = copy.deepcopy(presets["willow tree"])
+        root = g_tree_assets.definition(entity_type)["root"]
+        presets[entity_type]["render_anchor_offset"] = {"x": -float(root[0] + 16), "y": -float(root[1] + 16)}
     deep_fill(result, presets.get(entity_type, {}), overwrite=True)
     return result
 
@@ -219,7 +224,7 @@ def make_texture_reference(collection, name, field=None):
 
 
 def make_world_render_item(kind, source, source_id, object_id, entity, world_position, width, height, texture, source_rect, draw_data=None):
-    ensure_entity_render_metadata(entity, source if source in {"player", "red head", "buddha", "willow tree"} else kind)
+    ensure_entity_render_metadata(entity, source if source in {"player", "red head", "buddha", *g_tree_assets.TREE_TYPES} else kind)
     anchor = entity.get("render_anchor_offset", {})
     base = offset_point(world_position, entity.get("render_base_offset", {}))
     dest = {"x": world_position["x"] + float(anchor.get("x", 0.0)), "y": world_position["y"] + float(anchor.get("y", 0.0)), "width": float(width), "height": float(height)}
@@ -2019,15 +2024,15 @@ def build_brain_render_item(object_id, entity, tile_map, game_assets):
         game_assets, "brains", object_id, entity,
     )
     entity_type = get_entity_render_type(entity)
-    if entity_type not in {"red head", "buddha", "willow tree"}:
+    if entity_type not in {"red head", "buddha", *g_tree_assets.TREE_TYPES}:
         return None
     world_position = position_to_world(entity.get("position", {}), tile_map)
-    if entity_type == "willow tree":
+    if entity_type in g_tree_assets.TREE_TYPES:
         texture_name = str(object_id)
         animated = texture_name in game_assets.get("tree_textures", {})
         size = 160.0 if animated else 128.0
         reference = (make_texture_reference("tree_textures", texture_name) if animated else
-                     make_texture_reference("textures", "willow_tree_reference"))
+                     make_texture_reference("textures", g_tree_assets.reference_name(entity_type)))
         item = make_world_render_item("entity", entity_type, f"brains:{object_id}", object_id,
             entity, world_position, size, size, reference,
             {"x": 0., "y": 0., "width": size, "height": size})

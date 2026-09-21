@@ -1,0 +1,131 @@
+{
+  "type": "willow b",
+  "root": [
+    83,
+    123
+  ],
+  "parts": [
+    {
+      "name": "upper_left",
+      "pivot": [
+        37,
+        17
+      ],
+      "bounds": [
+        18,
+        13,
+        53,
+        53
+      ],
+      "stiffness": 0.55,
+      "phase": 0.8,
+      "exposure": 0.7,
+      "lag": 0.2,
+      "response": 0.65,
+      "flutter": 0.45,
+      "bend_gain": 0.65
+    },
+    {
+      "name": "crown",
+      "pivot": [
+        74,
+        10
+      ],
+      "bounds": [
+        52,
+        5,
+        102,
+        110
+      ],
+      "stiffness": 0.5950000000000001,
+      "phase": 1.93,
+      "exposure": 0.82,
+      "lag": 0.33,
+      "response": 0.8500000000000001,
+      "flutter": 0.55,
+      "bend_gain": 0.8
+    },
+    {
+      "name": "left_outer",
+      "pivot": [
+        20,
+        58
+      ],
+      "bounds": [
+        7,
+        50,
+        41,
+        114
+      ],
+      "stiffness": 0.64,
+      "phase": 3.0599999999999996,
+      "exposure": 0.94,
+      "lag": 0.46,
+      "response": 0.65,
+      "flutter": 0.65,
+      "bend_gain": 0.95
+    },
+    {
+      "name": "left_inner",
+      "pivot": [
+        48,
+        34
+      ],
+      "bounds": [
+        29,
+        32,
+        81,
+        114
+      ],
+      "stiffness": 0.685,
+      "phase": 4.1899999999999995,
+      "exposure": 0.7,
+      "lag": 0.2,
+      "response": 0.8500000000000001,
+      "flutter": 0.45,
+      "bend_gain": 0.65
+    },
+    {
+      "name": "right_upper",
+      "pivot": [
+        107,
+        29
+      ],
+      "bounds": [
+        95,
+        26,
+        122,
+        63
+      ],
+      "stiffness": 0.73,
+      "phase": 5.319999999999999,
+      "exposure": 0.82,
+      "lag": 0.33,
+      "response": 0.65,
+      "flutter": 0.55,
+      "bend_gain": 0.8
+    },
+    {
+      "name": "right_lower",
+      "pivot": [
+        107,
+        65
+      ],
+      "bounds": [
+        82,
+        63,
+        122,
+        109
+      ],
+      "stiffness": 0.775,
+      "phase": 6.449999999999999,
+      "exposure": 0.94,
+      "lag": 0.46,
+      "response": 0.8500000000000001,
+      "flutter": 0.65,
+      "bend_gain": 0.95
+    }
+  ],
+  "source": "artdev/unprocessed_trees/willow_b_128.png",
+  "notes": "Draft: wood follows hand-sketched branch paths and palette classification; lighting approximates rounded wood. Hidden backing is inferred. Refine this JSON for pivots/movement."
+}

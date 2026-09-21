@@ -5,6 +5,7 @@ from PIL import Image
 
 import pyray as pr
 
+import g_tree_assets
 import g_effects
 import g_tree_animation as rig
 
@@ -36,11 +37,11 @@ def ensure_gpu_resources(runtime):
         runtime.update({key: shader, key + "_locations": locations, key + "_stamp": stamp})
 
 
-def response_pixels():
+def response_pixels(directory=ART):
     """Pack authored luminance without confusing source transparency with data alpha."""
     channels = []
     for direction in RESPONSE_DIRECTIONS:
-        path = ART / f"willow_tree_trunk_response_{direction}.png"
+        path = directory / f"willow_tree_trunk_response_{direction}.png"
         with Image.open(path) as source:
             if source.size != (128, 128):
                 raise ValueError(f"{path.name} must use the aligned 128x128 canvas")
@@ -48,12 +49,12 @@ def response_pixels():
     return Image.merge("RGBA", channels).tobytes()
 
 
-def ensure_response_resources(runtime):
+def ensure_response_resources(runtime, directory=ART):
     shader_path = ART.parent.parent / "shaders" / "tree_response.fs"
-    stamp = tuple((ART / f"willow_tree_trunk_response_{d}.png").stat().st_mtime_ns
+    stamp = tuple((directory / f"willow_tree_trunk_response_{d}.png").stat().st_mtime_ns
                   for d in RESPONSE_DIRECTIONS)
     if runtime.get("response_stamp") != stamp:
-        pixels = bytearray(response_pixels())
+        pixels = bytearray(response_pixels(directory))
         image = pr.Image(pixels, 128, 128, 1, int(pr.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8))
         texture = pr.load_texture_from_image(image)
         pr.set_texture_filter(texture, pr.TextureFilter.TEXTURE_FILTER_POINT)
@@ -148,7 +149,7 @@ def update_mesh(runtime, part, profile, elapsed, position):
     return {"mesh": mesh, "deformation": pr.ffi.new("float[]", values)}, angle
 
 
-def compose(target, textures, meshes, runtime, angles, response=False):
+def compose(target, textures, meshes, runtime, angles, response=False, parts=rig.PARTS):
     pr.begin_texture_mode(target)
     pr.clear_background(pr.WHITE if response else pr.BLANK)
     pr.rl_push_matrix()
@@ -163,7 +164,7 @@ def compose(target, textures, meshes, runtime, angles, response=False):
         # All four channels are data. Never blend using the right-light channel.
         pr.rl_set_blend_factors(pr.RL_ONE, pr.RL_ZERO, pr.RL_FUNC_ADD)
         pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM)
-    for index, name in enumerate(("trunk", *(part["name"] for part in rig.PARTS))):
+    for index, name in enumerate(("trunk", *(part["name"] for part in parts))):
         mesh = meshes.get(name)
         gpu = isinstance(mesh, dict)
         if response:
@@ -212,8 +213,26 @@ def compose(target, textures, meshes, runtime, angles, response=False):
 
 
 def prepare(assets, entities, tile_map, wind, elapsed):
+    _prepare(assets, entities, tile_map, wind, elapsed)
+    variants = assets.setdefault("tree_variants", {})
+    for kind in g_tree_assets.VARIANTS:
+        selected = {key: value for key, value in entities.get("brains", {}).items() if value.get("type") == kind}
+        if not selected:
+            if kind in variants:
+                unload(variants.pop(kind))
+            continue
+        local = variants.setdefault(kind, {})
+        _prepare(local, {"brains": selected}, tile_map, wind, elapsed, g_tree_assets.definition(kind))
+        assets["tree_textures"].update(local["tree_textures"])
+        assets["tree_responses"].update(local["tree_responses"])
+
+
+def _prepare(assets, entities, tile_map, wind, elapsed, definition=None):
+    parts = definition["parts"] if definition else rig.PARTS
+    directory = definition["directory"] if definition else ART
+    kind = definition["type"] if definition else "willow tree"
     trees = {key: entity for key, entity in entities.get("brains", {}).items()
-             if entity.get("type") == "willow tree"}
+             if entity.get("type") == kind}
     runtime = assets.setdefault("tree_runtime", {"textures": {}, "targets": {}})
     outputs = assets.setdefault("tree_textures", {})
     responses = assets.setdefault("tree_responses", {})
@@ -229,12 +248,12 @@ def prepare(assets, entities, tile_map, wind, elapsed):
                 pr.unload_render_texture(response_targets.pop(key))
     if not trees:
         return
-    ensure_response_resources(runtime)
+    ensure_response_resources(runtime, directory)
     ensure_gpu_resources(runtime)
     textures = runtime["textures"]
-    for name in ("trunk", *(part["name"] for part in rig.PARTS)):
+    for name in ("trunk", *(part["name"] for part in parts)):
         if name not in textures:
-            textures[name] = pr.load_texture(str(ART / ("willow_tree_" + name + ".png")))
+            textures[name] = pr.load_texture(str(directory / ("willow_tree_" + name + ".png")))
             pr.set_texture_filter(textures[name], pr.TextureFilter.TEXTURE_FILTER_POINT)
     for key, entity in trees.items():
         if key not in runtime["targets"]:
@@ -253,15 +272,17 @@ def prepare(assets, entities, tile_map, wind, elapsed):
         profile["gust_strength"] = profile.get("gust_strength", 5.) * amount
         position = (world["x"], world["y"])
         meshes, angles = {}, {}
-        for part in rig.PARTS:
+        for part in parts:
             meshes[part["name"]], angles[part["name"]] = update_mesh(runtime, part, profile, elapsed, position)
-        compose(target, textures, meshes, runtime, angles)
-        compose(response_targets[key], textures, meshes, runtime, angles, response=True)
+        compose(target, textures, meshes, runtime, angles, parts=parts)
+        compose(response_targets[key], textures, meshes, runtime, angles, response=True, parts=parts)
         outputs[str(key)] = target.texture
         responses[str(key)] = response_targets[key].texture
 
 
 def unload(assets):
+    for local in assets.pop("tree_variants", {}).values():
+        unload(local)
     runtime = assets.pop("tree_runtime", {})
     for mesh in runtime.get("meshes", {}).values():
         pr.rl.UnloadMesh(mesh[0])

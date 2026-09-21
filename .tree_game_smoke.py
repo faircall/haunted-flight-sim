@@ -1,5 +1,11 @@
 """Hidden real-game rendering check for animated willow placement and lighting."""
 from pathlib import Path
+import sys
+
+if "--variants" in sys.argv:
+    from tree_assets_smoke import run
+    run()
+    raise SystemExit(0)
 
 import pyray as pr
 from PIL import Image, ImageChops

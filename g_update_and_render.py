@@ -1,3 +1,4 @@
+import g_tree_assets
 import math
 import pickle
 import os
@@ -1252,7 +1253,7 @@ def give_entity_stats_from_type(entity, entity_type):
         entity["attack_windup_duration"] = attack_windup_duration
     elif entity_type == "buddha":
         entity["health"] = 600
-    elif entity_type == "willow tree":
+    elif entity_type in g_tree_assets.TREE_TYPES:
         entity.update(wind_response=1.0, tree_seed=17, tree_irregular=True)
     elif entity_type == "pistol_ammo_pickup":
         entity["value"] = 20
@@ -1609,7 +1610,7 @@ def load_entity_types():
         "red head",
         "pistol_ammo_pickup",
         "health_pickup",
-        "willow tree",
+        *g_tree_assets.TREE_TYPES,
     ]
     return entity_types + list(g_puzzles.data.OBJECTS)
 
@@ -1618,7 +1619,7 @@ def categorise_entity_type(entity_type):
         return "puzzles"
     category_map =  {
         "buddha" : "brains",
-        "willow tree": "brains",
+        **{kind: "brains" for kind in g_tree_assets.TREE_TYPES},
         "red head" : "brains",
         "pistol_ammo_pickup" : "pickups",
         "health_pickup" : "pickups",
@@ -1952,6 +1953,8 @@ def load_textures():
 
     result["buddha_texture"] = pr.load_texture("art/buddha_128.png")
     result["willow_tree_reference"] = pr.load_texture("art/split_tree/willow_tree_reference.png")
+    for kind in g_tree_assets.VARIANTS:
+        result[g_tree_assets.reference_name(kind)] = pr.load_texture(str(g_tree_assets.definition(kind)["directory"] / "willow_tree_reference.png"))
     if os.path.isfile("art/buddha_light_response.png"):
         result["buddha_light_response"] = pr.load_texture("art/buddha_light_response.png")
     return result
