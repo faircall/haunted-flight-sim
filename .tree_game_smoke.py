@@ -2,6 +2,11 @@
 from pathlib import Path
 import sys
 
+if "--surfaces" in sys.argv:
+    from surface_smoke import run
+    run()
+    raise SystemExit(0)
+
 if "--variants" in sys.argv:
     from tree_assets_smoke import run
     run()

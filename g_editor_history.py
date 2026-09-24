@@ -5,7 +5,8 @@ import pyray as pr
 
 LIMIT = 100
 PROFILE_KEYS = ("lighting_profile", "fog_profile", "wind_profile", "rain_profile", "audio_profile")
-TILE_FIELDS = ("index", "shape_index", "force_collidable", "rain_exposure", "acoustic_zone_id", "footstep_overlay")
+TILE_FIELDS = ("index", "shape_index", "force_collidable", "rain_exposure", "acoustic_zone_id", "footstep_overlay",
+               "surface_material", "surface_density", "surface_seed", "surface_soft")
 ACTOR_FIELDS = ("position", "glow", "height", "description_id", "movement_settings",
     "perception_settings", "evade_settings", "flee_settings", "render_anchor_offset",
     "render_base_offset", "visual_height", "light_sample_height", "ground_footprint",

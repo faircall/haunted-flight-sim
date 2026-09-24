@@ -1,0 +1,443 @@
+[
+  {
+    "name": "grass_0",
+    "material": "grass",
+    "rect": [
+      0,
+      0,
+      24,
+      22
+    ],
+    "root": [
+      12.0,
+      21
+    ],
+    "source": "artdev\\concepts\\grass\\An_irregular_carpet_...-1390198769-0 (1).png",
+    "crop": [
+      64,
+      31,
+      88,
+      57
+    ]
+  },
+  {
+    "name": "grass_1",
+    "material": "grass",
+    "rect": [
+      32,
+      0,
+      27,
+      28
+    ],
+    "root": [
+      13.5,
+      27
+    ],
+    "source": "artdev\\concepts\\grass\\An_irregular_carpet_...-1390198769-0 (1).png",
+    "crop": [
+      90,
+      34,
+      117,
+      62
+    ]
+  },
+  {
+    "name": "grass_2",
+    "material": "grass",
+    "rect": [
+      64,
+      0,
+      23,
+      26
+    ],
+    "root": [
+      11.5,
+      25
+    ],
+    "source": "artdev\\concepts\\grass\\An_irregular_carpet_...-1390198769-0 (1).png",
+    "crop": [
+      6,
+      61,
+      29,
+      87
+    ]
+  },
+  {
+    "name": "grass_3",
+    "material": "grass",
+    "rect": [
+      96,
+      0,
+      22,
+      19
+    ],
+    "root": [
+      11.0,
+      18
+    ],
+    "source": "artdev\\concepts\\grass\\An_irregular_carpet_...-1390198769-0 (1).png",
+    "crop": [
+      43,
+      61,
+      65,
+      84
+    ]
+  },
+  {
+    "name": "dirt_0",
+    "material": "dirt",
+    "rect": [
+      128,
+      0,
+      27,
+      25
+    ],
+    "root": [
+      13.5,
+      24
+    ],
+    "source": "artdev\\concepts\\dirt\\Compacted_courtyard_...-1591667460-0 (1).png",
+    "crop": [
+      17,
+      45,
+      44,
+      70
+    ]
+  },
+  {
+    "name": "dirt_1",
+    "material": "dirt",
+    "rect": [
+      160,
+      0,
+      22,
+      24
+    ],
+    "root": [
+      11.0,
+      23
+    ],
+    "source": "artdev\\concepts\\dirt\\Compacted_courtyard_...-1591667460-0 (1).png",
+    "crop": [
+      65,
+      44,
+      87,
+      68
+    ]
+  },
+  {
+    "name": "dirt_2",
+    "material": "dirt",
+    "rect": [
+      192,
+      0,
+      13,
+      13
+    ],
+    "root": [
+      6.5,
+      12
+    ],
+    "source": "artdev\\concepts\\dirt\\Compacted_courtyard_...-1591667460-0 (1).png",
+    "crop": [
+      16,
+      63,
+      29,
+      76
+    ]
+  },
+  {
+    "name": "dirt_3",
+    "material": "dirt",
+    "rect": [
+      224,
+      0,
+      12,
+      11
+    ],
+    "root": [
+      6.0,
+      10
+    ],
+    "source": "artdev\\concepts\\dirt\\Compacted_courtyard_...-1591667460-0 (1).png",
+    "crop": [
+      19,
+      31,
+      31,
+      42
+    ]
+  },
+  {
+    "name": "dirt_4",
+    "material": "dirt",
+    "rect": [
+      0,
+      32,
+      22,
+      18
+    ],
+    "root": [
+      11.0,
+      17
+    ],
+    "source": "artdev\\concepts\\dirt\\Compacted_courtyard_...-1591667460-0 (1).png",
+    "crop": [
+      4,
+      106,
+      26,
+      124
+    ]
+  },
+  {
+    "name": "dirt_5",
+    "material": "dirt",
+    "rect": [
+      32,
+      32,
+      20,
+      22
+    ],
+    "root": [
+      10.0,
+      21
+    ],
+    "source": "artdev\\concepts\\dirt\\Compacted_courtyard_...-1591667460-0 (1).png",
+    "crop": [
+      77,
+      100,
+      97,
+      122
+    ]
+  },
+  {
+    "name": "wood_0",
+    "material": "wood",
+    "rect": [
+      64,
+      32,
+      9,
+      27
+    ],
+    "root": [
+      4.5,
+      26
+    ],
+    "source": "artdev\\concepts\\wood\\Worn_timber_flooring...-1887987869-0 (1).png",
+    "crop": [
+      41,
+      58,
+      50,
+      85
+    ]
+  },
+  {
+    "name": "wood_1",
+    "material": "wood",
+    "rect": [
+      96,
+      32,
+      10,
+      20
+    ],
+    "root": [
+      5.0,
+      19
+    ],
+    "source": "artdev\\concepts\\wood\\Worn_timber_flooring...-1887987869-0 (1).png",
+    "crop": [
+      112,
+      60,
+      122,
+      80
+    ]
+  },
+  {
+    "name": "wood_2",
+    "material": "wood",
+    "rect": [
+      128,
+      32,
+      7,
+      21
+    ],
+    "root": [
+      3.5,
+      20
+    ],
+    "source": "artdev\\concepts\\wood\\Worn_timber_flooring...-1887987869-0 (1).png",
+    "crop": [
+      73,
+      31,
+      80,
+      52
+    ]
+  },
+  {
+    "name": "tiles_0",
+    "material": "tiles",
+    "rect": [
+      160,
+      32,
+      24,
+      24
+    ],
+    "root": [
+      12.0,
+      23
+    ],
+    "source": "artdev\\concepts\\tiles\\Square_muted_celadon...-1881011597-0 (2).png",
+    "crop": [
+      36,
+      4,
+      60,
+      28
+    ]
+  },
+  {
+    "name": "tiles_1",
+    "material": "tiles",
+    "rect": [
+      192,
+      32,
+      24,
+      24
+    ],
+    "root": [
+      12.0,
+      23
+    ],
+    "source": "artdev\\concepts\\tiles\\Square_muted_celadon...-1881011597-0 (2).png",
+    "crop": [
+      68,
+      4,
+      92,
+      28
+    ]
+  },
+  {
+    "name": "tiles_2",
+    "material": "tiles",
+    "rect": [
+      224,
+      32,
+      23,
+      24
+    ],
+    "root": [
+      11.5,
+      23
+    ],
+    "source": "artdev\\concepts\\tiles\\Square_muted_celadon...-1881011597-0 (2).png",
+    "crop": [
+      5,
+      36,
+      28,
+      60
+    ]
+  },
+  {
+    "name": "tiles_3",
+    "material": "tiles",
+    "rect": [
+      0,
+      64,
+      24,
+      24
+    ],
+    "root": [
+      12.0,
+      23
+    ],
+    "source": "artdev\\concepts\\tiles\\Square_muted_celadon...-1881011597-0 (2).png",
+    "crop": [
+      100,
+      68,
+      124,
+      92
+    ]
+  },
+  {
+    "name": "wall_0",
+    "material": "wall",
+    "rect": [
+      32,
+      64,
+      7,
+      28
+    ],
+    "root": [
+      3.5,
+      27
+    ],
+    "source": "artdev\\concepts\\walls\\Front_elevation_of_a...-1891911722-0 (1).png",
+    "crop": [
+      59,
+      29,
+      68,
+      65
+    ]
+  },
+  {
+    "name": "wall_1",
+    "material": "wall",
+    "rect": [
+      64,
+      64,
+      11,
+      15
+    ],
+    "root": [
+      5.5,
+      14
+    ],
+    "source": "artdev\\concepts\\walls\\Front_elevation_of_a...-1891911722-0 (1).png",
+    "crop": [
+      30,
+      63,
+      41,
+      78
+    ]
+  },
+  {
+    "name": "wall_2",
+    "material": "wall",
+    "rect": [
+      96,
+      64,
+      12,
+      23
+    ],
+    "root": [
+      6.0,
+      22
+    ],
+    "source": "artdev\\concepts\\walls\\Front_elevation_of_a...-1891911722-0 (1).png",
+    "crop": [
+      77,
+      88,
+      89,
+      111
+    ]
+  },
+  {
+    "name": "wall_3",
+    "material": "wall",
+    "rect": [
+      128,
+      64,
+      11,
+      26
+    ],
+    "root": [
+      5.5,
+      25
+    ],
+    "source": "artdev\\concepts\\walls\\Front_elevation_of_a...-1891911722-0 (1).png",
+    "crop": [
+      34,
+      93,
+      45,
+      119
+    ]
+  }
+]

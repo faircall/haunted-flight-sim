@@ -1,3 +1,4 @@
+import g_surfaces
 import g_tree_assets
 import math
 import pickle
@@ -658,6 +659,14 @@ def update_tile_editor_paint(editor_state, tile_map, mouse_tile_pos,
         points = interpolate_tile_line(previous, current)
     editor_state["tile_paint_previous"] = current
     editor_state["tile_paint_mode"] = mode
+    if mode == "materials":
+        radius = int(editor_state.get("surface_brush", 1)) // 2
+        expanded = {(x + dx, y + dy) for x, y in points
+                    for dy in range(-radius, radius + 1)
+                    for dx in range(-radius, radius + 1)}
+        return g_surfaces.paint(tile_map, expanded,
+                                editor_state.get("surface_material", "grass"),
+                                **g_surfaces.brush_settings(editor_state))
     return paint_tile_editor_points(
         tile_map, points, mode, tile_selection, shape_selection,
         force_collidable, rain_exposure, acoustic_zone, footstep_overlay,
@@ -942,6 +951,16 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
 
 
 
+    if draw_tiles:
+        # Apply a material fill before rebuilding the affected render chunks.
+        if (mode == "tile" and tile_edit_mode == "materials"
+                and pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT)
+                and not g_mouse_is_ui_captured):
+            g_surfaces.flood(tile_map, int(mouse_tile_pos.x), int(mouse_tile_pos.y),
+                             editor_state.get("surface_material", "grass"),
+                             **g_surfaces.brush_settings(editor_state))
+        g_surfaces.prepare(game_assets, tile_map, game_camera)
+
     top_left_pos = pr.Vector2(int(game_camera_x/tile_width), int(game_camera_y/tile_height))    
     
     # let's try be slightly quicker about this!
@@ -995,7 +1014,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                     elif tile_edit_mode == "footstep_overlay":
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             g_audio.flood_fill_footstep_overlay(tile_map, x, y, footstep_overlay_value)
-                    else:
+                    elif tile_edit_mode != "materials":
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             # Appearance flood fill retains the existing tile/collision semantics.
                             initial = tile_map["tiles"][y*map_width + x]["index"]
@@ -1049,6 +1068,7 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("grey_tile_texture"), render_pos, shape_index, game_assets)
             elif tile_type.get("type") == "carpet":  #change to other tile
                 draw_masked_tile_texture(game_assets.get("textures",{}).get("orange_tile_texture"), render_pos, shape_index, game_assets)
+            g_surfaces.draw_cell(game_assets, tile_map, x, y, render_pos)
             if editor_collision_tint:
                 draw_tile_shape_tint(render_pos, shape_index, tile_width, tile_height, pr.Color(255, 70, 180, 128))
             if is_highlight:
@@ -1060,6 +1080,10 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                         render_pos_x = render_pos.x + decal["offset_x"]
                         render_pos_y = render_pos.y + decal["offset_y"]
                         pr.draw_circle(int(render_pos_x), int(render_pos_y), decal.get("size",5), pr.RED)
+                    elif decal["type"] == "surface_bullet":
+                        px, py = int(render_pos.x + decal["offset_x"]), int(render_pos.y + decal["offset_y"])
+                        pr.draw_pixel(px + 1, py + 1, pr.Color(170, 145, 107, 255))
+                        pr.draw_circle(px, py, 1.0, pr.Color(30, 25, 21, 255))
 
 
     if not draw_entities:
@@ -7984,6 +8008,7 @@ def update_entities(entities, tile_map, player_info, editor_mode, collision_mode
         elif wall_hit is not None:
             projectile["position"] = wall_hit["position"]
             impact_material = wall_hit.get("impact_material", "stone")
+            g_surfaces.add_impact(tile_map, wall_hit["position"], projectile.get("velocity", {}))
             g_effects.spawn_wall_impact(
                 effects_runtime, projectile.get("velocity", {}),
                 wall_hit["position"], tile_map, impact_material,
@@ -9043,6 +9068,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     pr.begin_texture_mode(render_target)
     pr.clear_background(color_to_draw)
     update_render_tile_map_base(camera_3d.position, entities, tile_map, g_ui.get_mouse_position(), current_tile_selection, current_entity_selection, current_shape_selection, current_tile_force_collidable, game_assets, do_load_level, player_info, editor_mode, debug_queue=debug_queue)
+    if not do_load_level:
+        g_surfaces.draw_details(game_assets, tile_map, camera_3d.position, player_info,
+                                wind_profile, time_elapsed, editor_mode == "play")
     draw_world_entities(camera_3d.position, entities, tile_map, game_assets, do_load_level, player_info, editor_mode, debug_queue)
     if not do_load_level:
         g_puzzle_ui.draw_world(main_arena, camera_3d.position, editor_mode != "play")

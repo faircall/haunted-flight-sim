@@ -1,3 +1,4 @@
+import g_surfaces
 import g_tree_assets
 import copy
 import math
@@ -1275,6 +1276,10 @@ def capture_editor_ui_regions(ui_state, editor_state, editor_mode,
         "environment", "entity", "animation", "sequences",
     } and not editor_state.get("inspector_collapsed", False)
 
+    if (editor_mode == "tile" and editor_state.get("tile_edit_mode") == "materials"
+            and g_ui.ui_point_in_rect(mouse, pr.Rectangle(328, 30, 149, 190))):
+        g_ui.ui_capture_mouse(ui_state)
+
     if g_ui.ui_point_in_rect(mouse, toolbar_rect) or (inspector_visible and g_ui.ui_point_in_rect(mouse, inspector_rect)):
         g_ui.ui_capture_mouse(ui_state)
     return ui_state.get("mouse_captured", False)
@@ -1364,13 +1369,16 @@ def draw_audio_tile_overlays(editor_state, editor_mode, game_camera, tile_map,
 
 
 def draw_tile_edit_controls(ui_state, editor_state, tile_map):
-    modes = ("appearance", "rain_exposure", "acoustic_zone", "footstep_overlay")
+    modes = ("appearance", "materials", "rain_exposure", "acoustic_zone", "footstep_overlay")
     mode = editor_state.get("tile_edit_mode", "appearance")
     mode = mode if mode in modes else "appearance"
     editor_state["tile_edit_mode"] = mode
     pr.draw_text("Tile edit", 332, 32, 8, pr.WHITE)
 
     if mode == "appearance":
+        return
+    if mode == "materials":
+        g_surfaces.draw_controls(ui_state, editor_state)
         return
     if mode == "rain_exposure":
         pr.draw_text("Rain exposure", 332, 61, 8, pr.WHITE)
@@ -1435,12 +1443,12 @@ def draw_tile_edit_controls(ui_state, editor_state, tile_map):
 
 def draw_tile_edit_mode_dropdown(ui_state, editor_state):
     """Draw the tile-mode popup after the controls it can overlap."""
-    modes = ("appearance", "rain_exposure", "acoustic_zone", "footstep_overlay")
+    modes = ("appearance", "materials", "rain_exposure", "acoustic_zone", "footstep_overlay")
     mode = editor_state.get("tile_edit_mode", "appearance")
     mode = mode if mode in modes else "appearance"
     mode, _ = g_ui.ui_dropdown(
         ui_state, "tile:edit_mode", "", mode, modes,
-        pr.Rectangle(332, 42, 138, 15), 4,
+        pr.Rectangle(332, 42, 138, 15), 5,
     )
     editor_state["tile_edit_mode"] = mode
 
