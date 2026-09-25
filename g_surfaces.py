@@ -11,6 +11,7 @@ ART = Path(__file__).resolve().parent / 'art' / 'surfaces'
 MATERIALS = ('erase', 'grass', 'dirt', 'wood', 'carpet', 'ceramic', 'wall')
 COLORS = {'grass': (85, 91, 48), 'dirt': (135, 117, 90), 'wood': (137, 109, 82), 'carpet': (93, 60, 53), 'ceramic': (130, 146, 135), 'wall': (86, 75, 60)}
 CHUNK = 4
+MASK_VERSION = 2
 
 def brush_settings(editor):
     return dict(density=editor.get('surface_density', 0.65), seed=editor.get('surface_seed', 17), soft=editor.get('surface_soft', True))
@@ -24,7 +25,7 @@ def draw_controls(ui, editor):
     for i, size in enumerate((1, 3, 5)):
         if g_ui.ui_button(ui, f'surface:brush:{size}', str(size), pr.Rectangle(379 + i * 30, 109, 28, 16), selected=editor.get('surface_brush', 1) == size):
             editor['surface_brush'] = size
-    editor['surface_soft'], _ = g_ui.ui_checkbox(ui, 'surface:soft', 'Soft joins', editor.get('surface_soft', True), pr.Rectangle(332, 130, 138, 15))
+    editor['surface_soft'], _ = g_ui.ui_checkbox(ui, 'surface:soft', 'Rounded joins', editor.get('surface_soft', True), pr.Rectangle(332, 130, 138, 15))
     editor['surface_seed'], _ = g_ui.ui_number_input_int(ui, 'surface:seed', 'Seed', editor.get('surface_seed', 17), 0, 99999, pr.Rectangle(332, 151, 138, 17))
     pr.draw_text('LMB paint / RMB fill', 332, 178, 8, g_ui.UI_MUTED)
     pr.draw_text('Ctrl+Z undo', 332, 190, 8, g_ui.UI_MUTED)
@@ -99,7 +100,12 @@ def detail_data():
     return (records, atlas)
 
 def masks(tm, cx, cy):
-    """Rasterize the cell shapes, then round soft boundaries in world pixels."""
+    """Round region contours, then assign each pixel to exactly one material.
+
+    Blurred fields define the contour only; the returned stencils are binary.
+    Include unpainted space in the competition to round outer corners too.
+    The saved surface_soft flag now means rounded joins, preserving old maps.
+    """
     tw, th = (tm['tile_width'], tm['tile_height'])
     pad = max(tw, th) * 2
     width, height = (tw * CHUNK, th * CHUNK)
@@ -131,13 +137,20 @@ def masks(tm, cx, cy):
     union = Image.new('L', size)
     for raw in result.values():
         union = ImageChops.lighter(union, raw)
-    # Coverage is the union, independent of how many materials meet here.
-    # Sharpening each weight separately otherwise opens holes at triple joins.
-    result['_coverage'] = union
-    for kind, raw in list(result.items()):
-        smooth = raw.filter(ImageFilter.GaussianBlur(max(1.0, min(tw, th) * 0.2)))
-        smooth = smooth.point([round(255 * max(0.0, min(1.0, (v - 48) / 160))) for v in range(256)])
-        result[kind] = Image.composite(raw, smooth, hard)
+    # Stable ordering and original-owner tie breaks make shared borders exact
+    # across chunks, including junctions of three or more materials.
+    kinds = [kind for kind in COLORS if kind in result] + ['_unpainted']
+    result['_unpainted'] = ImageChops.invert(union)
+    scores = []
+    for kind in kinds:
+        raw = result[kind]
+        curved = raw.filter(ImageFilter.GaussianBlur(max(1.0, min(tw, th) * 0.30)))
+        field = np.asarray(Image.composite(raw, curved, hard), dtype=np.uint16)
+        scores.append(field * 2 + (np.asarray(raw) > 0))
+    owner = np.argmax(np.stack(scores), axis=0)
+    result = {kind: Image.fromarray(np.where(owner == index, 255, 0).astype('uint8'))
+              for index, kind in enumerate(kinds[:-1])}
+    result['_coverage'] = Image.fromarray(np.where(owner != len(kinds)-1, 255, 0).astype('uint8'))
     return (result, crop, (ox, oy))
 
 def noise_grid(x, y, seed=0):
@@ -194,15 +207,14 @@ def candidates(tm, ox, oy, width, height):
             yield (kind, x, y, record, scale, noise(gx, gy, seed + 4) > 0.5)
 
 def bake_chunk(tm, cx, cy):
-    """Mix weighted bases without leaking the legacy texture through joins."""
+    """Cut complete material layers against mutually exclusive pixel stencils."""
     tw, th = (tm['tile_width'], tm['tile_height'])
     w, h = (tw * CHUNK, th * CHUNK)
     wx, wy = (cx * w, cy * h)
     fields, crop, origin = masks(tm, cx, cy)
     _, atlas = detail_data()
     grass = []
-    rgb = np.zeros((h, w, 3), dtype=np.float32)
-    coverage = np.zeros((h, w), dtype=np.float32)
+    ground = Image.new('RGBA', (w, h))
     nearby = list(candidates(tm, wx, wy, w, h))
     for kind in COLORS:
         if kind not in fields:
@@ -226,13 +238,8 @@ def bake_chunk(tm, cx, cy):
                 sprite = sprite.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
             sprite.putalpha(sprite.getchannel('A').point(lambda a: round(a * 0.72)))
             layer.alpha_composite(sprite, (round(x - wx - sprite.width / 2), round(y - wy - sprite.height / 2)))
-        weight = np.asarray(mask, dtype=np.float32) / 255.0
-        rgb += np.asarray(layer, dtype=np.float32)[:, :, :3] * weight[:, :, None]
-        coverage += weight
-    rgb /= np.maximum(coverage, 0.0001)[:, :, None]
-    alpha = np.asarray(fields['_coverage'].crop(crop), dtype=np.float32)
-    rgba = np.concatenate((rgb, alpha[:, :, None]), axis=2).round().clip(0, 255).astype('uint8')
-    return (Image.fromarray(rgba), grass)
+        ground.paste(layer, (0, 0), mask)
+    return (ground, grass)
 
 def upload_image(im):
     raw = bytearray(im.tobytes())
@@ -274,10 +281,11 @@ def free_chunk(chunk):
 def prepare(assets, tm, camera):
     """Cache visible chunks; compare neighborhood signatures only after editing."""
     rt = assets.setdefault('surface_runtime', {'chunks': {}, 'footprints': []})
-    if rt.get('map') is not tm or rt.get('dimensions') != (tm['tile_width'], tm['tile_height'], tm['map_width'], tm['map_height']):
+    if (rt.get('map') is not tm or rt.get('mask_version') != MASK_VERSION
+            or rt.get('dimensions') != (tm['tile_width'], tm['tile_height'], tm['map_width'], tm['map_height'])):
         for c in rt['chunks'].values():
             free_chunk(c)
-        rt.update(chunks={}, map=tm, dimensions=(tm['tile_width'], tm['tile_height'], tm['map_width'], tm['map_height']), footprints=[], last_player=None, empty=set(), revision=None)
+        rt.update(chunks={}, map=tm, mask_version=MASK_VERSION, dimensions=(tm['tile_width'], tm['tile_height'], tm['map_width'], tm['map_height']), footprints=[], last_player=None, empty=set(), revision=None)
     revision = (tm.get('surface_revision', 0), tm.get('geometry_revision', 0))
     dirty = rt.get('revision') != revision
     if dirty:

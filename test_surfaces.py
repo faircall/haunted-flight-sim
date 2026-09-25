@@ -50,12 +50,14 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sorted((x,y) for x,y,*_ in small_grass),sorted((x,y) for x,y,*_ in grass))
         self.assertEqual(stitched.crop((8,8,120,120)).getchannel('A').getextrema(),(255,255))
 
-    def test_soft_corners_hard_edges_and_neighbor_invalidation(self):
+    def test_rounded_stencil_corners_square_edges_and_neighbor_invalidation(self):
         tm=game.make_tile_map(16,16,16,16)
         s.paint(tm,[(3,3)],'grass',soft=True)
         fields,crop,_=s.masks(tm,0,0)
-        soft=fields['grass'].crop(crop)
-        self.assertTrue(0<soft.getpixel((48,48))<255)
+        rounded=fields['grass'].crop(crop)
+        self.assertEqual(rounded.getpixel((48,48)),0)
+        self.assertEqual(rounded.getpixel((56,56)),255)
+        self.assertEqual(set(rounded.getdata()),{0,255})
         far=s.signature(tm,3,3);near=s.signature(tm,1,0)
         s.paint(tm,[(4,3)],'grass')
         self.assertEqual(far,s.signature(tm,3,3));self.assertNotEqual(near,s.signature(tm,1,0))
@@ -63,6 +65,38 @@ class SurfaceTests(unittest.TestCase):
         fields,crop,_=s.masks(tm,0,0)
         self.assertEqual(fields['grass'].crop(crop).getpixel((48,48)),255)
         self.assertEqual(fields['grass'].crop(crop).getpixel((47,48)),0)
+
+    def test_material_junctions_have_one_owner_and_no_mixed_colors(self):
+        tm=game.make_tile_map(8,8,16,16)
+        s.paint(tm,[(x,y) for y in range(8) for x in range(8)],'dirt',density=0)
+        s.paint(tm,[(1,1),(2,1),(1,2)],'grass',density=0)
+        s.paint(tm,[(3,1),(3,2)],'wood',density=0)
+        s.paint(tm,[(2,2),(2,3),(3,3)],'carpet',density=0)
+        fields,crop,_=s.masks(tm,0,0)
+        masks={kind:list(mask.crop(crop).getdata()) for kind,mask in fields.items() if kind!='_coverage'}
+        coverage=list(fields['_coverage'].crop(crop).getdata())
+        bases={kind:list(s.base_patch(kind,0,0,64,64).getdata()) for kind in masks}
+        rendered,grass=s.bake_chunk(tm,0,0)
+        self.assertFalse(grass)
+        self.assertTrue(all(set(values)<={0,255} for values in masks.values()))
+        for index,pixel in enumerate(rendered.getdata()):
+            owners=[kind for kind,values in masks.items() if values[index]]
+            self.assertEqual(len(owners),int(coverage[index]==255))
+            if owners:
+                self.assertEqual(pixel,bases[owners[0]][index])
+            else:
+                self.assertEqual(pixel[3],0)
+        self.assertEqual(rendered.crop((8,8,60,60)).getchannel('A').getextrema(),(255,255))
+
+    def test_square_triangle_stencils_keep_authored_geometry(self):
+        tm=game.make_tile_map(4,4,16,16)
+        s.paint(tm,[(1,1)],'wood',soft=False)
+        s.cell(tm,1,1)['shape_index']=1
+        fields,crop,_=s.masks(tm,0,0)
+        mask=fields['wood'].crop(crop)
+        self.assertEqual(mask.getpixel((16,16)),255)
+        self.assertEqual(mask.getpixel((31,31)),0)
+        self.assertEqual(mask.getpixel((31,16)),255)
 
     def test_flood_stops_at_unpainted_geometry_and_material_boundaries(self):
         tm=game.make_tile_map(5,5,16,16)
@@ -101,6 +135,10 @@ class SurfaceTests(unittest.TestCase):
             s.prepare(assets,tm,camera)
             with patch.object(s,'bake_chunk',side_effect=AssertionError('unnecessary bake')),patch.object(s,'signature',side_effect=AssertionError('unnecessary scan')):
                 s.prepare(assets,tm,camera)
+            old_chunks=dict(assets['surface_runtime']['chunks'])
+            assets['surface_runtime'].pop('mask_version')
+            s.prepare(assets,tm,camera)
+            self.assertTrue(all(c is not old_chunks[k] for k,c in assets['surface_runtime']['chunks'].items()))
             s.paint(tm,[(1,1)],'erase');s.prepare(assets,tm,camera)
             self.assertFalse(assets['surface_runtime']['chunks']);self.assertTrue(free.called)
 

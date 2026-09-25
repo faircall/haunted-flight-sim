@@ -15,8 +15,10 @@ In any level, choose **tile → Tile edit: materials**:
   type and forced-collision boundaries constrain the fill.
 - **Detail:** grass coverage / frequency of dirt, grain and wear details.
 - **Seed:** another stable arrangement, applied when painting.
-- **Soft joins:** rounded, feathered material boundaries. Disable for crisp edges.
-  Hard cells also keep their immediate boundary crisp, even beside a soft material.
+- **Rounded joins:** curved, pixel-crisp material boundaries. Every pixel belongs
+  to one material, with no fading or blended strip between textures. Disable for
+  the original square/triangle edges. Unrounded cells keep their immediate boundary
+  unchanged, even beside a rounded region.
 - **Erase:** remove the procedural finish and restore the original appearance
   and footstep surface.
 - **Ctrl+Z:** undo a paint stroke/fill. Normal level saving includes the material
@@ -24,8 +26,9 @@ In any level, choose **tile → Tile edit: materials**:
 
 Adjacent painted cells form a continuous region. Adding a cell updates nearby
 edges; established details away from those edges do not reshuffle. Triangle tile
-shapes also participate. Visual smoothing does not change collision geometry.
+shapes also participate. Curved visual boundaries do not change collision geometry.
 Use the existing appearance/collision tools to create walls or change geometry.
+Existing saved "Soft joins" regions automatically use the rounded stencils.
 
 ## Art and rendering
 
