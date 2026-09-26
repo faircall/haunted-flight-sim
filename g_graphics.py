@@ -425,6 +425,10 @@ def make_player_flashlight(player_entity, tile_map, collision_grid=None):
         # before tracing against ground-plane walls or lighting an upright face.
         flashlight_position["y"] += light_height
 
+    # Keep the drawn cone on the actual lens even when its physical ground
+    # origin has to be pulled clear of collision geometry.
+    render_position = (dict(rendered_flashlight["position"]) if rendered_flashlight is not None else
+                       {"x": flashlight_position["x"], "y": flashlight_position["y"]-light_height})
     if collision_grid is not None:
         anchor = game.get_entity_collision_world_position(player_entity, tile_map)
         to_tip = game.vec2_subtract(flashlight_position, anchor)
@@ -437,7 +441,10 @@ def make_player_flashlight(player_entity, tile_map, collision_grid=None):
     return {
         "type": "spot",
         "position": flashlight_position,
-        "render_position": {"x": flashlight_position["x"], "y": flashlight_position["y"]-light_height},
+        "render_position": render_position,
+        # The projected cone is vertically offset from the ground-plane origin.
+        # A complete wall mask avoids clipping it to a second, displaced cone.
+        "visibility_type": "point",
         # The cone starts slightly in front of the player, but rotating that
         # offset around a nearby entity must not change which authored side
         # profile the light represents.  Entity-profile direction therefore
@@ -758,7 +765,7 @@ def prepared_light_reaches_point(prepared_light, point):
 
     polygon = prepared_light.get("visibility_polygon") or []
 
-    if light.get("type", "point") == "spot":
+    if light_visibility.visibility_type(light) == "spot":
         polygon = [prepared_light["world_position"]] + polygon
 
     return point_in_polygon(point, polygon)
@@ -956,7 +963,7 @@ def polygon_intersects_rectangle(polygon, rectangle):
 
 def make_spot_light_coverage_polygon(prepared_light, arc_segments=12):
     light = prepared_light.get("light", {})
-    origin = prepared_light.get("world_position", {})
+    origin = light.get("render_position", prepared_light.get("world_position", {}))
     if "x" not in origin or "y" not in origin:
         return []
     direction = light_visibility.normalize_vector(light.get("direction", {"x": 1.0, "y": 0.0})) or {"x": 1.0, "y": 0.0}
@@ -977,7 +984,9 @@ def spot_light_conservatively_intersects_render_item(prepared_light, render_item
     if prepared_light.get("casts_wall_shadows", False):
         visibility = prepared_light.get("visibility_polygon") or []
         if visibility:
-            wall_visible_area = [dict(prepared_light["world_position"])] + list(visibility)
+            wall_visible_area = list(visibility)
+            if light_visibility.visibility_type(prepared_light['light']) == 'spot':
+                wall_visible_area.insert(0,dict(prepared_light["world_position"]))
             if not polygon_intersects_rectangle(wall_visible_area, bounds):
                 return False
     return True
@@ -1466,7 +1475,7 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
     return {"summaries": summaries, "occlusion_tests": diagnostics}
 
 def get_spot_light_strength_at_world_point(light, world_point, tile_map):
-    light_position = get_light_world_position(light, tile_map)
+    light_position = light.get("render_position", get_light_world_position(light, tile_map))
     from_light = game.vec2_subtract(world_point, light_position)
     distance_from_light = game.vec2_norm(from_light)
     radius = max(0.0001, float(light.get("radius", 100.0)))
@@ -1530,6 +1539,30 @@ def build_cinematic_shadow_quad(sprite_info, shadow_settings, flashlight_positio
         "cast_height": cast_height,
         "light_height": light_height
     }
+
+    if (shadow_settings.get("projection") == "crossed" and "root_local" in sprite_info
+            and shadow_settings.get("mode") == "upright" and not shadow_settings.get("elevation", 0.)):
+        # Two fixed world axes approximate canopy volume without spinning the
+        # entire cutout to face the light. Both cards share the painted root.
+        root = sprite_info["root_local"]
+        depth = max(0.05, float(shadow_settings.get("canopy_depth", 0.6)))
+        axes = ((1., 0.), (0., depth))
+        weights = [abs(x*projection_direction["y"] - y*projection_direction["x"]) for x, y in axes]
+        total = sum(weights)
+        cards = []
+        for (axis_x, axis_y), weight in zip(axes, weights):
+            if weight <= 0.000001:
+                continue
+            def project_tree(x, y):
+                height_fraction = (root["y"] - y) / max(1., sprite_info["visual_height"])
+                return {"x": floor_anchor["x"] + (x-root["x"])*axis_x + projection_direction["x"]*length*height_fraction,
+                        "y": floor_anchor["y"] + (x-root["x"])*axis_y + projection_direction["y"]*length*height_fraction}
+            w, h = sprite_info["sprite_width"], sprite_info["sprite_height"]
+            cards.append(dict(far_left=project_tree(0.,0.), far_right=project_tree(w,0.),
+                              near_left=project_tree(0.,h), near_right=project_tree(w,h), weight=weight/total))
+        quad.update(cards=cards, near_center=dict(floor_anchor), far_center=game.vec2_add(floor_anchor, game.vec2_scale(projection_direction,length)))
+        quad.update({key: cards[0][key] for key in ("far_left", "far_right", "near_left", "near_right")})
+        return quad
 
     elevation = max(0., float(shadow_settings.get("elevation", 0.)))
     if shadow_settings.get("mode") == "grounded" and "ground_rect" in sprite_info:
@@ -1832,11 +1865,12 @@ def _draw_render_item_main_shape(render_item, texture, game_camera,
         else g_render_order.world_to_screen_pixel
     )
     screen_position = snap(destination["x"], destination["y"], game_camera)
+    opacity = max(0.0, min(1.0, float(render_item.get("opacity", 1.0))))
     pr.draw_texture_pro(
         texture,
         pr.Rectangle(source["x"], source["y"], source["width"], source["height"]),
         pr.Rectangle(screen_position["x"], screen_position["y"], destination["width"], destination["height"]),
-        pr.Vector2(0, 0), 0, pr.WHITE
+        pr.Vector2(0, 0), 0, pr.Color(255, 255, 255, round(opacity * 255))
     )
 
 def _player_weapon_is_visible(render_item):
@@ -1934,6 +1968,38 @@ def _add_entity_light_layer_to_direct(light_layer_target, direct_target):
     pr.end_texture_mode()
 
 def draw_sorted_world_render_items(render_items, scene_target, game_camera, game_assets, lighting_profile, prepared_lights=None, entity_readability_lighting=None, player_entity=None):
+    # A cutaway must blend over the finished, lit interior. Blending its alpha
+    # into both albedo and per-light survival would attenuate actors twice (and
+    # render-target alpha would be multiplied again in the final composite).
+    # Only transitioning roofs split the batch; opaque / hidden roofs retain
+    # the usual renderer and cost. The placeholder roof is unlit black.
+    fading = lambda item: item.get("source") == "roof" and 0.0 < item.get("opacity", 1.0) < 1.0
+    if any(fading(item) for item in render_items):
+        batch = []
+        result = {"scratch_light_draws": 0, "survival_draws": 0}
+        def flush():
+            if not batch:
+                return
+            drawn = draw_sorted_world_render_items(batch, scene_target, game_camera, game_assets, lighting_profile,
+                prepared_lights, entity_readability_lighting, player_entity)
+            for key, value in drawn.items():
+                result[key] = result.get(key, 0) + value if key in ("scratch_light_draws", "survival_draws") else value
+            batch.clear()
+        for item in render_items:
+            if not fading(item):
+                batch.append(item)
+                continue
+            flush()
+            texture = resolve_render_item_texture(item, game_assets)
+            if texture is not None:
+                pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA, pr.RL_ONE_MINUS_SRC_ALPHA, pr.RL_ONE, pr.RL_ONE_MINUS_SRC_ALPHA, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
+                pr.begin_texture_mode(scene_target)
+                pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
+                _draw_render_item_main_shape(item, texture, game_camera, game_assets)
+                pr.end_blend_mode()
+                pr.end_texture_mode()
+        flush()
+        return result
     prepared_lights = list(prepared_lights or [])
     shader_info = game_assets.get("shaders", {}).get("entity_self_shadow")
     if entity_readability_lighting is None or shader_info is None:
@@ -2387,6 +2453,7 @@ def get_render_item_shadow_sprite_info(render_item, game_assets):
         "ground_rect": ground_rect,
         "source_rect": pr.Rectangle(float(source.get("x", 0.0)), float(source.get("y", 0.0)), float(source.get("width", texture.width)), float(source.get("height", texture.height))),
         "base_world": dict(render_item.get("base_world", {})),
+        "root_local": {axis: float(render_item.get("base_world", {}).get(axis, 0.))-ground_rect[axis] for axis in ("x", "y")},
         "sprite_width": float(render_item.get("dest_rect", {}).get("width", source.get("width", texture.width))),
         "sprite_height": float(render_item.get("dest_rect", {}).get("height", source.get("height", texture.height))),
         "visual_height": float(render_item.get("visual_height", source.get("height", texture.height)))
@@ -2404,19 +2471,18 @@ def draw_textured_quad(texture, source_rect, far_left, far_right, near_right, ne
     
     pr.rl_color4ub(255, 255, 255, 255)
 
-    pr.rl_tex_coord2f(u_left, v_top)
-    pr.rl_vertex2f(far_left["x"], far_left["y"])
-    pr.rl_tex_coord2f(u_left, v_bottom)
-    pr.rl_vertex2f(near_left["x"], near_left["y"])
-    pr.rl_tex_coord2f(u_right, v_bottom)
-    pr.rl_vertex2f(near_right["x"], near_right["y"])
-
-    pr.rl_tex_coord2f(u_left, v_top)
-    pr.rl_vertex2f(far_left["x"], far_left["y"])
-    pr.rl_tex_coord2f(u_right, v_bottom)
-    pr.rl_vertex2f(near_right["x"], near_right["y"])
-    pr.rl_tex_coord2f(u_right, v_top)
-    pr.rl_vertex2f(far_right["x"], far_right["y"])
+    vertices = ((far_left, u_left, v_top), (far_right, u_right, v_top),
+                (near_right, u_right, v_bottom), (near_left, u_left, v_bottom))
+    for indices in ((0, 3, 2), (0, 2, 1)):
+        a, b, c = (vertices[i] for i in indices)
+        p, q, r = a[0], b[0], c[0]
+        # Fixed shadow cards can be lit from either side. Preserve front-face
+        # winding without mirroring their UVs or changing global culling state.
+        if (q['x']-p['x'])*(r['y']-p['y'])-(q['y']-p['y'])*(r['x']-p['x']) > 0.:
+            b, c = c, b
+        for point, u, v in (a, b, c):
+            pr.rl_tex_coord2f(u, v)
+            pr.rl_vertex2f(point['x'], point['y'])
 
     pr.rl_end()
     pr.rl_set_texture(0)
@@ -2430,7 +2496,7 @@ def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashl
     light_height = max(0.0, float(flashlight.get("height", 22.0)))
     visibility_light = flashlight
     visibility_polygon = prepared_flashlight.get("cinematic_visibility_polygon") or prepared_flashlight.get("visibility_polygon") or []
-    visibility_area = [flashlight_position] + visibility_polygon if flashlight.get("type") == "spot" else visibility_polygon
+    visibility_area = [flashlight_position] + visibility_polygon if light_visibility.visibility_type(flashlight) == "spot" else visibility_polygon
     shadows = []
     skipped = []
 
@@ -2471,7 +2537,7 @@ def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashl
         if distance_from_light > max(0.0, float(flashlight.get("radius", 180.0))):
             skipped.append({"source_id": source_id, "reason": "outside light radius"})
             continue
-        flashlight_strength = light_visibility.get_unoccluded_light_strength_at_world_point(flashlight, floor_anchor, {"tile_width": 1, "tile_height": 1})
+        flashlight_strength = g_night.shadow_caster_strength(flashlight, floor_anchor)
         if flashlight_strength <= 0.0:
             skipped.append({"source_id": source_id, "reason": "outside cone"})
             continue
@@ -2512,12 +2578,11 @@ def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_t
     near_fade_distance = max(0.0, float(light.get("near_fade_distance", 0.0)))
 
     world_position = prepared_light["world_position"]
-    if not clip_to_wall_visibility:
-        # Upright sprite lighting uses the projected torch tip. Ground rays and
-        # wall receivers keep the physical source with its separate height.
-        world_position = light.get("render_position", world_position)
-    screen_x = world_position["x"] - camera_x
-    screen_y = world_position["y"] - camera_y
+    # Ground, fog and upright sprite passes all draw the same lens-aligned cone.
+    # The visibility fan below still originates at the physical ground position.
+    render_position = light.get("render_position", world_position)
+    screen_x = render_position["x"] - camera_x
+    screen_y = render_position["y"] - camera_y
 
     target_width = lighting_target.texture.width
     target_height = lighting_target.texture.height
@@ -3088,7 +3153,7 @@ def draw_light_visibility_polygon(light, light_position, polygon, game_camera):
     screen_points = [(light_position["x"] - camera_x, light_position["y"] - camera_y)]
     screen_points.extend((point["x"] - camera_x, point["y"] - camera_y) for point in reversed(polygon))
 
-    if light.get("type", "point") == "point" and len(polygon) >= 3:
+    if light_visibility.visibility_type(light) == "point" and len(polygon) >= 3:
         screen_points.append(screen_points[1])
 
     point_array = pr.ffi.new("Vector2[]", screen_points)
@@ -3117,16 +3182,20 @@ def render_cinematic_shadow_raw(frame_data, game_camera, raw_target, projection_
         shadow_quad = shadow["quad"]
         red, green, blue = (0., 0., 0.) if attenuate_light else normalize_light_color(shadow_settings.get("color", [0.008, 0.004, 0.018]))
         set_shader_vec3(shader, projection_shader["shadow_color_location"], red, green, blue)
-        set_shader_float(shader, projection_shader["shadow_opacity_location"], shadow["opacity"])
         set_shader_float(shader, projection_shader["alpha_cutoff_location"], 0.02)
-        far_left = world_point_to_screen(shadow_quad["far_left"], game_camera)
-        far_right = world_point_to_screen(shadow_quad["far_right"], game_camera)
-        near_right = world_point_to_screen(shadow_quad["near_right"], game_camera)
-        near_left = world_point_to_screen(shadow_quad["near_left"], game_camera)
+        for card in shadow_quad.get("cards", (shadow_quad,)):
+            # Combined overlapping cards retain the authored opacity; their
+            # weights change smoothly as the light travels around the canopy.
+            opacity = 1.-max(0.,1.-shadow["opacity"])**card.get("weight", 1.)
+            set_shader_float(shader, projection_shader["shadow_opacity_location"], opacity)
+            far_left = world_point_to_screen(card["far_left"], game_camera)
+            far_right = world_point_to_screen(card["far_right"], game_camera)
+            near_right = world_point_to_screen(card["near_right"], game_camera)
+            near_left = world_point_to_screen(card["near_left"], game_camera)
 
-        pr.begin_shader_mode(shader)
-        draw_textured_quad(sprite_info["texture"], sprite_info["source_rect"], far_left, far_right, near_right, near_left)
-        pr.end_shader_mode()
+            pr.begin_shader_mode(shader)
+            draw_textured_quad(sprite_info["texture"], sprite_info["source_rect"], far_left, far_right, near_right, near_left)
+            pr.end_shader_mode()
 
     pr.end_texture_mode()
 

@@ -40,7 +40,12 @@ def update_input(arena, enabled, dt, allow_interact=True):
 
 
 def draw_world(arena, camera, editor=False):
+    facade_doors={str(f.get('door_id')) for f in arena.get('entities',{}).get('facades',{}).values()
+                  if f.get('enabled',True) and f.get('type')=='pierced_door'
+                  and str(f.get('door_id','none')) not in ('none','None','')}
     for obj in p.objects(arena):
+        if not editor and obj['type'] in p.DOOR_TYPES and facade_doors.intersection((str(obj.get('id')),str(obj.get('persistent_id')))):
+            continue
         state = p.object_state(arena, obj)
         if state.get("collected") and not editor:
             continue

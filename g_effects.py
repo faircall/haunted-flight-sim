@@ -317,6 +317,8 @@ def normalize_rain_profile(rain_profile):
 def get_tile_rain_exposure(tile):
     if not isinstance(tile, dict):
         return 0.0
+    if tile.get('roof_material'):
+        return 0.0
     return _clamp(tile.get("rain_exposure", 0.0), 0.0, 1.0)
 
 
@@ -325,7 +327,7 @@ def set_tile_rain_exposure(tile, exposure):
     if not isinstance(tile, dict):
         return False
     value = _clamp(exposure, 0.0, 1.0)
-    previous = get_tile_rain_exposure(tile)
+    previous = _clamp(tile.get("rain_exposure", 0.0), 0.0, 1.0)
     if value <= 0.0:
         tile.pop("rain_exposure", None)
     else:

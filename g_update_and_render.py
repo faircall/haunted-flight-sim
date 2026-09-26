@@ -1,4 +1,5 @@
 import g_night
+import g_roofs
 import g_surfaces
 import g_tree_assets
 import math
@@ -660,6 +661,8 @@ def update_tile_editor_paint(editor_state, tile_map, mouse_tile_pos,
         points = interpolate_tile_line(previous, current)
     editor_state["tile_paint_previous"] = current
     editor_state["tile_paint_mode"] = mode
+    if mode == "roofs":
+        return g_roofs.paint(tile_map,points,editor_state.get('roof_material','black'),editor_state.get('roof_height',g_roofs.DEFAULT_HEIGHT))
     if mode == "materials":
         radius = int(editor_state.get("surface_brush", 1)) // 2
         expanded = {(x + dx, y + dy) for x, y in points
@@ -1015,6 +1018,9 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
                     elif tile_edit_mode == "footstep_overlay":
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             g_audio.flood_fill_footstep_overlay(tile_map, x, y, footstep_overlay_value)
+                    elif tile_edit_mode == "roofs":
+                        if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
+                            g_roofs.flood(tile_map,x,y,editor_state.get('roof_material','black'),editor_state.get('roof_height',g_roofs.DEFAULT_HEIGHT))
                     elif tile_edit_mode != "materials":
                         if pr.is_mouse_button_pressed(pr.MouseButton.MOUSE_BUTTON_RIGHT) and not g_mouse_is_ui_captured:
                             # Appearance flood fill retains the existing tile/collision semantics.
@@ -9050,9 +9056,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     g_glow.replace_runtime_lights(game_assets["runtime_lights"],
         g_glow.build_runtime_lights(main_arena,game_assets,time_elapsed) if render_environment_effects and not do_load_level else {})
     if not do_load_level:
+        g_roofs.prepare(game_assets,tile_map,player_info,editor_mode,0.0 if pause_state=='paused' else dt)
         g_night.sync_collision(main_arena)
         g_night.prepare(game_assets, main_arena, g_graphics.ensure_light_collision_grid(game_assets, tile_map), camera_3d.position)
     else:
+        g_roofs.unload(game_assets)
         g_night.unload(game_assets)
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, presentation_entities, player_info, tile_map, render_target, game_assets)
     if (editor_mode == "play" and pause_state != "paused" and not puzzle_modal
@@ -9208,6 +9216,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         )
 
     g_editor.draw_rain_exposure_overlay(editor_state, editor_mode, camera_3d.position, tile_map)
+    g_roofs.draw_overlay(editor_state,editor_mode,camera_3d.position,tile_map)
     g_editor.draw_audio_tile_overlays(editor_state, editor_mode, camera_3d.position, tile_map)
     if editor_mode == "entity":
         g_editor.draw_gameplay_entity_selection(

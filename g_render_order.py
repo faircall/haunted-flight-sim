@@ -1,4 +1,5 @@
 import g_night
+import g_roofs
 import g_tree_assets
 import copy
 import math
@@ -2048,6 +2049,10 @@ def build_brain_render_item(object_id, entity, tile_map, game_assets):
             item["dest_rect"]["x"] += 16.
             item["dest_rect"]["y"] += 16.
             item["bounds_world"] = dict(item["dest_rect"])
+        # Runtime defaults also cover trees in existing saves. The visible art
+        # remains a billboard; only its shadow gets a small crossed-card volume.
+        item["shadow"].setdefault("projection", "crossed")
+        item["shadow"].setdefault("canopy_depth", 0.6)
         return item
     if entity_type == "red head":
         sprite_sheet = game_assets.get("sprite_sheets", {}).get("red_head_texture_sheet", {})
@@ -2084,6 +2089,7 @@ def build_pickup_render_item(object_id, entity, tile_map, game_assets):
 
 def build_sorted_world_render_items(entities, player_entity, tile_map, game_assets):
     render_items = g_night.render_items(game_assets, tile_map)
+    render_items.extend(g_roofs.render_items(game_assets))
     if player_entity is not None:
         render_items.append(build_player_render_item(player_entity, tile_map, game_assets))
     for object_id, entity in entities.get("brains", {}).items():

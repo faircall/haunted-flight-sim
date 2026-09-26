@@ -1,4 +1,5 @@
 import g_night
+import g_roofs
 import g_surfaces
 import g_tree_assets
 import copy
@@ -1370,7 +1371,7 @@ def draw_audio_tile_overlays(editor_state, editor_mode, game_camera, tile_map,
 
 
 def draw_tile_edit_controls(ui_state, editor_state, tile_map):
-    modes = ("appearance", "materials", "rain_exposure", "acoustic_zone", "footstep_overlay")
+    modes = ("appearance", "materials", "roofs", "rain_exposure", "acoustic_zone", "footstep_overlay")
     mode = editor_state.get("tile_edit_mode", "appearance")
     mode = mode if mode in modes else "appearance"
     editor_state["tile_edit_mode"] = mode
@@ -1382,6 +1383,9 @@ def draw_tile_edit_controls(ui_state, editor_state, tile_map):
         return
     if mode == "materials":
         g_surfaces.draw_controls(ui_state, editor_state)
+        return
+    if mode == "roofs":
+        g_roofs.draw_controls(ui_state,editor_state)
         return
     if mode == "rain_exposure":
         pr.draw_text("Rain exposure", 332, 61, 8, pr.WHITE)
@@ -1446,7 +1450,7 @@ def draw_tile_edit_controls(ui_state, editor_state, tile_map):
 
 def draw_tile_edit_mode_dropdown(ui_state, editor_state):
     """Draw the tile-mode popup after the controls it can overlap."""
-    modes = ("appearance", "materials", "rain_exposure", "acoustic_zone", "footstep_overlay")
+    modes = ("appearance", "materials", "roofs", "rain_exposure", "acoustic_zone", "footstep_overlay")
     mode = editor_state.get("tile_edit_mode", "appearance")
     mode = mode if mode in modes else "appearance"
     mode, _ = g_ui.ui_dropdown(

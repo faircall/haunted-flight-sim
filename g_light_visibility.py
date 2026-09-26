@@ -453,9 +453,14 @@ def normalize_angle_signed(angle):
     return (angle + math.pi) % (math.pi * 2.0) - math.pi
 
 
+def visibility_type(light):
+    """Wall visibility may cover a wider area than the projected beam."""
+    return light.get('visibility_type', light.get('type', 'point'))
+
+
 def visibility_config_for_light(light, visibility_config=None):
     defaults = visibility_config or {}
-    light_type = light.get("type", "point")
+    light_type = visibility_type(light)
     default_count = defaults.get("spot_ray_count", DEFAULT_SPOT_RAY_COUNT) if light_type == "spot" else defaults.get("point_ray_count", DEFAULT_POINT_RAY_COUNT)
     return {
         "ray_count": max(1, int(light.get("visibility_ray_count", default_count))),
@@ -468,7 +473,7 @@ def visibility_config_for_light(light, visibility_config=None):
 
 def build_visibility_ray_angles(light, light_position, collision_grid, visibility_config=None):
     config = visibility_config_for_light(light, visibility_config)
-    light_type = light.get("type", "point")
+    light_type = visibility_type(light)
     maximum_rays = config["max_rays"]
     baseline_count = min(config["ray_count"], maximum_rays)
     radius = max(0.0, float(light.get("visibility_radius", light.get("radius", 100.0))))
@@ -645,7 +650,7 @@ def query_receiver_polygons(light_position, radius, collision_grid, light=None):
             if (closest_x - light_position["x"]) ** 2 + (closest_y - light_position["y"]) ** 2 > radius * radius:
                 continue
 
-            if light is not None and light.get("type", "point") == "spot" and polygon_obviously_outside_spot(polygon, light_position, light):
+            if light is not None and visibility_type(light) == "spot" and polygon_obviously_outside_spot(polygon, light_position, light):
                 continue
 
             receiver_tile_ids.append(tile_index)
@@ -656,7 +661,7 @@ def query_receiver_polygons(light_position, radius, collision_grid, light=None):
 
 def make_light_geometry_key(light_record, world_position, collision_grid):
     light = light_record["light"]
-    light_type = light.get("type", "point")
+    light_type = visibility_type(light)
     config = visibility_config_for_light(light)
     direction = normalize_vector(light.get("direction", {"x": 1.0, "y": 0.0})) or {"x": 1.0, "y": 0.0}
     return (
@@ -712,7 +717,7 @@ def smoothstep(edge_start, edge_end, value):
     return amount * amount * (3.0 - 2.0 * amount)
 
 
-def get_unoccluded_light_strength_at_world_point(light, world_point, collision_grid):
+def get_unoccluded_light_strength_at_world_point(light, world_point, collision_grid, *, projected=True):
     if not light.get("enabled", True):
         return 0.0
 
@@ -728,6 +733,8 @@ def get_unoccluded_light_strength_at_world_point(light, world_point, collision_g
 
     light_type = light.get("type", "point")
     light_position = get_light_world_position(light, collision_grid)
+    if projected:
+        light_position = light.get('render_position', light_position)
 
     if light_type == "top_down":
         size = light.get("size", {})

@@ -1,5 +1,6 @@
 """A separate moonlit courtyard: python night_trial.py."""
 import g_night as night
+import g_roofs as roofs
 import g_surfaces as surfaces
 
 
@@ -11,6 +12,7 @@ def review_arena(game,arena):
     surfaces.paint(tm,[(x,y) for y in range(2,10) for x in range(11,27)],'wood',soft=False)
     for y in range(2,10):
         for x in range(11,27):surfaces.cell(tm,x,y)['rain_exposure']=0.
+    roofs.paint(tm,[(x,y) for y in range(2,10) for x in range(11,27)])
     for x,y in ([(x,2) for x in range(11,27)]+[(x,y) for x in (11,26) for y in range(2,9)]):
         surfaces.cell(tm,x,y)['index']=3
         surfaces.paint(tm,[(x,y)],'wall',soft=False)

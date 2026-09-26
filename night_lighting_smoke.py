@@ -29,6 +29,12 @@ def assert_camera_locked(target, render, label):
 
 
 def check(game, assets):
+    from roof_smoke import check as check_roofs
+    check_roofs(game,assets)
+    from flashlight_origin_smoke import check as check_origin
+    check_origin(game,assets)
+    from shadow_motion_smoke import check as check_motion
+    check_motion(game,assets)
     out=Path('artifacts/night');target=pr.load_render_texture(240,240);camera=pr.Vector2(0,0)
     try:
         polygons=[visibility.tile_shape_world_vertices(x,0,0,16,16) for x in range(3)]
@@ -63,7 +69,7 @@ def check(game, assets):
         try:
             night.prepare(local,arena,grid)
             for label,sy,direction in (('inward',106.,-1.),('outward',70.,1.)):
-                source=graphics.apply_light_capability_defaults(dict(type='spot',position={'x':102.,'y':sy},
+                source=graphics.apply_light_capability_defaults(dict(type='spot',position={'x':102.,'y':sy},render_position={'x':102.,'y':sy-22.},
                     direction={'x':0.,'y':direction},color=[1.,1.,1.],radius=180.,height=22.,
                     intensity=1.,falloff=1.,inner_angle=18.,outer_angle=27.,near_fade_distance=0.,owner_id='player'))
                 records=night.flashlight_portals(local,source,grid)
@@ -113,8 +119,8 @@ def check(game, assets):
             scratch=night.draw_facade_receiver(contact,item,camera,local,240,240)
             assert np.count_nonzero(pixels(scratch)[:,:,0]>25)>4,'wall torch collapses to zero pixels'
 
-            # The same beam is projected at hand height for upright sprites,
-            # while its ground pass retains the physical floor coordinates.
+            # Every drawn pass must originate at the same visible lens, while
+            # wall receivers and aperture rays retain the physical light height.
             beam=dict(torch,position={'x':80.,'y':120.},render_position={'x':80.,'y':98.},
                       direction={'x':1.,'y':0.},casts_wall_shadows=False)
             prepared_beam=dict(light=beam,world_position=beam['position'],casts_wall_shadows=False)
@@ -122,10 +128,11 @@ def check(game, assets):
                 pr.begin_texture_mode(target);pr.clear_background(pr.BLACK)
                 graphics.draw_prepared_light_to_target(prepared_beam,pan,target,local,clip_to_wall_visibility=ground)
                 pr.end_texture_mode()
-            render_beam(camera,True);ground=pixels(target)[22:,:,:3]
-            render_beam(camera,False);upright=pixels(target)[:-22,:,:3]
+            render_beam(camera,True);ground=pixels(target)[:,:,:3]
+            render_beam(camera,False);upright=pixels(target)[:,:,:3]
             assert ground.any(),'torch ground beam missing'
             assert np.abs(ground.astype(int)-upright.astype(int)).max()<=1,'sprite beam detached from projected torch tip'
+            assert ground[98,100,0]>25 and ground[120,100,0]==0,'beam starts below the flashlight'
             assert_camera_locked(target,lambda pan:render_beam(pan,False),'projected torch')
         finally:
             night.unload(local)

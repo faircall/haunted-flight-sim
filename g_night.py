@@ -9,7 +9,7 @@ import copy
 import json
 import math
 import numpy as np
-from PIL import Image, ImageDraw, ImageChops
+from PIL import Image, ImageDraw, ImageChops, ImageFilter
 import pyray as pr
 import g_effects
 import g_light_visibility as visibility
@@ -95,13 +95,24 @@ def facade_art(obj, opened=False):
     elif kind=='pierced_door':
         if opened:
             cut.rectangle((4,3,w-3,h-3),fill=255)
-            draw.rectangle((4,3,w-3,h-3),fill=(22,15,11,255))
         else:
             for x,y,hh in ((5,11,7),(w-6,20,6),(w//2,30,4)):
                 cut.polygon(((x,y),(x+1,y-1),(x+2,y+hh),(x,y+hh+2)),fill=255)
             draw.rectangle((w-5,h//2,w-4,h//2+3),fill=(179,138,57,255))
-    panel.paste((28,19,12,255),(0,0,w,h),holes)
+    panel.paste((0,0,0,0),(0,0,w,h),holes)
     return panel,holes
+
+
+def aperture_emission(panel,holes,source):
+    """Warm light catches solid frame edges; openings keep their real view."""
+    rim=ImageChops.subtract(holes.filter(ImageFilter.MaxFilter(3)),holes)
+    rim=ImageChops.multiply(rim,panel.getchannel('A'))
+    emission=Image.new('RGBA',panel.size)
+    if not source.get('enabled',True):return emission
+    strength=min(1.,max(0.,float(source.get('intensity',0.))))*.25
+    color=tuple(round(255*max(0.,min(1.,c*strength))) for c in source['color'])
+    emission.paste(color+(255,),(0,0,*panel.size),rim)
+    return emission
 
 
 def moon_field(tm, grid, moon):
@@ -191,6 +202,26 @@ def field_record(image, origin, source, identity, assets):
     return {'id':identity,'light':light}
 
 
+def aperture_caster(obj, bounds, source, grid):
+    """Keep the emitting lamp separate from the outdoor receiving texture."""
+    base=bounds['y']+bounds['height']
+    reach=max(16,min(320,int(obj.get('spill_length',180))))
+    # Match the aperture field's falloff on either side of the threshold, so
+    # changing from its outdoor samples to indoor lamp rays has no opacity jump.
+    lamp=dict(source,type='point',radius=reach+abs(base-source['position']['y']),falloff=.65)
+    return dict(base=base,source=lamp,grid=grid)
+
+
+def shadow_caster_strength(light, point):
+    caster=light.get('_aperture_caster')
+    if caster is not None and point['y']<caster['base']:
+        source=caster['source'];grid=caster['grid']
+        if not visibility.light_ray_reaches_world_point(source['position'],point,grid):
+            return 0.
+        return visibility.get_unoccluded_light_strength_at_world_point(source,point,grid)
+    return visibility.get_unoccluded_light_strength_at_world_point(light,point,{'tile_width':1,'tile_height':1})
+
+
 def drop_entry(entry):
     for receiver in entry.get('receivers',{}).values():
         if 'texture' in receiver:pr.unload_texture(receiver['texture'])
@@ -250,17 +281,10 @@ def prepare(assets, arena, grid, camera=None):
                 continue
             field,origin=aperture_field(obj,holes,bounds,source,grid)
             source=dict(source,intensity=source.get('intensity',0)*float(obj.get('transmission',.85)))
-            active=source.get('enabled',True) and source['intensity']>0
-            emission=Image.new('RGBA',panel.size)
-            pixels=emission.load()
-            color=source['color']
-            for y in range(holes.height):
-                for x in range(holes.width):
-                    if holes.getpixel((x,y)) and active:
-                        strength=min(1.,source['intensity']*.95)*(.82+.18*g_surfaces.noise(x//3,y//4,5))
-                        pixels[x,y]=tuple(round(255*max(0,min(1,c*strength))) for c in color)+(255,)
+            emission=aperture_emission(panel,holes,source)
             entry.update(emission=g_surfaces.upload_image(emission),
                          record=field_record(field,origin,source,'night:'+str(identity),assets))
+            entry['record']['light']['_aperture_caster']=aperture_caster(obj,bounds,source,grid)
         if 'record' in entry:records.append(entry['record'])
         textures[str(identity)]=entry['panel']
         items.append((str(identity),obj,entry))
@@ -316,12 +340,15 @@ def draw_emission(scene,items,camera,assets):
         if rt['mask_shader'].id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Emission occlusion shader failed')
     target=graphics.get_or_create_render_target(assets,'facade_emission',scene.texture.width,scene.texture.height)
     pr.begin_texture_mode(target);pr.clear_background(pr.BLANK)
+    # Preserve accumulated alpha while fading an occluder over existing glow.
+    pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA,pr.RL_ONE_MINUS_SRC_ALPHA,pr.RL_ONE,pr.RL_ONE_MINUS_SRC_ALPHA,pr.RL_FUNC_ADD,pr.RL_FUNC_ADD)
+    pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
     for item in items:
         texture=graphics.resolve_render_item_texture(item,assets)
         if texture is None:continue
         pr.begin_shader_mode(rt['mask_shader']);graphics._draw_render_item_main_shape(item,texture,camera,assets);pr.end_shader_mode()
         if '_emission' in item:graphics._draw_render_item_main_shape(item,item['_emission'],camera,assets)
-    pr.end_texture_mode()
+    pr.end_blend_mode();pr.end_texture_mode()
     pr.begin_texture_mode(scene);pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
     pr.draw_texture_rec(target.texture,pr.Rectangle(0,0,target.texture.width,-target.texture.height),pr.Vector2(0,0),pr.WHITE)
     pr.end_blend_mode();pr.end_texture_mode()
@@ -479,7 +506,7 @@ def flashlight_portals(assets, source, grid):
         columns=source_columns(position,b,grid,front)
         if not any(columns):continue
         strengths=[visibility.get_unoccluded_light_strength_at_world_point(source,
-            {'x':b['x']+i+.5,'y':base},grid) if value else 0. for i,value in enumerate(columns)]
+            {'x':b['x']+i+.5,'y':base},grid,projected=False) if value else 0. for i,value in enumerate(columns)]
         if max(strengths,default=0.)<=0:continue
         portal=entry['portals'].get(front)
         if portal is None:
@@ -517,7 +544,7 @@ def portal_strength(light,point):
     if not (0<=x<b['width'] and 0<=y<b['height']):return 0.
     if not portal['holes'][y*b['width']+x] or not portal['columns'][x]:return 0.
     if not graphics.point_in_polygon(point,portal['polygon']):return 0.
-    return visibility.get_unoccluded_light_strength_at_world_point(source,point,{})*light['intensity']/max(.001,source.get('intensity',1.))
+    return visibility.get_unoccluded_light_strength_at_world_point(source,point,{},projected=False)*light['intensity']/max(.001,source.get('intensity',1.))
 
 
 def draw_portal(prepared,camera,target,assets):
