@@ -50,12 +50,12 @@ def build_light_collision_grid(tile_map, collidable_tile_indices):
     edge_values = {}
 
     for tile_index, tile in enumerate(tile_map["tiles"]):
-        if tile.get("index", 0) not in collidable_tile_indices and not tile.get("puzzle_blocked", False):
+        if tile.get("index", 0) not in collidable_tile_indices and not tile.get("puzzle_blocked", False) and not tile.get("facade_blocked", False):
             continue
 
         tile_x = tile_index % map_width
         tile_y = tile_index // map_width
-        shape_index = 0 if tile.get("puzzle_blocked") else int(tile.get("shape_index", 0))
+        shape_index = 0 if tile.get("puzzle_blocked") or tile.get("facade_blocked") else int(tile.get("shape_index", 0))
         vertices = tile_shape_world_vertices(tile_x, tile_y, shape_index, tile_width, tile_height)
 
         if len(vertices) < 3:
@@ -691,6 +691,13 @@ def smoothstep(edge_start, edge_end, value):
 def get_unoccluded_light_strength_at_world_point(light, world_point, collision_grid):
     if not light.get("enabled", True):
         return 0.0
+
+    field = light.get("_field")
+    if field is not None:
+        x, y = math.floor(world_point["x"] - field["origin"][0]), math.floor(world_point["y"] - field["origin"][1])
+        if not (0 <= x < field["width"] and 0 <= y < field["height"]):
+            return 0.0
+        return field["values"][y * field["width"] + x] / 255.0 * max(0.0, float(light.get("intensity", 1.0)))
 
     light_type = light.get("type", "point")
     light_position = get_light_world_position(light, collision_grid)

@@ -169,6 +169,7 @@ def undo(arena, assets):
     for revision in ("geometry_revision", "rain_exposure_revision", "acoustic_revision"):
         tile_map[revision] = tile_map.get(revision, 0) + 1
     g_puzzles.sync_door_tiles(arena)
+    game.g_night.sync_collision(arena)
     game.rebuild_actor_collision_index(tile_map, arena["player_info"], arena["entities"])
     assets.pop("actor_collision_index_signature", None)
     g_effects.clear_effects_runtime(assets)

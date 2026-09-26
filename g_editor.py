@@ -1,3 +1,4 @@
+import g_night
 import g_surfaces
 import g_tree_assets
 import copy
@@ -1687,6 +1688,7 @@ def section_button(ui_state, editor_state, section_id, title):
     return opened
 
 def inspect_lighting_profile(ui_state, editor_state, profile):
+    g_night.inspect_moon(ui_state, editor_state, profile)
     if section_button(ui_state, editor_state, "lighting_appearance", "Lighting appearance"):
         profile["ambient_color"], _ = g_ui.ui_color3_editor(ui_state, "world:lighting:ambient_color", "ambient color", profile.get("ambient_color", [0.2, 0.2, 0.3]))
         profile["ambient_strength"], _ = g_ui.ui_slider_float(ui_state, "world:lighting:ambient_strength", "ambient", profile.get("ambient_strength", 0.3), 0.0, 2.0, 0.01)
@@ -2338,6 +2340,14 @@ def draw_editor_overlay(ui_state, editor_state, editor_mode, entities, lighting_
     return editor_mode
 
 ENVIRONMENT_OBJECT_REGISTRY = {
+    **{kind: {
+        "target_collection": "facades", "object_type": kind,
+        "factory": lambda position, kind=kind: g_night.make_facade(position, kind),
+        "display_name": kind.replace("_", " ").title(), "icon": "W", "debug_color": (230, 165, 90),
+        "selected_kind": "facade", "id_prefix": "facade", "inspector": g_night.inspect_facade,
+        "hit_test": g_night.hit_test, "hit_priority": 2, "handles": g_night.handles,
+        "handle_hit_test": get_drag_handle, "manipulate": apply_environment_drag,
+    } for kind in g_night.KINDS},
     "point_light": {
         "target_collection": "lights",
         "object_type": "point",

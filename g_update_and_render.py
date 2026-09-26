@@ -1,3 +1,4 @@
+import g_night
 import g_surfaces
 import g_tree_assets
 import math
@@ -319,7 +320,7 @@ def point_inside_tile_shape(shape_index, local_x, local_y, tile_width, tile_heig
 
 def tile_is_collidable(tile, tile_map):
     """Resolve physical/pathfinding collision for one placed tile instance."""
-    if bool(tile.get("force_collidable", False)) or tile.get("puzzle_blocked", False):
+    if bool(tile.get("force_collidable", False)) or tile.get("puzzle_blocked", False) or tile.get("facade_blocked", False):
         return True
     tile_types = tile_map.get("tile_types", [])
     tile_index = int(tile.get("index", 0))
@@ -385,7 +386,7 @@ def get_tile_shape_collision(position, tile_map):
             "normal": None,
         }
 
-    shape_index = 0 if tile.get("puzzle_blocked") else tile.get("shape_index", 0)
+    shape_index = 0 if tile.get("puzzle_blocked") or tile.get("facade_blocked") else tile.get("shape_index", 0)
 
     collides = point_inside_tile_shape(shape_index, position.get("x", 0), position.get("y", 0), tile_map["tile_width"], tile_map["tile_height"])
 
@@ -8799,6 +8800,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     main_arena = g_puzzles.ensure_arena(main_arena.set("entities", entities).set("tile_map", tile_map).set("player_info", player_info))
     main_arena = g_sequences.ensure(main_arena)
     g_puzzles.sync_door_tiles(main_arena)
+    g_night.sync_collision(main_arena)
     g_effects.discard_legacy_particle_systems(entities)
     collision_index_signature = actor_collision_index_signature(
         tile_map, player_info, entities,
@@ -9040,6 +9042,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     )
     g_glow.replace_runtime_lights(game_assets["runtime_lights"],
         g_glow.build_runtime_lights(main_arena,game_assets,time_elapsed) if render_environment_effects and not do_load_level else {})
+    if not do_load_level:
+        g_night.sync_collision(main_arena)
+        g_night.prepare(game_assets, main_arena, g_graphics.ensure_light_collision_grid(game_assets, tile_map), camera_3d.position)
+    else:
+        g_night.unload(game_assets)
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, presentation_entities, player_info, tile_map, render_target, game_assets)
     if (editor_mode == "play" and pause_state != "paused" and not puzzle_modal
             and debug_state != "dumb entities"):
@@ -9106,6 +9113,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     lighting_frame["stats"]["entity_scratch_light_draws"] = entity_render_frame.get("scratch_light_draws", 0)
     lighting_frame["stats"]["entity_survival_draws"] = entity_render_frame.get("survival_draws", 0)
     entity_light_target = entity_render_frame.get("entity_direct_light")
+    g_night.draw_emission(render_target, sorted_world_items, camera_3d.position, game_assets)
 
     if render_environment_effects:
         g_graphics.render_effect_group(

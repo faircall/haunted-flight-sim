@@ -2,6 +2,11 @@
 from pathlib import Path
 import sys
 
+if "--night" in sys.argv:
+    from night_smoke import run
+    run()
+    raise SystemExit(0)
+
 if "--surfaces" in sys.argv:
     from surface_smoke import run
     run()

@@ -6,6 +6,7 @@ import pyray as pr
 from pyrsistent import m, pmap, v
 
 import g_light_visibility as light_visibility
+import g_night
 import g_effects
 import g_render_order
 import g_update_and_render as game
@@ -513,7 +514,8 @@ def apply_light_capability_defaults(light):
     return result
 
 def collect_light_records(entities, player_entity, tile_map, game_assets):
-    records = []
+    records = [{"id": record["id"], "light": apply_light_capability_defaults(record["light"])}
+               for record in game_assets.get("architectural_lights", [])]
 
     for light_id, light in entities.setdefault("lights", {}).items():
         records.append({"id": str(light_id), "light": apply_light_capability_defaults(light)})
@@ -2567,6 +2569,9 @@ def draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting
         pr.end_shader_mode()
 
 def draw_prepared_light_to_target(prepared_light, game_camera, lighting_target, game_assets, include_receivers=True, clip_to_wall_visibility=True):
+    if "_field" in prepared_light["light"]:
+        g_night.draw_field(prepared_light, game_camera, lighting_target, game_assets, unmasked=not clip_to_wall_visibility)
+        return
     if prepared_light["light"].get("type", "point") == "top_down":
         draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting_target, game_assets["shaders"]["top_down_light"])
         return
@@ -2596,6 +2601,10 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
 
     if render_style is not None:
         target_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("render_style", "world") == render_style]
+    field_lights = [item for item in target_lights if "_field" in item["light"]]
+    target_lights = [item for item in target_lights if "_field" not in item["light"]]
+    for item in field_lights:
+        g_night.draw_field(item, game_camera, lighting_target, game_assets)
     radial_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("type", "point") != "top_down"]
     top_down_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("type", "point") == "top_down"]
 
