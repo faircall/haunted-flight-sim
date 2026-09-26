@@ -10,6 +10,21 @@ import g_update_and_render as game
 
 
 class CameraRenderAlignmentTests(unittest.TestCase):
+    def test_shared_world_camera_origin_handles_negative_offsets_and_dicts(self):
+        for x,y,expected in ((2.49,-3.49,(2,-3)),(2.51,-3.51,(3,-4)),(.5,1.5,(0,2))):
+            self.assertEqual(g_render_order.world_camera_offset(SimpleNamespace(x=x,y=y)),expected)
+            self.assertEqual(g_render_order.world_camera_offset({'x':x,'y':y}),expected)
+
+    def test_shadow_projection_snaps_camera_without_quantizing_world_geometry(self):
+        point={'x':20.25,'y':40.75}
+        for x,y in ((2.1,3.2),(2.49,3.49),(2.51,3.51),(-2.6,-3.6)):
+            camera=SimpleNamespace(x=x,y=y)
+            tile=g_render_order.world_to_screen_pixel(16.,32.,camera)
+            shadow=g_graphics.world_point_to_screen(point,camera)
+            self.assertEqual(shadow['x']-tile['x'],4.25)
+            self.assertEqual(shadow['y']-tile['y'],8.75)
+        self.assertEqual(point,{'x':20.25,'y':40.75})
+
     def test_world_pixel_snap_rounds_world_and_camera_independently(self):
         camera = SimpleNamespace(x=2.6, y=3.2)
         self.assertEqual(

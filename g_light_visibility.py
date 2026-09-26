@@ -1,7 +1,7 @@
 import math
 
 
-LIGHT_GEOMETRY_CACHE_VERSION = 1
+LIGHT_GEOMETRY_CACHE_VERSION = 2
 LIGHT_GEOMETRY_RUNTIME_GENERATION = globals().get("LIGHT_GEOMETRY_RUNTIME_GENERATION", 0) + 1
 EMPTY_SHAPE_CODE = 255
 DDA_EPSILON = 0.000001
@@ -257,6 +257,19 @@ def ray_intersect_tile_shape(origin, direction, tile_x, tile_y, shape_index, t_e
     return {"distance": hit[0], "edge_index": hit[1], "normal": {"x": hit[2], "y": hit[3]}}
 
 
+def tile_contains_light_corner(tile_x, tile_y, world_x, world_y, grid):
+    """Whether a neighbouring shape reaches a shared grid vertex."""
+    if not (0 <= tile_x < grid['map_width'] and 0 <= tile_y < grid['map_height']):
+        return False
+    shape = grid['shape_codes'][tile_y * grid['map_width'] + tile_x]
+    if shape == EMPTY_SHAPE_CODE:
+        return False
+    if shape == 0:
+        return True
+    x, y = world_x-tile_x*grid['tile_width'], world_y-tile_y*grid['tile_height']
+    return all(a*x+b*y+c >= -DDA_EPSILON for a,b,c in grid['shape_clip_planes'][shape])
+
+
 def dda_first_light_hit_values(origin_x, origin_y, direction_x, direction_y, max_distance, collision_grid):
     tile_width = collision_grid["tile_width"]
     tile_height = collision_grid["tile_height"]
@@ -359,6 +372,17 @@ def dda_first_light_hit_values(origin_x, origin_y, direction_x, direction_y, max
             tile_y += step_y
         else:
             current_t = min(maximum_x, maximum_y)
+            # A ray may graze one wall corner, but cannot squeeze through the
+            # zero-width seam between two solid corners. Otherwise that single
+            # escaping ray becomes a long bright sliver in the triangle fan.
+            corner_x = origin_x + direction_x * current_t
+            corner_y = origin_y + direction_y * current_t
+            if (tile_contains_light_corner(tile_x+step_x, tile_y, corner_x, corner_y, collision_grid)
+                    and tile_contains_light_corner(tile_x, tile_y+step_y, corner_x, corner_y, collision_grid)):
+                wall_x, wall_y = tile_x+step_x, tile_y
+                index = wall_y*map_width+wall_x
+                return (current_t, wall_x, wall_y, index, int(collision_grid['shape_codes'][index]),
+                        -1, -direction_x, -direction_y), tile_steps
             maximum_x += delta_x
             maximum_y += delta_y
             tile_x += step_x

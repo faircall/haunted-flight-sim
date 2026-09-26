@@ -91,6 +91,13 @@ class TriangleTests(unittest.TestCase):
 
 
 class DdaTraversalTests(unittest.TestCase):
+    def test_two_wall_corners_seal_a_zero_width_diagonal_gap(self):
+        for sx,sy in ((1,1),(1,-1),(-1,1),(-1,-1)):
+            grid=make_grid([(1+sx,1,0),(1,1+sy,0)],width=3,height=3)
+            hit=visibility.dda_first_light_hit({'x':15.,'y':15.},{'x':sx,'y':sy},40.,grid)
+            self.assertIsNotNone(hit,'light escaped between touching solid corners')
+            self.assertAlmostEqual(hit['distance'],math.sqrt(50.))
+
     def test_cardinal_and_all_diagonal_directions(self):
         solids = [(3, 2, 0), (1, 2, 0), (2, 3, 0), (2, 1, 0), (3, 3, 0), (1, 3, 0), (3, 1, 0), (1, 1, 0)]
         grid = make_grid(solids)

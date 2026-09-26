@@ -445,7 +445,7 @@ class PlayerAimHeadingTests(unittest.TestCase):
         self.assertEqual({
             key: item[key] for key in ("x", "y", "width", "height")
         }, {
-            "x": 157.0, "y": 127.0, "width": 12.0, "height": 12.0,
+            "x": 157.0, "y": 139.0, "width": 12.0, "height": 12.0,
         })
         self.assertEqual(item["color"], "BLUE")
         self.assertIn("player_debug", item["debug_modes"])
@@ -921,9 +921,12 @@ class PlayerAimHeadingTests(unittest.TestCase):
                 player, tile_map,
             )
             flame = game.build_player_muzzle_flash_emitter(player, tile_map)
+            # Muzzle art and the sprite-light pass share projected coordinates.
+            torch_tip = flashlight["render_position"]
+            self.assertAlmostEqual(torch_tip["y"] + flashlight["height"], flashlight["position"]["y"])
             from_flashlight = {
-                "x": flame["position"]["x"] - flashlight["position"]["x"],
-                "y": flame["position"]["y"] - flashlight["position"]["y"],
+                "x": flame["position"]["x"] - torch_tip["x"],
+                "y": flame["position"]["y"] - torch_tip["y"],
             }
             lateral_distance = abs(
                 from_flashlight["x"] * aim["y"]

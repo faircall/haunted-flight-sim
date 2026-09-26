@@ -27,18 +27,20 @@ def _player_animation_setting(name):
     return draft[name] if draft is not None and name in draft else getattr(player_animation_data, name)
 
 
-def world_to_screen_pixel(world_x, world_y, game_camera):
-    """Snap world and camera independently so stationary sprites stay registered."""
+def world_camera_offset(game_camera):
+    """One pixel-aligned camera origin for static scenery and its light masks.
+
+    Keep world-space light/geometry coordinates fractional. Only the camera is
+    snapped here, so pan rounding cannot slide a mask relative to the tiles.
+    """
     if isinstance(game_camera, dict):
-        camera_x = float(game_camera.get("x", 0.0))
-        camera_y = float(game_camera.get("y", 0.0))
-    else:
-        camera_x = float(getattr(game_camera, "x", 0.0))
-        camera_y = float(getattr(game_camera, "y", 0.0))
-    return {
-        "x": round(float(world_x)) - round(camera_x),
-        "y": round(float(world_y)) - round(camera_y),
-    }
+        return round(float(game_camera.get("x", 0.0))), round(float(game_camera.get("y", 0.0)))
+    return round(float(getattr(game_camera, "x", 0.0))), round(float(getattr(game_camera, "y", 0.0)))
+
+
+def world_to_screen_pixel(world_x, world_y, game_camera):
+    camera_x, camera_y = world_camera_offset(game_camera)
+    return {"x": round(float(world_x)) - camera_x, "y": round(float(world_y)) - camera_y}
 
 
 def moving_world_to_screen_pixel(world_x, world_y, game_camera):

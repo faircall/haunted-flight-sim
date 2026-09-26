@@ -115,6 +115,8 @@ class SweptSegmentTests(unittest.TestCase):
         tile_map = game.make_tile_map(10, 10, 16, 16)
         player = game.make_default_player(2.0, 2.0, 0.0)
         player["position"].update({"tile_x": 3, "tile_y": 3})
+        # Place the ground collision centre at (50, 50), tangent to the enemy.
+        player["position"]["y"] -= game.get_entity_collision_center_offset(player)["y"]
         redhead = make_redhead(tile_x=4, tile_y=4, x=8.0, y=4.0)
         entities = {"brains": {redhead["id"]: redhead}}
         game.rebuild_actor_collision_index(tile_map, player, entities)
@@ -123,7 +125,7 @@ class SweptSegmentTests(unittest.TestCase):
         result = game.move_entity_with_velocity(
             player, velocity, tile_map, None, 0.1,
         )
-        world = game.make_pos_abs(result, 16, 16)
+        world = game.get_entity_collision_world_position(player, tile_map, result)
 
         # The diagonal is blocked, but X remains tangent to the top edge.
         self.assertAlmostEqual(world["x"], 51.0)

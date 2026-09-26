@@ -2900,10 +2900,17 @@ def make_redhead_headshot_debug_item(entity, tile_map):
 def get_entity_collision_center_offset(entity):
     authored = entity.get("collision_center_offset")
     if not isinstance(authored, dict):
-        authored = (
-            DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET
-            if entity.get("type") == "red head" else {"x": 0.0, "y": 0.0}
-        )
+        if entity.get("id") == "player":
+            # Position is at the torso; movement lives on the ground footprint.
+            # Resolve this default at runtime so existing saved players gain it.
+            base = entity.get("render_base_offset", {"x": 0., "y": 14.})
+            footprint = entity.get("ground_footprint", {}).get("offset", {"x": 0., "y": -2.})
+            authored = {axis: float(base.get(axis, 0.))+float(footprint.get(axis, 0.)) for axis in ("x", "y")}
+        else:
+            authored = (
+                DEFAULT_REDHEAD_COLLISION_CENTER_OFFSET
+                if entity.get("type") == "red head" else {"x": 0.0, "y": 0.0}
+            )
     try:
         return {
             "x": float(authored.get("x", 0.0)),

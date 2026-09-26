@@ -400,7 +400,7 @@ def make_player_pointlight(player_entity, tile_map):
     }
     return result
 
-def make_player_flashlight(player_entity, tile_map):
+def make_player_flashlight(player_entity, tile_map, collision_grid=None):
     direction = game.vec2_normalize(player_entity.get("aim_direction", {"x": 1.0, "y": 0.0}))
 
     if game.vec2_norm(direction) == 0:
@@ -413,17 +413,31 @@ def make_player_flashlight(player_entity, tile_map):
     forward_offset = game.vec2_scale(direction, settings["forward_offset"])
     side_offset = game.vec2_scale(side_direction, settings["side_offset"])
     flashlight_position = game.vec2_add(player_world_position, game.vec2_add(forward_offset, side_offset))
+    light_height = 22.0
+    base = player_entity.get("render_base_offset", {"x": 0.0, "y": 14.0})
+    flashlight_position = game.vec2_add(flashlight_position, base)
     rendered_flashlight = g_render_order.player_cutout_flashlight_world(
         player_entity, tile_map,
     )
     if rendered_flashlight is not None:
         flashlight_position = dict(rendered_flashlight["position"])
+        # Rig coordinates are projected sprite pixels: undo the height offset
+        # before tracing against ground-plane walls or lighting an upright face.
+        flashlight_position["y"] += light_height
 
-    
+    if collision_grid is not None:
+        anchor = game.get_entity_collision_world_position(player_entity, tile_map)
+        to_tip = game.vec2_subtract(flashlight_position, anchor)
+        distance = game.vec2_norm(to_tip)
+        hit = light_visibility.dda_first_light_hit(anchor, to_tip, distance, collision_grid)
+        if hit is not None:
+            clearance = max(0.0, hit["distance"] - 0.75)
+            flashlight_position = game.vec2_add(anchor, game.vec2_scale(to_tip, clearance / max(.000001, distance)))
 
     return {
         "type": "spot",
         "position": flashlight_position,
+        "render_position": {"x": flashlight_position["x"], "y": flashlight_position["y"]-light_height},
         # The cone starts slightly in front of the player, but rotating that
         # offset around a nearby entity must not change which authored side
         # profile the light represents.  Entity-profile direction therefore
@@ -448,7 +462,9 @@ def make_player_flashlight(player_entity, tile_map):
         "mobility": "dynamic",
         "render_style": "world",
         "owner_id": "player",
-        "height": 22.0,
+        "height": light_height,
+        "aperture_radius": 2.0,
+        "surface_near_fade": False,
         "shadow_bias": 0.25,
         "near_fade_distance": 14.0,
         "inner_angle": 13.0,
@@ -550,7 +566,7 @@ def collect_light_records(entities, player_entity, tile_map, game_assets):
             "id": "runtime:player_muzzle_flash",
             "light": apply_light_capability_defaults(muzzle_flash),
         })
-    records.append({"id": "runtime:player_flashlight", "light": apply_light_capability_defaults(make_player_flashlight(player_entity, tile_map))})
+    records.append({"id": "runtime:player_flashlight", "light": apply_light_capability_defaults(make_player_flashlight(player_entity, tile_map, game_assets.get("light_collision_grid")))})
     # Player visibility in darkness comes from an outline, not a fill light.
     return records
 
@@ -2484,6 +2500,7 @@ def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashl
     }
 
 def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_target, light_shader, include_receivers=True, shader_mode_active=False, clip_to_wall_visibility=True):
+    camera_x, camera_y = g_render_order.world_camera_offset(game_camera)
     light = prepared_light["light"]
 
     if not light.get("enabled", True):
@@ -2495,8 +2512,12 @@ def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_t
     near_fade_distance = max(0.0, float(light.get("near_fade_distance", 0.0)))
 
     world_position = prepared_light["world_position"]
-    screen_x = world_position["x"] - game_camera.x
-    screen_y = world_position["y"] - game_camera.y
+    if not clip_to_wall_visibility:
+        # Upright sprite lighting uses the projected torch tip. Ground rays and
+        # wall receivers keep the physical source with its separate height.
+        world_position = light.get("render_position", world_position)
+    screen_x = world_position["x"] - camera_x
+    screen_y = world_position["y"] - camera_y
 
     target_width = lighting_target.texture.width
     target_height = lighting_target.texture.height
@@ -2547,6 +2568,7 @@ def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_t
         pr.end_shader_mode()
 
 def draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting_target, top_down_shader, shader_mode_active=False):
+    camera_x, camera_y = g_render_order.world_camera_offset(game_camera)
     light = prepared_light["light"]
 
     if not light.get("enabled", True):
@@ -2558,8 +2580,8 @@ def draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting
     height = max(0.0, float(size.get("y", 0.0)))
     intensity = max(0.0, float(light.get("intensity", 1.0)))
     edge_softness = max(0.0, float(light.get("edge_softness", 0.0)))
-    screen_x = world_position["x"] - game_camera.x
-    screen_y = world_position["y"] - game_camera.y
+    screen_x = world_position["x"] - camera_x
+    screen_y = world_position["y"] - camera_y
     area_min_x = screen_x - width * 0.5
     area_min_y = screen_y - height * 0.5
     area_max_x = screen_x + width * 0.5
@@ -3005,6 +3027,7 @@ def legacy_all_segments_build_light_visibility_polygon(light, light_position, ra
     return polygon
 
 def draw_occluder_light_receiver(occluder, game_camera):
+    camera_x, camera_y = g_render_order.world_camera_offset(game_camera)
     world_vertices = occluder.get("vertices", [])
 
     if len(world_vertices) < 3:
@@ -3013,7 +3036,7 @@ def draw_occluder_light_receiver(occluder, game_camera):
     screen_vertices = []
 
     for vertex in world_vertices:
-        screen_vertices.append(pr.Vector2(vertex["x"] - game_camera.x, vertex["y"] - game_camera.y))
+        screen_vertices.append(pr.Vector2(vertex["x"] - camera_x, vertex["y"] - camera_y))
 
     first_vertex = screen_vertices[0]
 
@@ -3033,17 +3056,18 @@ def draw_tile_light_receivers(occluders, game_camera):
         draw_occluder_light_receiver(occluder, game_camera)
 
 def draw_receiver_polygons(receiver_polygons, game_camera):
+    camera_x, camera_y = g_render_order.world_camera_offset(game_camera)
     triangle_strip = []
 
     for polygon in receiver_polygons:
         if len(polygon) < 3:
             continue
 
-        first = (polygon[0]["x"] - game_camera.x, polygon[0]["y"] - game_camera.y)
+        first = (polygon[0]["x"] - camera_x, polygon[0]["y"] - camera_y)
 
         for vertex_index in range(1, len(polygon) - 1):
-            current = (polygon[vertex_index]["x"] - game_camera.x, polygon[vertex_index]["y"] - game_camera.y)
-            next_vertex = (polygon[vertex_index + 1]["x"] - game_camera.x, polygon[vertex_index + 1]["y"] - game_camera.y)
+            current = (polygon[vertex_index]["x"] - camera_x, polygon[vertex_index]["y"] - camera_y)
+            next_vertex = (polygon[vertex_index + 1]["x"] - camera_x, polygon[vertex_index + 1]["y"] - camera_y)
             triangle = (first, next_vertex, current)
 
             if triangle_strip:
@@ -3057,11 +3081,12 @@ def draw_receiver_polygons(receiver_polygons, game_camera):
         pr.draw_triangle_strip(pr.ffi.cast("Vector2 *", point_array), len(triangle_strip), pr.WHITE)
 
 def draw_light_visibility_polygon(light, light_position, polygon, game_camera):
+    camera_x, camera_y = g_render_order.world_camera_offset(game_camera)
     if len(polygon) < 2:
         return
 
-    screen_points = [(light_position["x"] - game_camera.x, light_position["y"] - game_camera.y)]
-    screen_points.extend((point["x"] - game_camera.x, point["y"] - game_camera.y) for point in reversed(polygon))
+    screen_points = [(light_position["x"] - camera_x, light_position["y"] - camera_y)]
+    screen_points.extend((point["x"] - camera_x, point["y"] - camera_y) for point in reversed(polygon))
 
     if light.get("type", "point") == "point" and len(polygon) >= 3:
         screen_points.append(screen_points[1])
@@ -3070,7 +3095,8 @@ def draw_light_visibility_polygon(light, light_position, polygon, game_camera):
     pr.draw_triangle_fan(pr.ffi.cast("Vector2 *", point_array), len(screen_points), pr.WHITE)
 
 def world_point_to_screen(point, game_camera):
-    return {"x": point["x"] - game_camera.x, "y": point["y"] - game_camera.y}
+    camera_x, camera_y = g_render_order.world_camera_offset(game_camera)
+    return {"x": point["x"] - camera_x, "y": point["y"] - camera_y}
 
 def render_cinematic_shadow_visibility_mask(frame_data, game_camera, visibility_target):
     pr.begin_texture_mode(visibility_target)

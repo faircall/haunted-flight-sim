@@ -61,7 +61,9 @@ class EntitySelfShadowTests(unittest.TestCase):
         }
         flashlight = g_graphics.make_player_flashlight(player, {"tile_width": 16, "tile_height": 16})
         self.assertEqual(flashlight["entity_direction_origin"], {"x": 36.0, "y": 53.0})
-        self.assertEqual(flashlight["position"], {"x": 36.0, "y": 43.0})
+        self.assertEqual(flashlight["position"], {"x": 36.0, "y": 57.0})
+        self.assertEqual(flashlight["render_position"], {"x": 36.0, "y": 35.0})
+        self.assertEqual(flashlight["height"], 22.0)
 
     def test_camera_front_light_preserves_original_composite_across_sprite(self):
         summary, policy = self.prepare(make_prepared_light("front", 0, 20))

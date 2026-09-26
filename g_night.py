@@ -395,6 +395,7 @@ def facade_receiver(prepared, item, grid):
     stamp=(tuple(source.values()),light.get('enabled',True),light.get('type'),light.get('height',32.),
            tuple(light.get('direction',{}).values()),light.get('radius'),light.get('falloff'),light.get('intensity'),
            light.get('inner_angle'),light.get('outer_angle'),light.get('near_fade_distance'),
+           light.get('aperture_radius',0.),light.get('surface_near_fade',True),
            grid.get('geometry_revision'),id(field.get('values')),bool(light.get('_portal')))
     old=entry['receivers'].get(prepared['id'])
     if old and old['stamp']==stamp:return old
@@ -414,13 +415,18 @@ def facade_receiver(prepared, item, grid):
             values=np.clip(1-distance/max(.001,float(light.get('radius',100.))),0,1)**max(.001,float(light.get('falloff',2.)))
             if light.get('type')=='spot':
                 direction=visibility.normalize_vector(light.get('direction',{})) or {'x':0.,'y':1.}
-                alignment=(dx*direction['x']+dy*direction['y'])/np.maximum(.001,distance)
+                forward=dx*direction['x']+dy*direction['y']
+                # A real torch lens has area: at contact the spot keeps a small
+                # core instead of converging to a subpixel mathematical point.
+                across=np.sqrt(np.maximum(0.,distance*distance-forward*forward))
+                across=np.maximum(0.,across-float(light.get('aperture_radius',0.)))
+                alignment=forward/np.maximum(.001,np.sqrt(forward*forward+across*across))
                 low=math.cos(math.radians(light.get('outer_angle',35.)))
                 high=math.cos(math.radians(light.get('inner_angle',20.)))
                 cone=np.clip((alignment-low)/max(.00001,high-low),0,1)
                 values*=cone*cone*(3-2*cone)
             near=float(light.get('near_fade_distance',0.))
-            if near>0:
+            if near>0 and light.get('surface_near_fade',True):
                 amount=np.clip(distance/near,0,1);values*=amount*amount*(3-2*amount)
         values*=columns
     image=Image.fromarray((values*255).round().clip(0,255).astype('uint8'))
@@ -516,6 +522,7 @@ def portal_strength(light,point):
 
 def draw_portal(prepared,camera,target,assets):
     import g_graphics as graphics
+    import g_render_order as order
     light=prepared['light'];portal=light['_portal'];source=portal['source'];b=portal['bounds']
     rt=assets['night_runtime']
     if 'portal_shader' not in rt:
@@ -526,7 +533,7 @@ def draw_portal(prepared,camera,target,assets):
             'nearFadeDistance','innerConeCos','outerConeCos','lightHeight','panel','holesTexture','columnTexture')}
         if min(rt['portal_locations'].values())<0:raise RuntimeError('Aperture light shader failed')
     shader=rt['portal_shader'];loc=rt['portal_locations']
-    for name,value in (('resolution',(target.texture.width,target.texture.height)),('camera',(camera.x,camera.y)),
+    for name,value in (('resolution',(target.texture.width,target.texture.height)),('camera',order.world_camera_offset(camera)),
                        ('lightPosition',(source['position']['x'],source['position']['y'])),
                        ('lightDirection',(source['direction']['x'],source['direction']['y']))):
         graphics.set_shader_vec2(shader,loc[name],*value)

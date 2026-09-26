@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw
 import g_night as night
 import g_light_visibility as light
 import g_update_and_render as game
+import g_graphics as graphics
 from test_puzzles import make_arena, place
 
 
@@ -16,6 +17,26 @@ def exposed_map():
 
 
 class NightTests(unittest.TestCase):
+    def test_player_approaches_facade_at_feet_and_flashlight_survives_contact(self):
+        arena=make_arena();tm=arena['tile_map']
+        obj=night.make_facade({'x':104.,'y':96.},'wood_wall')
+        arena['entities']['facades']={'wall':obj};night.sync_collision(arena)
+        player=game.make_default_player(104.,130.,0.)
+        player.update(aim_direction={'x':0.,'y':-1.},animation_direction='up')
+        for _ in range(200):
+            player['position']=game.move_entity_with_velocity(player,{'x':0.,'y':-35.},tm,None,.016)
+        world=game.make_pos_abs(player['position'],16,16)
+        feet=world['y']+player['render_base_offset']['y']
+        self.assertGreaterEqual(feet-96.,0.)
+        self.assertLess(feet-96.,9.,'torso collider stops feet a tile away from the wall')
+        grid=graphics.ensure_light_collision_grid({},tm)
+        light=graphics.make_player_flashlight(player,tm,grid)
+        self.assertGreater(light['position']['y'],96.,'torch origin entered the wall')
+        item={'_facade':{'bounds':night.facade_bounds(obj,tm),'receivers':{}}}
+        response=night.facade_receiver({'id':'torch','light':light,'world_position':light['position']},item,grid)
+        self.assertGreater(response['strength'],.25,'wall flashlight extinguishes at contact')
+        self.assertGreater(sum(p>25 for p in response['image'].getdata()),4,'close beam collapses to a point')
+
     def test_moon_has_no_radial_falloff_and_respects_roof_and_wall_shadow(self):
         tm=exposed_map();tm['tiles'][3*12+2]['index']=3
         tm['tiles'][4]['rain_exposure']=0.
