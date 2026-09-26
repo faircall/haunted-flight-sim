@@ -131,7 +131,7 @@ class SurfaceTests(unittest.TestCase):
     def test_stationary_cache_reuses_resources_and_erase_releases(self):
         tm=game.make_tile_map(12,8,16,16);assets={};camera=SimpleNamespace(x=0,y=0)
         s.paint(tm,[(1,1)],'dirt')
-        with patch.object(s,'upload_image',return_value=object()),patch.object(s,'build_grass_mesh',return_value=None),patch.object(s,'free_chunk') as free:
+        with patch.object(s,'upload_image',return_value=object()),patch.object(s.pr,'unload_texture'),patch.object(s,'build_grass_mesh',return_value=None),patch.object(s,'free_chunk') as free:
             s.prepare(assets,tm,camera)
             with patch.object(s,'bake_chunk',side_effect=AssertionError('unnecessary bake')),patch.object(s,'signature',side_effect=AssertionError('unnecessary scan')):
                 s.prepare(assets,tm,camera)
@@ -141,6 +141,36 @@ class SurfaceTests(unittest.TestCase):
             self.assertTrue(all(c is not old_chunks[k] for k,c in assets['surface_runtime']['chunks'].items()))
             s.paint(tm,[(1,1)],'erase');s.prepare(assets,tm,camera)
             self.assertFalse(assets['surface_runtime']['chunks']);self.assertTrue(free.called)
+
+    def test_dirt_prints_keep_contact_direction_and_grass_stays_unmarked(self):
+        tm=game.make_tile_map(8,8,16,16)
+        s.paint(tm,[(x,y) for y in range(8) for x in range(8)],'dirt')
+        rt={'footprints':[]}
+        for t,(x,y) in enumerate(((24,24),(36,24),(36,36),(24,36))):
+            s.update_footprints(rt,tm,dict(x=x,y=y),float(t),True)
+        self.assertEqual([p[3:] for p in rt['footprints']],[(1.,0.),(0.,1.),(-1.,0.)])
+        previous=list(rt['footprints'])
+        s.paint(tm,[(x,y) for y in range(8) for x in range(8)],'grass')
+        s.update_footprints(rt,tm,dict(x=24,y=48),4.,True)
+        self.assertEqual(rt['footprints'],previous)
+        self.assertEqual(s.footprint_pixels(0,1),{(-y,x) for x,y in s.footprint_pixels(1,0)})
+        s.update_footprints(rt,tm,dict(x=24,y=48),22.,True)
+        self.assertFalse(rt['footprints'])
+
+    def test_wall_placement_suppresses_grass_without_erasing_material(self):
+        tm=game.make_tile_map(4,4,16,16)
+        s.paint(tm,[(x,y) for y in range(4) for x in range(4)],'grass',density=1,soft=False)
+        before=s.signature(tm,0,0)
+        self.assertTrue(s.bake_chunk(tm,0,0)[1])
+        for tile in tm['tiles']:tile['index']=3
+        self.assertNotEqual(s.signature(tm,0,0),before)
+        self.assertFalse(s.bake_chunk(tm,0,0)[1])
+        self.assertTrue(all(t['surface_material']=='grass' for t in tm['tiles']))
+        # Opening/removing derived facade collision must restore decoration.
+        for tile in tm['tiles']:tile.update(index=0,facade_blocked=True)
+        self.assertFalse(s.bake_chunk(tm,0,0)[1])
+        for tile in tm['tiles']:tile['facade_blocked']=False
+        self.assertTrue(s.bake_chunk(tm,0,0)[1])
 
     def test_material_controls_capture_the_seed_field_before_paint(self):
         ui={'mouse_captured':False};editor={'tile_edit_mode':'materials'}

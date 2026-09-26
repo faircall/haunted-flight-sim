@@ -11,7 +11,8 @@ ART = Path(__file__).resolve().parent / 'art' / 'surfaces'
 MATERIALS = ('erase', 'grass', 'dirt', 'wood', 'carpet', 'ceramic', 'wall')
 COLORS = {'grass': (85, 91, 48), 'dirt': (135, 117, 90), 'wood': (137, 109, 82), 'carpet': (93, 60, 53), 'ceramic': (130, 146, 135), 'wall': (86, 75, 60)}
 CHUNK = 4
-MASK_VERSION = 2
+MASK_VERSION = 3
+GRASS_SHADER_VERSION = 2
 
 def brush_settings(editor):
     return dict(density=editor.get('surface_density', 0.65), seed=editor.get('surface_seed', 17), soft=editor.get('surface_soft', True))
@@ -29,7 +30,8 @@ def draw_controls(ui, editor):
     editor['surface_seed'], _ = g_ui.ui_number_input_int(ui, 'surface:seed', 'Seed', editor.get('surface_seed', 17), 0, 99999, pr.Rectangle(332, 151, 138, 17))
     pr.draw_text('LMB paint / RMB fill', 332, 178, 8, g_ui.UI_MUTED)
     pr.draw_text('Ctrl+Z undo', 332, 190, 8, g_ui.UI_MUTED)
-    pr.draw_text('Geometry: appearance', 332, 204, 8, g_ui.UI_MUTED)
+    pr.draw_text('Finish + footstep sound', 332, 202, 7, g_ui.UI_MUTED)
+    pr.draw_text('Keeps tile collision', 332, 211, 7, g_ui.UI_MUTED)
     editor['surface_material'], _ = g_ui.ui_dropdown(ui, 'surface:material', '', editor.get('surface_material', 'grass'), MATERIALS, pr.Rectangle(332, 65, 138, 17), 7)
 
 def noise(x, y, seed=0):
@@ -90,7 +92,7 @@ def flood(tm, x, y, material, **settings):
 
 def signature(tm, cx, cy):
     """A two-cell halo invalidates adjacent masks and overlapping detail cutouts."""
-    return tuple(((t.get('surface_material'), t.get('surface_density'), t.get('surface_seed'), t.get('surface_soft'), t.get('shape_index', 0)) for y in range(cy * CHUNK - 2, (cy + 1) * CHUNK + 2) for x in range(cx * CHUNK - 2, (cx + 1) * CHUNK + 2) for t in (cell(tm, x, y),)))
+    return tuple(((t.get('surface_material'), t.get('surface_density'), t.get('surface_seed'), t.get('surface_soft'), t.get('shape_index', 0), vegetation_blocked(tm, t)) for y in range(cy * CHUNK - 2, (cy + 1) * CHUNK + 2) for x in range(cx * CHUNK - 2, (cx + 1) * CHUNK + 2) for t in (cell(tm, x, y),)))
 
 @lru_cache(maxsize=1)
 def detail_data():
@@ -186,6 +188,11 @@ def base_patch(kind, ox, oy, w, h):
     rgb = np.asarray(COLORS[kind])[None, None, :] + value[:, :, None]
     return Image.fromarray(rgb.round().clip(0, 255).astype('uint8')).convert('RGBA')
 
+def vegetation_blocked(tm, tile):
+    # A material is a finish, so an old grass finish must not grow through a wall.
+    import g_update_and_render as game
+    return game.tile_is_collidable(tile, tm)
+
 def candidates(tm, ox, oy, width, height):
     """Anchor identity depends on world position and seed, never paint order."""
     records, _ = detail_data()
@@ -195,6 +202,8 @@ def candidates(tm, ox, oy, width, height):
             y = gy * 8 + 1 + noise(gx, gy, 7) * 6
             tile = cell(tm, math.floor(x / tm['tile_width']), math.floor(y / tm['tile_height']))
             kind = tile.get('surface_material')
+            if kind == 'grass' and vegetation_blocked(tm, tile):
+                continue
             seed = tile.get('surface_seed', 17)
             probability = tile.get('surface_density', 0.65) * (0.46 if kind == 'grass' else 0.16)
             if kind not in COLORS or noise(gx, gy, seed) > probability:
@@ -315,6 +324,11 @@ def prepare(assets, tm, camera):
         if key not in visible:
             free_chunk(rt['chunks'].pop(key))
     rt['visible'] = visible
+    blocker_revision = (id(tm), tm.get('geometry_revision', 0), MASK_VERSION, rt['dimensions'])
+    if (rt.get('blocker_revision') != blocker_revision
+            and any(rt['chunks'][key]['mesh'] is not None for key in visible)):
+        prepare_grass_blockers(rt, tm)
+        rt['blocker_revision'] = blocker_revision
     rt['revision'] = revision
     return rt
 
@@ -325,20 +339,63 @@ def draw_cell(assets, tm, x, y, screen):
         tw, th = (tm['tile_width'], tm['tile_height'])
         pr.draw_texture_rec(chunk['texture'], pr.Rectangle(x % CHUNK * tw, y % CHUNK * th, tw, th), screen, pr.WHITE)
 
+def prepare_grass_blockers(rt, tm):
+    import g_light_visibility as visibility
+    tw, th = tm['tile_width'], tm['tile_height']
+    mask = Image.new('RGBA', (tm['map_width']*tw, tm['map_height']*th), (0,0,0,255))
+    draw = ImageDraw.Draw(mask)
+    for index, tile in enumerate(tm['tiles']):
+        if not vegetation_blocked(tm, tile):continue
+        x,y = index % tm['map_width'], index // tm['map_width']
+        shape = 0 if tile.get('facade_blocked') or tile.get('puzzle_blocked') else tile.get('shape_index',0)
+        if shape == 0:
+            draw.rectangle((x*tw,y*th,(x+1)*tw-1,(y+1)*th-1),fill=(255,255,255,255))
+        else:
+            points = visibility.tile_shape_world_vertices(x,y,shape,tw,th)
+            draw.polygon([(p['x'],p['y']) for p in points],fill=(255,255,255,255))
+    if 'blocker_texture' in rt:pr.unload_texture(rt['blocker_texture'])
+    rt['blocker_texture'] = upload_image(mask)
+
 def ensure_grass(rt):
-    if 'shader' in rt:
+    if 'shader' in rt and rt.get('shader_version') == GRASS_SHADER_VERSION:
         return
+    if 'material' in rt:
+        pr.unload_texture(rt['material'].maps[0].texture)
+        pr.rl.MemFree(rt['material'].maps)
+    if 'shader' in rt:pr.unload_shader(rt['shader'])
     path = ART.parent.parent / 'shaders'
     shader = pr.load_shader(str(path / 'surface_grass.vs'), str(path / 'surface_grass.fs'))
-    names = ('camera', 'player', 'wind', 'elapsed', 'shadow')
+    names = ('camera', 'player', 'wind', 'elapsed', 'shadow', 'blockerTexture', 'worldSize')
     locations = {n: pr.get_shader_location(shader, n) for n in names}
     if shader.id == pr.rl.rlGetShaderIdDefault() or min(locations.values()) < 0:
         raise RuntimeError('Grass shader failed')
     material = pr.load_material_default()
     material.shader = shader
+    material.shader.locs[int(pr.ShaderLocationIndex.SHADER_LOC_MAP_NORMAL)] = locations['blockerTexture']
     material.maps[0].texture = pr.load_texture(str(ART / 'details.png'))
     pr.set_texture_filter(material.maps[0].texture, pr.TextureFilter.TEXTURE_FILTER_POINT)
-    rt.update(shader=shader, locations=locations, material=material, identity=pr.matrix_identity())
+    rt.update(shader=shader, shader_version=GRASS_SHADER_VERSION, locations=locations, material=material, identity=pr.matrix_identity())
+
+def update_footprints(rt, tm, pos, elapsed, playing):
+    previous = rt.get('last_player') if playing else None
+    if playing and previous:
+        distance = math.hypot(pos['x']-previous[0], pos['y']-previous[1])
+        if distance > 10:
+            if distance < 40 and material_at(tm, pos['x'], pos['y']) == 'dirt':
+                dx, dy = (pos['x']-previous[0])/distance, (pos['y']-previous[1])/distance
+                side = 1 if rt.get('step_index', 0) % 2 else -1
+                rt['step_index'] = rt.get('step_index', 0) + 1
+                rt['footprints'].append((pos['x']-dy*side*2, pos['y']+dx*side*2, elapsed, dx, dy))
+            rt['last_player'] = (pos['x'], pos['y'])
+    else:
+        rt['last_player'] = (pos['x'], pos['y']) if playing else None
+    rt['footprints'] = [p for p in rt['footprints'][-96:] if len(p) == 5 and 0 <= elapsed-p[2] < 18]
+
+def footprint_pixels(dx, dy):
+    # Broad toe, narrow heel; direction remains the travel direction at contact.
+    return {(x,y) for y in range(-3,4) for x in range(-3,4)
+            if -1.5 <= x*dx+y*dy <= 2.0
+            and abs(-x*dy+y*dx) <= (1.0 if x*dx+y*dy >= 0 else .55)}
 
 def draw_details(assets, tm, camera, player, wind, elapsed, playing):
     rt = assets.get('surface_runtime')
@@ -349,32 +406,22 @@ def draw_details(assets, tm, camera, player, wind, elapsed, playing):
     base_offset = player.get('render_base_offset', {'x': 0., 'y': 14.})
     pos['x'] += float(base_offset.get('x', 0.))
     pos['y'] += float(base_offset.get('y', 0.))
-    if playing:
-        previous = rt.get('last_player')
-        if previous and math.hypot(pos['x'] - previous[0], pos['y'] - previous[1]) > 10:
-            distance = math.hypot(pos['x'] - previous[0], pos['y'] - previous[1])
-            kind = material_at(tm, pos['x'], pos['y'])
-            if kind in ('grass', 'dirt') and distance < 40:
-                side = 1 if len(rt['footprints']) % 2 else -1
-                dx = (pos['x'] - previous[0]) / distance
-                dy = (pos['y'] - previous[1]) / distance
-                rt['footprints'].append((pos['x'] - dy * side * 2, pos['y'] + dx * side * 2, elapsed, kind))
-            rt['last_player'] = (pos['x'], pos['y'])
-        elif previous is None:
-            rt['last_player'] = (pos['x'], pos['y'])
-    else:
-        rt['last_player'] = None
-    rt['footprints'] = [p for p in rt['footprints'][-96:] if 0 <= elapsed - p[2] < (5 if p[3] == 'grass' else 18)]
-    for x, y, t, kind in rt['footprints']:
-        if material_at(tm, x, y) != kind:
+    update_footprints(rt, tm, pos, elapsed, playing)
+    for x, y, t, dx, dy in rt['footprints']:
+        if material_at(tm, x, y) != 'dirt':
             continue
-        alpha = int(85 * (1 - (elapsed - t) / (5 if kind == 'grass' else 18)))
-        pr.draw_ellipse(round(x) - round(camera.x), round(y) - round(camera.y), 1.2, 2.0, pr.Color(45, 38, 27, alpha))
+        alpha = int(85 * (1 - (elapsed - t) / 18))
+        # Rasterise the stored sole orientation at native pixels, without filtering.
+        for px, py in footprint_pixels(dx, dy):
+            pr.draw_pixel(round(x) - round(camera.x) + px, round(y) - round(camera.y) + py,
+                          pr.Color(45, 38, 27, alpha))
     if not any((rt['chunks'][key]['mesh'] is not None for key in rt['visible'])):
         return
     ensure_grass(rt)
     shader = rt['shader']
     loc = rt['locations']
+    rt['material'].maps[2].texture = rt['blocker_texture']
+    pr.set_shader_value(shader, loc['worldSize'], pr.ffi.new('float[]', (rt['blocker_texture'].width, rt['blocker_texture'].height)), pr.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
     wind = g_effects.sample_wind(wind, pos['x'], pos['y'], elapsed)
     for name, value in (('camera', (round(camera.x), round(camera.y))), ('player', (pos['x'], pos['y'])), ('wind', (wind['x'], wind['y']))):
         pr.rl.SetShaderValue(shader, loc[name], pr.ffi.new('float[]', value), int(pr.ShaderUniformDataType.SHADER_UNIFORM_VEC2))
@@ -405,6 +452,7 @@ def unload(assets):
     rt = assets.pop('surface_runtime', {})
     for chunk in rt.get('chunks', {}).values():
         free_chunk(chunk)
+    if 'blocker_texture' in rt:pr.unload_texture(rt['blocker_texture'])
     if 'material' in rt:
         pr.unload_texture(rt['material'].maps[0].texture)
         pr.rl.MemFree(rt['material'].maps)

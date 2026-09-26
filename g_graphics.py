@@ -507,6 +507,7 @@ def apply_light_capability_defaults(light):
     result.setdefault("affects_ai", True)
     result.setdefault("casts_wall_shadows", result.get("casts_shadows", True))
     result.setdefault("casts_cinematic_shadows", False)
+    result.setdefault("casts_character_shadows", result.get("type", "point") != "top_down")
     result.setdefault("gameplay_intensity", 1.0)
     result.setdefault("mobility", "static")
     result.setdefault("render_style", "world")
@@ -575,6 +576,9 @@ def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene
     frame_number = int(game_assets.get("lighting_frame_counter", 0)) + 1
     game_assets["lighting_frame_counter"] = frame_number
     records = collect_light_records(entities, player_entity, tile_map, game_assets)
+    flashlight = next((r for r in records if r['id'] == 'runtime:player_flashlight'), None)
+    if flashlight:
+        records.extend(g_night.flashlight_portals(game_assets, flashlight['light'], collision_grid))
     prepared_lights = []
     prepared_by_id = {}
     stats = {
@@ -633,6 +637,7 @@ def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene
             "affects_ai": light["affects_ai"],
             "casts_wall_shadows": light["casts_wall_shadows"],
             "casts_cinematic_shadows": light["casts_cinematic_shadows"],
+            "casts_character_shadows": light["casts_character_shadows"],
             "geometry_cache_hit": False
         }
         stats["active_light_count"] += 1
@@ -677,6 +682,7 @@ def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene
         prepared_lights.append(prepared)
         prepared_by_id[record["id"]] = prepared
 
+    g_night.prune_receiver_lights(game_assets, set(prepared_by_id))
     stats["pruned_cache_entries"] = light_visibility.prune_light_visibility_cache(cache, frame_number, int(game_assets.get("light_visibility_cache_max_unused_frames", 600)))
     stats["prepare_time_ms"] = (time.perf_counter() - prepare_started) * 1000.0
     lighting_frame = {"collision_grid": collision_grid, "prepared_lights": prepared_lights, "prepared_by_id": prepared_by_id, "stats": stats}
@@ -962,6 +968,8 @@ def spot_light_conservatively_intersects_render_item(prepared_light, render_item
 
 def get_prepared_light_strength_for_render_item(prepared_light, render_item, collision_grid):
     light = prepared_light.get("light", {})
+    if "_facade" in render_item:
+        return g_night.facade_receiver(prepared_light, render_item, collision_grid)['strength']
     strengths = []
 
     for point in get_render_item_light_sample_points(render_item):
@@ -1989,10 +1997,13 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
 
             if light_record is not None and not light_record.get("blocked", False):
                 per_light_item = _make_per_light_render_item(item, light_record)
+                item_scratch = scratch_target
+                if "_facade" in item:
+                    item_scratch = g_night.draw_facade_receiver(prepared_light, item, game_camera, game_assets, width, height)
                 pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA, pr.RL_ONE, pr.RL_ZERO, pr.RL_ONE, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
                 pr.begin_texture_mode(light_layer_target)
                 pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
-                _add_entity_direct_shape(shader_info, per_light_item, texture, main_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
+                _add_entity_direct_shape(shader_info, per_light_item, texture, main_shape, item_scratch, entity_readability_lighting, lighting_profile, game_assets)
                 pr.end_blend_mode()
                 pr.end_texture_mode()
                 survival_draws += 1
@@ -2395,7 +2406,7 @@ def draw_textured_quad(texture, source_rect, far_left, far_right, near_right, ne
     pr.rl_set_texture(0)
 
 def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashlight):
-    if prepared_flashlight is None or not prepared_flashlight.get("casts_cinematic_shadows", False):
+    if prepared_flashlight is None or not (prepared_flashlight.get("casts_cinematic_shadows", False) or prepared_flashlight.get("casts_character_shadows", False)):
         return None
 
     flashlight = prepared_flashlight["light"]
@@ -2409,7 +2420,14 @@ def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashl
 
     for render_item in render_items:
         source_id = render_item.get("source_id", str(render_item.get("id")))
+        if str(source_id) == str(flashlight.get("owner_id", "")):
+            continue
+        if not prepared_flashlight.get("casts_cinematic_shadows", False) and render_item.get("source") not in {"player", "red head"}:
+            continue
         shadow_settings = render_item.get("shadow", {})
+        # Older levels saved the previous player default (none, height zero).
+        if source_id == "player" and shadow_settings.get("mode") == "none" and not shadow_settings.get("cast_height", 0) and shadow_settings.get("enabled", True):
+            shadow_settings = dict(shadow_settings, mode="upright", cast_height=render_item.get("visual_height", 30.), maximum_length=96., opacity=.78)
         shadow_mode = shadow_settings.get("mode", "none")
         if not shadow_settings.get("enabled", True):
             skipped.append({"source_id": source_id, "reason": "disabled"})
@@ -2441,7 +2459,7 @@ def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashl
         if flashlight_strength <= 0.0:
             skipped.append({"source_id": source_id, "reason": "outside cone"})
             continue
-        if not point_in_polygon(floor_anchor, visibility_area):
+        if prepared_flashlight.get("casts_wall_shadows", False) and not point_in_polygon(floor_anchor, visibility_area):
             skipped.append({"source_id": source_id, "reason": "behind tile wall"})
             continue
         shadow_opacity = max(0.0, min(1.0, float(shadow_settings.get("opacity", 0.58))))
@@ -2569,6 +2587,9 @@ def draw_prepared_top_down_light_to_target(prepared_light, game_camera, lighting
         pr.end_shader_mode()
 
 def draw_prepared_light_to_target(prepared_light, game_camera, lighting_target, game_assets, include_receivers=True, clip_to_wall_visibility=True):
+    if "_portal" in prepared_light["light"]:
+        g_night.draw_portal(prepared_light, game_camera, lighting_target, game_assets)
+        return
     if "_field" in prepared_light["light"]:
         g_night.draw_field(prepared_light, game_camera, lighting_target, game_assets, unmasked=not clip_to_wall_visibility)
         return
@@ -2591,6 +2612,18 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
         raise ValueError(f"unknown prepared light target kind: {target_kind}")
 
     draw_started = time.perf_counter()
+    # Keep each cast shadow local to its source, so other lights survive underneath.
+    shadowed = []
+    ordinary = []
+    for prepared in prepared_lights:
+        frame = None
+        if target_kind == "world" and prepared.get("affects_world", True) and (render_style is None or prepared["light"].get("render_style", "world") == render_style):
+            frame = build_cinematic_shadow_frame_data(game_assets.get("shadow_render_items", []), game_assets, prepared)
+        if frame and frame["shadows"]:
+            shadowed.append((prepared, frame))
+        else:
+            ordinary.append(prepared)
+    prepared_lights = ordinary
     pr.begin_texture_mode(lighting_target)
     pr.clear_background(pr.BLACK)
     pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
@@ -2601,10 +2634,10 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
 
     if render_style is not None:
         target_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("render_style", "world") == render_style]
-    field_lights = [item for item in target_lights if "_field" in item["light"]]
-    target_lights = [item for item in target_lights if "_field" not in item["light"]]
+    field_lights = [item for item in target_lights if "_field" in item["light"] or "_portal" in item["light"]]
+    target_lights = [item for item in target_lights if "_field" not in item["light"] and "_portal" not in item["light"]]
     for item in field_lights:
-        g_night.draw_field(item, game_camera, lighting_target, game_assets)
+        draw_prepared_light_to_target(item, game_camera, lighting_target, game_assets)
     radial_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("type", "point") != "top_down"]
     top_down_lights = [prepared_light for prepared_light in target_lights if prepared_light["light"].get("type", "point") == "top_down"]
 
@@ -2630,6 +2663,21 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
 
     pr.end_blend_mode()
     pr.end_texture_mode()
+    for prepared, frame in shadowed:
+        scratch = get_or_create_render_target(game_assets, "cast_shadow_light", lighting_target.texture.width, lighting_target.texture.height)
+        prepare_character_shadow_atlas(frame, game_assets)
+        pr.begin_texture_mode(scratch)
+        pr.clear_background(pr.BLACK)
+        pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
+        draw_prepared_light_to_target(prepared, game_camera, scratch, game_assets)
+        pr.end_blend_mode()
+        pr.end_texture_mode()
+        render_cinematic_shadow_raw(frame, game_camera, scratch, game_assets["shaders"]["cinematic_shadow_projection"], attenuate_light=True)
+        pr.begin_texture_mode(lighting_target)
+        pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
+        pr.draw_texture_rec(scratch.texture, pr.Rectangle(0, 0, scratch.texture.width, -scratch.texture.height), pr.Vector2(0, 0), pr.WHITE)
+        pr.end_blend_mode()
+        pr.end_texture_mode()
     return (time.perf_counter() - draw_started) * 1000.0
 
 def render_prepared_lighting(lighting_frame, game_camera, lighting_target, game_assets):
@@ -2999,7 +3047,8 @@ def draw_receiver_polygons(receiver_polygons, game_camera):
             triangle = (first, next_vertex, current)
 
             if triangle_strip:
-                triangle_strip.extend((triangle_strip[-1], triangle[0], triangle[0], triangle[1], triangle[2]))
+                # Six vertices preserve strip parity; five flipped every other triangle.
+                triangle_strip.extend((triangle_strip[-1], triangle_strip[-1], triangle[0], triangle[0], triangle[1], triangle[2]))
             else:
                 triangle_strip.extend(triangle)
 
@@ -3029,17 +3078,18 @@ def render_cinematic_shadow_visibility_mask(frame_data, game_camera, visibility_
     draw_light_visibility_polygon(frame_data["visibility_light"], frame_data["flashlight_position"], frame_data["visibility_polygon"], game_camera)
     pr.end_texture_mode()
 
-def render_cinematic_shadow_raw(frame_data, game_camera, raw_target, projection_shader):
+def render_cinematic_shadow_raw(frame_data, game_camera, raw_target, projection_shader, attenuate_light=False):
     shader = projection_shader["shader"]
 
     pr.begin_texture_mode(raw_target)
-    pr.clear_background(pr.BLANK)
+    if not attenuate_light:
+        pr.clear_background(pr.BLANK)
 
     for shadow in frame_data["shadows"]:
         sprite_info = shadow["sprite_info"]
         shadow_settings = shadow["settings"]
         shadow_quad = shadow["quad"]
-        red, green, blue = normalize_light_color(shadow_settings.get("color", [0.008, 0.004, 0.018]))
+        red, green, blue = (0., 0., 0.) if attenuate_light else normalize_light_color(shadow_settings.get("color", [0.008, 0.004, 0.018]))
         set_shader_vec3(shader, projection_shader["shadow_color_location"], red, green, blue)
         set_shader_float(shader, projection_shader["shadow_opacity_location"], shadow["opacity"])
         set_shader_float(shader, projection_shader["alpha_cutoff_location"], 0.02)

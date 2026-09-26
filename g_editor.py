@@ -1377,6 +1377,8 @@ def draw_tile_edit_controls(ui_state, editor_state, tile_map):
     pr.draw_text("Tile edit", 332, 32, 8, pr.WHITE)
 
     if mode == "appearance":
+        pr.draw_text("Type + shape / collision", 332, 101, 7, g_ui.UI_MUTED)
+        pr.draw_text("Materials: finish + sound", 332, 112, 7, g_ui.UI_MUTED)
         return
     if mode == "materials":
         g_surfaces.draw_controls(ui_state, editor_state)
@@ -1522,6 +1524,7 @@ def inspect_common_light(ui_state, widget_id, light, include_shadows=True):
 
     if include_shadows:
         light["casts_wall_shadows"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:wall_shadows", "wall shadows", light.get("casts_wall_shadows", True))
+        light["casts_character_shadows"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:characters", "character shadows", light.get("casts_character_shadows", True))
         light["casts_cinematic_shadows"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:cinematic", "cinematic shadows", light.get("casts_cinematic_shadows", False))
 
 def inspect_point_light(ui_state, editor_state, object_id, light, tile_map):

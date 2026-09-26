@@ -22,6 +22,10 @@ def run():
         if frame==2:
             arena['entities']['lights']['lamp:left']['enabled']=True
             game.g_puzzles.set_door_open(arena,arena['entities']['puzzles'][1],True)
+            arena['player_info']['position']=game.g_editor.world_to_tile_position({'x':296.,'y':178.},arena['tile_map'])
+            arena['player_info']['aim_direction']={'x':0.,'y':-1.}
+        if frame==3:
+            arena['player_info']['position']=game.g_editor.world_to_tile_position({'x':250.,'y':95.},arena['tile_map'])
         if frame==3:arena['lighting_profile']['moonlight']['azimuth']=125.
         if frame==5:
             arena['entities']['facades'].clear();arena['lighting_profile']['moonlight']['enabled']=False
@@ -31,6 +35,8 @@ def run():
         result=original(render,lighting,arena.set('editor_mode','environment' if frame in (3,4) else 'play'),assets,engine)
         rt=assets['night_runtime']
         if frame==0:
+            from night_lighting_smoke import check
+            check(game,assets)
             assert len(assets['facade_textures'])==8
             assert len(assets['architectural_lights'])==5
             state['moon']=rt['entries']['moon'];state['door']=rt['entries']['facade:door']

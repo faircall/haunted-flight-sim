@@ -10,6 +10,7 @@ uniform float elapsed;
 uniform float shadow;
 out vec2 fragTexCoord;
 out float shade;
+out vec2 groundPixel;
 void main(){
  vec2 root=vertexNormal.xy;
  float tip=vertexNormal.z;
@@ -26,6 +27,7 @@ void main(){
   point=root+vec2(local.x-local.y*.5,-local.y*.17+1.0);
  }
  gl_Position=mvp*vec4(point-camera,0.0,1.0);
+ groundPixel=point;
  fragTexCoord=vertexTexCoord;
  shade=shadow;
 }

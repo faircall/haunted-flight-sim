@@ -9093,8 +9093,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if render_environment_effects and not do_load_level:
         g_graphics.draw_character_contact_shadows(render_target, camera_3d.position, sorted_world_items)
-        g_graphics.render_and_apply_cinematic_entity_shadows(render_target, camera_3d.position, sorted_world_items, game_assets, prepared_flashlight)
+        # Cast silhouettes attenuate their own light below, before lights add together.
 
+    game_assets["shadow_render_items"] = sorted_world_items if render_environment_effects else []
     entity_light_target = None
     entity_readability_light_target = None
 

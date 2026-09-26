@@ -692,6 +692,9 @@ def get_unoccluded_light_strength_at_world_point(light, world_point, collision_g
     if not light.get("enabled", True):
         return 0.0
 
+    if "_portal" in light:
+        import g_night
+        return g_night.portal_strength(light, world_point)
     field = light.get("_field")
     if field is not None:
         x, y = math.floor(world_point["x"] - field["origin"][0]), math.floor(world_point["y"] - field["origin"][1])

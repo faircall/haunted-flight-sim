@@ -30,6 +30,18 @@ shapes also participate. Curved visual boundaries do not change collision geomet
 Use the existing appearance/collision tools to create walls or change geometry.
 Existing saved "Soft joins" regions automatically use the rounded stencils.
 
+### Tile types versus materials
+
+**Appearance / tile placement** chooses the underlying tile type, shape and
+collision behaviour (and its default footstep sound). **Materials** paints a
+procedural finish over those cells: colour, grain, details, grass and material
+footstep sound. It does not create or remove a wall. For example, paint a solid
+wall tile with the wood material to get a wooden wall; painting the wall material
+over walkable ground only changes its finish. Erase removes the material overlay.
+Changing a tile type preserves any existing painted finish; erase that finish to
+see the original tile art again. Acoustic zones and explicit footstep overlays
+remain separate controls.
+
 ## Art and rendering
 
 `prepare_surface_assets.py` extracts 21 reusable details from the concepts:
@@ -47,8 +59,12 @@ Point sampling and the game's native resolution remain in use.
 Grass has inexpensive projected contact silhouettes and receives existing floor
 lighting. These are **not per-light directional grass shadows**. Grass is currently
 short ground decoration, drawn below actors; tall vegetation would need a separate
-occlusion/sorting pass. Footprints fade after 5 seconds on grass and 18 on dirt;
-they are visual marks, not persistent flattened vegetation. Bullet impacts add
+occlusion/sorting pass. Solid wall cells suppress grass roots and clip overhanging
+grass pixels using a cached geometry mask. Grass on walkable ground still animates.
+Footprints appear only on dirt and fade after 18 seconds. Each print stores the
+travel direction at contact, with a pixel-crisp oriented sole; existing prints do
+not turn with the player. Grass still rustles and bends but receives no prints.
+Bullet impacts add
 bounded, persistent decals to painted wood, wall and ceramic cells.
 
 Collision, navigation, acoustic zones, rain exposure and puddle metadata remain

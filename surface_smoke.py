@@ -12,6 +12,9 @@ from surface_trial import review_map, review_profile
 
 
 def check_grass_motion(assets, tm):
+    # An already-open game must replace the old grass shader on code reload.
+    assets['surface_runtime'].pop('shader_version',None)
+    surfaces.ensure_grass(assets['surface_runtime'])
     target=pr.load_render_texture(480,270)
     poses=[]
     cases=[(0.,8.,(-100.,-100.)),(1.7,8.,(-100.,-100.)),
@@ -51,7 +54,8 @@ def run():
         game.update_camera=lambda camera,**kwargs:camera
         assets.setdefault('ui_state',game.g_ui.make_ui_state())['show_editor']=frame==4
         if frame==2:
-            arena['player_info']['position']['x']+=12
+            arena['player_info']['position']=game.g_editor.world_to_tile_position({'x':160.,'y':148.},arena['tile_map'])
+            assets['surface_runtime']['last_player']=(148.,162.)
         if frame==5:
             surfaces.paint(arena['tile_map'],[(5,5)],'dirt')
         if frame==6:

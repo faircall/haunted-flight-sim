@@ -25,6 +25,17 @@ Moonlight has no radial falloff. It uses a cached world light map containing
 parallel wall shadows and sky exposure. It contributes to ground, entity response
 maps, fog and optional gameplay exposure. Existing point/spot lights still work.
 
+**Moonlight colour:** Environment → World → Moonlight → **moon colour** (RGB).
+
+The hard outdoor building shadows come from two masks: the painted sky/roof
+exposure and the collision footprints extruded along the moon direction. Shadow
+length is `wall height / tan(elevation)`, capped at 256 world pixels. Tile walls
+and facade footprints are tile-aligned, and every wall shares that height, so
+square ends/steps can remain visible even when the artwork has a different outline.
+This pass fixes missing diagonal halves in the light-receiver drawing; it keeps
+the authored moon-shadow shape model. A later improvement could give each panel
+its own height and silhouette instead of changing the ambient brightness.
+
 ## Add windows and pierced doors
 
 In **environment → place**, choose **Window Wall**, **Pierced Door**, or
@@ -53,6 +64,24 @@ collision. Obstacles beyond an opening clip its spill. Opening a linked door
 expands its aperture and removes the panel's collider; normal puzzle checks still
 prevent closing on an actor. Avoid painting a permanently solid wall tile under
 a doorway, since that independent wall collider would remain.
+
+The flashlight now transmits through closed window/door apertures in either
+direction. Its source height and the opening height determine where the light
+lands on the floor. This is a single-opening projection; it does not recursively
+carry a beam through several buildings. Open doors use the ordinary flashlight
+visibility path, avoiding a doubled cone. Static linked lamps keep their existing
+authored spill projection.
+
+Facade lighting samples the upright front plane. Sprite rows represent height,
+so outside lights can illuminate that face without the panel blocking itself;
+lights behind it do not light the exterior wood. Glowing apertures remain visible.
+
+Point/spot lamps now have **character shadows** enabled by default, including for
+older saved lamps that lack the setting. The animated player and enemy silhouettes
+remove only their source's contribution before lights are added together. Projected
+lamp spill uses the same shadow pass. Moonlight and other lamps remain beneath the
+shadow. **Cinematic shadows** additionally enables the existing prop casters.
+The player's own flashlight excludes the player as a caster.
 
 ## Scope of this pass
 
@@ -84,3 +113,6 @@ python .tree_game_smoke.py --night
 ```
 
 Review images are written to `artifacts/night/`.
+The hidden check compares CPU/GPU window transmission in both directions, checks
+outside/backside facade response, checks complete wall receiver coverage, and
+verifies player shadows from lamps/spill preserve an independent light channel.

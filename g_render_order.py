@@ -85,6 +85,7 @@ def make_default_entity_render_metadata(entity_type):
             "render_anchor_offset": {"x": -16.0, "y": -16.0}, "render_base_offset": {"x": 0.0, "y": 14.0}, "visual_height": 32.0, "light_sample_height": 18.0,
             "ground_footprint": {"shape": "rectangle", "offset": {"x": 0.0, "y": -2.0}, "size": {"x": 12.0, "y": 7.0}},
             "self_shadow": {"mode": "upright_box", "strength": 0.78, "softness": 0.12, "back_fill": 0.08},
+            "shadow": {"mode": "upright", "cast_height": 30.0, "maximum_length": 96.0, "opacity": 0.78},
             "outline": {"policy": "player_when_occluded", "color": [0.50, 0.66, 0.74, 0.52], "width": 1.25, "priority": 30}
         },
         "red head": {
