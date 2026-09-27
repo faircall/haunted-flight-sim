@@ -83,7 +83,7 @@ def review_arena(game,arena):
     fog=game.g_graphics.make_fog_profile();fog.update(global_amount=.035,opacity=.20,density=.26,veil_strength=.018)
     profile=dict(enabled=True,seed=771,reflection_strength=.72,reflection_stretch=1.,ripple_strength=1.25,reflection_sway=2.,
                  surface_color=[2/255.,7/255.,13/255.],ripple_color=[10/255.,22/255.,33/255.],
-                 ripple_spacing=12.,ripple_density=.45,ripple_width=3.,ripple_speed=.65,ripple_speed_variation=.28,
+                 ripple_spacing=20.,ripple_density=.28,ripple_width=1.,ripple_speed=.65,ripple_speed_variation=.28,
                  ripple_direction={'x':0.,'y':1.},shore_width=12.,shore_speed=.65,shore_lap=3.,reflections_enabled=True,
                  fire_reflections_enabled=True,camera_offset={'x':120.,'y':-76.})
     player=game.make_default_player(232.,322.,0.)

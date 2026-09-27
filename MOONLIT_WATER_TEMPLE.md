@@ -10,7 +10,7 @@ The existing courtyard still launches with `python night_trial.py`. Its layout a
 
 ## In the prototype
 
-- A large dark lake with a rounded, crisp shoreline, a two-colour surface, filled wavelets, lapping shore water and low mist.
+- A large dark lake with a rounded, crisp shoreline, a two-colour surface, sparse moonlit glimmers, lapping shore water and low mist.
 - A raised timber boardwalk, railings and pilings leading to an open temple doorway. The route retains normal movement collision and wooden footstep sounds. Deep water blocks movement without acting as a wall for light rays.
 - Six visible fire bowls, with procedural flames, embers, independently evolving firelight bands, and literal reflections of the flame pixels. The temple's window spill follows its indoor fire lamps. There are no authored electric point lamps in this scene.
 - Lit sprite reflections of the temple, roof, supports, vegetation and player, projected from their ground anchors and distorted on the GPU. Dry surfaces and foreground objects mask them correctly.
@@ -117,7 +117,7 @@ Results and comparison captures are written under `artifacts/moonlit-water-templ
 
 ## Two-colour surface, independent reflections
 
-The base surface has exactly two colours: `#02070d` water and `#0a1621` wavelets. Nearly straight crests have filled bodies up to three native pixels thick, tapering into thinner tips. Three sparse wave trains share a direction, toward the foreground by default, but travel at different positive speeds. They catch up, overlap briefly and separate. Reflection distortion follows the mean current. There are no gradient fringes, dither, fine colour noise, or 2x2 enlargement. Camera motion preserves the world-pixel alignment.
+The base surface has exactly two colours: `#02070d` water and `#0a1621` glimmers. Open-water ripples are sparse, straight, one-native-pixel strokes, up to 6–16 pixels long. Each grows briefly and shrinks away over roughly three seconds, with independently staggered quiet intervals and positions. Most of the water stays unbroken. Three sparse groups share a direction, toward the foreground by default, but travel at different positive speeds. Reflection distortion follows the mean current. Appearance/disappearance changes pixel coverage rather than blending colours: there are no gradient fringes, dither, fine colour noise, or 2x2 enlargement. Camera motion preserves the world-pixel alignment. Shore lapping has its own unchanged animation.
 
 Shore waves form offshore, broaden into broken patches on arrival and dissolve at the bank. The actual water boundary washes a few pixels over the bank and retreats as the wave breaks up; a bright line does not slide back out into the lake. Nearby stretches have slightly different timing. Water keeps the same two colours and reveals the existing bank as it drains.
 
@@ -130,9 +130,9 @@ The former shared 20-colour palette has been removed. Sprite and flame reflectio
 Tuning fields in `lake_profile`:
 
 - `surface_color` and `ripple_color`: normalized RGB triples for the two colours.
-- `ripple_spacing`: average distance between wavelet bands, `12` world pixels by default.
-- `ripple_density`: length/coverage of wavelets, `0.45` by default; zero hides open-water wavelets.
-- `ripple_width`: maximum body thickness in native pixels, `3` by default (range `1–8`).
+- `ripple_spacing`: spacing between potential glimmer rows, `20` world pixels by default; individual strokes have varied positions within each row.
+- `ripple_density`: fraction of potential glimmers that participate, `0.28` by default; their brief lifetimes further reduce visible coverage. Zero hides open-water glimmers.
+- `ripple_width`: stroke thickness in native pixels, `1` by default (range `1–8`).
 - `ripple_speed`: mean current rate, `0.65` by default; each unit is five world pixels per second. Zero freezes surface and reflection ripple motion.
 - `ripple_speed_variation`: speed difference between the three wave trains, `0.28` by default (range `0–0.65`). The default gives rates of 72%, 100% and 128% of the mean; zero makes them travel together. All rates stay forward.
 - `ripple_direction`: `{x, y}` travel direction, normalized by the renderer; default `{x: 0, y: 1}` moves toward the foreground. This controls travel, not the camera.
@@ -146,7 +146,7 @@ Tuning fields in `lake_profile`:
 - `reflection_sway`: additional horizontal displacement multiplier, now `2` (range `0–4`); zero disables sideways displacement. At the temple's `ripple_strength=1.25`, the former multiplier of 1 gave at most about two native pixels sideways; 2 gives up to about four. Vertical distortion and exact source-colour sampling are unaffected.
 - Per-fire `reflection_base_offset`: water-plane pivot below the flame anchor, default 14 pixels for the prototype's braziers.
 
-GPU checks verify exactly two base colours, shared direction (including an authored diagonal), differing positive wavelet speeds, visible horizontal reflection displacement, forming/dissolving shore patches, a moving water/land boundary, reflection clipping at that boundary, cached shore data, deck protection, zero-speed motion, exact source-colour preservation in both sprite and flame reflections, native pixel detail, strength changing coverage instead of RGB, transparent foregrounds, lamp extinction and camera alignment. Review captures include `water-wavelets.png`, `shore-lapping-phases.png` and `shore-lapping.gif` under `artifacts/moonlit-water-temple/`.
+GPU checks verify sparse single-pixel strokes, glimmer formation/dissipation, exactly two base colours, shared direction (including an authored diagonal), differing positive glimmer speeds, visible horizontal reflection displacement, forming/dissolving shore patches, a moving water/land boundary, reflection clipping at that boundary, cached shore data, deck protection, zero-speed motion, exact source-colour preservation in both sprite and flame reflections, native pixel detail, strength changing coverage instead of RGB, transparent foregrounds, lamp extinction and camera alignment. Review captures include `water-glimmers.gif`, `water-wavelets.png`, `shore-lapping-phases.png` and `shore-lapping.gif` under `artifacts/moonlit-water-temple/`.
 
 ### How reflections currently work
 

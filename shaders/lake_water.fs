@@ -33,24 +33,28 @@ float noise(vec2 p) {
 
 float rippleLayer(vec2 p,float layer,float rate,float spacing) {
     p.y-=time*rippleSpeed*5.*rate+layer*17.31;
-    float band=floor(p.y/spacing);
-    float phase=hash(vec2(band,19.+layer))*6.283185;
-    // Almost straight crests: a quarter-pixel bend, independent of spacing.
-    // The filled bodies taper at their tips without turning into wavy noodles.
-    float crest=band*spacing+spacing*.5+.25*sin(p.x*.018+phase);
-    float patch=noise(vec2(p.x*.045+layer*31.,band*2.71+layer*53.));
-    float cutoff=1.-rippleDensity*.65;
-    float body=smoothstep(cutoff,cutoff+.18,patch);
-    float thickness=mix(1.,min(rippleWidth,spacing*.45),body);
-    float delta=p.y-crest;
-    return step(cutoff,patch)*step(-thickness*.35,delta)*(1.-step(thickness*.65,delta));
+    vec2 cell=floor(p/vec2(40.,spacing));
+    vec2 key=cell+vec2(layer*37.,layer*71.);
+    float seed=hash(key);
+    if(seed>=rippleDensity) return 0.;
+    // Isolated glimmers, with varied positions and lifetimes. Most of the
+    // surface is quiet; each stroke grows briefly, then shrinks away again.
+    float center=(cell.x+.2+.6*hash(key+17.))*40.;
+    float crest=(cell.y+.35+.3*hash(key+29.))*spacing;
+    float age=fract(time*rippleSpeed*.18*mix(.8,1.2,seed)+hash(key+93.));
+    float life=smoothstep(0.,.10,age)*(1.-smoothstep(.22,.36,age));
+    float halfLength=mix(3.,8.,hash(key+41.))*life;
+    float thickness=min(rippleWidth,spacing*.45);
+    // Coverage changes in whole pixels, never intermediate palette colours.
+    return step(.05,life)*step(abs(p.x-center),halfLength)*
+           step(-thickness*.5,p.y-crest)*(1.-step(thickness*.5,p.y-crest));
 }
 
 float surfaceRipple(vec2 world) {
     if(rippleDensity<=0.) return 0.;
     vec2 p=vec2(dot(world,vec2(rippleDirection.y,-rippleDirection.x)),dot(world,rippleDirection));
-    // Three sparse wave trains share a direction, with different forward speeds
-    // and spacings. Crests catch up, overlap, and separate without reversing.
+    // Sparse glimmers share a direction with different forward speeds. Their
+    // independent life cycles avoid permanent stripes or synchronized pulses.
     float a=rippleLayer(p,0.,1.-rippleSpeedVariation,rippleSpacing);
     float b=rippleLayer(p,1.,1.,rippleSpacing*1.31);
     float c=rippleLayer(p,2.,1.+rippleSpeedVariation,rippleSpacing*1.73);

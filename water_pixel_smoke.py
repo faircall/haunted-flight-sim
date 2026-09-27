@@ -52,28 +52,38 @@ def check(game,assets):
         assert np.any(detail[::2,::2]!=detail[1::2,::2]),'water is still grouped into 2x2 pixels'
         raw_reflection=pixels(local['water_runtime']['targets']['reflections'])
         wavelets=np.all(plain[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
-        solid_patches=wavelets[:-1,:-1]&wavelets[1:,:-1]&wavelets[:-1,1:]&wavelets[1:,1:]
-        assert solid_patches.sum()>200,'ripples still have no filled volume'
-        arena['lake_profile']['ripple_width']=1.;draw(camera,reflect=False)
-        thin=np.all(pixels(target)[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
-        assert wavelets.sum()>thin.sum()*1.5,'ripple width does not create fuller wavelets'
+        deep=wavelets[112:220,16:232]
+        assert 0.<deep.mean()<.008,'open-water glimmers should leave almost all water quiet'
+        assert not (deep[:-1]&deep[1:]).any(),'default glimmers are thicker than one native pixel'
+        arena['lake_profile']['ripple_width']=3.;draw(camera,reflect=False)
+        thick=np.all(pixels(target)[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
+        assert thick.sum()>wavelets.sum()*1.5,'authored ripple width no longer works'
         arena['lake_profile'].pop('ripple_width')
         Image.fromarray(plain).save(out/'water-wavelets.png')
-        # Match whole patches after one second: every crest travels five
-        # pixels down, with no neighbouring bands reversing direction.
-        arena['lake_profile'].update(ripple_speed=1.,ripple_speed_variation=0.)
+        # Birth/death changes stroke lengths; surviving pixels must still
+        # follow the shared current rather than travel in opposite directions.
+        def overlap(a,b):
+            a=np.all(a[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
+            b=np.all(b[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
+            return (a&b).sum()/max(1,min(a.sum(),b.sum()))
+        arena['lake_profile'].update(ripple_speed=1.,ripple_speed_variation=0.,ripple_density=.8)
         draw(camera,now=2.,reflect=False);flow_a=pixels(target)
         draw(camera,now=3.,reflect=False);flow_b=pixels(target)
-        assert np.array_equal(flow_a[115:195,16:232],flow_b[120:200,16:232]),'neighbouring wavelets do not share one travel direction'
+        forward=overlap(flow_a[115:195,16:232],flow_b[120:200,16:232])
+        reverse=overlap(flow_a[115:195,16:232],flow_b[110:190,16:232])
+        assert forward>.2 and forward>reverse+.15,('glimmers do not share one travel direction',forward,reverse)
+        assert not np.array_equal(flow_a[115:195,16:232],flow_b[120:200,16:232]),'glimmers never form or dissipate'
         arena['lake_profile']['ripple_direction']={'x':.6,'y':.8}
         draw(camera,now=2.,reflect=False);flow_a=pixels(target)
         draw(camera,now=3.,reflect=False);flow_b=pixels(target)
-        assert np.array_equal(flow_a[116:196,16:229],flow_b[120:200,19:232]),'wavelets ignore the authored current direction'
+        forward=overlap(flow_a[116:196,16:229],flow_b[120:200,19:232])
+        reverse=overlap(flow_a[116:196,16:229],flow_b[112:192,13:226])
+        assert forward>.2 and forward>reverse+.15,('glimmers ignore the authored current direction',forward,reverse)
         arena['lake_profile']['ripple_speed']=0.
         draw(camera,now=2.);still=pixels(target)
         draw(camera,now=5.)
         assert np.array_equal(still,pixels(target)),'reflection ripples keep moving independently of the common current'
-        for key in ('ripple_speed','ripple_direction','ripple_speed_variation'):arena['lake_profile'].pop(key)
+        for key in ('ripple_speed','ripple_direction','ripple_speed_variation','ripple_density'):arena['lake_profile'].pop(key)
         def components(frame):
             mask=np.all(frame[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
             mask[:20]=False;mask[228:]=False
@@ -85,18 +95,25 @@ def check(game,assets):
                     for point in ((y-1,x),(y+1,x),(y,x-1),(y,x+1)):
                         if point in remaining:remaining.remove(point);points.append(point);todo.append(point)
                 ys,xs=zip(*points);x0,x1=min(xs),max(xs);y0,y1=min(ys),max(ys)
-                if x1-x0<10 or y1-y0>3 or x0<3 or x1>235 or y0<=20 or y1>=227:continue
+                if x1-x0<4 or y1-y0>3 or x0<3 or x1>235 or y0<=20 or y1>=227:continue
                 key=(x0,x1-x0,y1-y0,mask[y0:y1+1,x0:x1+1].tobytes())
                 found.setdefault(key,[]).append(y0)
             return found
         # Integer travel isolates speed differences from subpixel stencil changes.
         arena['lake_profile'].update(ripple_speed=1.,ripple_speed_variation=.4,ripple_density=.65)
-        draw(camera,now=2.,reflect=False);cohorts_a=components(pixels(target))
-        draw(camera,now=3.,reflect=False);cohorts_b=components(pixels(target))
-        shifts=[cohorts_b[key][0]-value[0] for key,value in cohorts_a.items()
-                if len(value)==1 and len(cohorts_b.get(key,[]))==1]
-        assert len(shifts)>8 and {3,5,7}<=set(shifts),('wavelets do not overtake at different forward speeds',shifts)
+        shifts=[]
+        for now in (1.,3.,5.,7.):
+            draw(camera,now=now,reflect=False);cohorts_a=components(pixels(target))
+            draw(camera,now=now+1.,reflect=False);cohorts_b=components(pixels(target))
+            shifts.extend(cohorts_b[key][0]-value[0] for key,value in cohorts_a.items()
+                          if len(value)==1 and len(cohorts_b.get(key,[]))==1)
+        assert {3,5,7}<=set(shifts),('glimmers do not travel at different forward speeds',shifts)
         for key in ('ripple_speed','ripple_speed_variation','ripple_density'):arena['lake_profile'].pop(key)
+        glimmers=[]
+        for index in range(64):
+            draw(camera,now=index*.125,reflect=False)
+            glimmers.append(Image.fromarray(pixels(target)))
+        glimmers[0].save(out/'water-glimmers.gif',save_all=True,append_images=glimmers[1:],duration=125,loop=0)
         reflection_palette={tuple(color) for color in reflected[:,:,:3][self_lake]}
         assert reflection_palette<={g_water.DEFAULT_SURFACE_COLOR,g_water.DEFAULT_RIPPLE_COLOR,(190,105,45)},('reflection invents colours',reflection_palette)
         profile=arena['lake_profile']
