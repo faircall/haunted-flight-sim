@@ -36,6 +36,28 @@ class EffectFactoryAndMigrationTests(unittest.TestCase):
         second_fire = g_effects.make_default_fire_emitter(POSITION)
         first_fire["palette"]["core"][0] = 0.0
         self.assertEqual(second_fire["palette"]["core"][0], 1.0)
+        first_fire["light"]["contours"]["speed"] = 2.0
+        self.assertEqual(second_fire["light"]["contours"]["speed"], 0.65)
+
+    def test_existing_fire_lights_gain_contours_without_losing_authored_settings(self):
+        for authored in (None, {"enabled": False, "speed": 1.2, "motion": 0.0}):
+            emitter = g_effects.make_default_fire_emitter(POSITION)
+            light = emitter["light"]
+            light.pop("contours")
+            light.update(radius=117., intensity=2., enabled=False)
+            if authored is not None:
+                light["contours"] = copy.deepcopy(authored)
+            original = copy.deepcopy(emitter)
+            g_effects.migrate_emitter(emitter)
+            contours = emitter["light"]["contours"]
+            self.assertEqual(set(contours), set(g_effects.FIRELIGHT_CONTOUR_DEFAULTS))
+            self.assertEqual(contours["speed"], 1.2 if authored else .65)
+            self.assertEqual(contours["motion"], 0.0 if authored else .65)
+            expected = original["light"] | {"contours": contours}
+            self.assertEqual(emitter["light"], expected)
+            once = copy.deepcopy(emitter)
+            g_effects.migrate_emitter(emitter)
+            self.assertEqual(emitter, once)
 
     def test_authored_emitters_are_serialisable(self):
         authored = {"emitters": {
@@ -315,6 +337,30 @@ class ProceduralReferenceAndBoundsTests(unittest.TestCase):
 
 
 class FireAndBloodTests(unittest.TestCase):
+    def test_default_fire_has_evolving_bands_and_steady_reach_while_flames_vary(self):
+        emitter = g_effects.make_default_fire_emitter(POSITION)
+        emitter['light'].update(affects_ai=True)
+        original = copy.deepcopy(emitter)
+        styled = []
+        grid = g_graphics.light_visibility.build_light_collision_grid(TILE_MAP, {1})
+        samples = []
+        for now in (0., 2., 7.):
+            fire = g_effects.build_fire_runtime_lights({'a': emitter}, TILE_MAP, now)['effect:fire:a']
+            self.assertEqual(fire['intensity'], emitter['light']['intensity'])
+            self.assertEqual(fire['radius'], emitter['light']['radius'])
+            point = {'x': 50., 'y': 55.}
+            sample = g_graphics.light_visibility.get_gameplay_light_strength_at_world_point
+            samples.append(sample(fire, point, grid))
+            styled.append(fire)
+        self.assertGreater(samples[0], 0.)
+        self.assertEqual(samples, [samples[0]] * 3)
+        self.assertNotEqual(g_effects.fire_activity(emitter, 0.), g_effects.fire_activity(emitter, 7.))
+        self.assertNotEqual(styled[0]['_fire_contours']['phase'], styled[-1]['_fire_contours']['phase'])
+        self.assertEqual(emitter, original)
+        emitter['light']['intensity'] *= .25
+        faded = g_effects.build_fire_runtime_lights({'a': emitter}, TILE_MAP, 0.)['effect:fire:a']
+        self.assertEqual(faded['intensity'], styled[0]['intensity']*.25)
+
     def test_fire_activity_is_shared_without_mutating_authored_emitters(self):
         from unittest.mock import patch
         emitter = g_effects.make_default_fire_emitter(POSITION)
@@ -325,7 +371,7 @@ class FireAndBloodTests(unittest.TestCase):
             for _ in range(2):
                 self.assertEqual(g_effects.fire_activity(prepared["a"], 2.), .75)
             self.assertEqual(sample.call_count, 1)
-            self.assertAlmostEqual(light["intensity"], .8*(1.+.75*.15))
+            self.assertAlmostEqual(light["intensity"], .8)
             g_effects.fire_activity(prepared["a"], 3.)
             self.assertEqual(sample.call_count, 2)
         self.assertEqual(emitter, original)
@@ -364,7 +410,7 @@ class FireAndBloodTests(unittest.TestCase):
         self.assertGreater(sum(abs(sample(t, 9831)-v) for t, v in zip(times, values))/len(times), .05)
         self.assertTrue(all(sample(t, 2207, speed=0.) == 0. for t in times[:10]))
 
-    def test_light_flicker_preserves_sequence_envelope_and_other_properties(self):
+    def test_fire_light_preserves_sequence_envelope_and_other_properties(self):
         emitter = g_effects.make_default_fire_emitter(POSITION)
         settings = emitter["light"]
         def light(time):
@@ -379,7 +425,7 @@ class FireAndBloodTests(unittest.TestCase):
             self.assertEqual(full[key], faded[key])
         settings["intensity"] = 0.
         self.assertEqual(light(1.)["intensity"], 0.)
-        settings.update(intensity=.8, flicker_strength=0.)
+        settings.update(intensity=.8, flicker_strength=1.)
         self.assertEqual(light(1.)["intensity"], .8)
         self.assertEqual(light(123.)["intensity"], .8)
 

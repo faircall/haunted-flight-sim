@@ -1,4 +1,5 @@
 import copy
+from contextlib import ExitStack
 import math
 import pickle
 import unittest
@@ -6,6 +7,7 @@ from unittest import mock
 
 import g_audio
 import g_editor
+import g_effects
 import g_graphics
 import g_ui
 
@@ -16,6 +18,38 @@ class EnvironmentEditorDataTests(unittest.TestCase):
 
     def test_editor_defaults_to_place_tool(self):
         self.assertEqual(g_editor.make_editor_state()["tool"], "place")
+
+    def test_fire_inspector_edits_contours_and_preserves_flame_settings_on_save(self):
+        emitter = g_effects.make_default_fire_emitter({"x": 12., "y": 24.})
+        before = copy.deepcopy(emitter)
+        edits = {"speed": 1.3, "motion": .8, "strength": .6, "scale": 22.}
+        labels = []
+        def number(_state, identity, label, value, *_args):
+            labels.append(label)
+            if ":light_contours:" in identity:
+                return edits[identity.rsplit(":", 1)[1]], True
+            return value, False
+        with ExitStack() as stack:
+            for name in ("ui_checkbox", "ui_dropdown", "ui_vec2_input", "ui_number_input_int", "ui_color3_editor"):
+                stack.enter_context(mock.patch.object(g_ui, name, side_effect=lambda _s, _i, _l, value, *_a: (value, False)))
+            stack.enter_context(mock.patch.object(g_ui, "ui_number_input_float", side_effect=number))
+            stack.enter_context(mock.patch.object(g_ui, "ui_label"))
+            stack.enter_context(mock.patch.object(g_editor, "edit_world_position", side_effect=lambda _s, _i, value, _tm: value))
+            stack.enter_context(mock.patch.object(g_editor.g_glow, "inspect"))
+            g_editor.inspect_fire_emitter({}, {}, "torch", emitter, self.tile_map)
+        restored = pickle.loads(pickle.dumps(emitter))
+        g_effects.migrate_emitter(restored)
+        self.assertEqual(restored["light"]["contours"], edits)
+        expected = copy.deepcopy(before)
+        expected["light"]["contours"] = edits
+        self.assertEqual(restored, expected)
+        self.assertIn("flame speed", labels)
+        self.assertNotIn("flicker flutter", labels)
+        runtime = g_effects.build_fire_runtime_lights({"torch": restored}, self.tile_map, 2.)["effect:fire:torch"]
+        self.assertEqual(runtime["intensity"], before["light"]["intensity"])
+        for key in ("motion", "strength", "scale"):
+            self.assertEqual(runtime["_fire_contours"][key], edits[key])
+        self.assertAlmostEqual(runtime["_fire_contours"]["phase"], 2.*edits["speed"] + g_effects.fire_activity(restored, 2.)*.18)
 
     def test_animation_editor_mode_has_non_persistent_preview_defaults(self):
         state = g_editor.make_editor_state()

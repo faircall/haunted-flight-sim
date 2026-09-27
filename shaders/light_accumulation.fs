@@ -19,6 +19,8 @@ uniform int lightType;
 
 out vec4 finalColor;
 
+// FIRELIGHT_COMMON
+
 void main()
 {
     vec2 pixelPosition = vec2(gl_FragCoord.x, resolution.y - gl_FragCoord.y);
@@ -50,7 +52,7 @@ void main()
         nearStrength = smoothstep(0.0, nearFadeDistance, distanceFromLight);
     }
 
-    float strength = radialStrength * coneStrength * nearStrength * intensity;
+    float strength = fireContourStrength(radialStrength * coneStrength * nearStrength * intensity);
 
     finalColor = vec4(lightColor * strength, 1.0);
 }

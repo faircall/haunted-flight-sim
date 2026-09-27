@@ -19,6 +19,7 @@ from pyrsistent import m, pmap, v
 import g_graphics
 import g_audio
 import g_effects
+import g_firelight
 import g_tree_render
 import g_glow
 import g_placement_preview
@@ -1806,9 +1807,10 @@ def load_shaders():
         "posterize_ambient_location": pr.get_shader_location(entity_self_shadow, "posterizeAmbient")
     }
 
-    light_accumulation = pr.load_shader("", "shaders/light_accumulation.fs")
+    light_accumulation = g_firelight.load_shader("shaders/light_accumulation.fs")
     result["light_accumulation"] = {
         "shader": light_accumulation,
+        "firelight": g_firelight.register(light_accumulation),
         "resolution_location": pr.get_shader_location(light_accumulation, "resolution"),
         "light_position_location": pr.get_shader_location(light_accumulation, "lightPosition"),
         "light_direction_location": pr.get_shader_location(light_accumulation, "lightDirection"),
@@ -1908,6 +1910,7 @@ def unload_shaders(shaders):
         return
 
     for shader_info in shaders.values():
+        g_firelight.unload(shader_info.get('firelight'))
         shader = shader_info.get("shader")
         if shader is not None:
             pr.unload_shader(shader)
@@ -8742,7 +8745,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if pr.is_key_pressed(pr.KeyboardKey.KEY_F3):
         game_assets["show_entity_lighting_debug"] = not game_assets.get("show_entity_lighting_debug", False)
-    if pr.is_key_pressed(pr.KeyboardKey.KEY_F12):
+    # Leave F12 and Shift+F12 available for raylib's capture shortcuts.
+    if (pr.is_key_pressed(pr.KeyboardKey.KEY_GRAVE)
+            and not pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL)
+            and not pr.is_key_down(pr.KeyboardKey.KEY_RIGHT_CONTROL)):
         if pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT) or pr.is_key_down(pr.KeyboardKey.KEY_RIGHT_SHIFT):
             game_assets["effect_debug_output"] = "raw" if game_assets.get("effect_debug_output", "final") == "final" else "final"
             game_assets["show_effect_stats"] = True

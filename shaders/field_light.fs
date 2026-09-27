@@ -5,7 +5,8 @@ uniform vec3 lightColor;
 uniform float intensity;
 uniform float unmasked;
 out vec4 finalColor;
+// FIRELIGHT_COMMON
 void main() {
     float strength = unmasked > .5 ? 1.0 : texture(texture0, fragTexCoord).r;
-    finalColor = vec4(lightColor * intensity * strength, 1.0);
+    finalColor = vec4(lightColor * fireContourStrength(intensity * strength), 1.0);
 }

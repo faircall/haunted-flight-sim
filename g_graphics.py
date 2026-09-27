@@ -9,6 +9,7 @@ from pyrsistent import m, pmap, v
 import g_light_visibility as light_visibility
 import g_night
 import g_effects
+import g_firelight
 import g_render_order
 import g_player_reveal
 import g_update_and_render as game
@@ -2817,6 +2818,7 @@ def draw_prepared_radial_light_to_target(prepared_light, game_camera, lighting_t
     if not shader_mode_active:
         pr.begin_shader_mode(shader)
 
+    g_firelight.bind(light_shader.get('firelight'), light, game_camera, target_height)
     if prepared_light["casts_wall_shadows"] and clip_to_wall_visibility:
         draw_light_visibility_polygon(light, world_position, prepared_light["visibility_polygon"], game_camera)
 

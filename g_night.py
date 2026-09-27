@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageChops, ImageFilter
 import pyray as pr
 import g_effects
+import g_firelight
 import g_light_visibility as visibility
 import g_surfaces
 
@@ -274,7 +275,9 @@ def prepare(assets, arena, grid, camera=None):
                 or bounds['y']+bounds['height']+reach<camera.y or bounds['y']>camera.y+270):continue
         key='facade:'+str(identity);wanted.add(key)
         opened=is_open(obj,arena);source=source_for(obj,entities,tm,bounds,grid)
-        stamp=json.dumps((obj,bounds,opened,source,geometry),sort_keys=True)
+        # Contour edits change GPU uniforms, not the cached aperture/receiver field.
+        cached_source={key:value for key,value in source.items() if key!='contours'}
+        stamp=json.dumps((obj,bounds,opened,cached_source,geometry),sort_keys=True)
         entry=rt['entries'].get(key)
         if entry is None or entry['stamp']!=stamp:
             if entry:drop_entry(entry)
@@ -290,17 +293,14 @@ def prepare(assets, arena, grid, camera=None):
             emission=aperture_emission(panel,holes,source)
             entry.update(emission=g_surfaces.upload_image(emission),
                          record=field_record(field,origin,source,'night:'+str(identity),assets))
-            entry['steady_intensity']=source['intensity']
             entry['record']['light']['_aperture_caster']=aperture_caster(obj,bounds,source,grid)
         if 'record' in entry:
             link=str(obj.get('source_light',''))
             if link.startswith('fire:'):
-                emitter=entities.get('emitters',{}).get(link[5:],{})
                 runtime=assets.get('runtime_lights',{}).get('effect:fire:'+link[5:],{})
-                base=max(.001,emitter.get('light',{}).get('intensity',1.))
-                gain=runtime.get('intensity',base)/base
-                entry['record']['light']['intensity']=entry['steady_intensity']*gain
-                entry['record']['light']['_aperture_caster']['source']['intensity']=entry['steady_intensity']*gain
+                # Contour animation is GPU-only; cached geometry/irradiance stay
+                # valid through animation and edits to the band controls.
+                entry['record']['light']['_fire_contours']=runtime.get('_fire_contours')
             records.append(entry['record'])
         textures[str(identity)]=entry['panel']
         items.append((str(identity),obj,entry))
@@ -332,8 +332,9 @@ def draw_field(prepared,camera,target,assets,unmasked=False):
     import g_graphics as graphics
     light=prepared['light'];field=light['_field'];rt=assets['night_runtime']
     if 'field_shader' not in rt:
-        shader=pr.load_shader('',str(ROOT/'shaders'/'field_light.fs'))
+        shader=g_firelight.load_shader(ROOT/'shaders'/'field_light.fs')
         rt['field_shader']=shader
+        rt['field_firelight']=g_firelight.register(shader)
         rt['field_locations']={n:pr.get_shader_location(shader,n) for n in ('lightColor','intensity','unmasked')}
         if min(rt['field_locations'].values())<0:raise RuntimeError('Light field shader failed')
     shader=rt['field_shader'];loc=rt['field_locations']
@@ -342,6 +343,7 @@ def draw_field(prepared,camera,target,assets,unmasked=False):
     entire=unmasked and light.get('_moon',False)
     graphics.set_shader_float(shader,loc['unmasked'],1. if entire else 0.)
     pr.begin_shader_mode(shader)
+    g_firelight.bind(rt.get('field_firelight'),light,camera,target.texture.height)
     if entire:pr.draw_rectangle(0,0,target.texture.width,target.texture.height,pr.WHITE)
     else:pr.draw_texture(field['texture'],round(field['origin'][0])-round(camera.x),round(field['origin'][1])-round(camera.y),pr.WHITE)
     pr.end_shader_mode()
@@ -379,9 +381,18 @@ def draw_emission(scene,items,camera,assets):
 def unload(assets):
     rt=assets.pop('night_runtime',{})
     for entry in rt.get('entries',{}).values():drop_entry(entry)
+    g_firelight.unload(rt.get('field_firelight'))
     for name in ('field_shader','mask_shader','portal_shader'):
         if name in rt:pr.unload_shader(rt[name])
     assets.pop('architectural_lights',None);assets.pop('facade_textures',None)
+
+
+def reload_field_shader(assets):
+    rt=assets.get('night_runtime',{})
+    g_firelight.unload(rt.pop('field_firelight',None))
+    shader=rt.pop('field_shader',None)
+    if shader is not None:pr.unload_shader(shader)
+    rt.pop('field_locations',None)
 
 
 def inspect_moon(ui,editor,profile):

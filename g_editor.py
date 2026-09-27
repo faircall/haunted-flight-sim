@@ -1568,6 +1568,20 @@ def inspect_fog_volume(ui_state, editor_state, object_id, volume, tile_map):
     volume["edge_softness"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:softness", "edge softness", volume.get("edge_softness", 24.0), 0.0, 1000.0)
     volume["strength"], _ = g_ui.ui_slider_float(ui_state, f"{widget_id}:strength", "strength", volume.get("strength", 1.0), 0.0, 2.0, 0.01)
 
+def inspect_fire_light(ui_state, widget_id, light):
+    light["enabled"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:light", "linked light", light.get("enabled", True))
+    light["radius"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_radius", "light radius", light.get("radius", 70.0), 0.0, 2000.0)
+    light["intensity"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_intensity", "brightness", light.get("intensity", 0.8), 0.0, 10.0)
+    contours = light.setdefault("contours", {})
+    for name, label, minimum, maximum in (
+            ("speed", "band speed", 0.0, 8.0),
+            ("motion", "band motion", 0.0, 1.0),
+            ("strength", "irregularity", 0.0, 0.85),
+            ("scale", "band scale", 4.0, 256.0)):
+        contours[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_contours:{name}", label,
+            contours.get(name, g_effects.FIRELIGHT_CONTOUR_DEFAULTS[name]), minimum, maximum)
+
+
 def inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map):
     widget_id = f"object:{object_id}"
     g_effects.migrate_emitter(emitter)
@@ -1580,7 +1594,8 @@ def inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map):
     emitter["seed"], _ = g_ui.ui_number_input_int(ui_state, f"{widget_id}:seed", "seed", int(emitter.get("seed", 1)), 1, 2147483647)
     emitter["render_group"], _ = g_ui.ui_dropdown(ui_state, f"{widget_id}:group", "group", emitter.get("render_group", "world_front"), g_effects.RENDER_GROUPS)
     for name, minimum, maximum in (("density", 0.0, 1.0), ("speed", 0.0, 8.0), ("opacity", 0.0, 1.0), ("posterize_levels", 2.0, 16.0)):
-        emitter[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", name.replace("_", " "), emitter.get(name, minimum), minimum, maximum)
+        label = "flame speed" if effect_type == "fire" and name == "speed" else name.replace("_", " ")
+        emitter[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", label, emitter.get(name, minimum), minimum, maximum)
 
     if effect_type == "smoke":
         emitter["size"], _ = g_ui.ui_vec2_input(ui_state, f"{widget_id}:size", "effect size", emitter.get("size", {"x": 34.0, "y": 52.0}), 1.0, 1000.0)
@@ -1599,17 +1614,7 @@ def inspect_emitter(ui_state, editor_state, object_id, emitter, tile_map):
             color = list(palette.get(name, fallback))
             edited, _ = g_ui.ui_color3_editor(ui_state, f"{widget_id}:{name}", name, color[:3])
             palette[name] = list(edited) + [color[3] if len(color) > 3 else 1.0]
-        light = emitter.setdefault("light", {})
-        light["enabled"], _ = g_ui.ui_checkbox(ui_state, f"{widget_id}:light", "linked light", light.get("enabled", True))
-        light["radius"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_radius", "light radius", light.get("radius", 70.0), 0.0, 2000.0)
-        light["intensity"], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:light_intensity", "light intensity", light.get("intensity", 0.8), 0.0, 10.0)
-        for name, label, default, maximum in (
-                ("flicker_strength", "flicker amount", 0.15, 1.0),
-                ("flicker_speed", "flicker speed", 7.0, 30.0),
-                ("flicker_flutter", "flicker flutter", 0.25, 1.0),
-                ("flame_light_coupling", "flame/light link", 0.6, 1.0)):
-            light[name], _ = g_ui.ui_number_input_float(ui_state, f"{widget_id}:{name}", label,
-                light.get(name, default), 0.0, maximum)
+        inspect_fire_light(ui_state, widget_id, emitter.setdefault("light", {}))
         g_glow.inspect(ui_state, emitter, widget_id+":glow", effect=True)
     elif effect_type == "ember":
         emitter["size"], _ = g_ui.ui_vec2_input(ui_state, f"{widget_id}:size", "field size", emitter.get("size", {"x": 24.0, "y": 42.0}), 1.0, 1000.0)

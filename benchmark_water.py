@@ -51,7 +51,8 @@ def run():
     game.update_camera=lambda camera,**kwargs:camera
     def checked(render,lighting,arena,assets,engine):
         frame=state['frame'];case=cases[frame//span];index=frame%span
-        if frame==0:arena=review_arena(game,arena)
+        if frame==0:
+            arena=review_arena(game,arena)
         camera=assets.setdefault('camera_3d',game.make_default_camera())
         camera.position.x=112.;camera.position.y=111.
         assets.setdefault('ui_state',game.g_ui.make_ui_state())['show_editor']=False

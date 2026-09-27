@@ -16,6 +16,7 @@ import time
 RENDER_GROUPS = ("floor_lit", "world_behind", "world_front", "emissive")
 PROCEDURAL_EFFECT_TYPES = ("smoke", "fire", "ember", "spark")
 EFFECT_SHADER_VERSION = 2
+FIRELIGHT_CONTOUR_DEFAULTS = {"strength": 0.48, "scale": 28.0, "motion": 0.65, "speed": 0.65}
 IMPACT_MATERIALS = ("wood", "stone", "metal")
 WALL_IMPACT_MATERIAL_PROFILES = {
     "wood": {
@@ -109,6 +110,8 @@ def make_default_fire_emitter(position):
             "radius": 70.0,
             "intensity": 0.8,
             "height": 18.0,
+            "contours": dict(FIRELIGHT_CONTOUR_DEFAULTS),
+            # Legacy authored keys now shape the flame only, never the light's reach.
             "flicker_strength": 0.15,
             "flicker_speed": 7.0,
             "flicker_flutter": 0.25,
@@ -201,6 +204,11 @@ def migrate_emitter(emitter):
     for key, value in defaults.items():
         if key not in emitter:
             emitter[key] = copy.deepcopy(value)
+    if effect_type == "fire":
+        contours = emitter["light"].setdefault("contours", {})
+        contours.pop("enabled", None)  # The former opt-in is now standard for every fire.
+        for key, value in FIRELIGHT_CONTOUR_DEFAULTS.items():
+            contours.setdefault(key, value)
     if effect_type == "fire" and legacy_color is not None and "palette" in emitter:
         values = list(legacy_color)
         while len(values) < 4:
@@ -986,7 +994,7 @@ def collect_gameplay_burst_particles(runtime, render_group=None, material=None):
 
 
 def fire_light_flicker(time_elapsed, seed, speed=7.0, flutter=0.25):
-    """Bounded, smooth brightness variation; no mutable random or frame state.
+    """Bounded flame activity; no mutable random or frame state.
 
     Speed retains the old radians/second scale, but now drives noise rather
     than a repeating oscillator. Independent bands avoid a shared torch beat.
@@ -1045,9 +1053,7 @@ def build_fire_runtime_lights(emitters, tile_map, time_elapsed):
             continue
         position = position_to_world(emitter.get("position", {}), tile_map)
         flicker = fire_activity(emitter, time_elapsed)
-        intensity = max(0.0, float(settings.get("intensity", 0.8)) * (
-            1.0 + flicker * float(settings.get("flicker_strength", 0.15))
-        ))
+        intensity = max(0.0, float(settings.get("intensity", 0.8)))
         light_id = f"effect:fire:{emitter_id}"
         lights[light_id] = {
             "type": "point", "position": position,
@@ -1067,6 +1073,8 @@ def build_fire_runtime_lights(emitters, tile_map, time_elapsed):
             "height": float(settings.get("height", 18.0)),
             "shadow_bias": 0.25, "effect_owner": emitter_id,
         }
+        import g_firelight
+        lights[light_id]['_fire_contours'] = g_firelight.parameters(emitter, flicker, time_elapsed)
     return lights
 
 

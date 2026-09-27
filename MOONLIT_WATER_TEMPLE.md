@@ -12,13 +12,38 @@ The existing courtyard still launches with `python night_trial.py`. Its layout a
 
 - A large dark lake with a rounded, crisp shoreline, a two-colour surface, hard-edged animated ripples and low mist.
 - A raised timber boardwalk, railings and pilings leading to an open temple doorway. The route retains normal movement collision and wooden footstep sounds. Deep water blocks movement without acting as a wall for light rays.
-- Six visible fire bowls, with procedural flames, embers, independently flickering light, and literal reflections of the flame pixels. The temple's window spill follows its indoor fire lamps. There are no authored electric point lamps in this scene.
+- Six visible fire bowls, with procedural flames, embers, independently evolving firelight bands, and literal reflections of the flame pixels. The temple's window spill follows its indoor fire lamps. There are no authored electric point lamps in this scene.
 - Lit sprite reflections of the temple, roof, supports, vegetation and player, projected from their ground anchors and distorted on the GPU. Dry surfaces and foreground objects mask them correctly.
 - A temporary tiled roof and shrine. The roof fades away indoors; the localized player reveal also works here.
 
 The reference guided the dark water, raised approach and cool architecture. Warm firelight gives this version an orange/blue contrast. The camera has a scene-specific look-ahead toward the temple.
 
 ## Tuning / limitations
+
+### Irregular firelight bands
+
+All fire emitters now use the GPU contour pattern, including fires in existing saved scenes. The brightness envelope stays steady while three scales of cached lattice noise evolve at different phases, changing the internal band boundaries locally. The dim outer footprint retains its static irregular shape. Coordinates stay fixed to native world pixels, and the existing final posterization keeps crisp lighting steps.
+
+In the **Environment editor**, select a fire emitter and scroll to **linked light**. The former whole-light pulsing controls have been replaced with:
+
+- **Band speed**: how quickly the internal bands evolve; default `0.65`. Zero freezes the pattern.
+- **Band motion**: how far the internal bands move; default `0.65`, range `0–1`. Zero also freezes the pattern.
+- **Irregularity**: how broken-up the contours are; default `0.48`, range `0–0.85`. Zero gives smooth, steady lighting.
+- **Band scale**: feature size in world pixels; default `28`. Larger values give broader shapes.
+
+**Light radius** and **brightness** still set the overall reach and intensity; **flame speed** separately controls the flame sprite. Changes preview live and save with each emitter. Older scenes gain the new defaults without replacing their colours, radii, intensities or flame settings. Previously authored contour settings are preserved.
+
+Authored values live in `light['contours']` as `speed`, `motion`, `strength` and `scale`, respectively. Each noise scale uses a different phase/rate, with a small contribution from flame activity. The old `light.flicker_*` and `flame_light_coupling` keys are retained internally solely to preserve existing flame animation; they no longer pulse the light.
+
+Ground, sprite light fields, facade receivers and linked window spill use the same pattern and seed. Both rendered intensity and CPU gameplay light sampling use the steady authored intensity; explicit scripted fades still work. Shadow masks and cached visibility geometry remain intact; contour animation and edits to its four controls do not rebuild CPU irradiance textures. Reflections naturally inherit the resulting lit source colours.
+
+The old pulsing mode and its Ctrl + backtick comparison shortcut have been retired. Plain backtick still toggles effect statistics; Shift + backtick switches the raw effect view. F12 capture shortcuts stay available.
+
+Measure frame times with `python .tree_game_smoke.py --water-benchmark --profile-frames 0 --label contours`. Timings include GPU readback and its transfer overhead.
+
+The water smoke also checks that the visible footprint and dim edge stay fixed across time while internal bands move in both directions, plus subpixel camera pans, receiver/radial agreement, sealed wall shadows, shader reload, editor numeric commits, and live contour edits reaching cached window spill. Isolated band comparisons, an editor capture and a real-time `bands-evolving.gif` are saved under `artifacts/firelight-review/`.
+
+### Scene assets and limitations
 
 Layout, lamp placement and lake defaults live in `moonlit_water_temple.py`. `lake_profile` controls the two surface colours, ripple placement, independent reflection treatment and camera offset. `g_water_temple_art.py` provides replaceable procedural architecture. Water is authored as tile metadata; a dedicated lake painting tool is not included yet. The scene data is compatible with the usual level saves.
 

@@ -19,6 +19,7 @@ update_and_render_file = "g_update_and_render"
 update_and_render_module = importlib.import_module(update_and_render_file)
 
 g_reloadable_modules = [
+    ("g_firelight", update_and_render_module.g_firelight),
     ("g_tree_animation", update_and_render_module.g_tree_render.rig),
     ("g_tree_render", update_and_render_module.g_tree_render),
     ("g_surfaces", update_and_render_module.g_surfaces),
@@ -59,6 +60,8 @@ g_reloadable_modules = [
 ]
 
 g_shader_source_files = (
+    "shaders/firelight_contours.glsl",
+    "shaders/field_light.fs",
     "shaders/glow_particles.fs",
     "shaders/glow_source.fs",
     "shaders/effect_occlusion.fs",
@@ -250,6 +253,7 @@ def reload_shaders_if_needed(shader_write_times, game_assets):
         update_and_render_module.unload_shaders(shaders)
 
     game_assets["shaders"] = update_and_render_module.load_shaders()
+    update_and_render_module.g_night.reload_field_shader(game_assets)
     print(f"reloaded shaders after changes to: {', '.join(changed_files)}")
 
 def render_error_message(msg):
