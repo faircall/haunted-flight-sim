@@ -9138,18 +9138,32 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     lighting_frame["stats"]["entity_survival_draws"] = entity_render_frame.get("survival_draws", 0)
     entity_light_target = entity_render_frame.get("entity_direct_light")
     g_night.draw_emission(render_target, sorted_world_items, camera_3d.position, game_assets)
+    # Include actual flame pixels in the lake's source image, before bloom.
+    # Other foreground effects (e.g. mist) still composite over the reflections.
+    reflected_fires = {}
+    if render_environment_effects and g_water.enabled(main_arena):
+        reflected_fires = {key: emitter for key, emitter in frame_effect_emitters.items() if emitter.get("type") == "fire"}
+        for group, lit in (("world_front", True), ("emissive", False)):
+            g_graphics.render_effect_group(
+                render_target, camera_3d.position, game_assets, lighting_profile,
+                lighting_target, group, lit, reflected_fires,
+                tile_map, wind_profile, time_elapsed, editor_mode == "environment",
+                include_bursts=False,
+            )
     g_water.draw(render_target,lighting_target if render_environment_effects else None,game_assets,main_arena,
-        sorted_world_items,camera_3d.position,time_elapsed,reflections_only=True)
+        sorted_world_items,camera_3d.position,time_elapsed,reflections_only=True,
+        effect_emitters=reflected_fires,wind_profile=wind_profile,respect_preview_enabled=editor_mode == "environment")
 
     if render_environment_effects:
+        remaining_effects = {key: emitter for key, emitter in frame_effect_emitters.items() if key not in reflected_fires} if reflected_fires else frame_effect_emitters
         g_graphics.render_effect_group(
             render_target, camera_3d.position, game_assets, lighting_profile,
-            lighting_target, "world_front", True, frame_effect_emitters,
+            lighting_target, "world_front", True, remaining_effects,
             tile_map, wind_profile, time_elapsed, editor_mode == "environment",
         )
         g_graphics.render_effect_group(
             render_target, camera_3d.position, game_assets, lighting_profile,
-            lighting_target, "emissive", False, frame_effect_emitters,
+            lighting_target, "emissive", False, remaining_effects,
             tile_map, wind_profile, time_elapsed, editor_mode == "environment",
         )
         if not do_load_level:

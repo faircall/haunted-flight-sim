@@ -81,8 +81,10 @@ def review_arena(game,arena):
     light.update(ambient_color=[.16,.25,.36],ambient_strength=.32,shadow_color=[.003,.006,.013],black_point=.008,contrast=1.)
     light['moonlight'].update(color=[.29,.55,.87],intensity=1.1,azimuth=50.,elevation=46.)
     fog=game.g_graphics.make_fog_profile();fog.update(global_amount=.035,opacity=.20,density=.26,veil_strength=.018)
-    profile=dict(enabled=True,seed=771,reflection_strength=.72,reflection_stretch=1.05,ripple_strength=1.25,
-                 moon_position=[620.,190.],moon_color=[.35,.59,.82],camera_offset={'x':120.,'y':-76.})
+    profile=dict(enabled=True,seed=771,reflection_strength=.72,reflection_stretch=1.,ripple_strength=1.25,
+                 surface_color=[2/255.,7/255.,13/255.],ripple_color=[10/255.,22/255.,33/255.],
+                 ripple_spacing=10.,ripple_density=.45,reflections_enabled=True,
+                 fire_reflections_enabled=True,camera_offset={'x':120.,'y':-76.})
     player=game.make_default_player(232.,322.,0.)
     player.update(aim_heading=0.,aim_direction={'x':1.,'y':0.})
     for key in ('puzzle_state','puzzle_runtime','sequence_state','sequence_runtime','world_sequences'):

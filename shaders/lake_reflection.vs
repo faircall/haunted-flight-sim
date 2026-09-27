@@ -8,10 +8,8 @@ uniform float stretch;
 out vec2 fragTexCoord;
 out vec4 fragColor;
 out vec2 sourcePixel;
-out float reflectedDistance;
 void main() {
     sourcePixel=vertexPosition.xy;
-    reflectedDistance=max(0.0,mirrorY-vertexPosition.y);
     vec3 position=vertexPosition;
     position.y=mirrorY+(mirrorY-position.y)*stretch;
     gl_Position=mvp*vec4(position,1.0);

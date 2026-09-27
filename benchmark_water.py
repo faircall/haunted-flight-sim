@@ -89,7 +89,9 @@ def run():
         summary[case]['lighting']=group[-1]['lighting']
     (out/f'{args.label}-timings.json').write_text(json.dumps(dict(summary=summary,frames=rows),indent=2),encoding='utf8')
     with (out/f'{args.label}-profile.txt').open('w',encoding='utf8') as stream:
-        pstats.Stats(profiler,stream=stream).strip_dirs().sort_stats('cumulative').print_stats(65)
+        if args.profile_frames:
+            pstats.Stats(profiler,stream=stream).strip_dirs().sort_stats('cumulative').print_stats(65)
+        else:stream.write('CPU profiling disabled. Frame timings are in the adjacent JSON file.\n')
     print(json.dumps(summary,indent=2))
 
 

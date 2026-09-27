@@ -25,7 +25,7 @@ uniform float opacity;
 uniform float posterizeLevels;
 uniform float emberDensity;
 uniform float emberHeight;
-uniform int passMode; // 0 = lit flame body, 1 = emissive core + fire embers, 2 = standalone embers
+uniform int passMode; // 0 = body, 1 = core + embers, 2 = embers, 3 = binary reflection coverage
 uniform vec4 colorCore;
 uniform vec4 colorHot;
 uniform vec4 colorMid;
@@ -106,6 +106,7 @@ bool emberAtPixel(vec2 pixel, float fieldHeight, int maximumCount, float fieldDe
 
 void main()
 {
+    if (passMode == 3 && opacity <= 0.0) discard;
     vec2 screenPixel = floor(vec2(gl_FragCoord.x, resolution.y - gl_FragCoord.y));
     vec2 pixel = screenPixel - boundsMin;
     if (occlusionEnabled > 0.5) {
@@ -140,8 +141,9 @@ void main()
         return;
     }
 
-    if (passMode == 1 && emberAtPixel(pixel, max(1.0, emberHeight), 12, emberDensity))
+    if ((passMode == 1 || passMode == 3) && emberAtPixel(pixel, max(1.0, emberHeight), 12, emberDensity))
     {
+        if (passMode == 3) { finalColor = vec4(1.0); return; }
         vec3 emberColor = quantizeColor(colorHot.rgb, posterizeLevels);
         finalColor = vec4(emberColor * opacity, opacity);
         return;
@@ -177,6 +179,10 @@ void main()
     body = quantize(body, posterizeLevels);
     if (body <= 0.0)
         discard;
+
+    // Same flame/ember silhouette and occlusion as the visible passes. Colour
+    // is copied from the rendered scene, so this pass only supplies coverage.
+    if (passMode == 3) { finalColor = vec4(1.0); return; }
 
     if (passMode == 0)
     {

@@ -39,7 +39,7 @@ def run():
             assert assets['water_runtime']['shaders']['water'][0].id>0
             if frame==0:
                 from water_pixel_smoke import check
-                check(game)
+                check(game,assets)
                 assert len([k for k in assets['runtime_lights'] if k.startswith('effect:fire:')])==6
                 state['window']=assets['night_runtime']['entries']['facade:left']
                 state['intensity']=state['window']['record']['light']['intensity']

@@ -13,6 +13,8 @@ import g_water_temple_art as art
 
 ROOT=Path(__file__).resolve().parent
 RUNTIME_GENERATION=globals().get('RUNTIME_GENERATION',0)+1
+DEFAULT_SURFACE_COLOR=(2,7,13)
+DEFAULT_RIPPLE_COLOR=(10,22,33)
 
 
 def enabled(arena):return bool(arena.get('lake_profile',{}).get('enabled',False))
@@ -111,23 +113,62 @@ def _shader(rt,name):
     shader=pr.load_shader(vertex,str(ROOT/'shaders'/('lake_reflection.fs' if name=='reflection' else 'lake_water.fs')))
     if shader.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Lake shader failed: '+name)
     uniforms=('mirrorY','stretch','litScene','resolution') if name=='reflection' else (
-        'waterMask','foregroundMask','lightTexture','resolution','mapSize','cameraPosition','moonPosition','moonColor',
-        'time','reflectionStrength','rippleStrength','reflectionPass',*[f'firePositions[{i}]' for i in range(8)],*[f'fireColors[{i}]' for i in range(8)])
+        'waterMask','sceneTexture','resolution','mapSize','cameraPosition',
+        'time','reflectionStrength','rippleStrength','reflectionPass',
+        'surfaceColor','rippleColor','rippleSpacing','rippleDensity')
     value=(shader,{key:pr.get_shader_location(shader,key) for key in uniforms});rt['shaders'][name]=value
     return value
 
 
-def draw(scene,lighting,assets,arena,items,camera,now,reflections_only=True):
+def _reflect_fires(rt,assets,arena,emitters,camera,wind,now,respect_preview):
+    """Mirror the visible flame pixels, using the flame shader only for shape."""
+    import g_graphics as graphics
+    info=assets.get('shaders',{}).get('effect_fire')
+    if info is None:return
+    source=rt['targets']['source'];coverage=rt['targets']['coverage'];reflections=rt['targets']['reflections']
+    w,h=source.texture.width,source.texture.height;full=pr.Rectangle(0,0,w,-h)
+    shader,loc=_shader(rt,'reflection')
+    camera=pr.Vector2(round(camera.x),round(camera.y))
+    for emitter in emitters.values():
+        if emitter.get('type')!='fire' or not emitter.get('enabled',True):continue
+        if respect_preview and not emitter.get('preview_enabled',True):continue
+        bounds=graphics._effect_screen_bounds(emitter,arena['tile_map'],camera,w,h)
+        if bounds is None:continue
+        mask=_target(rt,'fire_mask',w,h)
+        graphics._bind_effect_uniforms(info,emitter,bounds,camera,arena['tile_map'],wind,now,3,w,h,assets)
+        pr.begin_texture_mode(mask);pr.clear_background(pr.BLANK)
+        pr.begin_shader_mode(info['shader']);graphics.bind_effect_occlusion_texture(info,assets)
+        pr.draw_rectangle_rec(bounds['clip'],pr.WHITE)
+        pr.end_shader_mode();pr.end_texture_mode()
+        # Protect the visible flames wherever they overlap water.
+        pr.begin_texture_mode(coverage)
+        pr.draw_texture_rec(mask.texture,full,pr.Vector2(0,0),pr.WHITE)
+        pr.end_texture_mode()
+        if not arena['lake_profile'].get('fire_reflections_enabled',True):continue
+        position=g_effects.position_to_world(emitter.get('position',{}),arena['tile_map'])
+        base=position['y']+float(emitter.get('reflection_base_offset',14.))
+        graphics.set_shader_float(shader,loc['mirrorY'],round(base)-round(camera.y))
+        pr.begin_texture_mode(reflections);pr.rl_disable_backface_culling()
+        pr.begin_shader_mode(shader);graphics.set_shader_texture(shader,loc['litScene'],source.texture)
+        pr.draw_texture_rec(mask.texture,full,pr.Vector2(0,0),pr.WHITE)
+        pr.end_shader_mode();pr.rl_enable_backface_culling();pr.end_texture_mode()
+
+
+def draw(scene,lighting,assets,arena,items,camera,now,reflections_only=True,
+         effect_emitters=None,wind_profile=None,respect_preview_enabled=False):
     if not enabled(arena) or 'water_runtime' not in assets:return
     import g_graphics as graphics
     rt=assets['water_runtime'];profile=arena['lake_profile'];tm=arena['tile_map']
+    if reflections_only and not profile.get('reflections_enabled',True):return
     w,h=scene.texture.width,scene.texture.height
     source=_target(rt,'source',w,h);reflections=_target(rt,'reflections',w,h);coverage=_target(rt,'coverage',w,h)
     full=pr.Rectangle(0,0,w,-h)
     if reflections_only:
         import g_player_reveal
-        pr.begin_texture_mode(source);pr.clear_background(pr.BLANK)
-        pr.draw_texture_rec(scene.texture,full,pr.Vector2(0,0),pr.WHITE);pr.end_texture_mode()
+        pr.rl_set_blend_factors_separate(pr.RL_ONE,pr.RL_ZERO,pr.RL_ONE,pr.RL_ZERO,pr.RL_FUNC_ADD,pr.RL_FUNC_ADD)
+        pr.begin_texture_mode(source);pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
+        pr.draw_texture_rec(scene.texture,full,pr.Vector2(0,0),pr.WHITE)
+        pr.end_blend_mode();pr.end_texture_mode()
         pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA,pr.RL_ONE_MINUS_SRC_ALPHA,pr.RL_ONE,pr.RL_ONE_MINUS_SRC_ALPHA,pr.RL_FUNC_ADD,pr.RL_FUNC_ADD)
         pr.begin_texture_mode(coverage);pr.clear_background(pr.BLANK);pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
         for item in items:
@@ -140,8 +181,10 @@ def draw(scene,lighting,assets,arena,items,camera,now,reflections_only=True):
         pr.end_blend_mode();pr.end_texture_mode()
         shader,loc=_shader(rt,'reflection')
         graphics.set_shader_vec2(shader,loc['resolution'],w,h)
-        graphics.set_shader_float(shader,loc['stretch'],profile.get('reflection_stretch',1.05))
+        graphics.set_shader_float(shader,loc['stretch'],profile.get('reflection_stretch',1.))
         pr.begin_texture_mode(reflections);pr.clear_background(pr.BLANK)
+        # Premultiplied RGB and ordinary coverage alpha, including roof fades.
+        pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
         pr.rl_disable_backface_culling()
         for item in items:
             tex=graphics.resolve_render_item_texture(item,assets)
@@ -151,43 +194,43 @@ def draw(scene,lighting,assets,arena,items,camera,now,reflections_only=True):
             pr.begin_shader_mode(shader);graphics.set_shader_texture(shader,loc['litScene'],source.texture)
             reflected_item=dict(item,opacity=item.get('opacity',1.)*item.get('composite_opacity',1.))
             graphics._draw_render_item_main_shape(reflected_item,tex,camera,assets);pr.end_shader_mode()
-        pr.rl_enable_backface_culling();pr.end_texture_mode()
+        pr.rl_enable_backface_culling();pr.end_blend_mode();pr.end_texture_mode()
+        _reflect_fires(rt,assets,arena,effect_emitters or {},camera,
+            wind_profile or arena.get('wind_profile') or g_effects.make_wind_profile(),now,respect_preview_enabled)
+        # Store foreground coverage (including visible flames) in source alpha
+        # without changing the lit RGB sampled by the reflected geometry.
+        pr.rl_set_blend_factors_separate(pr.RL_ZERO,pr.RL_ONE,pr.RL_ONE,pr.RL_ZERO,pr.RL_FUNC_ADD,pr.RL_FUNC_ADD)
+        pr.begin_texture_mode(source);pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
+        pr.draw_texture_rec(coverage.texture,full,pr.Vector2(0,0),pr.WHITE)
+        pr.end_blend_mode();pr.end_texture_mode()
     else:
         for target in (reflections,coverage):
             pr.begin_texture_mode(target);pr.clear_background(pr.BLANK);pr.end_texture_mode()
-    if lighting is None:
-        lighting=_target(rt,'blank_light',w,h)
-        pr.begin_texture_mode(lighting);pr.clear_background(pr.BLACK);pr.end_texture_mode()
     shader,loc=_shader(rt,'water')
     graphics.set_shader_vec2(shader,loc['resolution'],w,h)
     graphics.set_shader_vec2(shader,loc['mapSize'],tm['map_width']*tm['tile_width'],tm['map_height']*tm['tile_height'])
     graphics.set_shader_vec2(shader,loc['cameraPosition'],round(camera.x),round(camera.y))
-    graphics.set_shader_vec2(shader,loc['moonPosition'],*profile.get('moon_position',[620.,190.]))
-    graphics.set_shader_vec3(shader,loc['moonColor'],*profile.get('moon_color',[.35,.59,.82]))
+    graphics.set_shader_vec3(shader,loc['surfaceColor'],*profile.get('surface_color',[v/255. for v in DEFAULT_SURFACE_COLOR]))
+    graphics.set_shader_vec3(shader,loc['rippleColor'],*profile.get('ripple_color',[v/255. for v in DEFAULT_RIPPLE_COLOR]))
+    graphics.set_shader_float(shader,loc['rippleSpacing'],max(4.,profile.get('ripple_spacing',10.)))
+    graphics.set_shader_float(shader,loc['rippleDensity'],max(0.,min(1.,profile.get('ripple_density',.45))))
     graphics.set_shader_float(shader,loc['time'],now)
     graphics.set_shader_float(shader,loc['reflectionStrength'],profile.get('reflection_strength',.72))
     graphics.set_shader_float(shader,loc['rippleStrength'],profile.get('ripple_strength',1.25))
     graphics.set_shader_float(shader,loc['reflectionPass'],float(reflections_only))
-    lamps=list(g_effects.build_fire_runtime_lights(arena['entities'].get('emitters',{}),tm,now).values())[:8]
-    for i in range(8):
-        lamp=lamps[i] if i<len(lamps) else dict(position={'x':0.,'y':0.},intensity=0.,color=[0.,0.,0.])
-        graphics.set_shader_vec4(shader,loc[f'firePositions[{i}]'],lamp['position']['x'],lamp['position']['y']+14.,lamp['intensity'],0.)
-        graphics.set_shader_vec4(shader,loc[f'fireColors[{i}]'],*lamp['color'],1.)
     pr.begin_texture_mode(scene)
-    if reflections_only:pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
     pr.begin_shader_mode(shader)
     graphics.set_shader_texture(shader,loc['waterMask'],rt['mask'])
-    graphics.set_shader_texture(shader,loc['foregroundMask'],coverage.texture)
-    graphics.set_shader_texture(shader,loc['lightTexture'],lighting.texture)
+    graphics.set_shader_texture(shader,loc['sceneTexture'],source.texture)
     pr.draw_texture_rec(reflections.texture,full,pr.Vector2(0,0),pr.WHITE)
     pr.end_shader_mode()
-    if reflections_only:pr.end_blend_mode()
     pr.end_texture_mode()
 
 
 def unload(assets):
     rt=assets.pop('water_runtime',{})
     if 'mask' in rt:pr.unload_texture(rt['mask'])
+    if 'palette' in rt:pr.unload_texture(rt['palette'])
     for target in rt.get('targets',{}).values():pr.unload_render_texture(target)
     for shader,_ in rt.get('shaders',{}).values():pr.unload_shader(shader)
     for texture in assets.pop('water_prop_textures',{}).values():pr.unload_texture(texture)

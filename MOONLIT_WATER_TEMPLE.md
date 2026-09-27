@@ -10,9 +10,9 @@ The existing courtyard still launches with `python night_trial.py`. Its layout a
 
 ## In the prototype
 
-- A large dark lake with a rounded, crisp shoreline, animated ripples, broken blue moon glints and low mist.
+- A large dark lake with a rounded, crisp shoreline, a two-colour surface, hard-edged animated ripples and low mist.
 - A raised timber boardwalk, railings and pilings leading to an open temple doorway. The route retains normal movement collision and wooden footstep sounds. Deep water blocks movement without acting as a wall for light rays.
-- Six visible fire bowls, with procedural flames, embers, independently flickering light, and warm reflected streaks. The temple's window spill follows its indoor fire lamps. There are no authored electric point lamps in this scene.
+- Six visible fire bowls, with procedural flames, embers, independently flickering light, and literal reflections of the flame pixels. The temple's window spill follows its indoor fire lamps. There are no authored electric point lamps in this scene.
 - Lit sprite reflections of the temple, roof, supports, vegetation and player, projected from their ground anchors and distorted on the GPU. Dry surfaces and foreground objects mask them correctly.
 - A temporary tiled roof and shrine. The roof fades away indoors; the localized player reveal also works here.
 
@@ -20,9 +20,9 @@ The reference guided the dark water, raised approach and cool architecture. Warm
 
 ## Tuning / limitations
 
-Layout, lamp placement and lake defaults live in `moonlit_water_temple.py`. `lake_profile` controls reflection strength, ripple strength, moon glint position/colour and camera offset. `g_water_temple_art.py` provides replaceable procedural architecture. Water is authored as tile metadata; a dedicated lake painting tool is not included yet. The scene data is compatible with the usual level saves.
+Layout, lamp placement and lake defaults live in `moonlit_water_temple.py`. `lake_profile` controls the two surface colours, ripple placement, independent reflection treatment and camera offset. `g_water_temple_art.py` provides replaceable procedural architecture. Water is authored as tile metadata; a dedicated lake painting tool is not included yet. The scene data is compatible with the usual level saves.
 
-These are 2D sprite reflections of visible rendered content, not a 3D mirror. Offscreen surfaces cannot contribute, and overlapping sprites retain the main view's occlusion. Flame reflections use flickering, rippled light streaks rather than a second full flame simulation. The shallow shoreline stencil can differ from its tile collision edge by a few pixels.
+These are 2D sprite reflections of visible rendered content, not a 3D mirror. Offscreen surfaces cannot contribute, and overlapping sprites retain the main view's occlusion. Flame reflections copy the rendered flame colours through a mask evaluated with the same flame shader, time, wind and occlusion. The shallow shoreline stencil can differ from its tile collision edge by a few pixels.
 
 ## RetroDiffusion asset prompts
 
@@ -89,3 +89,41 @@ python .tree_game_smoke.py --water-benchmark --label current
 ```
 
 Results and comparison captures are written under `artifacts/moonlit-water-temple/`. Unit coverage for cache invalidation, moving lights, batched polygon edges and overlap masks lives in `test_entity_light_optimization.py`.
+
+## Two-colour surface, independent reflections
+
+The base surface has exactly two colours: `#02070d` water and `#0a1621` ripple strokes. Ripple placement animates, but each stroke stays fully opaque and one native pixel thick. There are no gradient fringes, dither, fine colour noise, or 2x2 enlargement. Camera motion preserves the world-pixel alignment.
+
+The former shared 20-colour palette has been removed. Sprite and flame reflections composite separately; surface colours, density and spacing do not change reflected sprite colours. Fog and fire bloom remain later scene effects, so the complete scene naturally contains more than the two base colours.
+
+Tuning fields in `lake_profile`:
+
+- `surface_color` and `ripple_color`: normalized RGB triples for the two colours.
+- `ripple_spacing`: average distance between ripple bands, `10` world pixels by default.
+- `ripple_density`: length/coverage of broken strokes, `0.45` by default.
+- `reflections_enabled`: set false to review the base surface independently.
+- `fire_reflections_enabled`: controls literal flame reflections separately.
+- `reflection_strength`: coverage, from 0 (hidden) to 1 (unbroken). Ripples remove pixels in coherent bands instead of multiplying their brightness.
+- `reflection_stretch`, `ripple_strength`: vertical scale and whole-pixel distortion amount. These do not affect surface ripple styling.
+- Per-fire `reflection_base_offset`: water-plane pivot below the flame anchor, default 14 pixels for the prototype's braziers.
+
+GPU checks verify exactly two base colours, exact source-colour preservation in both sprite and flame reflections, native pixel detail, animated strokes, strength changing coverage instead of RGB, transparent foregrounds, dry masks, lamp extinction and camera alignment.
+
+### How reflections currently work
+
+1. Render the sprites and visible flames, then capture their lit colours before bloom and mist.
+2. Draw each sprite's geometry again into a reflection target. A vertex shader mirrors it around its ground anchor; stretch defaults to 1.0. Sample a single source texel using the original sprite alpha for shape. Flame masks come from the same procedural flame shader, including its embers and depth occlusion.
+3. A fragment shader shifts samples in whole native pixels using explicit texel fetches, then cuts gaps along ripple bands. Surviving opaque pixels retain their source RGB exactly. There is no reflection distance fade, brightness ramp, additive colour boost, or synthetic fire-light streak. Intentional object fades and translucent foregrounds still use alpha blending.
+
+An independent reflected strip/grid mesh remains an option for changing the deformation shape and overcoming main-view occlusion. Palette preservation does not require it: fragment shaders can move exact texels just as well, provided their sampling and compositing do not interpolate colours.
+
+## Next optimization sequence
+
+Deferred until the water and reflection appearance is settled.
+
+1. **Ground chunk drawing (smallest, safest next pass).** Ground materials already live in cached chunk textures, but much of the draw path still submits individual tile rectangles. Draw visible chunk regions together, keeping decals, grass, editor overlays and gameplay cells independent. Verify rounded joins, tile masks and editor painting.
+2. **Batch object lighting on the GPU (largest potential gain).** Prototype an atlas of the frame's independent light fields and a sprite shader that combines eligible lights in one draw. This targets the remaining object-by-light loops and repeated render-target/shader switches. Keep the current renderer for pixel comparisons; preserve per-light tree response, window receivers, actor shadows, depth order and player cutaways. This is a broader renderer change, not a switch we can safely flip.
+3. **Cull invisible work.** Exclude offscreen props from lighting/render submissions and offscreen trees from deformation where they contribute neither visible shadows nor reflections. Reflection visibility needs its own bounds test; ordinary camera culling alone would make mirrors pop.
+Keep water and reflection buffers at native resolution; coarsening the pixels was rejected on visual grounds.
+
+Measure each step separately. Palette reduction alone does not make drawing cheaper; fewer draw submissions and fewer shaded pixels do.

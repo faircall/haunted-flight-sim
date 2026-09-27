@@ -3755,7 +3755,7 @@ def bind_effect_occlusion_texture(info, game_assets):
 def render_effect_group(scene, game_camera, game_assets, lighting_profile, lighting_target,
                         render_group, apply_world_lighting=True, emitters=None,
                         tile_map=None, wind_profile=None, time_elapsed=0.0,
-                        respect_preview_enabled=False):
+                        respect_preview_enabled=False, include_bursts=True):
     """Submit one local shader quad per visible authored effect pass."""
     runtime = game_assets.get("effects_runtime")
     if not isinstance(runtime, dict):
@@ -3778,7 +3778,7 @@ def render_effect_group(scene, game_camera, game_assets, lighting_profile, light
             continue
         grouped[submission["material"]].append((submission, emitter_id, emitter, bounds))
 
-    burst_particles = g_effects.collect_gameplay_burst_particles(runtime, render_group, "lit_alpha")
+    burst_particles = g_effects.collect_gameplay_burst_particles(runtime, render_group, "lit_alpha") if include_bursts else []
     draw_calls = sum(len(values) for values in grouped.values()) + (1 if burst_particles else 0)
     if draw_calls == 0:
         return {"emitters": 0, "draw_calls": 0, "submission_time_ms": 0.0}
