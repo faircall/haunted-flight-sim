@@ -79,11 +79,12 @@ def review_arena(game,arena):
         entities['brains'][name]=tree
     light=game.g_graphics.make_lighting_profile();g_night.moon_preset(light)
     light.update(ambient_color=[.16,.25,.36],ambient_strength=.32,shadow_color=[.003,.006,.013],black_point=.008,contrast=1.)
-    light['moonlight'].update(color=[.29,.55,.87],intensity=1.1,azimuth=50.,elevation=46.)
+    light['moonlight'].update(color=[.29,.55,.87],intensity=.3,azimuth=50.,elevation=46.)
     fog=game.g_graphics.make_fog_profile();fog.update(global_amount=.035,opacity=.20,density=.26,veil_strength=.018)
-    profile=dict(enabled=True,seed=771,reflection_strength=.72,reflection_stretch=1.,ripple_strength=1.25,
+    profile=dict(enabled=True,seed=771,reflection_strength=.72,reflection_stretch=1.,ripple_strength=1.25,reflection_sway=2.,
                  surface_color=[2/255.,7/255.,13/255.],ripple_color=[10/255.,22/255.,33/255.],
-                 ripple_spacing=10.,ripple_density=.45,reflections_enabled=True,
+                 ripple_spacing=12.,ripple_density=.45,ripple_width=3.,ripple_speed=.65,ripple_speed_variation=.28,
+                 ripple_direction={'x':0.,'y':1.},shore_width=12.,shore_speed=.65,shore_lap=3.,reflections_enabled=True,
                  fire_reflections_enabled=True,camera_offset={'x':120.,'y':-76.})
     player=game.make_default_player(232.,322.,0.)
     player.update(aim_heading=0.,aim_direction={'x':1.,'y':0.})

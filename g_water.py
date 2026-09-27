@@ -5,6 +5,7 @@ project actual lit sprites about their ground anchors, then ripple on the GPU.
 """
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFilter
+import numpy as np
 import pyray as pr
 import g_effects
 import g_surfaces
@@ -15,6 +16,7 @@ ROOT=Path(__file__).resolve().parent
 RUNTIME_GENERATION=globals().get('RUNTIME_GENERATION',0)+1
 DEFAULT_SURFACE_COLOR=(2,7,13)
 DEFAULT_RIPPLE_COLOR=(10,22,33)
+SHORE_DISTANCE=32
 
 
 def enabled(arena):return bool(arena.get('lake_profile',{}).get('enabled',False))
@@ -27,10 +29,18 @@ def camera_focus(arena,position):
     return dict(x=point['x']+offset.get('x',0),y=point['y']+offset.get('y',0))
 
 
-def water_mask(tm):
+def lake_bed_mask(tm):
+    """Natural lake outline, continuing underneath the raised boardwalk."""
     w,h=tm['map_width'],tm['map_height'];tw,th=tm['tile_width'],tm['tile_height']
     mask=Image.new('L',(w,h));mask.putdata([255 if tile.get('lake_bed',tile.get('water',False)) else 0 for tile in tm['tiles']])
-    mask=mask.resize((w*tw,h*th),Image.Resampling.NEAREST).filter(ImageFilter.GaussianBlur(5)).point(lambda value:255 if value>=128 else 0)
+    field=mask.resize((w*tw,h*th),Image.Resampling.NEAREST).filter(ImageFilter.GaussianBlur(5))
+    field=g_surfaces.warp_boundary_field(field,g_surfaces.boundary_samples(field.size,tile_size=min(tw,th)))
+    return field.point(lambda value:255 if value>=128 else 0)
+
+
+def water_mask(tm,bed=None):
+    w,tw,th=tm['map_width'],tm['tile_width'],tm['tile_height']
+    mask=lake_bed_mask(tm) if bed is None else bed.copy()
     draw=ImageDraw.Draw(mask)
     for i,tile in enumerate(tm['tiles']):
         if not tile.get('water') and tile.get('surface_material') in ('wood','wall'):
@@ -38,16 +48,46 @@ def water_mask(tm):
     return mask
 
 
+def shore_distance(bed):
+    """Capped Euclidean distance to land, calculated only when the map changes.
+
+    Find each row's nearest land first, then consider nearby rows. This avoids
+    per-pixel Python work and needs no extra image-processing dependency.
+    Outside the map is not treated as land; an all-water map has no shoreline.
+    """
+    water=np.asarray(bed)>0
+    height,width=water.shape;x=np.arange(width)[None,:]
+    left=np.maximum.accumulate(np.where(water,-SHORE_DISTANCE,x),axis=1)
+    right=np.minimum.accumulate(np.where(water,width+SHORE_DISTANCE,x)[:,::-1],axis=1)[:,::-1]
+    horizontal=np.minimum(x-left,right-x).clip(0,SHORE_DISTANCE).astype(np.float32)**2
+    distance=horizontal.copy()
+    for offset in range(1,min(SHORE_DISTANCE,height)):
+        np.minimum(distance[offset:],horizontal[:-offset]+offset*offset,out=distance[offset:])
+        np.minimum(distance[:-offset],horizontal[offset:]+offset*offset,out=distance[:-offset])
+    return np.sqrt(distance.clip(0,SHORE_DISTANCE**2))
+
+
+def water_map_image(tm):
+    bed=lake_bed_mask(tm)
+    signed=shore_distance(bed)-shore_distance(Image.fromarray(255-np.asarray(bed)))
+    distance=Image.fromarray(np.rint(128.+signed*(127./SHORE_DISTANCE)).astype(np.uint8))
+    allowed=water_mask(tm,Image.new('L',bed.size,255))
+    # R: resting stencil; G: signed shore distance (128 is zero); B: where
+    # water may wash, excluding raised decks/walls even on the landward side.
+    # Animation moves a crisp threshold over this cached field on the GPU.
+    return Image.merge('RGBA',(water_mask(tm,bed),distance,allowed,Image.new('L',bed.size,255)))
+
+
 def prepare(assets,arena,dt,mode):
     if not enabled(arena):unload(assets);return
     tm=arena['tile_map'];rt=assets.get('water_runtime')
-    stamp=(id(tm),tm.get('geometry_revision',0),tm.get('water_revision',0),RUNTIME_GENERATION,art.RUNTIME_GENERATION)
+    stamp=(id(tm),tm.get('geometry_revision',0),tm.get('water_revision',0),RUNTIME_GENERATION,art.RUNTIME_GENERATION,g_surfaces.MASK_VERSION)
     if rt is None or rt['stamp']!=stamp:
         previous=rt.get('cutaways',{}) if rt and rt.get('map') is tm else {}
         unload(assets)
         rt=dict(stamp=stamp,map=tm,cutaways=previous,props={},targets={},shaders={},mode=mode)
         assets['water_runtime']=rt;assets['water_prop_textures']={}
-        rt['mask']=g_surfaces.upload_image(water_mask(tm).convert('RGBA'))
+        rt['mask']=g_surfaces.upload_image(water_map_image(tm))
     wanted=set()
     feet=g_effects.position_to_world(arena['player_info']['position'],tm)
     offset=arena['player_info'].get('render_base_offset',{'y':14.})
@@ -89,6 +129,7 @@ def render_items(assets,entities):
                         outline={'policy':'never'})
             metadata[name]=(signature,entity)
         else:entity=cached[1]
+        entity['player_reveal_enabled']=prop.get('player_reveal_enabled',True)
         item=order.make_world_render_item('lake_prop','lake_prop','lake:'+name,name,entity,base,w,h,
             order.make_texture_reference('water_prop_textures',name),dict(x=0,y=0,width=w,height=h))
         if prop.get('cutaway'):item['sort_y']-=.5
@@ -114,8 +155,9 @@ def _shader(rt,name):
     if shader.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Lake shader failed: '+name)
     uniforms=('mirrorY','stretch','litScene','resolution') if name=='reflection' else (
         'waterMask','sceneTexture','resolution','mapSize','cameraPosition',
-        'time','reflectionStrength','rippleStrength','reflectionPass',
-        'surfaceColor','rippleColor','rippleSpacing','rippleDensity')
+        'time','reflectionStrength','rippleStrength','reflectionSway','reflectionPass',
+        'surfaceColor','rippleColor','rippleSpacing','rippleDensity','rippleWidth','rippleSpeed','rippleSpeedVariation','rippleDirection',
+        'shoreWidth','shoreSpeed','shoreLap','shoreDistanceRange')
     value=(shader,{key:pr.get_shader_location(shader,key) for key in uniforms});rt['shaders'][name]=value
     return value
 
@@ -212,11 +254,23 @@ def draw(scene,lighting,assets,arena,items,camera,now,reflections_only=True,
     graphics.set_shader_vec2(shader,loc['cameraPosition'],round(camera.x),round(camera.y))
     graphics.set_shader_vec3(shader,loc['surfaceColor'],*profile.get('surface_color',[v/255. for v in DEFAULT_SURFACE_COLOR]))
     graphics.set_shader_vec3(shader,loc['rippleColor'],*profile.get('ripple_color',[v/255. for v in DEFAULT_RIPPLE_COLOR]))
-    graphics.set_shader_float(shader,loc['rippleSpacing'],max(4.,profile.get('ripple_spacing',10.)))
+    graphics.set_shader_float(shader,loc['rippleSpacing'],max(4.,profile.get('ripple_spacing',12.)))
     graphics.set_shader_float(shader,loc['rippleDensity'],max(0.,min(1.,profile.get('ripple_density',.45))))
+    graphics.set_shader_float(shader,loc['rippleWidth'],max(1.,min(8.,profile.get('ripple_width',3.))))
+    graphics.set_shader_float(shader,loc['rippleSpeed'],max(0.,profile.get('ripple_speed',.65)))
+    graphics.set_shader_float(shader,loc['rippleSpeedVariation'],max(0.,min(.65,profile.get('ripple_speed_variation',.28))))
+    direction=profile.get('ripple_direction',{'x':0.,'y':1.})
+    dx,dy=float(direction.get('x',0.)),float(direction.get('y',1.))
+    length=(dx*dx+dy*dy)**.5
+    graphics.set_shader_vec2(shader,loc['rippleDirection'],dx/length if length else 0.,dy/length if length else 1.)
+    graphics.set_shader_float(shader,loc['shoreWidth'],max(0.,min(SHORE_DISTANCE-4.,profile.get('shore_width',12.))))
+    graphics.set_shader_float(shader,loc['shoreSpeed'],max(0.,profile.get('shore_speed',.65)))
+    graphics.set_shader_float(shader,loc['shoreLap'],max(0.,min(8.,profile.get('shore_lap',3.))))
+    graphics.set_shader_float(shader,loc['shoreDistanceRange'],SHORE_DISTANCE)
     graphics.set_shader_float(shader,loc['time'],now)
     graphics.set_shader_float(shader,loc['reflectionStrength'],profile.get('reflection_strength',.72))
     graphics.set_shader_float(shader,loc['rippleStrength'],profile.get('ripple_strength',1.25))
+    graphics.set_shader_float(shader,loc['reflectionSway'],max(0.,min(4.,profile.get('reflection_sway',2.))))
     graphics.set_shader_float(shader,loc['reflectionPass'],float(reflections_only))
     pr.begin_texture_mode(scene)
     pr.begin_shader_mode(shader)

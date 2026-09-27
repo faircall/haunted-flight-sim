@@ -15,7 +15,7 @@ In any level, choose **tile → Tile edit: materials**:
   type and forced-collision boundaries constrain the fill.
 - **Detail:** grass coverage / frequency of dirt, grain and wear details.
 - **Seed:** another stable arrangement, applied when painting.
-- **Rounded joins:** curved, pixel-crisp material boundaries. Every pixel belongs
+- **Rounded joins:** curved, pixel-crisp material boundaries with fractal variation along long straight runs. Every pixel belongs
   to one material, with no fading or blended strip between textures. Disable for
   the original square/triangle edges. Unrounded cells keep their immediate boundary
   unchanged, even beside a rounded region.
@@ -29,6 +29,13 @@ edges; established details away from those edges do not reshuffle. Triangle tile
 shapes also participate. Curved visual boundaries do not change collision geometry.
 Use the existing appearance/collision tools to create walls or change geometry.
 Existing saved "Soft joins" regions automatically use the rounded stencils.
+
+Rounded joins now use three scales of world-fixed boundary displacement: broad
+curves, smaller bays and fine scallops. On 16-pixel tiles the displacement is
+bounded to four pixels per axis. All competing materials sample the same warped
+mask field before choosing a single owner, so adjoining textures have no gaps or
+overlap. The lake uses this same boundary treatment before generating its moving
+shoreline. Hard joins and authored collision remain unchanged.
 
 ### Tile types versus materials
 
@@ -76,6 +83,8 @@ Bases and static details are cached in visible 4×4-cell chunks. Edits rebuild o
 chunks whose two-cell neighborhood changed. Ordinary frames reuse the textures
 and meshes; they do not regenerate sprites or deform vertices on the CPU. New
 areas and large fills still incur a one-time generation/upload cost.
+Fractal boundary fields are part of that cached bake; ordinary frames do not
+regenerate them. Chunked and whole-region bakes are tested for identical pixels.
 
 Runtime generation uses Pillow and NumPy (both available in this environment).
 The review launcher does not require the original concepts; the extractor does.

@@ -37,7 +37,7 @@ class EffectFactoryAndMigrationTests(unittest.TestCase):
         first_fire["palette"]["core"][0] = 0.0
         self.assertEqual(second_fire["palette"]["core"][0], 1.0)
         first_fire["light"]["contours"]["speed"] = 2.0
-        self.assertEqual(second_fire["light"]["contours"]["speed"], 0.65)
+        self.assertEqual(second_fire["light"]["contours"]["speed"], 4.0)
 
     def test_existing_fire_lights_gain_contours_without_losing_authored_settings(self):
         for authored in (None, {"enabled": False, "speed": 1.2, "motion": 0.0}):
@@ -51,7 +51,7 @@ class EffectFactoryAndMigrationTests(unittest.TestCase):
             g_effects.migrate_emitter(emitter)
             contours = emitter["light"]["contours"]
             self.assertEqual(set(contours), set(g_effects.FIRELIGHT_CONTOUR_DEFAULTS))
-            self.assertEqual(contours["speed"], 1.2 if authored else .65)
+            self.assertEqual(contours["speed"], 1.2 if authored else 4.0)
             self.assertEqual(contours["motion"], 0.0 if authored else .65)
             expected = original["light"] | {"contours": contours}
             self.assertEqual(emitter["light"], expected)

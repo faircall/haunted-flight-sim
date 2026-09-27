@@ -16,7 +16,7 @@ import time
 RENDER_GROUPS = ("floor_lit", "world_behind", "world_front", "emissive")
 PROCEDURAL_EFFECT_TYPES = ("smoke", "fire", "ember", "spark")
 EFFECT_SHADER_VERSION = 2
-FIRELIGHT_CONTOUR_DEFAULTS = {"strength": 0.48, "scale": 28.0, "motion": 0.65, "speed": 0.65}
+FIRELIGHT_CONTOUR_DEFAULTS = {"strength": 0.48, "scale": 28.0, "motion": 0.65, "speed": 4.0}
 IMPACT_MATERIALS = ("wood", "stone", "metal")
 WALL_IMPACT_MATERIAL_PROFILES = {
     "wood": {

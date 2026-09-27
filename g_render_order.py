@@ -16,7 +16,7 @@ for _old_redhead_name in ("REDHEAD_CUTOUT_TEXTURES", "REDHEAD_CUTOUT_RIG_DEFAULT
 
 
 SORT_LAYER_ORDER = {"floor": 0, "world": 100, "overlay": 200}
-ENTITY_RENDER_METADATA_VERSION = 2
+ENTITY_RENDER_METADATA_VERSION = 3
 _PLAYER_ANIMATION_NAMES = ('PLAYER_WEAPON_BEZIER_DEFAULTS', 'PLAYER_CUTOUT_RIG_DEFAULTS', 'PLAYER_CUTOUT_GAIT_PROFILES', 'PLAYER_CUTOUT_TEXTURES', 'PLAYER_CUTOUT_DIRECTION_TEXTURES', 'PLAYER_CUTOUT_ARM_DEFAULTS', 'PLAYER_FLASHLIGHT_POSE_DEFAULTS', 'PLAYER_FRONT_CUTOUT_RIG_DEFAULTS', 'PLAYER_FRONT_CUTOUT_LEG_PROFILES', 'PLAYER_FRONT_CUTOUT_ARM_DEFAULTS', 'PLAYER_RELOAD_POSE_DEFAULTS', 'PLAYER_FRONT_CUTOUT_ARM_PROFILES')
 for _old_player_name in _PLAYER_ANIMATION_NAMES:
     globals().pop(_old_player_name, None)
@@ -72,6 +72,7 @@ def make_default_entity_render_metadata(entity_type):
         "outline": {"policy": "never", "color": [0.55, 0.66, 0.72, 0.48], "width": 1.0, "priority": 0},
         "render_style": "world",
         "occludes_render_items": False,
+        "player_reveal_enabled": True,
         "fog_interaction": {"mode": "standard"},
         "water_interaction": {"mode": "standard"}
     }
@@ -81,6 +82,7 @@ def make_default_entity_render_metadata(entity_type):
             "visual_height": 120.0, "light_sample_height": 65.0,
             "ground_footprint": {"shape": "rectangle", "offset": {"x": 0.0, "y": -3.0}, "size": {"x": 20.0, "y": 8.0}},
             "occludes_render_items": True,
+            "player_reveal_enabled": False,
             "shadow": {"mode": "upright", "cast_height": 120.0, "maximum_length": 160.0, "opacity": 0.4},
         },
         "player": {
@@ -245,6 +247,7 @@ def make_world_render_item(kind, source, source_id, object_id, entity, world_pos
         "light_sample_height": float(entity.get("light_sample_height", entity.get("visual_height", height) * 0.55)), "ground_footprint": entity.get("ground_footprint", {}),
         "self_shadow": entity.get("self_shadow", {}), "entity_light_occluder": entity.get("entity_light_occluder", {}), "shadow": shadow, "render_style": entity.get("render_style", "world"),
         "outline": entity.get("outline", {}), "occludes_render_items": bool(entity.get("occludes_render_items", False)), "fog_interaction": entity.get("fog_interaction", {"mode": "standard"}),
+        "player_reveal_enabled": bool(entity.get("player_reveal_enabled", True)),
         "water_interaction": entity.get("water_interaction", {"mode": "standard"}), "draw_data": draw_data or {},
         "contact_shadow": entity.get("contact_shadow", {}),
         "glow": entity.get("glow", {}), "glow_transition": entity.get("glow_transition")
@@ -2135,6 +2138,24 @@ def build_major_entity_light_occluders(render_items):
     return [item for item in render_items if item.get("entity_light_occluder", {}).get("enabled", False) and item.get("entity_light_occluder", {}).get("blocks_entity_lighting", False)]
 
 
+def visible_sprite_items(render_items, camera, width, height):
+    """Cull only direct sprite work; callers retain the full list for shadows
+    and reflections. Articulated rigs/equipment may extend beyond their canvas.
+    A pixel of padding covers both static and relative-motion rounding.
+    """
+    x, y = world_camera_offset(camera)
+    result = []
+    for item in render_items:
+        if item.get('source') == 'player' or item.get('draw_data', {}).get('cutout_rig_parts'):
+            result.append(item)
+            continue
+        r = item['dest_rect']
+        if (r['x'] + abs(r['width']) >= x-1 and r['x'] <= x+width+1
+                and r['y'] + abs(r['height']) >= y-1 and r['y'] <= y+height+1):
+            result.append(item)
+    return result
+
+
 def find_occluders_for_item(render_items, target_item):
     result = []
     target_bounds = target_item.get("bounds_world", {})
@@ -2150,8 +2171,21 @@ def find_occluders_for_item(render_items, target_item):
 def build_render_occlusion_groups(render_items):
     targets = {}
     occluders = {}
+    # A small spatial broad phase avoids comparing every fence post with every
+    # other object. Keep original list order for deterministic painter ties.
+    buckets = {}
+    def cells(bounds):
+        left, top = bounds.get('x', 0.), bounds.get('y', 0.)
+        right, bottom = left+bounds.get('width',0.), top+bounds.get('height',0.)
+        return ((x,y) for y in range(math.floor(top/64), math.floor(bottom/64)+1)
+                for x in range(math.floor(left/64), math.floor(right/64)+1))
+    for index, item in enumerate(render_items):
+        if item.get('occludes_render_items', item.get('occludes_player', False)):
+            for key in cells(item.get('bounds_world', {})):
+                buckets.setdefault(key, []).append(index)
     for item in render_items:
-        item_occluders = find_occluders_for_item(render_items, item)
+        candidates = {index for key in cells(item.get('bounds_world', {})) for index in buckets.get(key, ())}
+        item_occluders = find_occluders_for_item([render_items[index] for index in sorted(candidates)], item)
         if not item_occluders:
             continue
         source_id = item.get("source_id", str(item.get("id")))

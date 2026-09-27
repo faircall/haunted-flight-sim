@@ -23,6 +23,7 @@ g_reloadable_modules = [
     ("g_tree_animation", update_and_render_module.g_tree_render.rig),
     ("g_tree_render", update_and_render_module.g_tree_render),
     ("g_surfaces", update_and_render_module.g_surfaces),
+    ("g_ground", update_and_render_module.g_ground),
     ("g_night", update_and_render_module.g_night),
     ("g_roofs", update_and_render_module.g_roofs),
     ("g_player_reveal", update_and_render_module.g_player_reveal),
@@ -53,6 +54,7 @@ g_reloadable_modules = [
     ("g_light_visibility", update_and_render_module.g_graphics.light_visibility),
     ("g_effects", update_and_render_module.g_effects),
     ("g_graphics", update_and_render_module.g_graphics),
+    ("g_entity_batch", importlib.import_module('g_entity_batch')),
     ("g_ui", update_and_render_module.g_ui),
     ("g_editor", update_and_render_module.g_editor),
     ("g_render_order", update_and_render_module.g_render_order),
@@ -197,6 +199,12 @@ def reload_modules_if_needed(module_write_times, game_assets=None):
                 elif name == "g_animation_player_data":
                     g_animation_authoring.reload_data(character="player")
                 else:
+                    if name in ('g_ground', 'g_surfaces') and game_assets is not None:
+                        update_and_render_module.g_ground.unload(game_assets)
+                        if name == 'g_surfaces':update_and_render_module.g_surfaces.unload(game_assets)
+                    if name == 'g_entity_batch' and game_assets is not None:
+                        old = game_assets.get('shaders', {}).pop('entity_atlas', None)
+                        if old:pr.unload_shader(old['shader'])
                     mod = importlib.reload(mod)
                 render_error_message("reloaded module!")
                 module_write_times[name] = get_file_write_time(file_name)
@@ -253,6 +261,7 @@ def reload_shaders_if_needed(shader_write_times, game_assets):
         update_and_render_module.unload_shaders(shaders)
 
     game_assets["shaders"] = update_and_render_module.load_shaders()
+    update_and_render_module.g_ground.unload(game_assets)
     update_and_render_module.g_night.reload_field_shader(game_assets)
     print(f"reloaded shaders after changes to: {', '.join(changed_files)}")
 
@@ -458,6 +467,7 @@ def g_main():
     update_and_render_module.g_player_reveal.unload(game_assets)
     update_and_render_module.g_water.unload(game_assets)
     update_and_render_module.g_surfaces.unload(game_assets)
+    update_and_render_module.g_ground.unload(game_assets)
     update_and_render_module.g_tree_render.unload(game_assets)
     pr.close_window()
 

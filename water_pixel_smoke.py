@@ -1,4 +1,5 @@
 """Native water/reflection pixel checks, within the water-temple smoke context."""
+from pathlib import Path
 import numpy as np
 from PIL import Image
 import pyray as pr
@@ -11,6 +12,7 @@ import g_effects
 
 def check(game,assets):
     from night_lighting_smoke import pixels,assert_camera_locked
+    out=Path('artifacts/moonlit-water-temple');out.mkdir(parents=True,exist_ok=True)
     tm=game.make_tile_map(15,15,16,16)
     for tile in tm['tiles']:tile.update(water=True,lake_bed=True)
     tm['tiles'][5*15+6].update(water=False,surface_material='wood')
@@ -49,9 +51,68 @@ def check(game,assets):
         detail=plain[112:200,16:232,:3]
         assert np.any(detail[::2,::2]!=detail[1::2,::2]),'water is still grouped into 2x2 pixels'
         raw_reflection=pixels(local['water_runtime']['targets']['reflections'])
+        wavelets=np.all(plain[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
+        solid_patches=wavelets[:-1,:-1]&wavelets[1:,:-1]&wavelets[:-1,1:]&wavelets[1:,1:]
+        assert solid_patches.sum()>200,'ripples still have no filled volume'
+        arena['lake_profile']['ripple_width']=1.;draw(camera,reflect=False)
+        thin=np.all(pixels(target)[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
+        assert wavelets.sum()>thin.sum()*1.5,'ripple width does not create fuller wavelets'
+        arena['lake_profile'].pop('ripple_width')
+        Image.fromarray(plain).save(out/'water-wavelets.png')
+        # Match whole patches after one second: every crest travels five
+        # pixels down, with no neighbouring bands reversing direction.
+        arena['lake_profile'].update(ripple_speed=1.,ripple_speed_variation=0.)
+        draw(camera,now=2.,reflect=False);flow_a=pixels(target)
+        draw(camera,now=3.,reflect=False);flow_b=pixels(target)
+        assert np.array_equal(flow_a[115:195,16:232],flow_b[120:200,16:232]),'neighbouring wavelets do not share one travel direction'
+        arena['lake_profile']['ripple_direction']={'x':.6,'y':.8}
+        draw(camera,now=2.,reflect=False);flow_a=pixels(target)
+        draw(camera,now=3.,reflect=False);flow_b=pixels(target)
+        assert np.array_equal(flow_a[116:196,16:229],flow_b[120:200,19:232]),'wavelets ignore the authored current direction'
+        arena['lake_profile']['ripple_speed']=0.
+        draw(camera,now=2.);still=pixels(target)
+        draw(camera,now=5.)
+        assert np.array_equal(still,pixels(target)),'reflection ripples keep moving independently of the common current'
+        for key in ('ripple_speed','ripple_direction','ripple_speed_variation'):arena['lake_profile'].pop(key)
+        def components(frame):
+            mask=np.all(frame[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
+            mask[:20]=False;mask[228:]=False
+            remaining=set(zip(*np.nonzero(mask)));found={}
+            while remaining:
+                seed=remaining.pop();points=[seed];todo=[seed]
+                while todo:
+                    y,x=todo.pop()
+                    for point in ((y-1,x),(y+1,x),(y,x-1),(y,x+1)):
+                        if point in remaining:remaining.remove(point);points.append(point);todo.append(point)
+                ys,xs=zip(*points);x0,x1=min(xs),max(xs);y0,y1=min(ys),max(ys)
+                if x1-x0<10 or y1-y0>3 or x0<3 or x1>235 or y0<=20 or y1>=227:continue
+                key=(x0,x1-x0,y1-y0,mask[y0:y1+1,x0:x1+1].tobytes())
+                found.setdefault(key,[]).append(y0)
+            return found
+        # Integer travel isolates speed differences from subpixel stencil changes.
+        arena['lake_profile'].update(ripple_speed=1.,ripple_speed_variation=.4,ripple_density=.65)
+        draw(camera,now=2.,reflect=False);cohorts_a=components(pixels(target))
+        draw(camera,now=3.,reflect=False);cohorts_b=components(pixels(target))
+        shifts=[cohorts_b[key][0]-value[0] for key,value in cohorts_a.items()
+                if len(value)==1 and len(cohorts_b.get(key,[]))==1]
+        assert len(shifts)>8 and {3,5,7}<=set(shifts),('wavelets do not overtake at different forward speeds',shifts)
+        for key in ('ripple_speed','ripple_speed_variation','ripple_density'):arena['lake_profile'].pop(key)
         reflection_palette={tuple(color) for color in reflected[:,:,:3][self_lake]}
         assert reflection_palette<={g_water.DEFAULT_SURFACE_COLOR,g_water.DEFAULT_RIPPLE_COLOR,(190,105,45)},('reflection invents colours',reflection_palette)
         profile=arena['lake_profile']
+        profile.update(reflection_strength=1.,reflection_sway=0.)
+        draw(camera);unswayed=pixels(target)
+        assert np.all(unswayed[98:110,100:108,:3]==(190,105,45)),'zero horizontal sway still shifts reflection sideways'
+        profile['reflection_sway']=2.;offsets=[]
+        for now in (0.,3.,6.,9.,12.,15.):
+            draw(camera,now=now)
+            post=np.all(pixels(target)[98:110,:,:3]==(190,105,45),axis=2)
+            for row in post:
+                xs=np.flatnonzero(row)
+                if len(xs):offsets.append((xs[0]+xs[-1])*.5-103.5)
+        assert min(offsets)<=-2. and max(offsets)>=2.,('reflection has no noticeable horizontal sway',offsets)
+        assert max(abs(value) for value in offsets)<=4.,'reflection sway exceeds its native-pixel bound'
+        profile.update(reflection_strength=.9);profile.pop('reflection_sway')
         profile.update(surface_color=[.1,.04,.02],ripple_color=[.2,.12,.06],ripple_density=.8)
         draw(camera)
         assert np.array_equal(raw_reflection,pixels(local['water_runtime']['targets']['reflections'])),'surface styling changes sprite reflection colours'
@@ -97,6 +158,60 @@ def check(game,assets):
         assert np.any(burning[88:150,160:210,0]>dark[88:150,160:210,0]),'fire reflections ignore extinguishing the lamp'
         draw(camera,reflect=False)
         assert np.array_equal(pixels(target),plain),'lamp state changes the two-colour base surface'
-        print('Water GPU pixels: two base colours, exact sprite/flame reflection palettes, native pixels, coverage-only strength, animated ripples, dry-mask clipping, foreground protection, fire shutdown and camera alignment passed.')
+
+        # A rounded natural shore with a raised deck in deep water. Isolate the
+        # shoreline animation from open-water ripples and reflections.
+        for y in range(15):
+            for x in range(15):
+                tm['tiles'][y*15+x].update(water=x>=3 and y>=3,lake_bed=x>=3 and y>=3)
+        tm['tiles'][9*15+9].update(water=False,surface_material='wood')
+        tm['water_revision']=tm.get('water_revision',0)+1
+        profile.update(ripple_density=0.,shore_width=12.,shore_speed=.65)
+        scene_items.clear();g_water.prepare(local,arena,0.,'play')
+        packed=np.asarray(g_water.water_map_image(tm))
+        lake=packed[:,:,0]>0;allowed=packed[:,:,2]>0
+        distance=(packed[:,:,1].astype(float)-128.)*(g_water.SHORE_DISTANCE/127.)
+        frames=[];foam_areas=[];wash_areas=[];edge_positions=[]
+        for now in np.arange(0.,10.,.25):
+            draw(camera,now=float(now),reflect=False);frame=pixels(target);frames.append(frame)
+            lapping=np.all(frame[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
+            wet=lapping|np.all(frame[:,:,:3]==g_water.DEFAULT_SURFACE_COLOR,axis=2)
+            assert not wet[~allowed].any(),'moving water covers the boardwalk'
+            assert not wet[distance< -3.].any(),'lapping overruns its shore limit'
+            assert not lapping[distance>15.].any(),'shore wave leaks into deep water or follows raised decks'
+            assert np.all(wet[lake]),'lapping exposes missing ground underneath the lake'
+            assert {tuple(color) for color in frame[:,:,:3][wet]}<={g_water.DEFAULT_SURFACE_COLOR,g_water.DEFAULT_RIPPLE_COLOR},'lapping adds intermediate colours'
+            foam_areas.append(int(lapping.sum()));wash_areas.append(int((wet&~lake).sum()))
+            edge_positions.append(int(np.argmax(wet[110])))
+        assert max(foam_areas)>200 and min(foam_areas)<max(foam_areas)*.1,('shore foam never forms and dissipates',foam_areas)
+        assert max(wash_areas)>100 and min(wash_areas)==0,('actual shoreline never washes over the bank and retreats',wash_areas)
+        assert max(edge_positions)-min(edge_positions)>=2,('water/land boundary remains static',edge_positions)
+
+        # Reflections must obey the animated silhouette as it crosses the bank.
+        shore_post=order.make_world_render_item('test','test','shore-post',2,dict(render_anchor_offset={'x':-4.,'y':-20.}),
+            {'x':48.,'y':100.},8,20,order.make_texture_reference('test','post'),dict(x=0,y=0,width=8,height=20))
+        scene_items.append(shore_post)
+        for now in (0.,4.,7.):
+            draw(camera,now=now,reflect=False);base=pixels(target)
+            wet=np.all(base[:,:,:3]==g_water.DEFAULT_SURFACE_COLOR,axis=2)|np.all(base[:,:,:3]==g_water.DEFAULT_RIPPLE_COLOR,axis=2)
+            draw(camera,now=now);mirrored=pixels(target)
+            changed=np.any(mirrored!=base,axis=2)
+            assert changed.any() and not changed[~wet].any(),'reflection leaks past the moving shoreline'
+            assert {tuple(color) for color in mirrored[:,:,:3][changed]}<={g_water.DEFAULT_SURFACE_COLOR,g_water.DEFAULT_RIPPLE_COLOR,(190,105,45)},'moving shoreline recolours reflection pixels'
+        scene_items.clear()
+        assert_camera_locked(target,lambda pan:draw(pan,reflect=False),'shore lapping')
+        cached_mask=local['water_runtime']['mask'].id
+        g_water.prepare(local,arena,.016,'play')
+        assert local['water_runtime']['mask'].id==cached_mask,'shore distance field rebuilds each frame'
+        profile['shore_speed']=0.;draw(camera,now=0.,reflect=False);frozen=pixels(target)
+        draw(camera,now=8.,reflect=False)
+        assert np.array_equal(pixels(target),frozen),'zero shore speed does not freeze lapping'
+        profile['shore_width']=0.;draw(camera,reflect=False)
+        assert np.all(pixels(target)[:,:,:3][lake]==g_water.DEFAULT_SURFACE_COLOR),'zero shore width does not disable lapping'
+        profile.update(shore_width=12.,shore_speed=.65)
+        preview=[Image.fromarray(frame).convert('RGB') for frame in frames]
+        preview[0].save(out/'shore-lapping.gif',save_all=True,append_images=preview[1:],duration=250,loop=0)
+        Image.fromarray(np.concatenate([frames[i] for i in (0,8,16,24)],axis=1)).save(out/'shore-lapping-phases.png')
+        print('Water GPU pixels: different forward ripple speeds, horizontal reflection sway, forming/dissolving shore waves, moving boundary, two colours, deck/reflection clipping, cached shore field and camera alignment passed.')
     finally:
         g_water.unload(local);pr.unload_texture(texture);pr.unload_render_texture(target)

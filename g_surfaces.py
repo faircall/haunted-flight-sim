@@ -11,7 +11,7 @@ ART = Path(__file__).resolve().parent / 'art' / 'surfaces'
 MATERIALS = ('erase', 'grass', 'dirt', 'wood', 'carpet', 'ceramic', 'wall')
 COLORS = {'grass': (85, 91, 48), 'dirt': (135, 117, 90), 'wood': (137, 109, 82), 'carpet': (93, 60, 53), 'ceramic': (130, 146, 135), 'wall': (86, 75, 60)}
 CHUNK = 4
-MASK_VERSION = 3
+MASK_VERSION = 4
 GRASS_SHADER_VERSION = 2
 
 def brush_settings(editor):
@@ -102,7 +102,7 @@ def detail_data():
     return (records, atlas)
 
 def masks(tm, cx, cy):
-    """Round region contours, then assign each pixel to exactly one material.
+    """Curve region contours, then assign each pixel to exactly one material.
 
     Blurred fields define the contour only; the returned stencils are binary.
     Include unpainted space in the competition to round outer corners too.
@@ -143,10 +143,12 @@ def masks(tm, cx, cy):
     # across chunks, including junctions of three or more materials.
     kinds = [kind for kind in COLORS if kind in result] + ['_unpainted']
     result['_unpainted'] = ImageChops.invert(union)
+    samples=boundary_samples(size,(ox,oy),min(tw,th))
     scores = []
     for kind in kinds:
         raw = result[kind]
         curved = raw.filter(ImageFilter.GaussianBlur(max(1.0, min(tw, th) * 0.30)))
+        curved = warp_boundary_field(curved,samples)
         field = np.asarray(Image.composite(raw, curved, hard), dtype=np.uint16)
         scores.append(field * 2 + (np.asarray(raw) > 0))
     owner = np.argmax(np.stack(scores), axis=0)
@@ -168,6 +170,38 @@ def smooth_noise(x, y, sx, sy):
     u = u * u * (3 - 2 * u)
     v = v * v * (3 - 2 * v)
     return (noise_grid(gx, gy) * (1 - u) + noise_grid(gx + 1, gy) * u) * (1 - v) + (noise_grid(gx, gy + 1) * (1 - u) + noise_grid(gx + 1, gy + 1) * u) * v
+
+
+def boundary_samples(size,origin=(0,0),tile_size=16):
+    """Shared world-space fractal displacement for cached region boundaries.
+
+    Long curves, smaller bays and fine scallops are stable across chunk borders,
+    save/load and paint order. Only the mask field is sampled; colours stay crisp.
+    """
+    width,height=size;ox,oy=origin
+    x=np.arange(width)[None,:]+ox;y=np.arange(height)[:,None]+oy
+    amplitude=min(6.,tile_size*.25)
+    def displacement(offset_x,offset_y):
+        return amplitude*(
+            .58*(smooth_noise(x+offset_x,y+offset_y,tile_size*4.,tile_size*4.)*2.-1.)+
+            .28*(smooth_noise(x+offset_x+73,y+offset_y-131,tile_size*1.5,tile_size*1.5)*2.-1.)+
+            .14*(smooth_noise(x+offset_x-37,y+offset_y+59,tile_size*.5,tile_size*.5)*2.-1.))
+    dx=displacement(173,911);dy=displacement(631,257)
+    ix=np.floor(dx).astype(int);iy=np.floor(dy).astype(int)
+    # Fractional weights depend on displacement alone, avoiding rounding changes
+    # when the same world point is baked with a different chunk origin.
+    fx=dx-ix;fy=dy-iy
+    ix=ix+np.arange(width)[None,:];iy=iy+np.arange(height)[:,None]
+    return (ix.clip(0,width-1),iy.clip(0,height-1),
+            (ix+1).clip(0,width-1),(iy+1).clip(0,height-1),fx,fy)
+
+
+def warp_boundary_field(field,samples):
+    x0,y0,x1,y1,fx,fy=samples
+    values=np.asarray(field,dtype=np.float32)
+    warped=(values[y0,x0]*(1.-fx)+values[y0,x1]*fx)*(1.-fy)+(values[y1,x0]*(1.-fx)+values[y1,x1]*fx)*fy
+    return Image.fromarray(np.rint(warped).clip(0,255).astype(np.uint8))
+
 
 @lru_cache(maxsize=256)
 def base_patch(kind, ox, oy, w, h):
@@ -287,31 +321,38 @@ def free_chunk(chunk):
     if chunk['mesh'] is not None:
         pr.rl.UnloadMesh(chunk['mesh'][0])
 
-def prepare(assets, tm, camera):
+def prepare(assets, tm, camera, prewarm=False):
     """Cache visible chunks; compare neighborhood signatures only after editing."""
     rt = assets.setdefault('surface_runtime', {'chunks': {}, 'footprints': []})
     if (rt.get('map') is not tm or rt.get('mask_version') != MASK_VERSION
             or rt.get('dimensions') != (tm['tile_width'], tm['tile_height'], tm['map_width'], tm['map_height'])):
         for c in rt['chunks'].values():
             free_chunk(c)
-        rt.update(chunks={}, map=tm, mask_version=MASK_VERSION, dimensions=(tm['tile_width'], tm['tile_height'], tm['map_width'], tm['map_height']), footprints=[], last_player=None, empty=set(), revision=None)
+        rt.update(chunks={}, map=tm, mask_version=MASK_VERSION, dimensions=(tm['tile_width'], tm['tile_height'], tm['map_width'], tm['map_height']), footprints=[], last_player=None, empty=set(), revision=None, prewarmed=False)
     revision = (tm.get('surface_revision', 0), tm.get('geometry_revision', 0))
     dirty = rt.get('revision') != revision
     if dirty:
         rt['empty'] = set()
     w, h = (tm['tile_width'] * CHUNK, tm['tile_height'] * CHUNK)
     visible = []
-    for cy in range(max(0, math.floor(camera.y / h) - 1), min(math.ceil(tm['map_height'] / CHUNK), math.ceil((camera.y + 270) / h) + 1)):
-        for cx in range(max(0, math.floor(camera.x / w) - 1), min(math.ceil(tm['map_width'] / CHUNK), math.ceil((camera.x + 480) / w) + 1)):
+    cols, rows = math.ceil(tm['map_width']/CHUNK), math.ceil(tm['map_height']/CHUNK)
+    view_cols = range(max(0, math.floor(camera.x/w)-1), min(cols, math.ceil((camera.x+480)/w)+1))
+    view_rows = range(max(0, math.floor(camera.y/h)-1), min(rows, math.ceil((camera.y+270)/h)+1))
+    preload = prewarm and not rt.get('prewarmed') and cols*rows <= 256
+    for cy in range(rows) if preload else view_rows:
+        for cx in range(cols) if preload else view_cols:
             key = (cx, cy)
             existing = rt['chunks'].get(key)
             if key in rt['empty']:
                 continue
-            if existing is not None and (not dirty):
+            if existing is not None and existing.get('revision') == revision:
                 visible.append(key)
+                rt['chunks'][key] = rt['chunks'].pop(key)
                 continue
             sig = signature(tm, cx, cy)
             if not any((t[0] for t in sig)):
+                if existing:
+                    free_chunk(rt['chunks'].pop(key))
                 rt['empty'].add(key)
                 continue
             visible.append(key)
@@ -320,10 +361,14 @@ def prepare(assets, tm, camera):
                     free_chunk(existing)
                 im, grass = bake_chunk(tm, cx, cy)
                 rt['chunks'][key] = dict(signature=sig, texture=upload_image(im), mesh=build_grass_mesh(grass))
-    for key in list(rt['chunks']):
-        if key not in visible:
-            free_chunk(rt['chunks'].pop(key))
-    rt['visible'] = visible
+            rt['chunks'][key]['revision'] = revision
+            rt['chunks'][key] = rt['chunks'].pop(key)
+    # Retain recently visited chunks: camera movement should not rebake terrain.
+    # Revision checks still validate an edited chunk when it becomes visible.
+    while len(rt['chunks']) > max(256, len(visible)):
+        free_chunk(rt['chunks'].pop(next(iter(rt['chunks']))))
+    rt['visible'] = [key for key in visible if key[0] in view_cols and key[1] in view_rows]
+    if preload:rt['prewarmed'] = True
     blocker_revision = (id(tm), tm.get('geometry_revision', 0), MASK_VERSION, rt['dimensions'])
     if (rt.get('blocker_revision') != blocker_revision
             and any(rt['chunks'][key]['mesh'] is not None for key in visible)):

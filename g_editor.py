@@ -1951,6 +1951,9 @@ def draw_gameplay_entity_inspector(ui_state, editor_state, entities,
         return
 
     entity_id = editor_state.get("selected_id")
+    g_render_order.ensure_entity_render_metadata(entity)
+    entity["player_reveal_enabled"], _ = g_ui.ui_checkbox(
+        ui_state, "entity:player_reveal", "Fade to show player", entity["player_reveal_enabled"])
     g_glow.inspect(ui_state, entity, "entity:glow")
     entity_type = str(entity.get("type", "entity"))
     g_ui.ui_label(

@@ -3,6 +3,7 @@ import g_roofs
 import g_player_reveal
 import g_water
 import g_surfaces
+import g_ground
 import g_tree_assets
 import math
 import pickle
@@ -909,6 +910,14 @@ def _render_world_scene_phase(game_camera, entities, tile_map, mouse_pos_world, 
     player_pos = player_entity.get("position",{})
     if ignore:
         return
+
+    if (draw_tiles and mode == 'play' and game_assets.get('ground_batches_enabled', True)
+            and game_assets.get('ground_runtime', {}).get('map') is tile_map
+            and not game_assets['ground_runtime'].get('fallback')):
+        g_ground.draw(game_assets, game_camera)
+        if not draw_entities:
+            return
+        draw_tiles = False
 
     # use logical 1920 x 1080 'screen'
     map_height = tile_map["map_height"]
@@ -2063,6 +2072,9 @@ def reload_image_assets(game_assets):
     game_assets["textures"] = new_textures
     game_assets["sprite_sheets"] = new_sprite_sheets
     game_assets.pop("glow_particles", None)
+    g_ground.unload(game_assets)
+    g_surfaces.unload(game_assets)
+    g_surfaces.detail_data.cache_clear()
     unloaded_count = unload_image_asset_collections(
         old_textures, old_sprite_sheets,
     )
@@ -9086,18 +9098,24 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     prepared_flashlight = lighting_frame["prepared_by_id"].get("runtime:player_flashlight")
     g_tree_render.prepare(game_assets, {} if do_load_level else entities, tile_map, wind_profile, time_elapsed)
     sorted_world_items = [] if do_load_level else g_render_order.build_sorted_world_render_items(entities, player_info, tile_map, game_assets)
+    visible_world_items = g_render_order.visible_sprite_items(sorted_world_items, camera_3d.position,
+        render_target.texture.width, render_target.texture.height)
+    if game_assets.get('show_entity_lighting_debug', False) or not game_assets.get('sprite_culling_enabled', True):
+        visible_world_items = sorted_world_items
     if render_environment_effects:
-        g_glow.prepare_effect_occlusion(render_target, camera_3d.position, game_assets, sorted_world_items)
+        g_glow.prepare_effect_occlusion(render_target, camera_3d.position, game_assets, visible_world_items)
     major_entity_light_occluders = g_render_order.build_major_entity_light_occluders(sorted_world_items)
     entity_lighting_started = time.perf_counter()
-    entity_self_shadow_frame = g_graphics.prepare_entity_self_shadows(sorted_world_items, lighting_frame["prepared_lights"], major_entity_light_occluders, lighting_frame["collision_grid"], game_assets.get("show_entity_lighting_debug", False))
+    entity_self_shadow_frame = g_graphics.prepare_entity_self_shadows(visible_world_items, lighting_frame["prepared_lights"], major_entity_light_occluders, lighting_frame["collision_grid"], game_assets.get("show_entity_lighting_debug", False))
     lighting_frame["stats"]["entity_prepare_time_ms"] = (time.perf_counter() - entity_lighting_started) * 1000.0
-    render_occlusion_groups = g_render_order.build_render_occlusion_groups(sorted_world_items)
+    render_occlusion_groups = g_render_order.build_render_occlusion_groups(visible_world_items)
     outlined_items = g_render_order.find_items_requiring_outline(sorted_world_items, render_occlusion_groups)
     player_occluders = render_occlusion_groups.get("targets", {}).get("player", [])
     g_player_reveal.prepare(game_assets,sorted_world_items,render_target,camera_3d.position,
         0.0 if pause_state=='paused' else dt,scene_key=id(tile_map))
 
+    if not do_load_level and editor_mode == 'play' and game_assets.get('ground_batches_enabled', True):
+        g_ground.prepare(game_assets, tile_map, camera_3d.position, draw_masked_tile_texture)
     color_to_draw = pr.Color(33, 25, 68, 255)
     pr.begin_texture_mode(render_target)
     pr.clear_background(color_to_draw)
@@ -9138,12 +9156,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     g_water.draw(render_target,lighting_target if render_environment_effects else None,game_assets,main_arena,
         sorted_world_items,camera_3d.position,time_elapsed,reflections_only=False)
     entity_render_started = time.perf_counter()
-    entity_render_frame = g_graphics.draw_sorted_world_render_items(sorted_world_items, render_target, camera_3d.position, game_assets, lighting_profile, lighting_frame["prepared_lights"] if render_environment_effects else [], entity_readability_light_target, player_info)
+    entity_render_frame = g_graphics.draw_sorted_world_render_items(visible_world_items, render_target, camera_3d.position, game_assets, lighting_profile, lighting_frame["prepared_lights"] if render_environment_effects else [], entity_readability_light_target, player_info)
     lighting_frame["stats"]["entity_draw_time_ms"] = lighting_frame["stats"].get("entity_draw_time_ms", 0.0) + (time.perf_counter() - entity_render_started) * 1000.0
     lighting_frame["stats"]["entity_scratch_light_draws"] = entity_render_frame.get("scratch_light_draws", 0)
     lighting_frame["stats"]["entity_survival_draws"] = entity_render_frame.get("survival_draws", 0)
     entity_light_target = entity_render_frame.get("entity_direct_light")
-    g_night.draw_emission(render_target, sorted_world_items, camera_3d.position, game_assets)
+    g_night.draw_emission(render_target, visible_world_items, camera_3d.position, game_assets)
     # Include actual flame pixels in the lake's source image, before bloom.
     # Other foreground effects (e.g. mist) still composite over the reflections.
     reflected_fires = {}

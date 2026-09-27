@@ -214,37 +214,37 @@ def clear_rain_runtime_assets(game_assets):
 def set_shader_texture(shader, location, texture):
     if location < 0:
         return
-    pr.set_shader_value_texture(shader, location, texture)
+    pr.rl.SetShaderValueTexture(shader, location, texture)
 
 def set_shader_float(shader, location, value):
     if location < 0:
         return
     value_ptr = pr.ffi.new("float *", float(value))
-    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_FLOAT)
+    pr.rl.SetShaderValue(shader, location, value_ptr, pr.SHADER_UNIFORM_FLOAT)
 
 def set_shader_int(shader, location, value):
     if location < 0:
         return
     value_ptr = pr.ffi.new("int *", int(value))
-    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_INT)
+    pr.rl.SetShaderValue(shader, location, value_ptr, pr.SHADER_UNIFORM_INT)
 
 def set_shader_vec2(shader, location, x, y):
     if location < 0:
         return
     value_ptr = pr.ffi.new("float[2]", [float(x), float(y)])
-    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
+    pr.rl.SetShaderValue(shader, location, value_ptr, pr.SHADER_UNIFORM_VEC2)
 
 def set_shader_vec3(shader, location, x, y, z):
     if location < 0:
         return
     value_ptr = pr.ffi.new("float[3]", [float(x), float(y), float(z)])
-    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_VEC3)
+    pr.rl.SetShaderValue(shader, location, value_ptr, pr.SHADER_UNIFORM_VEC3)
 
 def set_shader_vec4(shader, location, x, y, z, w):
     if location < 0:
         return
     value_ptr = pr.ffi.new("float[4]", [float(x), float(y), float(z), float(w)])
-    pr.set_shader_value(shader, location, value_ptr, pr.ShaderUniformDataType.SHADER_UNIFORM_VEC4)
+    pr.rl.SetShaderValue(shader, location, value_ptr, pr.SHADER_UNIFORM_VEC4)
 
 _EFFECT_SHADER_UNIFORMS = {
     "effect_fire": (
@@ -714,6 +714,8 @@ def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene
     stats["prepare_time_ms"] = (time.perf_counter() - prepare_started) * 1000.0
     lighting_frame = {"collision_grid": collision_grid, "prepared_lights": prepared_lights, "prepared_by_id": prepared_by_id, "stats": stats}
     game_assets["lighting_frame_stats"] = stats
+    # Frame-local entity fields are shared by all painter-order/cutaway batches.
+    game_assets.pop('entity_light_atlas_frame', None)
     return lighting_frame
 
 def point_is_on_segment(point, segment_start, segment_end, epsilon=0.0001):
@@ -967,7 +969,7 @@ def _segments_intersect(start_a, end_a, start_b, end_b, epsilon=0.000001):
     fraction_b = (offset["x"] * direction_a["y"] - offset["y"] * direction_a["x"]) / denominator
     return -epsilon <= fraction_a <= 1.0 + epsilon and -epsilon <= fraction_b <= 1.0 + epsilon
 
-def polygon_intersects_rectangle(polygon, rectangle):
+def _polygon_intersects_rectangle_scalar(polygon, rectangle):
     """Conservative 2D overlap used to avoid sparse entity-light eligibility gaps."""
     if not polygon or rectangle.get("width", 0.0) <= 0.0 or rectangle.get("height", 0.0) <= 0.0:
         return False
@@ -986,6 +988,34 @@ def polygon_intersects_rectangle(polygon, rectangle):
     rectangle_edges = [(corners[index], corners[(index + 1) % 4]) for index in range(4)]
     polygon_edges = [(polygon[index], polygon[(index + 1) % len(polygon)]) for index in range(len(polygon))]
     return any(_segments_intersect(poly_start, poly_end, rect_start, rect_end) for poly_start, poly_end in polygon_edges for rect_start, rect_end in rectangle_edges)
+
+
+def polygon_intersects_rectangle(polygon, rectangle):
+    """Batch the flashlight's large visibility polygon instead of doing four
+    Python segment/edge walks for every otherwise-unlit scenery object.
+    Small cone polygons use the cheaper scalar path.
+    """
+    if len(polygon) < 24:
+        return _polygon_intersects_rectangle_scalar(polygon, rectangle)
+    if rectangle.get('width', 0.) <= 0. or rectangle.get('height', 0.) <= 0.:
+        return False
+    left, top = rectangle['x'], rectangle['y']
+    right, bottom = left+rectangle['width'], top+rectangle['height']
+    vertices = np.asarray([(p['x'],p['y']) for p in polygon],dtype=np.float64)
+    if np.any((vertices[:,0]>=left) & (vertices[:,0]<=right) & (vertices[:,1]>=top) & (vertices[:,1]<=bottom)):
+        return True
+    corners = np.asarray(((left,top),(right,top),(right,bottom),(left,bottom)))
+    if points_in_polygon(corners, polygon).any():return True
+    direction_a = (np.roll(vertices,-1,axis=0)-vertices)[:,None,:]
+    direction_b = (np.roll(corners,-1,axis=0)-corners)[None,:,:]
+    offset = corners[None,:,:]-vertices[:,None,:]
+    denominator = direction_a[:,:,0]*direction_b[:,:,1]-direction_a[:,:,1]*direction_b[:,:,0]
+    usable = np.abs(denominator)>1.e-6
+    safe = np.where(usable,denominator,1.)
+    fraction_a = (offset[:,:,0]*direction_b[:,:,1]-offset[:,:,1]*direction_b[:,:,0])/safe
+    fraction_b = (offset[:,:,0]*direction_a[:,:,1]-offset[:,:,1]*direction_a[:,:,0])/safe
+    return bool(np.any(usable & (fraction_a>=-1.e-6) & (fraction_a<=1.+1.e-6)
+                       & (fraction_b>=-1.e-6) & (fraction_b<=1.+1.e-6)))
 
 def make_spot_light_coverage_polygon(prepared_light, arc_segments=12):
     light = prepared_light.get("light", {})
@@ -1046,7 +1076,14 @@ def get_prepared_light_strength_for_render_item(prepared_light, render_item, col
     cache = prepared_light.get('_entity_samples')
     intensity = max(0.0, float(light.get('intensity', 1.0)))
 
-    for point in get_render_item_light_sample_points(render_item) if sample_points is None else sample_points:
+    points = get_render_item_light_sample_points(render_item) if sample_points is None else sample_points
+    aggregate_key = tuple((p['x'], p['y']) for p in points)
+    aggregate = cache.setdefault('aggregates', {}) if cache is not None else {}
+    cached_strength = aggregate.get(aggregate_key)
+    if cached_strength is not None and (cached_strength * intensity > 0.000001 or light.get('type') != 'spot'):
+        return cached_strength * intensity
+
+    for point in points:
         if cache is not None:
             key = (point['x'], point['y'])
             value = cache['points'].get(key)
@@ -1061,6 +1098,8 @@ def get_prepared_light_strength_for_render_item(prepared_light, render_item, col
             strengths.append(strength if strength > 0.0 and prepared_light_reaches_point(prepared_light, point) else 0.0)
 
     strongest_sample = max(strengths, default=0.0)
+    if cache is not None and intensity > 0.000001:
+        aggregate[aggregate_key] = strongest_sample / intensity
     if strongest_sample <= 0.000001 and light.get("type", "point") == "spot":
         # The GPU's per-pixel light texture remains authoritative. This tiny
         # sentinel only keeps the light's entity pass alive when a narrow cone
@@ -1087,17 +1126,17 @@ def prepare_entity_light_sample_caches(prepared_lights, grid, assets):
     wanted = set()
     for prepared in prepared_lights:
         light = prepared['light']; identity = prepared['id']
-        if '_portal' in light:
-            continue
         wanted.add(identity)
         field = light.get('_field', {})
+        portal = light.get('_portal', {})
         stamp = (id(grid), grid.get('geometry_revision'), grid.get('runtime_generation'),
                  tuple(prepared['world_position'].items()), tuple(light.get('position', {}).items()),
                  tuple(light.get('render_position', {}).items()), tuple(light.get('direction', {}).items()),
                  tuple(light.get('size', {}).items()), prepared.get('casts_wall_shadows'),
                  id(prepared.get('visibility_polygon')), id(field.get('values')),
                  field.get('origin'), field.get('width'), field.get('height'),
-                 *(light.get(key) for key in ('type', 'enabled', 'radius', 'falloff', 'inner_angle', 'outer_angle', 'near_fade_distance')))
+                 portal.get('columns'), id(portal.get('holes')), id(portal.get('polygon')),
+                 *(light.get(key) for key in ('type', 'enabled', 'radius', 'falloff', 'inner_angle', 'outer_angle', 'near_fade_distance', 'height')))
         entry = caches.get(identity)
         if entry is None or entry['stamp'] != stamp:
             entry = dict(stamp=stamp, points={}, bounds={}, grid=grid, unit_light=dict(light, intensity=1.),
@@ -1105,6 +1144,9 @@ def prepare_entity_light_sample_caches(prepared_lights, grid, assets):
             caches[identity] = entry
         elif len(entry['points']) > 4096:
             entry['points'].clear()
+            entry.pop('aggregates', None)
+        if len(entry.get('aggregates', {})) > 512:
+            entry['aggregates'].clear()
         if len(entry['bounds']) > 512:
             entry['bounds'].clear()
         prepared['_entity_samples'] = entry
@@ -1482,6 +1524,10 @@ def combine_independent_entity_lighting(ambient_rgb, direct_rgb, readability_rgb
 def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, collision_grid, collect_diagnostics=False):
     summaries = {}
     diagnostics = []
+    blocker_stamp = tuple((item.get('source_id', item.get('id')), repr(item.get('ground_footprint')),
+                           repr(item.get('ground_footprint_world')), repr(item.get('base_world')),
+                           repr(item.get('entity_light_occluder')), item.get('visual_height'))
+                          for item in major_occluders)
     sample_lists = [get_render_item_light_sample_points(item) for item in render_items]
     unique_points = {(p['x'], p['y']) for item, points in zip(render_items, sample_lists)
                      if '_facade' not in item for p in points}
@@ -1508,6 +1554,11 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
 
     for item, sample_points in zip(render_items, sample_lists):
         policy = item.get("self_shadow", {})
+        plain_key = None
+        if policy.get('mode', 'none') == 'none' and '_facade' not in item and not collect_diagnostics:
+            plain_key = (item.get('source_id'), tuple((p['x'], p['y']) for p in sample_points),
+                         tuple(item.get('bounds_world', {}).items()), tuple(item.get('base_world', {}).items()),
+                         item.get('light_sample_height'), tuple(item.get('excluded_light_owners', ())), blocker_stamp)
         summary = make_empty_entity_self_shadow_summary()
         face_totals = [0.0, 0.0, 0.0, 0.0]
         omni_total = 0.0
@@ -1521,9 +1572,30 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
             if not prepared_light.get("affects_entities", light.get("affects_entities", light.get("affects_scene", True))) or not light.get("enabled", True) or light.get("render_style", "world") != "world":
                 continue
 
+            records = None
+            if plain_key is not None and '_entity_samples' in prepared_light:
+                records = prepared_light['_entity_samples'].setdefault('plain_records', {})
+                if len(records) > 1024:records.clear()
+                record_key = item.get('source_id', id(item))
+                record_stamp = (plain_key, light.get('intensity', 1.), light.get('height'), light.get('owner_id'),
+                              light.get('effect_owner'), light.get('entity_occlusion_enabled'))
+                cached_record = records.get(record_key)
+                if cached_record is not None and cached_record[0] == record_stamp:
+                    record = cached_record[1]
+                    if record is not None:
+                        per_light.append(record)
+                        strength = record['sampled_strength']
+                        sampled_total += strength
+                        if record['blocked']:summary['blocked_direct_count'] += 1
+                        else:
+                            visible_total += strength
+                            omni_total += strength
+                    continue
+
             strength = get_prepared_light_strength_for_render_item(prepared_light, item, collision_grid, sample_points)
 
             if strength <= 0.000001:
+                if records is not None:records[record_key] = (record_stamp, None)
                 continue
 
             sampled_total += strength
@@ -1568,6 +1640,7 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
                 "self_shadow_mode": mode
             }
             per_light.append(light_record)
+            if records is not None:records[record_key] = (record_stamp, light_record)
 
             if blocking is not None:
                 summary["blocked_direct_count"] += 1
@@ -1937,6 +2010,17 @@ def _draw_cutout_rig(render_item, game_camera, game_assets):
         else g_render_order.world_to_screen_pixel
     )
     top_left = snap(destination["x"], destination["y"], game_camera)
+    # All light, reflection, glow and mask passes draw the same evaluated pose.
+    # Store native draw commands on this frame's draw_data, shared by its light
+    # views, rather than rebuilding every limb's rectangles in every pass.
+    data = render_item['draw_data']
+    stamp = (top_left['x'], top_left['y'], tuple(t.id if t is not None else 0 for _, t in resolved))
+    cached = data.get('_rig_draw_commands')
+    if cached is not None and cached[0] == stamp:
+        for kind, args in cached[1]:
+            (pr.rl.DrawTexturePro if kind == 'texture' else pr.rl.DrawRectanglePro)(*args)
+        return True
+    commands = []
     for part, part_texture in resolved:
         pivot = part.get("pivot_local", {})
         origin = part.get("origin", {})
@@ -1945,7 +2029,7 @@ def _draw_cutout_rig(render_item, game_camera, game_assets):
         scale_y = max(0.0001, float(scale.get("y", 1.0)))
         if part_texture is None and part.get("placeholder_rect", False):
             size = part.get("placeholder_size", {})
-            pr.draw_rectangle_pro(
+            args = (
                 pr.Rectangle(
                     float(top_left["x"]) + float(pivot.get("x", 0.0)),
                     float(top_left["y"]) + float(pivot.get("y", 0.0)),
@@ -1959,13 +2043,15 @@ def _draw_cutout_rig(render_item, game_camera, game_assets):
                 float(part.get("rotation", 0.0)),
                 _color_from_components(part.get("placeholder_color")),
             )
+            commands.append(('rectangle', args))
+            pr.draw_rectangle_pro(*args)
             continue
         source_width = float(part_texture.width)
         source_x = 0.0
         if part.get("flip_x", False):
             source_x = source_width
             source_width = -source_width
-        pr.draw_texture_pro(
+        args = (
             part_texture,
             pr.Rectangle(
                 source_x, 0.0, source_width, float(part_texture.height),
@@ -1983,6 +2069,9 @@ def _draw_cutout_rig(render_item, game_camera, game_assets):
             float(part.get("rotation", 0.0)),
             _color_from_components(part.get("tint")),
         )
+        commands.append(('texture', args))
+        pr.draw_texture_pro(*args)
+    data['_rig_draw_commands'] = (stamp, commands)
     return True
 
 
@@ -2010,7 +2099,7 @@ def _draw_render_item_main_shape(render_item, texture, game_camera,
         cached = (stamp, pr.Rectangle(*stamp[:4]), pr.Rectangle(*stamp[4:8]),
                   pr.Vector2(0, 0), pr.Color(255, 255, 255, stamp[8]))
         render_item['_sprite_draw_geometry'] = cached
-    pr.draw_texture_pro(texture, cached[1], cached[2], cached[3], 0, cached[4])
+    pr.rl.DrawTexturePro(texture, cached[1], cached[2], cached[3], 0, cached[4])
 
 def _player_weapon_is_visible(render_item):
     return (
@@ -2141,7 +2230,7 @@ def entity_light_overlap_masks(render_items):
     return masks
 
 
-def draw_sorted_world_render_items(render_items, scene_target, game_camera, game_assets, lighting_profile, prepared_lights=None, entity_readability_lighting=None, player_entity=None):
+def draw_sorted_world_render_items(render_items, scene_target, game_camera, game_assets, lighting_profile, prepared_lights=None, entity_readability_lighting=None, player_entity=None, _legacy=False):
     # A cutaway must blend over the finished, lit interior. Blending its alpha
     # into both albedo and per-light survival would attenuate actors twice (and
     # render-target alpha would be multiplied again in the final composite).
@@ -2186,6 +2275,13 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
                 pr.end_texture_mode()
         flush()
         return result
+    if (not _legacy and entity_readability_lighting is not None and game_assets.get('entity_atlas_enabled', True)
+            and not game_assets.get('show_entity_lighting_debug', False)
+            and not game_assets.get('show_entity_direct_light_preview', False)):
+        from g_entity_batch import draw_batches, eligible
+        if any(eligible(item) for item in render_items) and len(prepared_lights or ()) <= 32:
+            return draw_batches(render_items, scene_target, game_camera, game_assets,
+                                lighting_profile, prepared_lights or [], entity_readability_lighting, player_entity)
     prepared_lights = list(prepared_lights or [])
     shader_info = game_assets.get("shaders", {}).get("entity_self_shadow")
     if entity_readability_lighting is None or shader_info is None:
@@ -2721,7 +2817,9 @@ def build_cinematic_shadow_frame_data(render_items, game_assets, prepared_flashl
         if cast_height <= 0.0001:
             skipped.append({"source_id": source_id, "reason": "zero/invalid height"})
             continue
-        sprite_info = get_render_item_shadow_sprite_info(render_item, game_assets)
+        if '_shadow_sprite_info' not in render_item:
+            render_item['_shadow_sprite_info'] = get_render_item_shadow_sprite_info(render_item, game_assets)
+        sprite_info = render_item['_shadow_sprite_info']
         if sprite_info is None:
             skipped.append({"source_id": source_id, "reason": "missing texture/frame"})
             continue
@@ -2906,7 +3004,7 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
     for prepared in prepared_lights:
         frame = None
         if target_kind == "world" and prepared.get("affects_world", True) and (render_style is None or prepared["light"].get("render_style", "world") == render_style):
-            frame = build_cinematic_shadow_frame_data(game_assets.get("shadow_render_items", []), game_assets, prepared)
+            frame = prepared.get('_cast_shadow_frame') if '_cast_shadow_frame' in prepared else build_cinematic_shadow_frame_data(game_assets.get("shadow_render_items", []), game_assets, prepared)
         if frame and frame["shadows"]:
             shadowed.append((prepared, frame))
         else:
@@ -2953,7 +3051,8 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
     pr.end_texture_mode()
     for prepared, frame in shadowed:
         scratch = get_or_create_render_target(game_assets, "cast_shadow_light", lighting_target.texture.width, lighting_target.texture.height)
-        prepare_character_shadow_atlas(frame, game_assets)
+        if not prepared.get('_shadow_atlas_prepared'):
+            prepare_character_shadow_atlas(frame, game_assets)
         pr.begin_texture_mode(scratch)
         pr.clear_background(pr.BLACK)
         pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
@@ -2969,6 +3068,17 @@ def render_prepared_lights_to_target(prepared_lights, game_camera, lighting_targ
     return (time.perf_counter() - draw_started) * 1000.0
 
 def render_prepared_lighting(lighting_frame, game_camera, lighting_target, game_assets):
+    # Rasterize each animated silhouette once, shared by every shadow-casting
+    # lamp. Packing the union before drawing lights keeps all UVs valid.
+    poses = {}
+    for prepared in lighting_frame['prepared_lights']:
+        if prepared.get('affects_world', True) and prepared['light'].get('render_style', 'world') == 'world':
+            frame = build_cinematic_shadow_frame_data(game_assets.get('shadow_render_items', []), game_assets, prepared)
+            prepared['_cast_shadow_frame'] = frame
+            prepared['_shadow_atlas_prepared'] = True
+            for shadow in (frame or {}).get('shadows', ()):
+                poses[id(shadow['sprite_info'])] = shadow
+    prepare_character_shadow_atlas({'shadows': list(poses.values())}, game_assets)
     fog_light_target = get_or_create_render_target(game_assets, "fog_light", lighting_target.texture.width, lighting_target.texture.height)
     readability_light_target = get_or_create_render_target(game_assets, "readability_light", lighting_target.texture.width, lighting_target.texture.height)
     entity_readability_light_target = get_or_create_render_target(game_assets, "entity_readability_light", lighting_target.texture.width, lighting_target.texture.height)

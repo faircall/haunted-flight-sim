@@ -10,9 +10,18 @@ uniform vec3 surfaceColor;
 uniform vec3 rippleColor;
 uniform float rippleSpacing;
 uniform float rippleDensity;
+uniform float rippleWidth;
+uniform float rippleSpeed;
+uniform float rippleSpeedVariation;
+uniform vec2 rippleDirection;
+uniform float shoreWidth;
+uniform float shoreSpeed;
+uniform float shoreLap;
+uniform float shoreDistanceRange;
 uniform float time;
 uniform float reflectionStrength;
 uniform float rippleStrength;
+uniform float reflectionSway;
 uniform float reflectionPass;
 out vec4 finalColor;
 
@@ -22,16 +31,58 @@ float noise(vec2 p) {
     return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);
 }
 
+float rippleLayer(vec2 p,float layer,float rate,float spacing) {
+    p.y-=time*rippleSpeed*5.*rate+layer*17.31;
+    float band=floor(p.y/spacing);
+    float phase=hash(vec2(band,19.+layer))*6.283185;
+    // Almost straight crests: a quarter-pixel bend, independent of spacing.
+    // The filled bodies taper at their tips without turning into wavy noodles.
+    float crest=band*spacing+spacing*.5+.25*sin(p.x*.018+phase);
+    float patch=noise(vec2(p.x*.045+layer*31.,band*2.71+layer*53.));
+    float cutoff=1.-rippleDensity*.65;
+    float body=smoothstep(cutoff,cutoff+.18,patch);
+    float thickness=mix(1.,min(rippleWidth,spacing*.45),body);
+    float delta=p.y-crest;
+    return step(cutoff,patch)*step(-thickness*.35,delta)*(1.-step(thickness*.65,delta));
+}
+
 float surfaceRipple(vec2 world) {
-    // One native-pixel stroke, broken into varying lengths. The wave changes
-    // placement only: its colour/opacity has no smooth or antialiased fringe.
-    float band=floor(world.y/rippleSpacing);
-    float phase=hash(vec2(band,19.))*6.283185;
-    float bend=sin(world.x*.025-time*.48+phase);
-    float crest=floor(band*rippleSpacing+rippleSpacing*(.5+.20*bend));
-    float dash=noise(vec2(world.x*.045+time*.10,band*2.71));
-    float stroke=1.-step(.5,abs(floor(world.y)-crest));
-    return stroke*step(1.-rippleDensity,dash);
+    if(rippleDensity<=0.) return 0.;
+    vec2 p=vec2(dot(world,vec2(rippleDirection.y,-rippleDirection.x)),dot(world,rippleDirection));
+    // Three sparse wave trains share a direction, with different forward speeds
+    // and spacings. Crests catch up, overlap, and separate without reversing.
+    float a=rippleLayer(p,0.,1.-rippleSpeedVariation,rippleSpacing);
+    float b=rippleLayer(p,1.,1.,rippleSpacing*1.31);
+    float c=rippleLayer(p,2.,1.+rippleSpeedVariation,rippleSpacing*1.73);
+    return max(a,max(b,c));
+}
+
+vec3 shoreCycle(vec2 world) {
+    float cycle=time*shoreSpeed*.20+noise(world*.019)*.16;
+    float age=fract(cycle);
+    float reach=shoreLap*(.75+.25*noise(world*.09+vec2(31.,7.)));
+    float wash=smoothstep(.30,.60,age)*(1.-smoothstep(.64,1.,age));
+    return vec3(age,-reach*wash,reach);
+}
+
+float shoreRipple(vec2 world,float distanceToLand,vec3 cycle) {
+    if(shoreWidth<=0. || distanceToLand>shoreWidth+3.) return 0.;
+    // A wave is born offshore, spreads on arrival, then breaks into shrinking
+    // patches. Its foam stays at the bank and dissolves as the water drains;
+    // no bright line is translated back out into the lake.
+    float age=cycle.x;
+    float life=smoothstep(.02,.20,age)*(1.-smoothstep(.60,.95,age));
+    float front=mix(shoreWidth,-cycle.z,smoothstep(.04,.60,age));
+    float patch=noise(world*.22+vec2(7.,23.));
+    float scallop=(noise(world*.10+vec2(19.,3.))-.5)*2.;
+    float thickness=mix(.4,3.8,smoothstep(.04,.52,age));
+    float body=1.-step(thickness,abs(distanceToLand-front-scallop));
+    return body*step(mix(1.,.22,life),patch);
+}
+
+float waterPattern(vec2 world,float distanceToLand,vec3 cycle) {
+    float openWater=surfaceRipple(world)*step(shoreWidth*.65,distanceToLand);
+    return max(openWater,shoreRipple(world,distanceToLand,cycle));
 }
 
 void main() {
@@ -39,12 +90,22 @@ void main() {
     vec2 world=pixel+cameraPosition;
     vec2 mapUv=world/mapSize;
     if(any(lessThan(mapUv,vec2(0))) || any(greaterThanEqual(mapUv,vec2(1)))) discard;
-    if(texture(waterMask,mapUv).r<.5) discard;
+    vec3 mask=texture(waterMask,mapUv).rgb;
+    if(mask.b<.5) discard;
+    float shoreDistance=(mask.g*255.-128.)*(shoreDistanceRange/127.);
+    vec3 cycle=vec3(0.);
+    if(shoreWidth>0.) {
+        if(shoreDistance< -shoreLap) discard;
+        if(shoreDistance<shoreWidth+3.) cycle=shoreCycle(world);
+        // The water silhouette itself washes over the bank, in native pixels.
+        // Both render passes use this same boundary, including reflections.
+        if(shoreDistance<cycle.y) discard;
+    } else if(mask.r<.5) discard;
 
     if(reflectionPass<.5) {
         // Exactly two RGB colours. Lights, reflections and their distortion do
         // not participate in the base surface's colour or ripple mask.
-        finalColor=vec4(mix(surfaceColor,rippleColor,surfaceRipple(world)),1.);
+        finalColor=vec4(mix(surfaceColor,rippleColor,waterPattern(world,shoreDistance,cycle)),1.);
         return;
     }
 
@@ -53,11 +114,13 @@ void main() {
     float foreground=scene.a;
     if(foreground>.999) discard;
 
-    // Reflection treatment is independent from the two-colour surface.
-    float swell=sin(world.x*.033+world.y*.061-time*.57)+.45*sin(world.x*.089-world.y*.041+time*.36);
-    float grain=noise(world*vec2(.11,.29)+vec2(time*.028,0));
-    float ripple=sin(world.y*.39+world.x*.026+swell*.6-time*.73);
-    vec2 warp=round(vec2(swell*.85+sin(world.x*.067-world.y*.078+time*.62)*.35,ripple*.32)*rippleStrength);
+    // Reflection strength/colour remain independent, but the distortion field
+    // travels with the same current as the surface wavelets.
+    vec2 flow=world-rippleDirection*(time*rippleSpeed*5.);
+    float swell=sin(flow.x*.033+flow.y*.061)+.45*sin(flow.x*.089-flow.y*.041);
+    float grain=noise(flow*vec2(.11,.29));
+    float ripple=sin(flow.y*.39+flow.x*.026+swell*.6);
+    vec2 warp=round(vec2((swell*.85+sin(flow.x*.067-flow.y*.078)*.35)*reflectionSway,ripple*.32)*rippleStrength);
     ivec2 samplePixel=ivec2(vec2(pixel.x,resolution.y-pixel.y)+warp);
     if(any(lessThan(samplePixel,ivec2(0))) || any(greaterThanEqual(samplePixel,ivec2(resolution)))) discard;
     vec4 reflected=texelFetch(texture0,samplePixel,0);
@@ -65,7 +128,7 @@ void main() {
     // or disappear in coherent ripple bands; no colour ramp or soft fire glow.
     float wave=clamp((ripple+grain*.65+1.)/2.65,0.,1.);
     if(reflectionStrength<=0. || wave<1.-clamp(reflectionStrength,0.,1.) || reflected.a<=0.) discard;
-    vec3 base=mix(surfaceColor,rippleColor,surfaceRipple(world));
+    vec3 base=mix(surfaceColor,rippleColor,waterPattern(world,shoreDistance,cycle));
     // The scene already contains foreground over base water. Replace only the
     // exposed base contribution. Opaque reflected texels keep their exact RGB;
     // alpha blending is reserved for deliberately fading objects/foregrounds.

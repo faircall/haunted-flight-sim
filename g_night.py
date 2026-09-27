@@ -317,6 +317,7 @@ def render_items(assets,tm):
         entity=dict(render_anchor_offset={'x':-b['width']/2,'y':-b['height']},render_base_offset={'x':0,'y':0},
                     visual_height=b['height'],light_sample_height=b['height']/2,
                     self_shadow={'mode':'upright_box','strength':.65},occludes_render_items=True,
+                    player_reveal_enabled=obj.get('player_reveal_enabled',True),
                     ground_footprint={'shape':'rectangle','size':{'x':b['width'],'y':8}},outline={'policy':'never'})
         item=order.make_world_render_item('facade','facade','facade:'+identity,identity,entity,base,b['width'],b['height'],
                      order.make_texture_reference('facade_textures',identity),{'x':0,'y':0,'width':b['width'],'height':b['height']})
@@ -416,6 +417,7 @@ def inspect_facade(ui,editor,identity,obj,tm):
     for name,lo,hi,default in (('width',8,192,48),('height',16,192,56),('seed',0,9999,7)):
         obj[name],_=g_ui.ui_number_input_int(ui,prefix+name,name,obj.get(name,default),lo,hi)
     obj['solid'],_=g_ui.ui_checkbox(ui,prefix+':solid','blocks movement',obj.get('solid',True))
+    obj['player_reveal_enabled'],_=g_ui.ui_checkbox(ui,prefix+':player_reveal','Fade to show player',obj.get('player_reveal_enabled',True))
     obj['source_light'],_=g_ui.ui_dropdown(ui,prefix+':source','lamp',obj.get('source_light','builtin'),editor.get('night_light_ids',['builtin']))
     if obj.get('type')=='pierced_door':
         obj['open'],_=g_ui.ui_checkbox(ui,prefix+':open','preview open',obj.get('open',False))
@@ -430,7 +432,7 @@ def hit_test(point,obj,tm):
     return b['x']<=point['x']<=b['x']+b['width'] and b['y']<=point['y']<=b['y']+b['height']
 
 
-def source_columns(source, bounds, grid, front=True):
+def source_columns(source, bounds, grid, front=True, active=None):
     """Visibility to a vertical plane, stopping just before its own tile footprint."""
     base=bounds['y']+bounds['height']
     near_y=base+.5 if front else math.floor((base-1)/grid['tile_height'])*grid['tile_height']-.5
@@ -438,7 +440,7 @@ def source_columns(source, bounds, grid, front=True):
     if abs(denominator)<.001:return bytes(bounds['width'])
     fraction=(near_y-sy)/denominator
     if fraction<0:return bytes(bounds['width'])
-    return bytes(255 if visibility.light_ray_reaches_world_point(source,
+    return bytes(255 if (active is None or active[x]) and visibility.light_ray_reaches_world_point(source,
         {'x':source['x']+(bounds['x']+x+.5-source['x'])*fraction,'y':near_y},grid)
         else 0 for x in range(bounds['width']))
 
@@ -463,7 +465,6 @@ def facade_receiver(prepared, item, grid):
         return old
     values=np.zeros((bounds['height'],bounds['width']),dtype=np.float32)
     if source['y']>base and not light.get('_portal') and light.get('enabled',True):
-        columns=np.frombuffer(source_columns(source,bounds,grid),dtype=np.uint8)/255.
         yy,xx=np.mgrid[0:bounds['height'],0:bounds['width']]
         dx=xx+bounds['x']+.5-source['x'];dy=base-source['y']
         dz=bounds['height']-yy-.5-float(light.get('height',32.))
@@ -491,7 +492,12 @@ def facade_receiver(prepared, item, grid):
             near=float(light.get('near_fade_distance',0.))
             if near>0 and light.get('surface_near_fade',True):
                 amount=np.clip(distance/near,0,1);values*=amount*amount*(3-2*amount)
-        values*=columns
+        # Trace only columns that the radius/cone can actually illuminate.
+        # Visibility is the expensive test, so do the cheap rejection first.
+        active=np.any(values>0.,axis=0)
+        if np.any(active):
+            columns=np.frombuffer(source_columns(source,bounds,grid,active=active),dtype=np.uint8)/255.
+            values*=columns
     image=Image.fromarray((values*255).round().clip(0,255).astype('uint8'))
     receiver=dict(stamp=stamp,image=image,unit_strength=float(values.max()),strength=float(values.max())*max(0.,light.get('intensity',1.)))
     if old and 'texture' in old:
@@ -539,11 +545,14 @@ def flashlight_portals(assets, source, grid):
         # empty collision cell. Adding a second light would double its brightness.
         if entry.get('opened') or not obj.get('solid',True):continue
         front=position['y']>base
-        columns=source_columns(position,b,grid,front)
-        if not any(columns):continue
         strengths=[visibility.get_unoccluded_light_strength_at_world_point(source,
-            {'x':b['x']+i+.5,'y':base},grid,projected=False) if value else 0. for i,value in enumerate(columns)]
+            {'x':b['x']+i+.5,'y':base},grid,projected=False) for i in range(b['width'])]
         if max(strengths,default=0.)<=0:continue
+        # Preserve all portal columns: even columns dark at ground level can
+        # transmit a ray higher up the window. The early rejection above only
+        # removes a portal when the old implementation would also reject it.
+        columns=source_columns(position,b,grid,front)
+        if not any(value and strength>0. for value,strength in zip(columns,strengths)):continue
         portal=entry['portals'].get(front)
         if portal is None:
             dest_y=math.floor((base-1)/grid['tile_height'])*grid['tile_height']-.5 if front else base+.5

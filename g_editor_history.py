@@ -12,6 +12,7 @@ ACTOR_FIELDS = ("position", "glow", "height", "description_id", "movement_settin
     "render_base_offset", "visual_height", "light_sample_height", "ground_footprint",
     "self_shadow", "entity_light_occluder", "shadow", "outline", "contact_shadow",
     "render_style", "occludes_render_items", "occludes_player", "outline_player_when_behind",
+    "player_reveal_enabled",
     "fog_interaction", "water_interaction", "entity_width", "entity_height", "value",
     "wind_response", "tree_seed", "tree_irregular", "tree_mesh")
 

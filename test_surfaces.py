@@ -4,6 +4,7 @@ import pickle
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
+import numpy as np
 from PIL import Image
 import g_surfaces as s
 import g_audio
@@ -65,6 +66,23 @@ class SurfaceTests(unittest.TestCase):
         fields,crop,_=s.masks(tm,0,0)
         self.assertEqual(fields['grass'].crop(crop).getpixel((48,48)),255)
         self.assertEqual(fields['grass'].crop(crop).getpixel((47,48)),0)
+
+    def test_long_rounded_joins_meander_in_both_axes_and_hard_edges_stay_straight(self):
+        for vertical in (False,True):
+            tm=game.make_tile_map(12,12,16,16)
+            s.paint(tm,[(x,y) for y in range(12) for x in range(12)],'dirt',density=0)
+            points=[(x,y) for y in range(12) for x in range(12) if (x if vertical else y)<6]
+            s.paint(tm,points,'grass',density=0)
+            def edge():
+                with patch.object(s,'CHUNK',12):fields,crop,_=s.masks(tm,0,0)
+                region=np.asarray(fields['grass'].crop(crop))
+                if vertical:region=region.T
+                return np.argmax(region[64:128,16:176]==0,axis=0)
+            positions=edge()
+            self.assertGreaterEqual(np.ptp(positions),2,'long soft join is still ruler-straight')
+            self.assertLessEqual(max(abs(positions-32)),4,'boundary distortion exceeds its tile margin')
+            s.paint(tm,points,'grass',density=0,soft=False)
+            self.assertTrue(np.all(edge()==32),'hard architectural edges become wavy')
 
     def test_material_junctions_have_one_owner_and_no_mixed_colors(self):
         tm=game.make_tile_map(8,8,16,16)

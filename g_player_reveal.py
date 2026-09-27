@@ -24,6 +24,7 @@ def candidates(items):
     after=items[items.index(player)+1:]
     return player,[item for item in after
                    if item.get('occludes_render_items',False) and item.get('opacity',1.)>0.
+                   and item.get('player_reveal_enabled',True)
                    and order.bounds_overlap(player['bounds_world'],item['bounds_world'])]
 
 

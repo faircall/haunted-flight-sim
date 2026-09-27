@@ -10,13 +10,13 @@ The existing courtyard still launches with `python night_trial.py`. Its layout a
 
 ## In the prototype
 
-- A large dark lake with a rounded, crisp shoreline, a two-colour surface, hard-edged animated ripples and low mist.
+- A large dark lake with a rounded, crisp shoreline, a two-colour surface, filled wavelets, lapping shore water and low mist.
 - A raised timber boardwalk, railings and pilings leading to an open temple doorway. The route retains normal movement collision and wooden footstep sounds. Deep water blocks movement without acting as a wall for light rays.
 - Six visible fire bowls, with procedural flames, embers, independently evolving firelight bands, and literal reflections of the flame pixels. The temple's window spill follows its indoor fire lamps. There are no authored electric point lamps in this scene.
 - Lit sprite reflections of the temple, roof, supports, vegetation and player, projected from their ground anchors and distorted on the GPU. Dry surfaces and foreground objects mask them correctly.
 - A temporary tiled roof and shrine. The roof fades away indoors; the localized player reveal also works here.
 
-The reference guided the dark water, raised approach and cool architecture. Warm firelight gives this version an orange/blue contrast. The camera has a scene-specific look-ahead toward the temple.
+The reference guided the dark water, raised approach and cool architecture. Warm firelight gives this version an orange/blue contrast. Moonlight intensity defaults to `0.3` in this scene. The camera has a scene-specific look-ahead toward the temple.
 
 ## Tuning / limitations
 
@@ -26,7 +26,7 @@ All fire emitters now use the GPU contour pattern, including fires in existing s
 
 In the **Environment editor**, select a fire emitter and scroll to **linked light**. The former whole-light pulsing controls have been replaced with:
 
-- **Band speed**: how quickly the internal bands evolve; default `0.65`. Zero freezes the pattern.
+- **Band speed**: how quickly the internal bands evolve; default `4.0`. Zero freezes the pattern. Existing explicitly saved speeds are preserved.
 - **Band motion**: how far the internal bands move; default `0.65`, range `0–1`. Zero also freezes the pattern.
 - **Irregularity**: how broken-up the contours are; default `0.48`, range `0–0.85`. Zero gives smooth, steady lighting.
 - **Band scale**: feature size in world pixels; default `28`. Larger values give broader shapes.
@@ -117,22 +117,36 @@ Results and comparison captures are written under `artifacts/moonlit-water-templ
 
 ## Two-colour surface, independent reflections
 
-The base surface has exactly two colours: `#02070d` water and `#0a1621` ripple strokes. Ripple placement animates, but each stroke stays fully opaque and one native pixel thick. There are no gradient fringes, dither, fine colour noise, or 2x2 enlargement. Camera motion preserves the world-pixel alignment.
+The base surface has exactly two colours: `#02070d` water and `#0a1621` wavelets. Nearly straight crests have filled bodies up to three native pixels thick, tapering into thinner tips. Three sparse wave trains share a direction, toward the foreground by default, but travel at different positive speeds. They catch up, overlap briefly and separate. Reflection distortion follows the mean current. There are no gradient fringes, dither, fine colour noise, or 2x2 enlargement. Camera motion preserves the world-pixel alignment.
+
+Shore waves form offshore, broaden into broken patches on arrival and dissolve at the bank. The actual water boundary washes a few pixels over the bank and retreats as the wave breaks up; a bright line does not slide back out into the lake. Nearby stretches have slightly different timing. Water keeps the same two colours and reveals the existing bank as it drains.
+
+A signed distance field covers both sides of the resting shoreline. It is built only when the map changes and packed into the existing water-mask texture; the GPU animates the crisp shoreline threshold and wave patches. Base water and reflections obey the same moving edge. Raised decks and walls remain protected, and the lake bed beneath them does not create a false shore. Gameplay collision stays fixed.
+
+The resting bank uses the same world-fixed fractal boundary displacement as the material painter's **Rounded joins**. Broad curves, smaller bays and fine scallops break up long horizontal/vertical runs. This is a cached shape change, with one crisp owner per pixel; it does not blend the water into the ground. Hard architectural edges stay straight. The shared implementation lives in `g_surfaces.boundary_samples` and `warp_boundary_field`.
 
 The former shared 20-colour palette has been removed. Sprite and flame reflections composite separately; surface colours, density and spacing do not change reflected sprite colours. Fog and fire bloom remain later scene effects, so the complete scene naturally contains more than the two base colours.
 
 Tuning fields in `lake_profile`:
 
 - `surface_color` and `ripple_color`: normalized RGB triples for the two colours.
-- `ripple_spacing`: average distance between ripple bands, `10` world pixels by default.
-- `ripple_density`: length/coverage of broken strokes, `0.45` by default.
+- `ripple_spacing`: average distance between wavelet bands, `12` world pixels by default.
+- `ripple_density`: length/coverage of wavelets, `0.45` by default; zero hides open-water wavelets.
+- `ripple_width`: maximum body thickness in native pixels, `3` by default (range `1–8`).
+- `ripple_speed`: mean current rate, `0.65` by default; each unit is five world pixels per second. Zero freezes surface and reflection ripple motion.
+- `ripple_speed_variation`: speed difference between the three wave trains, `0.28` by default (range `0–0.65`). The default gives rates of 72%, 100% and 128% of the mean; zero makes them travel together. All rates stay forward.
+- `ripple_direction`: `{x, y}` travel direction, normalized by the renderer; default `{x: 0, y: 1}` moves toward the foreground. This controls travel, not the camera.
+- `shore_width`: how far lapping reaches into the lake, `12` world pixels by default (range `0–28`); zero disables lapping.
+- `shore_speed`: lapping rate, `0.65` by default; zero freezes it. Independent of reflection distortion.
+- `shore_lap`: maximum distance the water can wash onto the bank, `3` native pixels by default (range `0–8`). Zero keeps the silhouette fixed while shore wave patches can still form and dissolve.
 - `reflections_enabled`: set false to review the base surface independently.
 - `fire_reflections_enabled`: controls literal flame reflections separately.
 - `reflection_strength`: coverage, from 0 (hidden) to 1 (unbroken). Ripples remove pixels in coherent bands instead of multiplying their brightness.
 - `reflection_stretch`, `ripple_strength`: vertical scale and whole-pixel distortion amount. These do not affect surface ripple styling.
+- `reflection_sway`: additional horizontal displacement multiplier, now `2` (range `0–4`); zero disables sideways displacement. At the temple's `ripple_strength=1.25`, the former multiplier of 1 gave at most about two native pixels sideways; 2 gives up to about four. Vertical distortion and exact source-colour sampling are unaffected.
 - Per-fire `reflection_base_offset`: water-plane pivot below the flame anchor, default 14 pixels for the prototype's braziers.
 
-GPU checks verify exactly two base colours, exact source-colour preservation in both sprite and flame reflections, native pixel detail, animated strokes, strength changing coverage instead of RGB, transparent foregrounds, dry masks, lamp extinction and camera alignment.
+GPU checks verify exactly two base colours, shared direction (including an authored diagonal), differing positive wavelet speeds, visible horizontal reflection displacement, forming/dissolving shore patches, a moving water/land boundary, reflection clipping at that boundary, cached shore data, deck protection, zero-speed motion, exact source-colour preservation in both sprite and flame reflections, native pixel detail, strength changing coverage instead of RGB, transparent foregrounds, lamp extinction and camera alignment. Review captures include `water-wavelets.png`, `shore-lapping-phases.png` and `shore-lapping.gif` under `artifacts/moonlit-water-temple/`.
 
 ### How reflections currently work
 
@@ -142,13 +156,14 @@ GPU checks verify exactly two base colours, exact source-colour preservation in 
 
 An independent reflected strip/grid mesh remains an option for changing the deformation shape and overcoming main-view occlusion. Palette preservation does not require it: fragment shaders can move exact texels just as well, provided their sampling and compositing do not interpolate colours.
 
-## Next optimization sequence
+## Structural optimization pass
 
-Deferred until the water and reflection appearance is settled.
+Implemented ground chunk batches, a shared GPU light atlas for ordinary scenery,
+shared character shadow silhouettes, bounded terrain retention/prewarming, sprite
+culling and a spatial broad phase for occlusion. Water/reflections remain at native
+resolution with their existing colours and animation.
 
-1. **Ground chunk drawing (smallest, safest next pass).** Ground materials already live in cached chunk textures, but much of the draw path still submits individual tile rectangles. Draw visible chunk regions together, keeping decals, grass, editor overlays and gameplay cells independent. Verify rounded joins, tile masks and editor painting.
-2. **Batch object lighting on the GPU (largest potential gain).** Prototype an atlas of the frame's independent light fields and a sprite shader that combines eligible lights in one draw. This targets the remaining object-by-light loops and repeated render-target/shader switches. Keep the current renderer for pixel comparisons; preserve per-light tree response, window receivers, actor shadows, depth order and player cutaways. This is a broader renderer change, not a switch we can safely flip.
-3. **Cull invisible work.** Exclude offscreen props from lighting/render submissions and offscreen trees from deformation where they contribute neither visible shadows nor reflections. Reflection visibility needs its own bounds test; ordinary camera culling alone would make mirrors pop.
-Keep water and reflection buffers at native resolution; coarsening the pixels was rejected on visual grounds.
-
-Measure each step separately. Palette reduction alone does not make drawing cheaper; fewer draw submissions and fewer shaded pixels do.
+See [RENDER_PERFORMANCE.md](RENDER_PERFORMANCE.md) for measured frame times,
+reproduction commands, cache limits, validation, and the remaining work toward
+60 FPS. The current Python build still exceeds the 16.7 ms frame budget; the C
+port is expected to help CPU work but has not been used to claim a speedup.

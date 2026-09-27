@@ -45,6 +45,8 @@ def run():
             assert assets['water_runtime']['shaders']['reflection'][0].id>0
             assert assets['water_runtime']['shaders']['water'][0].id>0
             if frame==0:
+                from ground_batch_smoke import check as check_ground_batches
+                check_ground_batches(game,assets)
                 from firelight_pixel_smoke import check as check_firelight
                 check_firelight(game,assets)
                 from water_pixel_smoke import check

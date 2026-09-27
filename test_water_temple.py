@@ -2,6 +2,8 @@
 import pickle
 import unittest
 from collections import deque
+import numpy as np
+from PIL import Image
 import g_update_and_render as game
 import g_light_visibility as visibility
 import g_audio
@@ -49,6 +51,37 @@ class WaterTempleTests(unittest.TestCase):
         self.assertEqual(mask.getpixel((232,336)),0,'water paints over the boardwalk')
         self.assertEqual(mask.getpixel((336,240)),255,'lake mask missing')
         self.assertEqual(set(mask.getdata()),{0,255},'shore edge becomes a texture fade')
+
+    def test_cached_shore_field_measures_land_and_ignores_raised_decks(self):
+        bed=Image.new('L',(80,80),255)
+        self.assertTrue(np.all(g_water.shore_distance(bed)==g_water.SHORE_DISTANCE))
+        bed.putpixel((40,40),0)
+        distance=g_water.shore_distance(bed)
+        self.assertEqual(distance[40,40],0.)
+        self.assertEqual(distance[44,43],5.)
+        self.assertEqual(distance[36,37],5.)
+        self.assertEqual(distance[0,0],g_water.SHORE_DISTANCE)
+        packed=g_water.water_map_image(self.tm)
+        self.assertEqual(packed.getchannel('R').tobytes(),g_water.water_mask(self.tm).tobytes())
+        self.assertEqual(packed.getpixel((336,336))[:2],(0,255),'raised boardwalk creates a false shore')
+        self.assertEqual(packed.getpixel((336,318))[:2],(255,255),'lapping surrounds a raised boardwalk')
+        self.assertEqual(packed.getpixel((336,336))[2],0,'water can wash over a raised deck')
+        dry=np.asarray(g_water.lake_bed_mask(self.tm))==0
+        field=np.asarray(packed)
+        self.assertTrue(np.all(field[:,:,1][dry]<128),'signed distance is missing on the landward side')
+        self.assertTrue(np.any((field[:,:,0]==0)&(field[:,:,2]==255)&(field[:,:,1]>112)),
+                        'shore stencil cannot extend onto nearby natural banks')
+
+    def test_long_lake_boundaries_share_material_curvature(self):
+        for vertical in (False,True):
+            tm=game.make_tile_map(12,12,16,16)
+            for y in range(12):
+                for x in range(12):tm['tiles'][y*12+x]['lake_bed']=(x if vertical else y)>=6
+            region=np.asarray(g_water.lake_bed_mask(tm))
+            if vertical:region=region.T
+            positions=np.argmax(region[64:128,16:176]>0,axis=0)
+            self.assertGreaterEqual(np.ptp(positions),2,'lake still has a perfectly straight long bank')
+            self.assertLessEqual(max(abs(positions-32)),4)
 
     def test_fire_lamps_supply_the_apertures_and_survive_save(self):
         self.assertFalse(self.arena['entities']['lights'])
