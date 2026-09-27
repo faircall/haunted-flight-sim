@@ -2088,8 +2088,10 @@ def build_pickup_render_item(object_id, entity, tile_map, game_assets):
 
 
 def build_sorted_world_render_items(entities, player_entity, tile_map, game_assets):
+    import g_water
     render_items = g_night.render_items(game_assets, tile_map)
     render_items.extend(g_roofs.render_items(game_assets))
+    render_items.extend(g_water.render_items(game_assets,entities))
     if player_entity is not None:
         render_items.append(build_player_render_item(player_entity, tile_map, game_assets))
     for object_id, entity in entities.get("brains", {}).items():

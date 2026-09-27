@@ -16,12 +16,12 @@ class RenderOrderTests(unittest.TestCase):
             and (side is None or part.get("rig_side") == side)
         )
 
-    def test_environment_composites_place_rain_between_emissive_fog_and_outlines(self):
+    def test_environment_composites_place_rain_between_emissive_fog_and_darkness_fallback(self):
         source = inspect.getsource(g_update_and_render.update_and_render)
         emissive = source.index('"emissive", False')
         rain = source.index("g_graphics.apply_rain_composite(")
         fog = source.index("g_graphics.apply_illuminated_fog(")
-        outlines = source.index("g_graphics.draw_render_item_occlusion_outlines(")
+        outlines = source.index("g_graphics.draw_player_darkness_outline(")
         self.assertLess(emissive, rain)
         self.assertLess(rain, fog)
         self.assertLess(fog, outlines)

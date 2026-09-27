@@ -141,7 +141,12 @@ def source_for(obj, entities, tm, bounds, grid=None):
         return dict(position={'x':bounds['x']+bounds['width']/2,'y':bounds['y']+bounds['height']-float(obj.get('lamp_depth',28))},
                     color=obj.get('lamp_color',[1.,.48,.14]),intensity=float(obj.get('lamp_intensity',1.8)),
                     height=float(obj.get('lamp_height',72)),enabled=True)
-    source=next((v for k,v in entities.get('lights',{}).items() if str(k)==identity),None)
+    if identity.startswith('fire:'):
+        emitter=entities.get('emitters',{}).get(identity[5:],{})
+        settings=emitter.get('light',{})
+        source=dict(settings,type='point',position=emitter.get('position',{}),
+                    enabled=emitter.get('enabled',False) and settings.get('enabled',False))
+    else:source=next((v for k,v in entities.get('lights',{}).items() if str(k)==identity),None)
     if source is None:return dict(enabled=False,position={'x':0.,'y':0.},height=72.,color=[1.,.48,.14],intensity=0.)
     result=dict(source);result['position']=g_effects.position_to_world(source.get('position',{}),tm)
     if source.get('type','point')!='point' or result['position']['y']>=bounds['y']+bounds['height']:
@@ -236,6 +241,7 @@ def prepare(assets, arena, grid, camera=None):
     tm=arena['tile_map'];entities=arena['entities']
     editor=assets.setdefault('editor_state',{})
     editor['night_light_ids']=['builtin']+[str(k) for k,v in entities.get('lights',{}).items() if v.get('type','point')=='point']
+    editor['night_light_ids']+=['fire:'+str(k) for k,v in entities.get('emitters',{}).items() if v.get('type')=='fire']
     editor['night_door_ids']=['none']+[str(k) for k,v in entities.get('puzzles',{}).items() if 'door' in v.get('type','')]
     rt=assets.setdefault('night_runtime',{'entries':{}})
     if rt.get('map') is not tm or rt.get('generation') != RUNTIME_GENERATION:
@@ -284,8 +290,18 @@ def prepare(assets, arena, grid, camera=None):
             emission=aperture_emission(panel,holes,source)
             entry.update(emission=g_surfaces.upload_image(emission),
                          record=field_record(field,origin,source,'night:'+str(identity),assets))
+            entry['steady_intensity']=source['intensity']
             entry['record']['light']['_aperture_caster']=aperture_caster(obj,bounds,source,grid)
-        if 'record' in entry:records.append(entry['record'])
+        if 'record' in entry:
+            link=str(obj.get('source_light',''))
+            if link.startswith('fire:'):
+                emitter=entities.get('emitters',{}).get(link[5:],{})
+                runtime=assets.get('runtime_lights',{}).get('effect:fire:'+link[5:],{})
+                base=max(.001,emitter.get('light',{}).get('intensity',1.))
+                gain=runtime.get('intensity',base)/base
+                entry['record']['light']['intensity']=entry['steady_intensity']*gain
+                entry['record']['light']['_aperture_caster']['source']['intensity']=entry['steady_intensity']*gain
+            records.append(entry['record'])
         textures[str(identity)]=entry['panel']
         items.append((str(identity),obj,entry))
     for key in list(rt['entries']):
@@ -334,6 +350,7 @@ def draw_field(prepared,camera,target,assets,unmasked=False):
 def draw_emission(scene,items,camera,assets):
     if not any('_emission' in item for item in items):return
     import g_graphics as graphics
+    import g_player_reveal
     rt=assets['night_runtime']
     if 'mask_shader' not in rt:
         rt['mask_shader']=pr.load_shader('',str(ROOT/'shaders'/'emission_occlusion.fs'))
@@ -346,8 +363,13 @@ def draw_emission(scene,items,camera,assets):
     for item in items:
         texture=graphics.resolve_render_item_texture(item,assets)
         if texture is None:continue
-        pr.begin_shader_mode(rt['mask_shader']);graphics._draw_render_item_main_shape(item,texture,camera,assets);pr.end_shader_mode()
-        if '_emission' in item:graphics._draw_render_item_main_shape(item,item['_emission'],camera,assets)
+        if '_player_reveal' in item:g_player_reveal.begin_patch(assets,item,mask=True)
+        else:pr.begin_shader_mode(rt['mask_shader'])
+        graphics._draw_render_item_main_shape(item,texture,camera,assets);pr.end_shader_mode()
+        if '_emission' in item:
+            if '_player_reveal' in item:g_player_reveal.begin_patch(assets,item)
+            graphics._draw_render_item_main_shape(item,item['_emission'],camera,assets)
+            if '_player_reveal' in item:pr.end_shader_mode()
     pr.end_blend_mode();pr.end_texture_mode()
     pr.begin_texture_mode(scene);pr.begin_blend_mode(pr.BlendMode.BLEND_ADDITIVE)
     pr.draw_texture_rec(target.texture,pr.Rectangle(0,0,target.texture.width,-target.texture.height),pr.Vector2(0,0),pr.WHITE)
@@ -420,12 +442,14 @@ def facade_receiver(prepared, item, grid):
     source=prepared['world_position'];base=bounds['y']+bounds['height']
     field=light.get('_field',{})
     stamp=(tuple(source.values()),light.get('enabled',True),light.get('type'),light.get('height',32.),
-           tuple(light.get('direction',{}).values()),light.get('radius'),light.get('falloff'),light.get('intensity'),
+           tuple(light.get('direction',{}).values()),light.get('radius'),light.get('falloff'),
            light.get('inner_angle'),light.get('outer_angle'),light.get('near_fade_distance'),
            light.get('aperture_radius',0.),light.get('surface_near_fade',True),
            grid.get('geometry_revision'),id(field.get('values')),bool(light.get('_portal')))
     old=entry['receivers'].get(prepared['id'])
-    if old and old['stamp']==stamp:return old
+    if old and old['stamp']==stamp:
+        old['strength']=old['unit_strength']*max(0.,light.get('intensity',1.))
+        return old
     values=np.zeros((bounds['height'],bounds['width']),dtype=np.float32)
     if source['y']>base and not light.get('_portal') and light.get('enabled',True):
         columns=np.frombuffer(source_columns(source,bounds,grid),dtype=np.uint8)/255.
@@ -434,9 +458,10 @@ def facade_receiver(prepared, item, grid):
         dz=bounds['height']-yy-.5-float(light.get('height',32.))
         if field:
             # Moon exposure is authored on the ground beside the facade.
-            samples=[visibility.get_unoccluded_light_strength_at_world_point(light,
+            unit_light=dict(light,intensity=1.)
+            samples=[visibility.get_unoccluded_light_strength_at_world_point(unit_light,
                 {'x':bounds['x']+x+.5,'y':base+.5},grid) for x in range(bounds['width'])]
-            values[:]=np.asarray(samples)/max(.001,light.get('intensity',1.))
+            values[:]=np.asarray(samples)
         else:
             distance=np.sqrt(dx*dx+dy*dy+dz*dz)
             values=np.clip(1-distance/max(.001,float(light.get('radius',100.))),0,1)**max(.001,float(light.get('falloff',2.)))
@@ -457,7 +482,7 @@ def facade_receiver(prepared, item, grid):
                 amount=np.clip(distance/near,0,1);values*=amount*amount*(3-2*amount)
         values*=columns
     image=Image.fromarray((values*255).round().clip(0,255).astype('uint8'))
-    receiver=dict(stamp=stamp,image=image,strength=float(values.max())*light.get('intensity',1.))
+    receiver=dict(stamp=stamp,image=image,unit_strength=float(values.max()),strength=float(values.max())*max(0.,light.get('intensity',1.)))
     if old and 'texture' in old:
         receiver['texture']=old['texture']
         raw=image.convert('RGBA').tobytes()

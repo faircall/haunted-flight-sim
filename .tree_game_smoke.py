@@ -2,6 +2,16 @@
 from pathlib import Path
 import sys
 
+if "--water-benchmark" in sys.argv:
+    from benchmark_water import run
+    run()
+    raise SystemExit(0)
+
+if "--water" in sys.argv:
+    from water_temple_smoke import run
+    run()
+    raise SystemExit(0)
+
 if "--night" in sys.argv:
     from night_smoke import run
     run()

@@ -1,6 +1,7 @@
 import math
 import random
 import time
+import numpy as np
 
 import pyray as pr
 from pyrsistent import m, pmap, v
@@ -9,12 +10,13 @@ import g_light_visibility as light_visibility
 import g_night
 import g_effects
 import g_render_order
+import g_player_reveal
 import g_update_and_render as game
 
 CINEMATIC_SHADOW_DEBUG_ENABLED = False
 # Hot-reloadable master toggle; per-entity contact_shadow settings are retained.
 CHARACTER_CONTACT_SHADOWS_ENABLED = False
-# Optional darkness readability treatment; occlusion outlines are independent.
+# Optional pitch-darkness fallback. Occlusion uses localized transparency.
 PLAYER_DARKNESS_OUTLINE_ENABLED = False
 
 ENTITY_SELF_SHADOW_MODES = {"none": 0, "upright_box": 1, "directional_profiles": 2}
@@ -705,6 +707,7 @@ def prepare_lighting_frame(game_camera, entities, player_entity, tile_map, scene
         prepared_lights.append(prepared)
         prepared_by_id[record["id"]] = prepared
 
+    prepare_entity_light_sample_caches(prepared_lights, collision_grid, game_assets)
     g_night.prune_receiver_lights(game_assets, set(prepared_by_id))
     stats["pruned_cache_entries"] = light_visibility.prune_light_visibility_cache(cache, frame_number, int(game_assets.get("light_visibility_cache_max_unused_frames", 600)))
     stats["prepare_time_ms"] = (time.perf_counter() - prepare_started) * 1000.0
@@ -749,6 +752,28 @@ def point_in_polygon(point, polygon):
             inside = not inside
 
     return inside
+
+
+def points_in_polygon(points, polygon):
+    """The same inclusive edge test, batched in native array operations."""
+    if len(polygon) < 3:
+        return np.zeros(len(points), dtype=bool)
+    vertices = np.asarray([(p['x'], p['y']) for p in polygon], dtype=np.float64)
+    ends = np.roll(vertices, -1, axis=0)
+    sx, sy = (ends-vertices).T
+    results = []
+    # Bound temporary matrices even for large editor scenes.
+    for first in range(0, len(points), 256):
+        xy = np.asarray(points[first:first+256], dtype=np.float64)
+        px = xy[:, 0, None]-vertices[:, 0]
+        py = xy[:, 1, None]-vertices[:, 1]
+        dot = px*sx+py*sy
+        on_edge = (np.abs(sx*py-sy*px) <= .0001) & (dot >= -.0001) & (dot <= sx*sx+sy*sy+.0001)
+        crosses_y = (vertices[:, 1] > xy[:, 1, None]) != (ends[:, 1] > xy[:, 1, None])
+        edge_x = vertices[:, 0]+py*sx/np.where(sy != 0., sy, 1.)
+        crossings = crosses_y & (xy[:, 0, None] < edge_x)
+        results.append(on_edge.any(axis=1) | ((crossings.sum(axis=1) % 2) != 0))
+    return np.concatenate(results) if results else np.zeros(0, dtype=bool)
 
 def smoothstep_cpu(edge_start, edge_end, value):
     if edge_end <= edge_start:
@@ -979,7 +1004,26 @@ def make_spot_light_coverage_polygon(prepared_light, arc_segments=12):
 
 def spot_light_conservatively_intersects_render_item(prepared_light, render_item):
     bounds = render_item.get("bounds_world", {})
-    if not polygon_intersects_rectangle(make_spot_light_coverage_polygon(prepared_light), bounds):
+    if bounds.get('width', 0.) <= 0. or bounds.get('height', 0.) <= 0.:
+        return False
+    light = prepared_light['light']
+    stamp = (tuple(light.get('render_position', prepared_light.get('world_position', {})).items()),
+             tuple(light.get('direction', {}).items()), light.get('radius'), light.get('outer_angle'))
+    cached = prepared_light.get('_spot_coverage')
+    if cached is None or cached[0] != stamp:
+        polygon = make_spot_light_coverage_polygon(prepared_light)
+        if not polygon:
+            return False
+        left = min(p['x'] for p in polygon); top = min(p['y'] for p in polygon)
+        box = dict(x=left, y=top, width=max(p['x'] for p in polygon)-left,
+                   height=max(p['y'] for p in polygon)-top)
+        cached = (stamp, polygon, box)
+        prepared_light['_spot_coverage'] = cached
+    _, polygon, box = cached
+    if (bounds['x'] > box['x']+box['width'] or bounds['x']+bounds['width'] < box['x']
+            or bounds['y'] > box['y']+box['height'] or bounds['y']+bounds['height'] < box['y']):
+        return False
+    if not polygon_intersects_rectangle(polygon, bounds):
         return False
     if prepared_light.get("casts_wall_shadows", False):
         visibility = prepared_light.get("visibility_polygon") or []
@@ -991,23 +1035,81 @@ def spot_light_conservatively_intersects_render_item(prepared_light, render_item
                 return False
     return True
 
-def get_prepared_light_strength_for_render_item(prepared_light, render_item, collision_grid):
+def get_prepared_light_strength_for_render_item(prepared_light, render_item, collision_grid, sample_points=None):
     light = prepared_light.get("light", {})
+    if light.get('effect_owner') in render_item.get('excluded_light_owners',()):
+        return 0.0
     if "_facade" in render_item:
         return g_night.facade_receiver(prepared_light, render_item, collision_grid)['strength']
     strengths = []
+    cache = prepared_light.get('_entity_samples')
+    intensity = max(0.0, float(light.get('intensity', 1.0)))
 
-    for point in get_render_item_light_sample_points(render_item):
-        strength = light_visibility.get_unoccluded_light_strength_at_world_point(light, point, collision_grid)
-        strengths.append(strength if strength > 0.0 and prepared_light_reaches_point(prepared_light, point) else 0.0)
+    for point in get_render_item_light_sample_points(render_item) if sample_points is None else sample_points:
+        if cache is not None:
+            key = (point['x'], point['y'])
+            value = cache['points'].get(key)
+            if value is None:
+                value = light_visibility.get_unoccluded_light_strength_at_world_point(cache['unit_light'], point, collision_grid)
+                if value > 0.0 and not prepared_light_reaches_point(prepared_light, point):
+                    value = 0.0
+                cache['points'][key] = value
+            strengths.append(value * intensity)
+        else:
+            strength = light_visibility.get_unoccluded_light_strength_at_world_point(light, point, collision_grid)
+            strengths.append(strength if strength > 0.0 and prepared_light_reaches_point(prepared_light, point) else 0.0)
 
     strongest_sample = max(strengths, default=0.0)
-    if strongest_sample <= 0.000001 and light.get("type", "point") == "spot" and spot_light_conservatively_intersects_render_item(prepared_light, render_item):
+    if strongest_sample <= 0.000001 and light.get("type", "point") == "spot":
         # The GPU's per-pixel light texture remains authoritative. This tiny
         # sentinel only keeps the light's entity pass alive when a narrow cone
         # overlaps visible sprite pixels between the finite CPU samples.
-        return 0.00001
+        bounds = render_item.get('bounds_world', {})
+        key = tuple(bounds.get(axis, 0.) for axis in ('x', 'y', 'width', 'height'))
+        overlaps = cache['bounds'].get(key) if cache is not None else None
+        if overlaps is None:
+            overlaps = spot_light_conservatively_intersects_render_item(prepared_light, render_item)
+            if cache is not None:
+                cache['bounds'][key] = overlaps
+        if overlaps:
+            return 0.00001
     return strongest_sample
+
+def prepare_entity_light_sample_caches(prepared_lights, grid, assets):
+    """Reuse geometric light tests while intensity/colour flicker on the GPU.
+
+    Moving lights, wall edits and replacement light fields invalidate the cache.
+    Portal lights depend on a second moving source and deliberately stay live.
+    Point budgets bound memory for actors travelling through large levels.
+    """
+    caches = assets.setdefault('entity_light_sample_cache', {})
+    wanted = set()
+    for prepared in prepared_lights:
+        light = prepared['light']; identity = prepared['id']
+        if '_portal' in light:
+            continue
+        wanted.add(identity)
+        field = light.get('_field', {})
+        stamp = (id(grid), grid.get('geometry_revision'), grid.get('runtime_generation'),
+                 tuple(prepared['world_position'].items()), tuple(light.get('position', {}).items()),
+                 tuple(light.get('render_position', {}).items()), tuple(light.get('direction', {}).items()),
+                 tuple(light.get('size', {}).items()), prepared.get('casts_wall_shadows'),
+                 id(prepared.get('visibility_polygon')), id(field.get('values')),
+                 field.get('origin'), field.get('width'), field.get('height'),
+                 *(light.get(key) for key in ('type', 'enabled', 'radius', 'falloff', 'inner_angle', 'outer_angle', 'near_fade_distance')))
+        entry = caches.get(identity)
+        if entry is None or entry['stamp'] != stamp:
+            entry = dict(stamp=stamp, points={}, bounds={}, grid=grid, unit_light=dict(light, intensity=1.),
+                         polygon=prepared.get('visibility_polygon'))
+            caches[identity] = entry
+        elif len(entry['points']) > 4096:
+            entry['points'].clear()
+        if len(entry['bounds']) > 512:
+            entry['bounds'].clear()
+        prepared['_entity_samples'] = entry
+    for identity in set(caches) - wanted:
+        caches.pop(identity)
+
 
 def make_empty_entity_self_shadow_summary():
     return {"face_exposure": [1.0, 0.0, 0.0, 0.0], "omni_exposure": 0.0, "world_occlusion_scale": 1.0, "blocked_direct_count": 0, "sampled_world_strength": 0.0, "visible_world_strength": 0.0, "per_light": []}
@@ -1379,8 +1481,31 @@ def combine_independent_entity_lighting(ambient_rgb, direct_rgb, readability_rgb
 def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, collision_grid, collect_diagnostics=False):
     summaries = {}
     diagnostics = []
+    sample_lists = [get_render_item_light_sample_points(item) for item in render_items]
+    unique_points = {(p['x'], p['y']) for item, points in zip(render_items, sample_lists)
+                     if '_facade' not in item for p in points}
+    for prepared in prepared_lights:
+        cache = prepared.get('_entity_samples')
+        if cache is None:
+            continue
+        missing = unique_points-cache['points'].keys()
+        positive = []
+        for key in missing:
+            strength = light_visibility.get_unoccluded_light_strength_at_world_point(
+                cache['unit_light'], {'x': key[0], 'y': key[1]}, collision_grid)
+            cache['points'][key] = strength
+            if strength > 0.:
+                positive.append(key)
+        if positive and prepared.get('casts_wall_shadows', False) and prepared['light'].get('type') != 'top_down':
+            polygon = prepared.get('visibility_polygon') or []
+            if light_visibility.visibility_type(prepared['light']) == 'spot':
+                polygon = [prepared['world_position']] + polygon
+            visible = points_in_polygon(positive, polygon)
+            for key, reaches in zip(positive, visible):
+                if not reaches:
+                    cache['points'][key] = 0.
 
-    for item in render_items:
+    for item, sample_points in zip(render_items, sample_lists):
         policy = item.get("self_shadow", {})
         summary = make_empty_entity_self_shadow_summary()
         face_totals = [0.0, 0.0, 0.0, 0.0]
@@ -1395,7 +1520,7 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
             if not prepared_light.get("affects_entities", light.get("affects_entities", light.get("affects_scene", True))) or not light.get("enabled", True) or light.get("render_style", "world") != "world":
                 continue
 
-            strength = get_prepared_light_strength_for_render_item(prepared_light, item, collision_grid)
+            strength = get_prepared_light_strength_for_render_item(prepared_light, item, collision_grid, sample_points)
 
             if strength <= 0.000001:
                 continue
@@ -1674,6 +1799,10 @@ def resolve_entity_self_shadow_resources(render_item, source_texture, game_asset
 
 def set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0, self_shadow_pass=0):
     shader = shader_info["shader"]
+    set_shader_int(shader, shader_info["self_shadow_pass_location"], self_shadow_pass)
+    if self_shadow_pass == 2:
+        # The mask branch only reads sprite alpha. No light/material uniforms.
+        return {"mode_value": 0}
     summary = render_item.get("self_shadow_summary", {})
     policy = render_item.get("self_shadow", {})
     resources = resolve_entity_self_shadow_resources(render_item, texture, game_assets)
@@ -1689,12 +1818,15 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
     texture_width = max(1.0, float(texture.width))
     texture_height = max(1.0, float(texture.height))
     set_shader_vec2(shader, shader_info["resolution_location"], entity_lighting.texture.width, entity_lighting.texture.height)
+    set_shader_float(shader, shader_info["world_occlusion_scale_location"], summary.get("world_occlusion_scale", 1.0))
+    set_shader_int(shader, shader_info["self_shadow_mode_location"], resources["mode_value"])
+    if self_shadow_pass == 1 and resources["mode_value"] == 0:
+        # Plain wood/railings only need the per-pixel light texture.
+        return resources
     set_shader_vec2(shader, shader_info["source_uv_min_location"], source["x"] / texture_width, source["y"] / texture_height)
     set_shader_vec2(shader, shader_info["source_uv_max_location"], (source["x"] + source["width"]) / texture_width, (source["y"] + source["height"]) / texture_height)
     set_shader_vec4(shader, shader_info["face_exposure_location"], exposure[0], exposure[1], exposure[2], exposure[3])
     set_shader_float(shader, shader_info["omni_exposure_location"], summary.get("omni_exposure", 0.0))
-    set_shader_float(shader, shader_info["world_occlusion_scale_location"], summary.get("world_occlusion_scale", 1.0))
-    set_shader_int(shader, shader_info["self_shadow_mode_location"], resources["mode_value"])
     set_shader_float(shader, shader_info["self_shadow_strength_location"], policy.get("strength", 0.0))
     set_shader_float(shader, shader_info["self_shadow_softness_location"], policy.get("softness", 0.10))
     set_shader_float(shader, shader_info["self_shadow_back_fill_location"], policy.get("back_fill", 0.06))
@@ -1715,8 +1847,9 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
     set_shader_vec2(shader, shader_info.get("profile_divider_top_location", -1), float(divider_top.get("x", 0.0)) / source_width, float(divider_top.get("y", 0.0)) / source_height)
     set_shader_vec2(shader, shader_info.get("profile_divider_bottom_location", -1), float(divider_bottom.get("x", 0.0)) / source_width, float(divider_bottom.get("y", 0.0)) / source_height)
     set_shader_vec2(shader, shader_info.get("profile_light_origin_location", -1), (float(direction_origin["x"]) - float(destination.get("x", 0.0))) / (destination_width if abs(destination_width) > 0.000001 else 1.0), (float(direction_origin["y"]) - float(destination.get("y", 0.0))) / (destination_height if abs(destination_height) > 0.000001 else 1.0))
+    if self_shadow_pass == 1:
+        return resources
     set_shader_int(shader, shader_info["self_shadow_debug_output_location"], debug_output_mode)
-    set_shader_int(shader, shader_info["self_shadow_pass_location"], self_shadow_pass)
     set_shader_vec3(shader, shader_info["ambient_color_location"], ambient[0], ambient[1], ambient[2])
     set_shader_vec3(shader, shader_info["shadow_color_location"], shadow[0], shadow[1], shadow[2])
     set_shader_float(shader, shader_info["ambient_strength_location"], lighting_profile.get("ambient_strength", 0.3))
@@ -1735,8 +1868,11 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
 def begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0, self_shadow_pass=0):
     resources = set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode, self_shadow_pass)
     pr.begin_shader_mode(shader_info["shader"])
+    if self_shadow_pass == 2:
+        return resources
     set_shader_texture(shader_info["shader"], shader_info["entity_light_texture_location"], entity_lighting.texture)
-    set_shader_texture(shader_info["shader"], shader_info["entity_readability_light_texture_location"], entity_readability_lighting.texture)
+    if self_shadow_pass == 0:
+        set_shader_texture(shader_info["shader"], shader_info["entity_readability_light_texture_location"], entity_readability_lighting.texture)
     if resources["mode_value"] == ENTITY_SELF_SHADOW_MODES["directional_profiles"]:
         set_shader_texture(shader_info["shader"], shader_info["directional_response_texture_location"], resources["response_texture"])
     return resources
@@ -1866,12 +2002,14 @@ def _draw_render_item_main_shape(render_item, texture, game_camera,
     )
     screen_position = snap(destination["x"], destination["y"], game_camera)
     opacity = max(0.0, min(1.0, float(render_item.get("opacity", 1.0))))
-    pr.draw_texture_pro(
-        texture,
-        pr.Rectangle(source["x"], source["y"], source["width"], source["height"]),
-        pr.Rectangle(screen_position["x"], screen_position["y"], destination["width"], destination["height"]),
-        pr.Vector2(0, 0), 0, pr.Color(255, 255, 255, round(opacity * 255))
-    )
+    stamp = (source['x'], source['y'], source['width'], source['height'],
+             screen_position['x'], screen_position['y'], destination['width'], destination['height'], round(opacity*255))
+    cached = render_item.get('_sprite_draw_geometry')
+    if cached is None or cached[0] != stamp:
+        cached = (stamp, pr.Rectangle(*stamp[:4]), pr.Rectangle(*stamp[4:8]),
+                  pr.Vector2(0, 0), pr.Color(255, 255, 255, stamp[8]))
+        render_item['_sprite_draw_geometry'] = cached
+    pr.draw_texture_pro(texture, cached[1], cached[2], cached[3], 0, cached[4])
 
 def _player_weapon_is_visible(render_item):
     return (
@@ -1967,14 +2105,49 @@ def _add_entity_light_layer_to_direct(light_layer_target, direct_target):
     pr.end_blend_mode()
     pr.end_texture_mode()
 
+def draw_fading_lit_item(item,scene,camera,assets,profile,lights,readability,player):
+    """Fade a completed lit sprite once; used by the temple's textured roof."""
+    layer=get_or_create_render_target(assets,'fading_lit_item',scene.texture.width,scene.texture.height)
+    pr.begin_texture_mode(layer);pr.clear_background(pr.BLANK);pr.end_texture_mode()
+    plain=dict(item);alpha=plain.pop('composite_opacity')
+    result=draw_sorted_world_render_items([plain],layer,camera,assets,profile,lights,readability,player)
+    pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA,pr.RL_ONE_MINUS_SRC_ALPHA,pr.RL_ONE,pr.RL_ONE_MINUS_SRC_ALPHA,pr.RL_FUNC_ADD,pr.RL_FUNC_ADD)
+    pr.begin_texture_mode(scene);pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
+    pr.draw_texture_rec(layer.texture,pr.Rectangle(0,0,layer.texture.width,-layer.texture.height),pr.Vector2(0,0),pr.Color(255,255,255,round(alpha*255)))
+    pr.end_blend_mode();pr.end_texture_mode()
+    return result
+
+
+def entity_light_overlap_masks(render_items):
+    """Earlier shapes a sprite could erase from a per-light layer.
+
+    Pad for the two pixel-snapping policies. Legacy separate weapons can extend
+    beyond the actor bounds, so retain all their potentially overlapping draws.
+    """
+    rectangles = []
+    masks = []
+    for item in render_items:
+        b = item['bounds_world']
+        rectangle = (b['x']-2, b['y']-2, b['x']+b['width']+2, b['y']+b['height']+2)
+        separate_weapon = _player_weapon_is_visible(item) and not _player_weapon_uses_cutout_rig(item)
+        mask = 0
+        for index, (other, weapon) in enumerate(rectangles):
+            if separate_weapon or weapon or (rectangle[0] <= other[2] and other[0] <= rectangle[2]
+                    and rectangle[1] <= other[3] and other[1] <= rectangle[3]):
+                mask |= 1 << index
+        masks.append(mask)
+        rectangles.append((rectangle, separate_weapon))
+    return masks
+
+
 def draw_sorted_world_render_items(render_items, scene_target, game_camera, game_assets, lighting_profile, prepared_lights=None, entity_readability_lighting=None, player_entity=None):
     # A cutaway must blend over the finished, lit interior. Blending its alpha
     # into both albedo and per-light survival would attenuate actors twice (and
     # render-target alpha would be multiplied again in the final composite).
-    # Only transitioning roofs split the batch; opaque / hidden roofs retain
-    # the usual renderer and cost. The placeholder roof is unlit black.
+    # Local player cutaways also split here, preserving the object's lighting.
     fading = lambda item: item.get("source") == "roof" and 0.0 < item.get("opacity", 1.0) < 1.0
-    if any(fading(item) for item in render_items):
+    isolated = lambda item: fading(item) or "_player_reveal" in item or 'composite_opacity' in item
+    if any(isolated(item) for item in render_items):
         batch = []
         result = {"scratch_light_draws": 0, "survival_draws": 0}
         def flush():
@@ -1986,10 +2159,22 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
                 result[key] = result.get(key, 0) + value if key in ("scratch_light_draws", "survival_draws") else value
             batch.clear()
         for item in render_items:
-            if not fading(item):
+            if not isolated(item):
                 batch.append(item)
                 continue
             flush()
+            if "_player_reveal" in item:
+                drawn = g_player_reveal.draw_item(item, scene_target, game_camera, game_assets, lighting_profile,
+                    prepared_lights, entity_readability_lighting, player_entity)
+                for key, value in drawn.items():
+                    result[key] = result.get(key, 0) + value if key in ("scratch_light_draws", "survival_draws") else value
+                continue
+            if 'composite_opacity' in item:
+                drawn=draw_fading_lit_item(item,scene_target,game_camera,game_assets,lighting_profile,
+                    prepared_lights,entity_readability_lighting,player_entity)
+                for key,value in drawn.items():
+                    result[key]=result.get(key,0)+value if key in ('scratch_light_draws','survival_draws') else value
+                continue
             texture = resolve_render_item_texture(item, game_assets)
             if texture is not None:
                 pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA, pr.RL_ONE_MINUS_SRC_ALPHA, pr.RL_ONE, pr.RL_ONE_MINUS_SRC_ALPHA, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
@@ -2048,13 +2233,17 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
     pr.clear_background(pr.BLANK)
     pr.end_texture_mode()
 
+    draw_entries = [(item, resolve_render_item_texture(item, game_assets),
+                     {record.get('light_id'): record for record in item.get('self_shadow_summary', {}).get('per_light', [])},
+                     _get_player_pistol_part(item, game_camera, game_assets)) for item in render_items]
+    overlap_masks = entity_light_overlap_masks(render_items)
     eligible_lights = []
     for prepared_light in prepared_lights:
         light = prepared_light.get("light", {})
         if not light.get("enabled", True) or not prepared_light.get("affects_entities", light.get("affects_entities", False)) or light.get("render_style", "world") != "world":
             continue
         light_id = prepared_light.get("id")
-        if any(any(record.get("light_id") == light_id and not record.get("blocked", False) for record in item.get("self_shadow_summary", {}).get("per_light", [])) for item in render_items):
+        if any(light_id in records and not records[light_id].get('blocked', False) for _, _, records, _ in draw_entries):
             eligible_lights.append(prepared_light)
 
     for prepared_light in eligible_lights:
@@ -2065,54 +2254,64 @@ def draw_sorted_world_render_items(render_items, scene_target, game_camera, game
         pr.clear_background(pr.BLANK)
         pr.end_texture_mode()
 
-        for item in render_items:
-            texture = resolve_render_item_texture(item, game_assets)
+        lit_mask = 0
+        for item_index, (item, texture, light_records, pistol_part) in enumerate(draw_entries):
             if texture is None:
                 continue
-            light_record = next((record for record in item.get("self_shadow_summary", {}).get("per_light", []) if record.get("light_id") == light_id), None)
+            light_record = light_records.get(light_id)
+            survives = light_record is not None and not light_record.get('blocked', False)
+            if not survives and not (lit_mask & overlap_masks[item_index]):
+                continue
+            if survives:
+                lit_mask |= 1 << item_index
             main_shape = lambda current=item, current_texture=texture: _draw_render_item_main_shape(
                 current, current_texture, game_camera, game_assets,
             )
-            pr.begin_texture_mode(light_layer_target)
-            _reset_entity_direct_shape(shader_info, item, texture, main_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
-            pr.end_texture_mode()
-
-            if light_record is not None and not light_record.get("blocked", False):
+            # Normal alpha blending combines the old black-mask reset and
+            # additive survival draw: previous*(1-alpha) + light*alpha.
+            # Keep painter order so an unlit foreground sprite still masks
+            # light on the object behind it.
+            if survives:
                 per_light_item = _make_per_light_render_item(item, light_record)
                 item_scratch = scratch_target
                 if "_facade" in item:
                     item_scratch = g_night.draw_facade_receiver(prepared_light, item, game_camera, game_assets, width, height)
-                pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA, pr.RL_ONE, pr.RL_ZERO, pr.RL_ONE, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
                 pr.begin_texture_mode(light_layer_target)
-                pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
+                layered = bool(item.get('draw_data', {}).get('cutout_rig_parts'))
+                if layered:
+                    # Cutout rigs have overlapping pieces within one item.
+                    # Retain their existing two-stage accumulation exactly.
+                    _reset_entity_direct_shape(shader_info, item, texture, main_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
+                    pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA, pr.RL_ONE, pr.RL_ZERO, pr.RL_ONE, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
+                    pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
                 _add_entity_direct_shape(shader_info, per_light_item, texture, main_shape, item_scratch, entity_readability_lighting, lighting_profile, game_assets)
-                pr.end_blend_mode()
+                if layered:
+                    pr.end_blend_mode()
                 pr.end_texture_mode()
                 survival_draws += 1
+            else:
+                pr.begin_texture_mode(light_layer_target)
+                _reset_entity_direct_shape(shader_info, item, texture, main_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
+                pr.end_texture_mode()
 
-            pistol_part = _get_player_pistol_part(item, game_camera, game_assets)
             if pistol_part is not None:
                 pistol_shape = lambda current=pistol_part: _draw_player_pistol_part(current)
-                pr.begin_texture_mode(light_layer_target)
-                _reset_entity_direct_shape(shader_info, pistol_part["render_item"], pistol_part["texture"], pistol_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
-                pr.end_texture_mode()
-                if light_record is not None and not light_record.get("blocked", False):
+                if survives:
                     pistol_item = _make_per_light_render_item(pistol_part["render_item"], light_record, mode_override="none")
-                    pr.rl_set_blend_factors_separate(pr.RL_SRC_ALPHA, pr.RL_ONE, pr.RL_ZERO, pr.RL_ONE, pr.RL_FUNC_ADD, pr.RL_FUNC_ADD)
                     pr.begin_texture_mode(light_layer_target)
-                    pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
                     _add_entity_direct_shape(shader_info, pistol_item, pistol_part["texture"], pistol_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
-                    pr.end_blend_mode()
                     pr.end_texture_mode()
                     survival_draws += 1
+                else:
+                    pr.begin_texture_mode(light_layer_target)
+                    _reset_entity_direct_shape(shader_info, pistol_part["render_item"], pistol_part["texture"], pistol_shape, scratch_target, entity_readability_lighting, lighting_profile, game_assets)
+                    pr.end_texture_mode()
 
         _add_entity_light_layer_to_direct(light_layer_target, direct_target)
 
-    for item in render_items:
-        texture = resolve_render_item_texture(item, game_assets)
+    for item, texture, _, pistol_part in draw_entries:
         if texture is None:
             continue
-        pistol_part = _get_player_pistol_part(item, game_camera, game_assets)
         pr.begin_texture_mode(albedo_target)
         _draw_render_item_main_shape(item, texture, game_camera, game_assets)
         if (_player_weapon_is_visible(item)
@@ -3704,7 +3903,7 @@ def draw_render_item_occlusion_outline(scene, render_item, game_camera, game_ass
         rect = render_item["dest_rect"]
         screen = g_render_order.moving_world_to_screen_pixel(rect["x"],rect["y"],game_camera)
         set_shader_vec4(shader,outline_shader.get("sample_rect_location",-1),screen["x"],screen["y"],rect["width"],rect["height"])
-        set_shader_vec2(shader,outline_shader.get("darkness_range_location",-1),.03,.12)
+        set_shader_vec2(shader,outline_shader.get("darkness_range_location",-1),.002,.01)
     pr.begin_texture_mode(scene)
     pr.begin_shader_mode(shader)
     if snapshot:

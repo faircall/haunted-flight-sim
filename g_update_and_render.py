@@ -1,5 +1,7 @@
 import g_night
 import g_roofs
+import g_player_reveal
+import g_water
 import g_surfaces
 import g_tree_assets
 import math
@@ -8955,7 +8957,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         )
     
     if ui_state.get("focused_id") is None and editor_state.get("drag_kind") is None:
-        camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=player_info.get("position",{}), dt=dt)
+        camera_3d = update_camera(camera_3d, camera_physics=camera_physics, mode=editor_mode, player_pos=g_water.camera_focus(main_arena,player_info.get("position",{})), dt=dt)
 
     if editor_mode == "play" and not puzzle_modal:
         aim_mouse_delta = pr.get_mouse_delta()
@@ -9059,9 +9061,11 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         g_roofs.prepare(game_assets,tile_map,player_info,editor_mode,0.0 if pause_state=='paused' else dt)
         g_night.sync_collision(main_arena)
         g_night.prepare(game_assets, main_arena, g_graphics.ensure_light_collision_grid(game_assets, tile_map), camera_3d.position)
+        g_water.prepare(game_assets,main_arena,0.0 if pause_state=='paused' else dt,editor_mode)
     else:
         g_roofs.unload(game_assets)
         g_night.unload(game_assets)
+        g_water.unload(game_assets)
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, presentation_entities, player_info, tile_map, render_target, game_assets)
     if (editor_mode == "play" and pause_state != "paused" and not puzzle_modal
             and debug_state != "dumb entities"):
@@ -9085,6 +9089,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     render_occlusion_groups = g_render_order.build_render_occlusion_groups(sorted_world_items)
     outlined_items = g_render_order.find_items_requiring_outline(sorted_world_items, render_occlusion_groups)
     player_occluders = render_occlusion_groups.get("targets", {}).get("player", [])
+    g_player_reveal.prepare(game_assets,sorted_world_items,render_target,camera_3d.position,
+        0.0 if pause_state=='paused' else dt,scene_key=id(tile_map))
 
     color_to_draw = pr.Color(33, 25, 68, 255)
     pr.begin_texture_mode(render_target)
@@ -9123,6 +9129,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
             tile_map, wind_profile, time_elapsed, editor_mode == "environment",
         )
 
+    g_water.draw(render_target,lighting_target if render_environment_effects else None,game_assets,main_arena,
+        sorted_world_items,camera_3d.position,time_elapsed,reflections_only=False)
     entity_render_started = time.perf_counter()
     entity_render_frame = g_graphics.draw_sorted_world_render_items(sorted_world_items, render_target, camera_3d.position, game_assets, lighting_profile, lighting_frame["prepared_lights"] if render_environment_effects else [], entity_readability_light_target, player_info)
     lighting_frame["stats"]["entity_draw_time_ms"] = lighting_frame["stats"].get("entity_draw_time_ms", 0.0) + (time.perf_counter() - entity_render_started) * 1000.0
@@ -9130,6 +9138,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     lighting_frame["stats"]["entity_survival_draws"] = entity_render_frame.get("survival_draws", 0)
     entity_light_target = entity_render_frame.get("entity_direct_light")
     g_night.draw_emission(render_target, sorted_world_items, camera_3d.position, game_assets)
+    g_water.draw(render_target,lighting_target if render_environment_effects else None,game_assets,main_arena,
+        sorted_world_items,camera_3d.position,time_elapsed,reflections_only=True)
 
     if render_environment_effects:
         g_graphics.render_effect_group(
@@ -9154,7 +9164,6 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         fog_volume_mask = g_graphics.render_fog_volume_mask(camera_3d.position, entities, tile_map, render_target, game_assets)
         g_graphics.apply_illuminated_fog(render_target, fog_light_target, fog_volume_mask, game_assets, fog_profile, camera_3d.position, time_elapsed)
 
-    g_graphics.draw_render_item_occlusion_outlines(render_target, outlined_items, camera_3d.position, game_assets)
     if render_environment_effects:
         g_graphics.draw_player_darkness_outline(render_target,sorted_world_items,outlined_items,camera_3d.position,game_assets)
     if show_editor and not do_load_level and not g_mouse_is_ui_captured:

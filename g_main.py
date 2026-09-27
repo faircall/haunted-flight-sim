@@ -24,6 +24,9 @@ g_reloadable_modules = [
     ("g_surfaces", update_and_render_module.g_surfaces),
     ("g_night", update_and_render_module.g_night),
     ("g_roofs", update_and_render_module.g_roofs),
+    ("g_player_reveal", update_and_render_module.g_player_reveal),
+    ("g_water_temple_art", update_and_render_module.g_water.art),
+    ("g_water", update_and_render_module.g_water),
     ("g_editor_history", update_and_render_module.g_editor_history),
     ("g_interaction_data", update_and_render_module.g_interactions.data),
     ("g_inventory", update_and_render_module.g_interactions.inventory),
@@ -102,6 +105,7 @@ g_module_persistent_reload_specs = {
         "game_asset_keys_to_clear": (
             "light_collision_grid",
             "light_visibility_cache",
+            "entity_light_sample_cache",
             "lighting_frame_stats"
         )
     },
@@ -447,6 +451,8 @@ def g_main():
     update_and_render_module.g_interactions.text.unload(game_assets)
     update_and_render_module.g_night.unload(game_assets)
     update_and_render_module.g_roofs.unload(game_assets)
+    update_and_render_module.g_player_reveal.unload(game_assets)
+    update_and_render_module.g_water.unload(game_assets)
     update_and_render_module.g_surfaces.unload(game_assets)
     update_and_render_module.g_tree_render.unload(game_assets)
     pr.close_window()

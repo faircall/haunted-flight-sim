@@ -29,6 +29,8 @@ def assert_camera_locked(target, render, label):
 
 
 def check(game, assets):
+    from player_reveal_smoke import check as check_reveal
+    check_reveal(game,assets)
     from roof_smoke import check as check_roofs
     check_roofs(game,assets)
     from flashlight_origin_smoke import check as check_origin
