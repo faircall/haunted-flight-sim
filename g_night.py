@@ -253,7 +253,10 @@ def prepare(assets, arena, grid, camera=None):
     moon=dict(MOON_DEFAULTS,**arena.get('lighting_profile',{}).get('moonlight',{}))
     if moon['enabled']:
         key='moon';wanted.add(key)
-        stamp=json.dumps((moon,geometry,tm.get('rain_exposure_revision',0)),sort_keys=True)
+        # Radiance changes (clouds/lightning/editor colour) reuse the geometry.
+        # Rebuilding a whole-map CPU shadow field for each flash is unnecessary.
+        field_settings={k:v for k,v in moon.items() if k not in ('color','intensity','affects_ai')}
+        stamp=json.dumps((field_settings,geometry,tm.get('rain_exposure_revision',0)),sort_keys=True)
         entry=rt['entries'].get(key)
         if entry is None or entry['stamp']!=stamp:
             if entry:drop_entry(entry)
@@ -266,6 +269,7 @@ def prepare(assets, arena, grid, camera=None):
             entry['record']['light']['_moon']=True
             entry['record']['light']['casts_character_shadows']=False
             rt['entries'][key]=entry
+        entry['record']['light'].update(color=list(moon['color']),intensity=max(0.,moon['intensity']),affects_ai=moon['affects_ai'])
         records.append(entry['record'])
     for identity,obj in entities.get('facades',{}).items():
         if not obj.get('enabled',True):continue

@@ -2,6 +2,7 @@ import g_night
 import g_roofs
 import g_player_reveal
 import g_water
+import g_weather
 import g_surfaces
 import g_ground
 import g_tree_assets
@@ -2075,6 +2076,9 @@ def reload_image_assets(game_assets):
     g_ground.unload(game_assets)
     g_surfaces.unload(game_assets)
     g_surfaces.detail_data.cache_clear()
+    g_surfaces.plank_sample.cache_clear()
+    g_water.unload(game_assets)
+    g_weather.unload(game_assets)
     unloaded_count = unload_image_asset_collections(
         old_textures, old_sprite_sheets,
     )
@@ -9022,6 +9026,10 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     if editor_mode == "play" and pause_state != "paused" and not puzzle_modal and not do_load_level and not show_options:
         main_arena = g_sequences.update(main_arena, dt)
+        main_arena = g_weather.update(main_arena,dt)
+        lighting_profile=main_arena.get('lighting_profile') or lighting_profile
+        wind_profile=main_arena.get('wind_profile') or wind_profile
+        rain_profile=main_arena.get('rain_profile') or rain_profile
         entities, tile_map, player_info = main_arena["entities"], main_arena["tile_map"], main_arena["player_info"]
     sequence_preview = g_sequence_editor.state(editor_state).get("preview") if editor_mode == "sequences" else None
     presentation_entities = g_sequences.presentation_entities(main_arena, sequence_preview)
@@ -9080,10 +9088,12 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
         g_night.sync_collision(main_arena)
         g_night.prepare(game_assets, main_arena, g_graphics.ensure_light_collision_grid(game_assets, tile_map), camera_3d.position)
         g_water.prepare(game_assets,main_arena,0.0 if pause_state=='paused' else dt,editor_mode)
+        g_weather.prepare(game_assets,main_arena)
     else:
         g_roofs.unload(game_assets)
         g_night.unload(game_assets)
         g_water.unload(game_assets)
+        g_weather.unload(game_assets)
     lighting_frame = g_graphics.prepare_lighting_frame(camera_3d.position, presentation_entities, player_info, tile_map, render_target, game_assets)
     if (editor_mode == "play" and pause_state != "paused" and not puzzle_modal
             and debug_state != "dumb entities"):
@@ -9155,6 +9165,8 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
 
     g_water.draw(render_target,lighting_target if render_environment_effects else None,game_assets,main_arena,
         sorted_world_items,camera_3d.position,time_elapsed,reflections_only=False)
+    if render_environment_effects:
+        g_weather.draw(render_target,lighting_target,game_assets,main_arena,camera_3d.position,time_elapsed,'ground')
     entity_render_started = time.perf_counter()
     entity_render_frame = g_graphics.draw_sorted_world_render_items(visible_world_items, render_target, camera_3d.position, game_assets, lighting_profile, lighting_frame["prepared_lights"] if render_environment_effects else [], entity_readability_light_target, player_info)
     lighting_frame["stats"]["entity_draw_time_ms"] = lighting_frame["stats"].get("entity_draw_time_ms", 0.0) + (time.perf_counter() - entity_render_started) * 1000.0
@@ -9162,6 +9174,7 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     lighting_frame["stats"]["entity_survival_draws"] = entity_render_frame.get("survival_draws", 0)
     entity_light_target = entity_render_frame.get("entity_direct_light")
     g_night.draw_emission(render_target, visible_world_items, camera_3d.position, game_assets)
+    g_water.draw_emission(render_target,visible_world_items,camera_3d.position,game_assets)
     # Include actual flame pixels in the lake's source image, before bloom.
     # Other foreground effects (e.g. mist) still composite over the reflections.
     reflected_fires = {}
@@ -9177,6 +9190,9 @@ def update_and_render(render_target, lighting_target, main_arena, game_assets, c
     g_water.draw(render_target,lighting_target if render_environment_effects else None,game_assets,main_arena,
         sorted_world_items,camera_3d.position,time_elapsed,reflections_only=True,
         effect_emitters=reflected_fires,wind_profile=wind_profile,respect_preview_enabled=editor_mode == "environment")
+    if render_environment_effects:
+        g_weather.draw_runoff(render_target,lighting_target,game_assets,main_arena,sorted_world_items,camera_3d.position,time_elapsed)
+        g_weather.draw(render_target,lighting_target,game_assets,main_arena,camera_3d.position,time_elapsed,'fireflies')
 
     if render_environment_effects:
         remaining_effects = {key: emitter for key, emitter in frame_effect_emitters.items() if key not in reflected_fires} if reflected_fires else frame_effect_emitters

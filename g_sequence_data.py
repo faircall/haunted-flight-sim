@@ -31,6 +31,11 @@ def courtyard_completed(arena, event):
     return p.unlock_door(arena, door)
 
 
+def temple_storm(arena,event):
+    import g_weather
+    return g_weather.start_storm(arena,event)
+
+
 HANDLERS = {"none": None, "start_linked_sequence": start_linked_sequence,
             "spawn_linked_encounter": spawn_linked_encounter,
-            "courtyard_completed": courtyard_completed}
+            "courtyard_completed": courtyard_completed,"temple_storm":temple_storm}

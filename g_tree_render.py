@@ -136,7 +136,7 @@ def update_mesh(runtime, part, profile, elapsed, position):
     angle, bend = rig.motion(part, elapsed, profile, position)
     wind = (rig.irregular_wind(profile, position, elapsed) if profile.get("tree_irregular", True)
             else g_effects.sample_wind(profile, *position, elapsed))
-    strength = min(1.5, math.hypot(wind["x"], wind["y"]) / 8.) * part["exposure"]
+    strength = rig.grid_strength(wind,profile,part)
     phase = part["phase"] + position[0] * .019 + position[1] * .013 + int(profile.get("tree_seed", 17)) * .37
     t = elapsed - part["lag"]
     # Reduce phases in double precision before float upload to avoid losing motion

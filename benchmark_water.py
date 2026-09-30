@@ -23,6 +23,9 @@ def run():
     parser.add_argument('--frames',type=int,default=24)
     parser.add_argument('--profile-frames',type=int,default=6)
     parser.add_argument('--reference', action='store_true', help='Use per-tile/per-light scenery submission for A/B checks')
+    weather=parser.add_mutually_exclusive_group()
+    weather.add_argument('--storm', action='store_true', help='Start with the temple storm and wet decking already active')
+    weather.add_argument('--calm', action='store_true', help='Keep the entry trigger disabled for a calm-weather comparison')
     parser.add_argument('--profile-case', choices=('all','approach','walking','interior'), default='all')
     args=parser.parse_args()
     if args.frames<1 or args.profile_frames<0:parser.error('invalid frame count')
@@ -35,7 +38,7 @@ def run():
             (game.g_graphics,'prepare_entity_self_shadows'),(game.g_graphics,'draw_sorted_world_render_items'),
             (game.g_graphics,'render_prepared_lighting'),(game.g_night,'prepare'),(game.g_tree_render,'prepare'),
             (game.g_glow,'render'),(game.g_graphics,'render_effect_group'),(game.g_player_reveal,'prepare'),
-            (game.g_ground,'prepare'))
+            (game.g_ground,'prepare'),(game.g_weather,'update'),(game.g_weather,'draw'),(game.g_weather,'draw_runoff'))
     for module,name in stages:
         method=getattr(module,name);key=module.__name__+'.'+name
         def timed(*values,_method=method,_key=key,**kwargs):
@@ -57,6 +60,10 @@ def run():
         frame=state['frame'];case=cases[frame//span];index=frame%span
         if frame==0:
             arena=review_arena(game,arena)
+            if args.calm:arena['world_sequences']['triggers']['temple:storm']['enabled']=False
+            if args.storm:
+                arena=game.g_weather.update(game.g_weather.start_storm(arena),32.)
+                arena['sequence_runtime']['sounds'].clear()
             for flag in ('ground_batches_enabled','entity_atlas_enabled','sprite_culling_enabled'):
                 assets[flag] = not args.reference
         camera=assets.setdefault('camera_3d',game.make_default_camera())
@@ -105,7 +112,7 @@ def run():
                 'frame_count':len(ordered)}
         summary[case]['stages_ms']={key:round(statistics.median(row['stages'].get(key,0.) for row in group),3) for key in group[0]['stages']}
         summary[case]['lighting']=group[-1]['lighting']
-    (out/f'{args.label}-timings.json').write_text(json.dumps(dict(reference=args.reference,summary=summary,frames=rows),indent=2),encoding='utf8')
+    (out/f'{args.label}-timings.json').write_text(json.dumps(dict(reference=args.reference,storm=args.storm,calm=args.calm,summary=summary,frames=rows),indent=2),encoding='utf8')
     with (out/f'{args.label}-profile.txt').open('w',encoding='utf8') as stream:
         if args.profile_frames:
             pstats.Stats(profiler,stream=stream).strip_dirs().sort_stats('cumulative').print_stats(65)

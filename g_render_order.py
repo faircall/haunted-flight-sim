@@ -1399,6 +1399,12 @@ def _build_player_side_cutout_rig_parts(player_entity):
         arm_parts_by_side[flashlight_side] = support_parts
     near_arm_parts = arm_parts_by_side["near"]
     far_arm_parts = arm_parts_by_side["far"]
+    # A second free-swinging arm aliases into the same side-view silhouette
+    # during walking. Keep held-item/reload poses and the running gait intact.
+    far_is_occupied = ((weapon_side == "far" and bool(weapon_parts)) or
+                       (flashlight_side == "far" and bool(flashlight_parts or support_parts)))
+    if blend > .01 and run_blend < .5 and not far_is_occupied:
+        far_arm_parts = []
     far_lower, far_upper = leg_parts[0]
     near_lower, near_upper = leg_parts[1]
     return [

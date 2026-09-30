@@ -15,12 +15,15 @@ MASK_VERSION = 4
 GRASS_SHADER_VERSION = 2
 
 def brush_settings(editor):
-    return dict(density=editor.get('surface_density', 0.65), seed=editor.get('surface_seed', 17), soft=editor.get('surface_soft', True))
+    settings=dict(density=editor.get('surface_density', 0.65), seed=editor.get('surface_seed', 17), soft=editor.get('surface_soft', True))
+    if editor.get('surface_material')=='wood':
+        settings.update(plank_axis=editor.get('surface_plank_axis','auto'),style='temple')
+    return settings
 
 def draw_controls(ui, editor):
     """The material popup is last so it can cover the controls below it."""
     import g_ui
-    pr.draw_rectangle(328, 59, 149, 161, g_ui.UI_BACKGROUND)
+    pr.draw_rectangle(328, 59, 149, 187, g_ui.UI_BACKGROUND)
     editor['surface_density'], _ = g_ui.ui_slider_float(ui, 'surface:density', 'detail', editor.get('surface_density', 0.65), 0.0, 1.0, 0.05, pr.Rectangle(332, 88, 138, 17))
     pr.draw_text('Brush', 332, 113, 8, pr.WHITE)
     for i, size in enumerate((1, 3, 5)):
@@ -28,10 +31,15 @@ def draw_controls(ui, editor):
             editor['surface_brush'] = size
     editor['surface_soft'], _ = g_ui.ui_checkbox(ui, 'surface:soft', 'Rounded joins', editor.get('surface_soft', True), pr.Rectangle(332, 130, 138, 15))
     editor['surface_seed'], _ = g_ui.ui_number_input_int(ui, 'surface:seed', 'Seed', editor.get('surface_seed', 17), 0, 99999, pr.Rectangle(332, 151, 138, 17))
-    pr.draw_text('LMB paint / RMB fill', 332, 178, 8, g_ui.UI_MUTED)
-    pr.draw_text('Ctrl+Z undo', 332, 190, 8, g_ui.UI_MUTED)
-    pr.draw_text('Finish + footstep sound', 332, 202, 7, g_ui.UI_MUTED)
-    pr.draw_text('Keeps tile collision', 332, 211, 7, g_ui.UI_MUTED)
+    if editor.get('surface_material')=='wood':
+        pr.draw_text('Grain',332,178,8,g_ui.UI_MUTED)
+        for i,axis in enumerate(('auto','x','y')):
+            if g_ui.ui_button(ui,'surface:axis:'+axis,axis.upper(),pr.Rectangle(369+i*34,173,32,17),
+                              selected=editor.get('surface_plank_axis','auto')==axis):editor['surface_plank_axis']=axis
+    pr.draw_text('LMB paint / RMB fill', 332, 199, 8, g_ui.UI_MUTED)
+    pr.draw_text('Ctrl+Z undo', 332, 211, 8, g_ui.UI_MUTED)
+    pr.draw_text('Finish + footstep sound', 332, 226, 7, g_ui.UI_MUTED)
+    pr.draw_text('Keeps tile collision', 332, 236, 7, g_ui.UI_MUTED)
     editor['surface_material'], _ = g_ui.ui_dropdown(ui, 'surface:material', '', editor.get('surface_material', 'grass'), MATERIALS, pr.Rectangle(332, 65, 138, 17), 7)
 
 def noise(x, y, seed=0):
@@ -47,22 +55,35 @@ def cell(tm, x, y):
 def material_at(tm, x, y):
     return cell(tm, math.floor(x / tm['tile_width']), math.floor(y / tm['tile_height'])).get('surface_material', 'erase')
 
-def paint(tm, points, material, density=0.65, seed=17, soft=True):
+def paint(tm, points, material, density=0.65, seed=17, soft=True,plank_axis=None,style=None):
     """Write authored scalar fields only; geometry and sound zones stay intact."""
     if material not in MATERIALS:
         raise ValueError(material)
+    points=set(points)
+    if plank_axis=='auto' and points:
+        neighbours={cell(tm,x+dx,y+dy).get('surface_axis') for x,y in points
+                    for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)) if (x+dx,y+dy) not in points}-{None}
+        xs,ys=zip(*points)
+        plank_axis=next(iter(neighbours)) if len(neighbours)==1 else ('y' if max(ys)-min(ys)>max(xs)-min(xs) else 'x')
+    if plank_axis not in (None,'auto','x','y'):raise ValueError('Unknown plank axis')
+    keys=('surface_material','surface_density','surface_seed','surface_soft','surface_axis','surface_style')
     changed = 0
-    for x, y in set(points):
+    for x, y in points:
         tile = cell(tm, x, y)
         if not tile:
             continue
-        before = tuple((tile.get(k) for k in ('surface_material', 'surface_density', 'surface_seed', 'surface_soft')))
+        before = tuple(tile.get(k) for k in keys)
         if material == 'erase':
-            for k in ('surface_material', 'surface_density', 'surface_seed', 'surface_soft'):
+            for k in keys:
                 tile.pop(k, None)
         else:
             tile.update(surface_material=material, surface_density=max(0.0, min(1.0, float(density))), surface_seed=int(seed), surface_soft=bool(soft))
-        changed += before != tuple((tile.get(k) for k in ('surface_material', 'surface_density', 'surface_seed', 'surface_soft')))
+            if material=='wood':
+                if plank_axis in ('x','y'):tile['surface_axis']=plank_axis
+                if style is not None:tile['surface_style']=style
+            else:
+                tile.pop('surface_axis',None);tile.pop('surface_style',None)
+        changed += before != tuple(tile.get(k) for k in keys)
     if changed:
         tm['acoustic_revision'] = tm.get('acoustic_revision', 0) + 1
         tm['surface_revision'] = tm.get('surface_revision', 0) + 1
@@ -92,7 +113,7 @@ def flood(tm, x, y, material, **settings):
 
 def signature(tm, cx, cy):
     """A two-cell halo invalidates adjacent masks and overlapping detail cutouts."""
-    return tuple(((t.get('surface_material'), t.get('surface_density'), t.get('surface_seed'), t.get('surface_soft'), t.get('shape_index', 0), vegetation_blocked(tm, t)) for y in range(cy * CHUNK - 2, (cy + 1) * CHUNK + 2) for x in range(cx * CHUNK - 2, (cx + 1) * CHUNK + 2) for t in (cell(tm, x, y),)))
+    return tuple(((t.get('surface_material'), t.get('surface_density'), t.get('surface_seed'), t.get('surface_soft'), t.get('surface_axis'),t.get('surface_style'),t.get('shape_index', 0), vegetation_blocked(tm, t)) for y in range(cy * CHUNK - 2, (cy + 1) * CHUNK + 2) for x in range(cx * CHUNK - 2, (cx + 1) * CHUNK + 2) for t in (cell(tm, x, y),)))
 
 @lru_cache(maxsize=1)
 def detail_data():
@@ -227,6 +248,42 @@ def vegetation_blocked(tm, tile):
     import g_update_and_render as game
     return game.tile_is_collidable(tile, tm)
 
+
+@lru_cache(maxsize=2)
+def plank_sample(axis):
+    with Image.open(ART.parent/'temple'/('planks_'+axis+'.png')) as image:
+        return np.asarray(image.convert('RGBA')).copy()
+
+
+def wood_layer(tm,wx,wy,w,h):
+    """World-registered planks: direction is authored independently of cells.
+
+    Each repeated strip chooses a stable along-grain phase, breaking whole-square
+    repetition without changing width or creating random seams between tiles.
+    This only runs when cached material chunks are rebuilt.
+    """
+    result=base_patch('wood',wx,wy,w,h).copy();pixels=np.asarray(result).copy()
+    yy,xx=np.mgrid[wy:wy+h,wx:wx+w]
+    tw,th=tm['tile_width'],tm['tile_height']
+    for axis in ('x','y'):
+        selected=np.zeros((h,w),dtype=bool)
+        for ty in range(wy//th,(wy+h-1)//th+1):
+            for tx in range(wx//tw,(wx+w-1)//tw+1):
+                tile=cell(tm,tx,ty)
+                if tile.get('surface_style')=='temple' and tile.get('surface_axis','x')==axis:
+                    selected|=(xx//tw==tx)&(yy//th==ty)
+        if not selected.any():continue
+        sample=plank_sample(axis);sh,sw=sample.shape[:2]
+        # Offset entire repeated strips, never separate tile-sized patches.
+        if axis=='x':
+            phase=(noise_grid(np.zeros_like(yy),yy//sh,91)*sw).astype(int)
+            sampled=sample[yy%sh,(xx+phase)%sw]
+        else:
+            phase=(noise_grid(xx//sw,np.zeros_like(xx),91)*sh).astype(int)
+            sampled=sample[(yy+phase)%sh,xx%sw]
+        pixels[selected]=sampled[selected]
+    return Image.fromarray(pixels)
+
 def candidates(tm, ox, oy, width, height):
     """Anchor identity depends on world position and seed, never paint order."""
     records, _ = detail_data()
@@ -263,10 +320,12 @@ def bake_chunk(tm, cx, cy):
         if kind not in fields:
             continue
         mask = fields[kind].crop(crop)
-        layer = base_patch(kind, wx, wy, w, h).copy()
+        layer = wood_layer(tm,wx,wy,w,h) if kind=='wood' else base_patch(kind, wx, wy, w, h).copy()
         for k, x, y, record, scale, flip in nearby:
             if k != kind:
                 continue
+            if k=='wood' and cell(tm,math.floor(x/tw),math.floor(y/th)).get('surface_style')=='temple':
+                continue  # The authored samples already contain grain/knots.
             mx, my = (round(x - origin[0]), round(y - origin[1]))
             if not (0 <= mx < fields[k].width and 0 <= my < fields[k].height) or fields[k].getpixel((mx, my)) < 180:
                 continue

@@ -3,6 +3,12 @@ in vec2 fragTexCoord;
 uniform sampler2D texture0;
 uniform sampler2D waterMask;
 uniform sampler2D sceneTexture;
+uniform sampler2D rainExposureTexture;
+uniform sampler2D lightTexture;
+uniform float lightResponse;
+uniform vec3 skyColor;
+uniform float rainAmount;
+uniform float rainDistortion;
 uniform vec2 resolution;
 uniform vec2 mapSize;
 uniform vec2 cameraPosition;
@@ -89,12 +95,38 @@ float waterPattern(vec2 world,float distanceToLand,vec3 cycle) {
     return max(openWater,shoreRipple(world,distanceToLand,cycle));
 }
 
+vec3 rainDimple(vec2 world,float layer,float amount) {
+    // Stationary impacts disturb a tiny surface normal, rather than drawing
+    // expanding outlines. Two staggered fields avoid a repeated splash grid.
+    vec2 p=world+vec2(layer*73.1,layer*47.7);
+    vec2 size=vec2(22.,14.)+layer*vec2(5.,3.);
+    vec2 cell=floor(p/size);
+    float seed=hash(cell+layer*31.);
+    float clock=time*(1.1+seed*.5)+seed*71.;
+    float serial=floor(clock),age=fract(clock);
+    vec2 key=cell+serial*vec2(17.,53.)+layer*11.;
+    if(hash(key+9.)>amount*.88 || age>.92)return vec3(0.);
+    vec2 center=floor(cell*size+vec2(6.,3.)+
+        vec2(hash(key+7.),hash(key+19.))*(size-vec2(12.,6.)))+.5;
+    vec2 delta=p-center;
+    vec2 q=delta*vec2(1.,2.2);float radius=length(q);
+    float life=smoothstep(.02,.12,age)*(1.-smoothstep(.35,.85,age));
+    float wave=radius-(.6+age*6.5);
+    float slope=sin(wave*2.4)*exp(-wave*wave*.65)*life*(1.-smoothstep(3.5,5.5,radius));
+    vec2 normal=q/max(.5,radius)*slope;
+    // Only the short initial contact catches sky light: one or two native
+    // pixels in the existing ripple colour, with no bright ring or gradient.
+    float glint=step(.025,age)*(1.-step(.09,age))*
+        step(abs(delta.x),.9)*step(abs(delta.y),.5);
+    return vec3(normal,glint);
+}
+
 void main() {
     vec2 pixel=floor(vec2(gl_FragCoord.x,resolution.y-gl_FragCoord.y))+.5;
     vec2 world=pixel+cameraPosition;
     vec2 mapUv=world/mapSize;
     if(any(lessThan(mapUv,vec2(0))) || any(greaterThanEqual(mapUv,vec2(1)))) discard;
-    vec3 mask=texture(waterMask,mapUv).rgb;
+    vec4 mask=texture(waterMask,mapUv);
     if(mask.b<.5) discard;
     float shoreDistance=(mask.g*255.-128.)*(shoreDistanceRange/127.);
     vec3 cycle=vec3(0.);
@@ -106,10 +138,28 @@ void main() {
         if(shoreDistance<cycle.y) discard;
     } else if(mask.r<.5) discard;
 
+    vec3 impact=vec3(0.);
+    if(rainAmount>0.) {
+        float exposure=texture(rainExposureTexture,mapUv).r;
+        if(exposure>.0 && shoreDistance>2.)
+            impact=rainDimple(world,0.,rainAmount*exposure)+rainDimple(world,1.,rainAmount*exposure);
+    }
+    float pattern=max(waterPattern(world,shoreDistance,cycle),min(1.,impact.z));
+    vec3 base=mix(surfaceColor,rippleColor,pattern);
+    if(lightResponse>0.) {
+        // Reuse the shadowed world light field (including the actual flashlight
+        // cone). Sky colour already lives in the two authored water colours.
+        vec3 light=max(vec3(0.),texelFetch(lightTexture,ivec2(gl_FragCoord.xy),0).rgb-skyColor*mask.a);
+        float strength=max(light.r,max(light.g,light.b));
+        float bands=(step(.10,strength*lightResponse)+step(.30,strength*lightResponse)+step(.60,strength*lightResponse))/3.;
+        // A small stepped palette, no smooth colour gradients or filtering.
+        vec3 hue=floor(light/max(.001,strength)*2.+.5)/2.;
+        base+=hue*bands*mix(.055,.14,pattern);
+    }
+
     if(reflectionPass<.5) {
-        // Exactly two RGB colours. Lights, reflections and their distortion do
-        // not participate in the base surface's colour or ripple mask.
-        finalColor=vec4(mix(surfaceColor,rippleColor,waterPattern(world,shoreDistance,cycle)),1.);
+        // Unlit water keeps its two colours; direct light adds three bands.
+        finalColor=vec4(base,1.);
         return;
     }
 
@@ -125,6 +175,10 @@ void main() {
     float grain=noise(flow*vec2(.11,.29));
     float ripple=sin(flow.y*.39+flow.x*.026+swell*.6);
     vec2 warp=round(vec2((swell*.85+sin(flow.x*.067-flow.y*.078)*.35)*reflectionSway,ripple*.32)*rippleStrength);
+    // Move exact reflected texels within the authored rain displacement limit.
+    // The disturbance primarily reads in lantern/temple reflections, not as
+    // light-blue symbols painted across otherwise dark water.
+    warp+=round(clamp(impact.xy*2.2*rainDistortion,vec2(-rainDistortion),vec2(rainDistortion)));
     ivec2 samplePixel=ivec2(vec2(pixel.x,resolution.y-pixel.y)+warp);
     if(any(lessThan(samplePixel,ivec2(0))) || any(greaterThanEqual(samplePixel,ivec2(resolution)))) discard;
     vec4 reflected=texelFetch(texture0,samplePixel,0);
@@ -132,7 +186,6 @@ void main() {
     // or disappear in coherent ripple bands; no colour ramp or soft fire glow.
     float wave=clamp((ripple+grain*.65+1.)/2.65,0.,1.);
     if(reflectionStrength<=0. || wave<1.-clamp(reflectionStrength,0.,1.) || reflected.a<=0.) discard;
-    vec3 base=mix(surfaceColor,rippleColor,waterPattern(world,shoreDistance,cycle));
     // The scene already contains foreground over base water. Replace only the
     // exposed base contribution. Opaque reflected texels keep their exact RGB;
     // alpha blending is reserved for deliberately fading objects/foregrounds.

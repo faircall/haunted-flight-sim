@@ -52,7 +52,7 @@ def smooth_noise(value, seed):
 
 def irregular_wind(profile, world, elapsed):
     """Shared gust envelope, sampled later by slower/heavier foliage clusters."""
-    seed = int(profile.get("tree_seed", 17))
+    seed = int(profile.get("gust_seed", profile.get("tree_seed", 17)))
     phase = (world[0] * .73 + world[1] * 1.19) * profile.get("spatial_scale", .015)
     t = elapsed * max(0., profile.get("gust_speed", .35)) + phase
     gust = .75 * smooth_noise(t, seed) + .25 * smooth_noise(t * 2.7, seed + 1)
@@ -84,7 +84,14 @@ def motion(part, elapsed, wind_profile, world=(0.0, 0.0), mode="hybrid"):
     angle = -part["stiffness"] * (2.6 * force + .6 * strength * local_sway)
     bend = (part["bend_gain"] * (1.6 * force + .85 * strength * flutter)
             if mode == "hybrid" else 0.)
-    return math.radians(max(-7., min(7., angle))), max(-5., min(5., bend))
+    gain=max(0.,min(1.65,wind_profile.get('tree_motion_gain',1.)))
+    angle_limit,bend_limit=min(9.5,7.*gain),min(6.5,5.*gain)
+    return math.radians(max(-angle_limit,min(angle_limit,angle*gain))), max(-bend_limit,min(bend_limit,bend*gain))
+
+
+def grid_strength(wind,profile,part):
+    gain=max(0.,min(1.65,profile.get('tree_motion_gain',1.)))
+    return min(min(2.1,1.5*gain), math.hypot(wind['x'],wind['y'])/8.*gain)*part['exposure']
 
 
 def deform_point(point, part, angle, bend):
@@ -136,7 +143,7 @@ def grid_mesh(part, elapsed, wind_profile, world=(0.0, 0.0), mode="hybrid"):
     sample = irregular_wind if wind_profile.get("tree_irregular", True) else g_effects.sample_wind
     wind = (sample(wind_profile, world, elapsed) if sample is irregular_wind else
             sample(wind_profile, *world, elapsed))
-    strength = min(1.5, math.hypot(wind["x"], wind["y"]) / 8.) * part["exposure"]
+    strength = grid_strength(wind,wind_profile,part)
     if mode != "hybrid":
         strength = 0.
     phase = part["phase"] + world[0] * .019 + world[1] * .013 + int(wind_profile.get("tree_seed", 17)) * .37
@@ -199,7 +206,7 @@ def mesh_pose(part, elapsed, profile, world=(0., 0.)):
     if not strips:
         wind = (irregular_wind(profile, world, elapsed) if profile.get("tree_irregular", True)
                 else g_effects.sample_wind(profile, *world, elapsed))
-        strength = min(1.5, math.hypot(wind["x"], wind["y"]) / 8.) * part["exposure"]
+        strength = grid_strength(wind,profile,part)
     phase = part["phase"] + world[0] * .019 + world[1] * .013 + int(profile.get("tree_seed", 17)) * .37
     positions = []
     for (x, y), (along, weight, phase_offset) in zip(points, weights):

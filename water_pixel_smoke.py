@@ -19,8 +19,8 @@ def check(game,assets):
     fire=g_effects.make_default_fire_emitter({'x':184.,'y':64.})
     arena=dict(tile_map=tm,player_info=game.make_default_player(20.,20.,0.),entities={'lake_props':{},'emitters':{'lamp':fire}},
                lake_profile=dict(enabled=True,ripple_strength=1.25,reflection_strength=.9))
-    local={'shaders':{'effect_fire':assets['shaders']['effect_fire']},'effects_runtime':g_effects.make_effects_runtime()}
-    target=pr.load_render_texture(240,240);camera=pr.Vector2(0,0)
+    local={'shaders':assets['shaders'],'effects_runtime':g_effects.make_effects_runtime()}
+    target=pr.load_render_texture(240,240);light_target=pr.load_render_texture(240,240);camera=pr.Vector2(0,0)
     texture=g_surfaces.upload_image(Image.new('RGBA',(8,20),(190,105,45,255)))
     local['test']={'post':texture}
     item=order.make_world_render_item('test','test','post',0,dict(render_anchor_offset={'x':-4.,'y':-20.}),
@@ -28,15 +28,15 @@ def check(game,assets):
     scene_items=[item]
     try:
         g_water.prepare(local,arena,0.,'play')
-        def draw(pan,now=2.,reflect=True,with_fires=False):
+        def draw(pan,now=2.,reflect=True,with_fires=False,lighting=None):
             pr.begin_texture_mode(target);pr.clear_background(pr.Color(41,29,18,255));pr.end_texture_mode()
-            g_water.draw(target,None,local,arena,scene_items,pan,now,False)
+            g_water.draw(target,lighting,local,arena,scene_items,pan,now,False)
             graphics.draw_sorted_world_render_items(scene_items,target,pan,local,{})
             emitters={'lamp':fire} if with_fires else {}
             snapped=pr.Vector2(round(pan.x),round(pan.y))
             for group in ('world_front','emissive'):
                 graphics.render_effect_group(target,snapped,local,{},None,group,False,emitters,tm,g_effects.make_wind_profile(),now)
-            if reflect:g_water.draw(target,None,local,arena,scene_items,pan,now,True,effect_emitters=emitters)
+            if reflect:g_water.draw(target,lighting,local,arena,scene_items,pan,now,True,effect_emitters=emitters)
         draw(camera,reflect=False);plain=pixels(target)
         draw(camera);reflected=pixels(target)
         self_diff=np.any(reflected[:,:,:3]!=plain[:,:,:3],axis=2)
@@ -176,6 +176,44 @@ def check(game,assets):
         draw(camera,reflect=False)
         assert np.array_equal(pixels(target),plain),'lamp state changes the two-colour base surface'
 
+        # The actual flashlight cone now reaches water through the already
+        # shadowed lighting target. Reflections must still copy literal colours.
+        light=graphics.make_player_flashlight(arena['player_info'],tm)
+        light.update(position={'x':32.,'y':106.},render_position={'x':32.,'y':106.},enabled=True,direction={'x':1.,'y':0.})
+        prepared=dict(light=light,world_position=light['position'],casts_wall_shadows=False)
+        pr.begin_texture_mode(light_target);pr.clear_background(pr.BLACK)
+        graphics.draw_prepared_light_to_target(prepared,camera,light_target,local)
+        # A blocked half-plane represents the light field's occlusion stencil.
+        pr.draw_rectangle(160,0,80,240,pr.BLACK);pr.end_texture_mode()
+        draw(camera,reflect=False,lighting=light_target);illuminated=pixels(target)
+        changed=np.any(illuminated!=plain,axis=2)
+        assert changed.sum()>300,'flashlight never illuminates lake surface'
+        assert not changed[:,160:].any(),'water lights up beyond the shadowed light field'
+        assert not changed[:35].any(),'water illumination ignores the flashlight cone'
+        assert not changed[~self_lake].any(),'water illumination paints over the timber deck'
+        used={tuple(c) for c in illuminated[:,:,:3][water_only]}
+        assert len(used)<=8,('water lighting adds smooth gradients',used)
+        draw(camera,lighting=light_target);lit_reflection=pixels(target)
+        exact=np.all(reflected[:,:,:3]==(190,105,45),axis=2)
+        assert np.array_equal(lit_reflection[:,:,:3][exact],reflected[:,:,:3][exact]),'water lighting tints the reflected sprite'
+        Image.fromarray(np.concatenate((plain,illuminated,lit_reflection),axis=1)).save(out/'water-flashlight.png')
+        pr.begin_texture_mode(light_target);pr.clear_background(pr.BLACK);pr.end_texture_mode()
+        draw(camera,reflect=False,lighting=light_target)
+        assert np.array_equal(pixels(target),plain),'disabled flashlight leaves a stale patch on water'
+
+        # Moon ambience is already authored into the base palette. Its cached
+        # visibility is packed once, and intensity changes need no mask uploads.
+        sky=bytes([255])*240*240
+        moon=dict(color=[.2,.4,.8],intensity=.3,_field=dict(origin=(0,0),width=240,height=240,values=sky))
+        local['night_runtime']={'entries':{'moon':{'record':{'light':moon}}}}
+        g_water.prepare(local,arena,0.,'play');mask_id=local['water_runtime']['mask'].id
+        pr.begin_texture_mode(light_target);pr.clear_background(pr.Color(15,31,61,255));pr.end_texture_mode()
+        draw(camera,reflect=False,lighting=light_target)
+        assert np.array_equal(pixels(target),plain),'moon colour is counted twice in the water palette'
+        moon['intensity']=.4;g_water.prepare(local,arena,0.,'play')
+        assert local['water_runtime']['mask'].id==mask_id,'moon brightness rebuilds the water mask'
+        local.pop('night_runtime');g_water.prepare(local,arena,0.,'play')
+
         # A rounded natural shore with a raised deck in deep water. Isolate the
         # shoreline animation from open-water ripples and reflections.
         for y in range(15):
@@ -231,4 +269,4 @@ def check(game,assets):
         Image.fromarray(np.concatenate([frames[i] for i in (0,8,16,24)],axis=1)).save(out/'shore-lapping-phases.png')
         print('Water GPU pixels: different forward ripple speeds, horizontal reflection sway, forming/dissolving shore waves, moving boundary, two colours, deck/reflection clipping, cached shore field and camera alignment passed.')
     finally:
-        g_water.unload(local);pr.unload_texture(texture);pr.unload_render_texture(target)
+        g_water.unload(local);pr.unload_texture(texture);pr.unload_render_texture(target);pr.unload_render_texture(light_target)

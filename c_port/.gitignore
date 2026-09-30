@@ -1,0 +1,6 @@
+/build/
+/build-tools/
+/data/
+/output/
+/__pycache__/
+/*.log

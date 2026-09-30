@@ -29,6 +29,7 @@ g_reloadable_modules = [
     ("g_player_reveal", update_and_render_module.g_player_reveal),
     ("g_water_temple_art", update_and_render_module.g_water.art),
     ("g_water", update_and_render_module.g_water),
+    ("g_weather", update_and_render_module.g_weather),
     ("g_editor_history", update_and_render_module.g_editor_history),
     ("g_interaction_data", update_and_render_module.g_interactions.data),
     ("g_inventory", update_and_render_module.g_interactions.inventory),
@@ -80,6 +81,10 @@ g_shader_source_files = (
     "shaders/lighting_composite.fs",
     "shaders/illuminated_fog.fs",
     "shaders/rain_composite.fs",
+    "shaders/weather_surface.fs",
+    "shaders/weather_runoff.fs",
+    "shaders/weather_fireflies.fs",
+    "shaders/lake_water.fs",
     "shaders/effect_fire.fs",
     "shaders/effect_smoke.fs",
     "shaders/effect_sparks.fs"
@@ -263,6 +268,8 @@ def reload_shaders_if_needed(shader_write_times, game_assets):
     game_assets["shaders"] = update_and_render_module.load_shaders()
     update_and_render_module.g_ground.unload(game_assets)
     update_and_render_module.g_night.reload_field_shader(game_assets)
+    update_and_render_module.g_weather.unload(game_assets)
+    update_and_render_module.g_water.reload_shaders(game_assets)
     print(f"reloaded shaders after changes to: {', '.join(changed_files)}")
 
 def render_error_message(msg):
@@ -466,6 +473,7 @@ def g_main():
     update_and_render_module.g_roofs.unload(game_assets)
     update_and_render_module.g_player_reveal.unload(game_assets)
     update_and_render_module.g_water.unload(game_assets)
+    update_and_render_module.g_weather.unload(game_assets)
     update_and_render_module.g_surfaces.unload(game_assets)
     update_and_render_module.g_ground.unload(game_assets)
     update_and_render_module.g_tree_render.unload(game_assets)

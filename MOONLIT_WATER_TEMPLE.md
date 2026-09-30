@@ -14,7 +14,8 @@ The existing courtyard still launches with `python night_trial.py`. Its layout a
 - A raised timber boardwalk, railings and pilings leading to an open temple doorway. The route retains normal movement collision and wooden footstep sounds. Deep water blocks movement without acting as a wall for light rays.
 - Six visible fire bowls, with procedural flames, embers, independently evolving firelight bands, and literal reflections of the flame pixels. The temple's window spill follows its indoor fire lamps. There are no authored electric point lamps in this scene.
 - Lit sprite reflections of the temple, roof, supports, vegetation and player, projected from their ground anchors and distorted on the GPU. Dry surfaces and foreground objects mask them correctly.
-- A temporary tiled roof and shrine. The roof fades away indoors; the localized player reveal also works here.
+- An imported RetroDiffusion roof, directional painted planks, three lantern styles and small lily clusters. The roof fades away indoors; the localized player reveal also works here. The shrine and rails retain their procedural art.
+- GPU fireflies over the calm lake. Entering the temple triggers darker blue moonlight, outdoor rain, wet decking, lightning with delayed thunder, and stronger wind. See [Temple storm and imported assets](TEMPLE_STORM.md) for tuning and checks.
 
 The reference guided the dark water, raised approach and cool architecture. Warm firelight gives this version an orange/blue contrast. Moonlight intensity defaults to `0.3` in this scene. The camera has a scene-specific look-ahead toward the temple.
 
@@ -45,7 +46,7 @@ The water smoke also checks that the visible footprint and dim edge stay fixed a
 
 ### Scene assets and limitations
 
-Layout, lamp placement and lake defaults live in `moonlit_water_temple.py`. `lake_profile` controls the two surface colours, ripple placement, independent reflection treatment and camera offset. `g_water_temple_art.py` provides replaceable procedural architecture. Water is authored as tile metadata; a dedicated lake painting tool is not included yet. The scene data is compatible with the usual level saves.
+Layout, lamp placement and lake defaults live in `moonlit_water_temple.py`. `lake_profile` controls the two surface colours, ripple placement, independent reflection treatment and camera offset. `g_water_temple_art.py` loads prepared PNG assets with procedural architecture as its fallback. Water is authored as tile metadata; a dedicated lake painting tool is not included yet. The scene data is compatible with the usual level saves.
 
 These are 2D sprite reflections of visible rendered content, not a 3D mirror. Offscreen surfaces cannot contribute, and overlapping sprites retain the main view's occlusion. Flame reflections copy the rendered flame colours through a mask evaluated with the same flame shader, time, wind and occlusion. The shallow shoreline stencil can differ from its tile collision edge by a few pixels.
 
@@ -127,9 +128,19 @@ The resting bank uses the same world-fixed fractal boundary displacement as the 
 
 The former shared 20-colour palette has been removed. Sprite and flame reflections composite separately; surface colours, density and spacing do not change reflected sprite colours. Fog and fire bloom remain later scene effects, so the complete scene naturally contains more than the two base colours.
 
+Flashlights and lamps now illuminate the water through the existing shadowed
+world-light texture. The two base colours gain three crisp brightness bands,
+with a subdued response on flat water and brighter glimmers. Light hue is also
+quantized; no filtered gradient is added. Reflected sprite pixels retain their
+exact colours. Cached moon visibility occupies the water mask's unused alpha
+channel so the authored moon ambience is not counted twice. This adds no render
+pass, particle system or per-frame texture upload. `water-flashlight.png` under
+`artifacts/moonlit-water-temple/` shows unlit, flashlight-lit and reflected cases.
+
 Tuning fields in `lake_profile`:
 
 - `surface_color` and `ripple_color`: normalized RGB triples for the two colours.
+- `light_response`: direct light sensitivity, default `1`; `0` restores the entirely unlit two-colour surface.
 - `ripple_spacing`: spacing between potential glimmer rows, `20` world pixels by default; individual strokes have varied positions within each row.
 - `ripple_density`: fraction of potential glimmers that participate, `0.28` by default; their brief lifetimes further reduce visible coverage. Zero hides open-water glimmers.
 - `ripple_width`: stroke thickness in native pixels, `1` by default (range `1–8`).

@@ -1,0 +1,118 @@
+{
+  "roof": {
+    "source": "artdev/concepts/roof/One_detached_roof_fo...-1501825482-0.png",
+    "crop": [
+      2,
+      53,
+      254,
+      188
+    ],
+    "size": [
+      216,
+      116
+    ]
+  },
+  "lantern_red": {
+    "source": "artdev/concepts/lanterns/Low_resolution_paint...-1357012072-0.png",
+    "crop": [
+      3,
+      0,
+      45,
+      48
+    ],
+    "size": [
+      20,
+      26
+    ],
+    "pivot": [
+      10.0,
+      0
+    ],
+    "paper_center": [
+      10.0,
+      12.48
+    ]
+  },
+  "lantern_frame": {
+    "source": "artdev/concepts/lanterns/Low_resolution_paint...-336549837-0.png",
+    "crop": [
+      9,
+      0,
+      39,
+      47
+    ],
+    "size": [
+      16,
+      28
+    ],
+    "pivot": [
+      8.0,
+      0
+    ],
+    "paper_center": [
+      8.0,
+      13.44
+    ]
+  },
+  "lantern_white": {
+    "source": "artdev/concepts/lanterns/One_tall_oval_Chines...-143842332-0 (1).png",
+    "crop": [
+      6,
+      0,
+      26,
+      32
+    ],
+    "size": [
+      14,
+      24
+    ],
+    "pivot": [
+      7.0,
+      0
+    ],
+    "paper_center": [
+      7.0,
+      11.52
+    ]
+  },
+  "lily_flower": {
+    "source": "artdev/concepts/plants/Chinese_water_lillie...-1703315149-0.png",
+    "crop": [
+      1,
+      6,
+      31,
+      27
+    ],
+    "size": [
+      23,
+      19
+    ]
+  },
+  "lily_leaves": {
+    "source": "artdev/concepts/plants/Chinese_water_lillie...-1703315149-0 (1).png",
+    "crop": [
+      1,
+      5,
+      31,
+      29
+    ],
+    "size": [
+      24,
+      20
+    ]
+  },
+  "planks_x": {
+    "source": "artdev/concepts/planks/Low_resolution_paint...-1232805536-0.png",
+    "size": [
+      64,
+      64
+    ]
+  },
+  "planks_y": {
+    "source": "artdev/concepts/planks/Matching_low_resolut...-1052733261-0.png",
+    "size": [
+      64,
+      64
+    ]
+  }
+}

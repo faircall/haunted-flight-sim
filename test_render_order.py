@@ -177,7 +177,7 @@ class RenderOrderTests(unittest.TestCase):
             player, self.tile_map, self.assets,
         )
         parts = drawing["draw_data"]["cutout_rig_parts"]
-        self.assertEqual(len(parts), 10)
+        self.assertEqual(len(parts), 8)
         self.assertIn(
             "player_cutout_torso_right",
             [part["texture"] for part in parts],
@@ -346,11 +346,11 @@ class RenderOrderTests(unittest.TestCase):
             "id": "player",
             "animation_direction": "right",
             "procedural_gait": {
-                "phase": 0.0, "blend": 1.0, "run_blend": 0.0,
+                "phase": 0.0, "blend": 1.0, "run_blend": 1.0,
             },
         }
         parts = g_render_order.build_player_cutout_rig_parts(player)
-        pose = g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["walk"][0]
+        pose = g_render_order.PLAYER_CUTOUT_GAIT_PROFILES["run"][0]
         near_arm = self.rig_part(parts, "upper_arm", "near")
         far_arm = self.rig_part(parts, "upper_arm", "far")
         near_leg = self.rig_part(parts, "upper_leg", "near")
@@ -373,6 +373,28 @@ class RenderOrderTests(unittest.TestCase):
         self.assertAlmostEqual(
             far_leg["rotation"], pose["far_upper_leg_degrees"],
         )
+
+    def test_side_walk_hides_only_the_free_far_arm(self):
+        for facing in ('left','right'):
+            player=dict(id='player',animation_direction=facing,
+                        procedural_gait=dict(phase=0.,blend=1.,run_blend=0.))
+            for phase in (0.,math.pi/2,math.pi,3*math.pi/2):
+                player['procedural_gait']['phase']=phase
+                parts=g_render_order.build_player_cutout_rig_parts(player)
+                arms=[p for p in parts if p.get('rig_joint') in ('upper_arm','lower_arm')]
+                self.assertEqual([p['rig_side'] for p in arms],['near','near'])
+            player['procedural_gait']['run_blend']=1.
+            self.assertEqual(sum(p.get('rig_joint') in ('upper_arm','lower_arm') for p in
+                                 g_render_order.build_player_cutout_rig_parts(player)),4)
+            player['procedural_gait'].update(blend=0.,run_blend=0.)
+            self.assertEqual(sum(p.get('rig_joint') in ('upper_arm','lower_arm') for p in
+                                 g_render_order.build_player_cutout_rig_parts(player)),4)
+        # A raised flashlight still needs its far-hand arm and lens anchor.
+        player.update(animation_direction='right',flashlight_enabled=True)
+        player['procedural_gait']['blend']=1.
+        parts=g_render_order.build_player_cutout_rig_parts(player)
+        self.assertTrue(any(p.get('rig_joint')=='flashlight' for p in parts))
+        self.assertTrue(any(p.get('rig_side')=='far' and p.get('rig_joint')=='lower_arm' for p in parts))
 
     def test_walk_arms_counter_swing_and_use_authored_elbow_bend(self):
         player = {

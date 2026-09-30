@@ -1,0 +1,262 @@
+{
+  "scope": "C renderer plus native visibility construction and tree poses; remaining preparation and gameplay are still produced offline.",
+  "loops_in_one_process": 3,
+  "scenes": {
+    "water": {
+      "validation": {
+        "frames": 2232,
+        "pixel_mismatches": 0,
+        "ray_errors": 0,
+        "heap_allocations": 0,
+        "requested_heap_bytes": 0,
+        "presentation_heap_allocations": 0,
+        "preparation": {
+          "polygons": 774,
+          "fans": 37206,
+          "tree_poses": 22320,
+          "errors": 0
+        }
+      },
+      "memory_bytes": {
+        "persistent_used": 3406176,
+        "assets_used": 161769168,
+        "frame_peak": 29344,
+        "capacity_failures": 0
+      },
+      "timings": {
+        "approach": {
+          "submit_ms": {
+            "median": 1.823,
+            "p95": 1.988,
+            "p99": 2.159,
+            "maximum": 2.521,
+            "over_16_67_ms": 0,
+            "frames": 720
+          },
+          "complete_readback_ms": {
+            "median": 8.382,
+            "p95": 8.796,
+            "p99": 9.422,
+            "maximum": 10.124,
+            "over_16_67_ms": 0,
+            "frames": 720
+          },
+          "gpu_elapsed_ms": {
+            "median": 4.807,
+            "p95": 6.934,
+            "p99": 7.419,
+            "maximum": 7.862,
+            "over_16_67_ms": 0,
+            "frames": 720
+          }
+        },
+        "walking": {
+          "submit_ms": {
+            "median": 1.857,
+            "p95": 2.084,
+            "p99": 2.417,
+            "maximum": 2.993,
+            "over_16_67_ms": 0,
+            "frames": 720
+          },
+          "complete_readback_ms": {
+            "median": 8.365,
+            "p95": 9.469,
+            "p99": 10.721,
+            "maximum": 11.597,
+            "over_16_67_ms": 0,
+            "frames": 720
+          },
+          "gpu_elapsed_ms": {
+            "median": 4.849,
+            "p95": 7.094,
+            "p99": 8.019,
+            "maximum": 8.791,
+            "over_16_67_ms": 0,
+            "frames": 720
+          }
+        },
+        "interior": {
+          "submit_ms": {
+            "median": 1.819,
+            "p95": 1.979,
+            "p99": 2.167,
+            "maximum": 2.456,
+            "over_16_67_ms": 0,
+            "frames": 720
+          },
+          "complete_readback_ms": {
+            "median": 8.431,
+            "p95": 8.848,
+            "p99": 9.502,
+            "maximum": 11.565,
+            "over_16_67_ms": 0,
+            "frames": 720
+          },
+          "gpu_elapsed_ms": {
+            "median": 5.032,
+            "p95": 7.008,
+            "p99": 7.346,
+            "maximum": 7.869,
+            "over_16_67_ms": 0,
+            "frames": 720
+          }
+        }
+      },
+      "fixture_sha256": "97960fe7c2c65fe424c9f2e4fbd389acf25498d864b84d95d4d93dfbe8be15b1",
+      "fixture_bytes": 161628418,
+      "fixture_manifest": {
+        "trees": 10,
+        "lights": 13,
+        "tree_poses": 7440,
+        "visibility_builds": 258,
+        "visibility_fans": 12402
+      },
+      "csv": "c_port\\output\\arena-native-water.csv",
+      "log": "c_port\\output\\arena-native-water.log"
+    },
+    "courtyard": {
+      "validation": {
+        "frames": 1152,
+        "pixel_mismatches": 0,
+        "ray_errors": 0,
+        "heap_allocations": 0,
+        "requested_heap_bytes": 0,
+        "presentation_heap_allocations": 0,
+        "preparation": {
+          "polygons": 396,
+          "fans": 7680,
+          "tree_poses": 5760,
+          "errors": 0
+        }
+      },
+      "memory_bytes": {
+        "persistent_used": 3256608,
+        "assets_used": 32789384,
+        "frame_peak": 30928,
+        "capacity_failures": 0
+      },
+      "timings": {
+        "approach": {
+          "submit_ms": {
+            "median": 0.581,
+            "p95": 0.625,
+            "p99": 0.667,
+            "maximum": 0.7,
+            "over_16_67_ms": 0,
+            "frames": 360
+          },
+          "complete_readback_ms": {
+            "median": 2.931,
+            "p95": 3.314,
+            "p99": 3.455,
+            "maximum": 3.516,
+            "over_16_67_ms": 0,
+            "frames": 360
+          },
+          "gpu_elapsed_ms": {
+            "median": 0.894,
+            "p95": 1.672,
+            "p99": 1.814,
+            "maximum": 1.935,
+            "over_16_67_ms": 0,
+            "frames": 360
+          }
+        },
+        "walking": {
+          "submit_ms": {
+            "median": 0.633,
+            "p95": 0.685,
+            "p99": 0.716,
+            "maximum": 0.771,
+            "over_16_67_ms": 0,
+            "frames": 360
+          },
+          "complete_readback_ms": {
+            "median": 3.021,
+            "p95": 3.414,
+            "p99": 3.674,
+            "maximum": 4.233,
+            "over_16_67_ms": 0,
+            "frames": 360
+          },
+          "gpu_elapsed_ms": {
+            "median": 1.014,
+            "p95": 1.761,
+            "p99": 2.192,
+            "maximum": 2.408,
+            "over_16_67_ms": 0,
+            "frames": 360
+          }
+        },
+        "interior": {
+          "submit_ms": {
+            "median": 0.624,
+            "p95": 0.67,
+            "p99": 0.709,
+            "maximum": 0.724,
+            "over_16_67_ms": 0,
+            "frames": 360
+          },
+          "complete_readback_ms": {
+            "median": 3.124,
+            "p95": 3.482,
+            "p99": 3.645,
+            "maximum": 3.679,
+            "over_16_67_ms": 0,
+            "frames": 360
+          },
+          "gpu_elapsed_ms": {
+            "median": 1.062,
+            "p95": 1.863,
+            "p99": 1.939,
+            "maximum": 2.606,
+            "over_16_67_ms": 0,
+            "frames": 360
+          }
+        }
+      },
+      "fixture_sha256": "1da5c9ed02088ad2855cad243061ee2cf19993194181e5bad89a84c26b7ca18d",
+      "fixture_bytes": 32624113,
+      "fixture_manifest": {
+        "trees": 5,
+        "lights": 8,
+        "tree_poses": 1920,
+        "visibility_builds": 132,
+        "visibility_fans": 2560
+      },
+      "csv": "c_port\\output\\arena-native-courtyard.csv",
+      "log": "c_port\\output\\arena-native-courtyard.log"
+    }
+  },
+  "notes": [
+    "No Python interpreter is used by haunted_native.exe.",
+    "All measured frames exclude eight warmup frames per view and loop.",
+    "CPU submission and completion/readback exclude presentation, hashing and capture export.",
+    "Allocator audit covers executable and statically linked raylib; excludes external OS/GPU DLLs.",
+    "Presentation is audited separately; arenas and GPU resources are reused across loops.",
+    "Release uses explicit -O2, -DNDEBUG and -ffp-contract=off; no fast-math.",
+    "Do not compare these partial-pipeline timings directly against historical full-game results."
+  ],
+  "source_sha256": {
+    "CMakeLists.txt": "ecdf712be3367c79962f5009a09fd19a09c18285281280ccb56d3aeb04d3e4cd",
+    "src\\allocation_audit.c": "d5e3e516def87c6707c52b0eee7de0b23be2192fa47aedc48261df96a715baee",
+    "src\\allocation_audit_tests.c": "d05e8c29ae1cdbf44a0162b7cb8c728f7aed813537142f64717d79bab762bca9",
+    "src\\arena.c": "9eeb85c0394f1614a7bfeaf286574f05a37c6be16aabf65d14da6d6b0ec9f676",
+    "src\\arena_tests.c": "cda298601b12c71913a502fbff3f4ab257b7ed83e5beeeabc25da42aaba3e5f7",
+    "src\\checksum.c": "a641fe0801e975c6fec1ec804d5c754f6415aaf3b905683ce1ccd5c84a5bffa9",
+    "src\\game_main.c": "fea43f979e2323e512163e1df94fdde8d0c1d8794253d92a29ec8db405393e50",
+    "src\\geometry.c": "71ed3c4b82a67064322a8a4471a1ffd929469dbde387cb2793a2b6d693eb0842",
+    "src\\main.c": "59e6390261a59dcab561c30418e3922bb6a45fe04fd0e942b8485fa3d0d2c6bf",
+    "src\\native_scene.c": "8bec45648e04accabbfe609c5306e0eda24ada841bf53080e966e7cf521aeb2b",
+    "src\\visibility.c": "b4c6725fc441bc1f4352cb5956a9bc5c673c153b81fb3526813f1ea1043d6e45",
+    "src\\allocation_audit.h": "373d9891f4646db98ca9a7486147cf58295b309656599ebd66650f5f91c41361",
+    "src\\arena.h": "eb526b93f34ad2fdcd40234c65527a379d94e21bc5d86b5d2058b2f3963490f9",
+    "src\\dispatch.h": "66d1af08414ab2116246c90f71666c0199284df6b9afaffef282dff284691bb0",
+    "src\\geometry.h": "3dedb39caf3a3380996c601fb939185780a4aa13e02e3f6c739d8e866d8e3dec",
+    "src\\native_scene.h": "d80338bd7f078bdd3879536f5950fa7ee6a901a8d0707766531619ec6a29794e",
+    "src\\scene_commands.h": "3db18ce9e0c899d6fbb79a816d4c830f3186c5376cc00b94caded3853f4e2b4b",
+    "src\\visibility.h": "973f52a506a46259078c85c33f4a28fce5e87ff8caa3f457ad5cc3677003a286"
+  },
+  "executable_sha256": "28b2003e0d2f6c92b8b12ee6892be0cdebcab7e818271963ab8b0652f50f88be"
+}

@@ -2091,15 +2091,21 @@ def _draw_render_item_main_shape(render_item, texture, game_camera,
         else g_render_order.world_to_screen_pixel
     )
     screen_position = snap(destination["x"], destination["y"], game_camera)
+    pivot=render_item.get('sprite_pivot')
+    px,py=(pivot['x'],pivot['y']) if pivot else (0.,0.)
+    rotation=float(render_item.get('sprite_rotation',0.))
+    if rotation or px or py:
+        screen_position=snap(destination['x']+px,destination['y']+py,game_camera)
     opacity = max(0.0, min(1.0, float(render_item.get("opacity", 1.0))))
     stamp = (source['x'], source['y'], source['width'], source['height'],
-             screen_position['x'], screen_position['y'], destination['width'], destination['height'], round(opacity*255))
+             screen_position['x'], screen_position['y'], destination['width'], destination['height'], round(opacity*255),
+             px,py,rotation)
     cached = render_item.get('_sprite_draw_geometry')
     if cached is None or cached[0] != stamp:
         cached = (stamp, pr.Rectangle(*stamp[:4]), pr.Rectangle(*stamp[4:8]),
-                  pr.Vector2(0, 0), pr.Color(255, 255, 255, stamp[8]))
+                  pr.Vector2(px,py), pr.Color(255, 255, 255, stamp[8]))
         render_item['_sprite_draw_geometry'] = cached
-    pr.rl.DrawTexturePro(texture, cached[1], cached[2], cached[3], 0, cached[4])
+    pr.rl.DrawTexturePro(texture, cached[1], cached[2], cached[3], rotation, cached[4])
 
 def _player_weapon_is_visible(render_item):
     return (
@@ -4087,7 +4093,7 @@ def apply_rain_composite(scene, world_light_target, rain_exposure_texture,
     debug = game_assets.get("rain_debug", {})
 
     set_shader_vec2(shader, rain_shader["resolution_location"], width, height)
-    set_shader_vec2(shader, rain_shader["cameraPosition_location"], game_camera.x, game_camera.y)
+    set_shader_vec2(shader, rain_shader["cameraPosition_location"], round(game_camera.x), round(game_camera.y))
     set_shader_vec2(shader, rain_shader["tileSize_location"], tile_map.get("tile_width", 16), tile_map.get("tile_height", 16))
     set_shader_vec2(shader, rain_shader["mapSize_location"], tile_map.get("map_width", 0), tile_map.get("map_height", 0))
     set_shader_float(shader, rain_shader["time_location"], time_elapsed)

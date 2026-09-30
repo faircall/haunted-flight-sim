@@ -4,10 +4,12 @@ Water stays a ground mask, independently of movement collision. Reflections
 project actual lit sprites about their ground anchors, then ripple on the GPU.
 """
 from pathlib import Path
+import math
 from PIL import Image,ImageDraw,ImageFilter
 import numpy as np
 import pyray as pr
 import g_effects
+import g_tree_animation as wind_rig
 import g_surfaces
 import g_render_order as order
 import g_water_temple_art as art
@@ -87,17 +89,34 @@ def prepare(assets,arena,dt,mode):
         unload(assets)
         rt=dict(stamp=stamp,map=tm,cutaways=previous,props={},targets={},shaders={},mode=mode)
         assets['water_runtime']=rt;assets['water_prop_textures']={}
-        rt['mask']=g_surfaces.upload_image(water_map_image(tm))
+        rt['mask_image']=water_map_image(tm)
+    # Pack cached sky visibility into the unused alpha channel. This lets the
+    # water reuse world lighting without counting authored moon ambience twice,
+    # or adding another draw pass/texture sampler to the reflection shader.
+    moon=assets.get('night_runtime',{}).get('entries',{}).get('moon',{}).get('record',{}).get('light',{})
+    field=moon.get('_field',{})
+    sky_stamp=(id(field.get('values')),field.get('origin'),field.get('width'),field.get('height'))
+    if rt.get('sky_stamp')!=sky_stamp:
+        image=rt['mask_image']
+        if field.get('values') and (field['width'],field['height'])==image.size and field['origin']==(0,0):
+            image.putalpha(Image.frombytes('L',image.size,field['values']))
+        else:image.putalpha(0)
+        if 'mask' in rt:pr.unload_texture(rt['mask'])
+        rt['mask']=g_surfaces.upload_image(image);rt['sky_stamp']=sky_stamp
     wanted=set()
     feet=g_effects.position_to_world(arena['player_info']['position'],tm)
     offset=arena['player_info'].get('render_base_offset',{'y':14.})
     feet={axis:feet[axis]+offset.get(axis,0.) for axis in ('x','y')}
     for name,prop in arena['entities'].get('lake_props',{}).items():
         if not prop.get('enabled',True):continue
-        wanted.add(name);signature=(prop['kind'],prop['width'],prop['height'])
+        wanted.add(name);signature=(prop['kind'],prop['width'],prop['height'],prop.get('asset'),prop.get('emission'))
         if rt['props'].get(name)!=signature:
             if name in assets['water_prop_textures']:pr.unload_texture(assets['water_prop_textures'][name])
-            assets['water_prop_textures'][name]=g_surfaces.upload_image(art.image(*signature))
+            assets['water_prop_textures'][name]=g_surfaces.upload_image(art.image(*signature[:4]))
+            emission=rt.setdefault('emissions',{})
+            if name in emission:pr.unload_texture(emission.pop(name))
+            if prop.get('emission'):
+                emission[name]=g_surfaces.upload_image(art.image(prop['kind'],prop['width'],prop['height'],prop['emission']))
             rt['props'][name]=signature
         region=prop.get('cutaway')
         if region:
@@ -109,7 +128,21 @@ def prepare(assets,arena,dt,mode):
     for name in set(rt['props'])-wanted:
         pr.unload_texture(assets['water_prop_textures'].pop(name));rt['props'].pop(name);rt['cutaways'].pop(name,None)
         rt.get('metadata',{}).pop(name,None)
+        if name in rt.get('emissions',{}):pr.unload_texture(rt['emissions'].pop(name))
     rt['mode']=mode
+    rt['now']=float(arena.get('time_elapsed',0.))
+    rt['wind']=arena.get('wind_profile',{})
+
+
+def lantern_angle(prop,wind,now):
+    """Lagged response to the same gust field as foliage; the suspension is fixed."""
+    world=(prop['position']['x'],prop['position']['y']);phase=prop.get('phase',0.)
+    samples=[wind_rig.irregular_wind(wind,world,now-lag) for lag in (.16,.38,.72)]
+    force=sum(w['x']+.2*w['y'] for w in samples)/3.
+    previous=wind_rig.irregular_wind(wind,world,now-1.1)
+    response=force-(previous['x']+.2*previous['y'])
+    angle=-(force*.14+response*.65+math.hypot(samples[0]['x'],samples[0]['y'])*.055*math.sin(now*1.9+phase))
+    return max(-14.,min(14.,angle))
 
 
 def render_items(assets,entities):
@@ -130,13 +163,44 @@ def render_items(assets,entities):
             metadata[name]=(signature,entity)
         else:entity=cached[1]
         entity['player_reveal_enabled']=prop.get('player_reveal_enabled',True)
+        entity['occludes_render_items']=prop.get('occludes_render_items',True)
+        if prop['kind']=='lily':entity['height_overrides']={'body_height':2.,'sample_height':1.,'projection':'grounded'}
         item=order.make_world_render_item('lake_prop','lake_prop','lake:'+name,name,entity,base,w,h,
             order.make_texture_reference('water_prop_textures',name),dict(x=0,y=0,width=w,height=h))
         if prop.get('cutaway'):item['sort_y']-=.5
         if prop['kind']=='roof':item['excluded_light_owners']=['altar-left','altar-right']
+        if prop['kind']=='lily':
+            item['sort_y']=-10000.;item['_no_water_reflection']=True
+            # Shared whole-pixel bobbing is cheap and avoids subpixel shimmer.
+            phase=prop.get('phase',0.);now=rt.get('now',0.)
+            item['dest_rect']['y']+=round(math.sin(now*.65+phase)*.65)
+        if prop['kind']=='lantern':
+            item['sprite_rotation']=lantern_angle(prop,rt.get('wind',{}),rt.get('now',0.))
+            item['sprite_pivot']={'x':w/2.,'y':0.}
+            item['_lantern_emission']=name
         if opacity<1.:item['composite_opacity']=opacity
+        item['bounds_world']=dict(item['dest_rect'])
+        if 'sprite_rotation' in item:
+            rect=item['dest_rect'];pivot=item['sprite_pivot'];a=math.radians(item['sprite_rotation']);c,s=math.cos(a),math.sin(a)
+            corners=[(rect['x']+pivot['x']+(x-pivot['x'])*c-(y-pivot['y'])*s,
+                      rect['y']+pivot['y']+(x-pivot['x'])*s+(y-pivot['y'])*c) for x,y in ((0,0),(w,0),(w,h),(0,h))]
+            xs,ys=zip(*corners);item['bounds_world']=dict(x=min(xs),y=min(ys),width=max(xs)-min(xs),height=max(ys)-min(ys))
         result.append(item)
     return result
+
+
+def draw_emission(scene,items,camera,assets):
+    """Only paper glows; dark ribs/caps still receive normal scene lighting."""
+    import g_graphics as graphics
+    textures=assets.get('water_runtime',{}).get('emissions',{})
+    if not textures:return
+    pr.begin_texture_mode(scene)
+    for item in items:
+        texture=textures.get(item.get('_lantern_emission'))
+        if texture is not None:
+            glowing=dict(item,opacity=.66*item.get('composite_opacity',1.))
+            graphics._draw_render_item_main_shape(glowing,texture,camera,assets)
+    pr.end_texture_mode()
 
 
 def _target(rt,name,w,h):
@@ -154,7 +218,8 @@ def _shader(rt,name):
     shader=pr.load_shader(vertex,str(ROOT/'shaders'/('lake_reflection.fs' if name=='reflection' else 'lake_water.fs')))
     if shader.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Lake shader failed: '+name)
     uniforms=('mirrorY','stretch','litScene','resolution') if name=='reflection' else (
-        'waterMask','sceneTexture','resolution','mapSize','cameraPosition',
+        'waterMask','sceneTexture','rainExposureTexture','rainAmount','rainDistortion','resolution','mapSize','cameraPosition',
+        'lightTexture','lightResponse','skyColor',
         'time','reflectionStrength','rippleStrength','reflectionSway','reflectionPass',
         'surfaceColor','rippleColor','rippleSpacing','rippleDensity','rippleWidth','rippleSpeed','rippleSpeedVariation','rippleDirection',
         'shoreWidth','shoreSpeed','shoreLap','shoreDistanceRange')
@@ -229,6 +294,7 @@ def draw(scene,lighting,assets,arena,items,camera,now,reflections_only=True,
         pr.begin_blend_mode(pr.BlendMode.BLEND_CUSTOM_SEPARATE)
         pr.rl_disable_backface_culling()
         for item in items:
+            if item.get('_no_water_reflection'):continue
             tex=graphics.resolve_render_item_texture(item,assets)
             if tex is None:continue
             base=item.get('base_world',{}).get('y',item['sort_y'])
@@ -272,13 +338,28 @@ def draw(scene,lighting,assets,arena,items,camera,now,reflections_only=True,
     graphics.set_shader_float(shader,loc['rippleStrength'],profile.get('ripple_strength',1.25))
     graphics.set_shader_float(shader,loc['reflectionSway'],max(0.,min(4.,profile.get('reflection_sway',2.))))
     graphics.set_shader_float(shader,loc['reflectionPass'],float(reflections_only))
+    weather=assets.get('weather_runtime',{});rain=arena.get('rain_profile',{})
+    rainfall=rain.get('density',0.) if rain.get('enabled') and weather.get('terrain') else 0.
+    graphics.set_shader_float(shader,loc['rainAmount'],rainfall)
+    graphics.set_shader_float(shader,loc['rainDistortion'],max(0.,min(4.,profile.get('rain_distortion',1.))))
+    graphics.set_shader_float(shader,loc['lightResponse'],max(0.,profile.get('light_response',1.)) if lighting else 0.)
+    moon=assets.get('night_runtime',{}).get('entries',{}).get('moon',{}).get('record',{}).get('light',{})
+    graphics.set_shader_vec3(shader,loc['skyColor'],*[v*moon.get('intensity',0.) for v in moon.get('color',(0.,0.,0.))])
     pr.begin_texture_mode(scene)
     pr.begin_shader_mode(shader)
     graphics.set_shader_texture(shader,loc['waterMask'],rt['mask'])
     graphics.set_shader_texture(shader,loc['sceneTexture'],source.texture)
+    if rainfall>0.:graphics.set_shader_texture(shader,loc['rainExposureTexture'],weather['terrain'])
+    if lighting:graphics.set_shader_texture(shader,loc['lightTexture'],lighting.texture)
     pr.draw_texture_rec(reflections.texture,full,pr.Vector2(0,0),pr.WHITE)
     pr.end_shader_mode()
     pr.end_texture_mode()
+
+
+def reload_shaders(assets):
+    rt=assets.get('water_runtime',{})
+    for shader,_ in rt.get('shaders',{}).values():pr.unload_shader(shader)
+    if rt:rt['shaders']={}
 
 
 def unload(assets):
@@ -288,3 +369,4 @@ def unload(assets):
     for target in rt.get('targets',{}).values():pr.unload_render_texture(target)
     for shader,_ in rt.get('shaders',{}).values():pr.unload_shader(shader)
     for texture in assets.pop('water_prop_textures',{}).values():pr.unload_texture(texture)
+    for texture in rt.get('emissions',{}).values():pr.unload_texture(texture)

@@ -3,6 +3,7 @@ import math
 import g_night
 import g_surfaces
 import g_effects
+import g_sequences
 
 
 def review_arena(game,arena):
@@ -24,13 +25,18 @@ def review_arena(game,arena):
     deck=set((x,y) for x in range(11,32) for y in range(20,22))
     deck.update((x,y) for x in range(29,32) for y in range(17,22))
     deck.update((x,y) for x in range(24,36) for y in range(11,19))
-    g_surfaces.paint(tm,deck,'wood',soft=False,density=.25,seed=93)
+    g_surfaces.paint(tm,deck,'wood',soft=False,density=.25,seed=93,plank_axis='x',style='temple')
+    # The perpendicular run has its own grain. A crosswise header at the elbow
+    # provides a clean construction joint rather than bending/fading the boards.
+    g_surfaces.paint(tm,[(x,y) for x in range(29,32) for y in range(18,20)],'wood',soft=False,
+                     density=.25,seed=93,plank_axis='y',style='temple')
     for x,y in deck:
         tile=tm['tiles'][y*56+x];tile.pop('water',None);tile.pop('force_collidable',None)
         tile['index']=4
+        tile['surface_elevation']=16.
     footprint=dict(x=400,y=176,width=160,height=96)
     for y in range(11,17):
-        for x in range(25,35):tm['tiles'][y*56+x]['rain_exposure']=0.
+        for x in range(25,35):tm['tiles'][y*56+x].update(rain_exposure=0.,acoustic_zone_id=4)
     for x,y in ([(x,11) for x in range(25,35)]+[(x,y) for x in (25,34) for y in range(12,16)]):
         tm['tiles'][y*56+x]['index']=3
         g_surfaces.paint(tm,[(x,y)],'wall',soft=False)
@@ -38,10 +44,21 @@ def review_arena(game,arena):
     props=entities['lake_props']
     def prop(name,kind,x,y,w,h,**extra):
         props[name]=dict(kind=kind,position=dict(x=float(x),y=float(y)),width=w,height=h,**extra)
-    prop('roof','roof',480,272,216,116,anchor_y=-156,cutaway=footprint)
+    prop('roof','roof',480,272,216,116,anchor_y=-156,cutaway=footprint,asset='roof',roof_runoff=True,runoff_elevation=16.)
     prop('altar','altar',480,218,40,46)
     for x in (402,454,506,558):prop(f'column:{x}','column',x,272,10,58)
     for x in (414,540):prop(f'banner:{x}','banner',x,260,10,30)
+    for i,(x,y,asset,w,h) in enumerate(((422,272,'lantern_red',20,26),(538,272,'lantern_white',14,24),
+                                       (272,354,'lantern_frame',16,28),(406,306,'lantern_red',20,26))):
+        if i>=2:prop(f'lantern-post:{i}','pile',x,y,4,54)
+        prop(f'lantern:{i}','lantern',x,y,w,h,asset=asset,emission=asset+'_emission',anchor_y=-58,
+             phase=i*1.7,player_reveal_enabled=False,occludes_render_items=False)
+    # Sparse clusters stay clear of the boardwalk, so they do not resemble
+    # walkable stepping stones. Source sprites remain at native pixel scale.
+    for i,(x,y) in enumerate(((172,297),(194,285),(239,287),(365,383),(388,390),(596,315),(619,331),(578,355))):
+        variant='lily_flower' if i%3==0 else 'lily_leaves'
+        prop(f'lily:{i}','lily',x,y,23 if i%3==0 else 24,19 if i%3==0 else 20,
+             asset=variant,anchor_y=-10,phase=i*1.3,player_reveal_enabled=False,occludes_render_items=False)
     # Walkway rails and supports, broken into short sections for correct depth.
     for x in range(192,480,32):
         for y in (320,354):prop(f'rail:{x}:{y}','rail',x+16,y,32,17)
@@ -93,7 +110,16 @@ def review_arena(game,arena):
     arena=(arena.set('scene_name','moonlit_water_temple').set('tile_map',tm).set('entities',entities)
            .set('lake_profile',profile).set('player_info',player).set('lighting_profile',light).set('fog_profile',fog)
            .set('editor_mode','play'))
-    return game.g_puzzles.ensure_arena(arena)
+    arena=arena.set('wind_profile',dict(g_effects.make_wind_profile(),gust_seed=733)).set('rain_profile',g_effects.make_rain_profile())
+    arena=arena.set('weather_profile',dict(enabled=True,fireflies=True,firefly_density=.45,seed=733,
+        onset_seconds=1.4,moon_intensity=.13,moon_color=[.14,.32,.83],rain_density=.72,
+        wind_strength=36.,gust_strength=26.,tree_motion_gain=1.65,wetting_rate=.026,
+        rain_refraction_density=.75,rain_reflection_distortion=3.))
+    arena=g_sequences.ensure(arena)
+    trigger=g_sequences.make_trigger([(x,y) for y in range(12,16) for x in range(26,34)])
+    trigger.update(label='Temple threshold — storm',on_enter='temple_storm',on_exit='none',repeat='once')
+    arena['world_sequences']['triggers']['temple:storm']=trigger
+    return arena
 
 
 def run():

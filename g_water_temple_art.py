@@ -1,5 +1,6 @@
 """Replaceable procedural architecture for the water-temple prototype."""
 from PIL import Image,ImageDraw
+from pathlib import Path
 import g_surfaces
 RUNTIME_GENERATION=globals().get('RUNTIME_GENERATION',0)+1
 
@@ -30,7 +31,11 @@ def roof():
     return im
 
 
-def image(kind,width=16,height=24):
+def image(kind,width=16,height=24,asset=None):
+    if asset:
+        path=Path(__file__).resolve().parent/'art'/'temple'/(asset+'.png')
+        with Image.open(path) as source:
+            return source.convert('RGBA').resize((width,height),Image.Resampling.NEAREST)
     if kind=='roof':return roof()
     im=Image.new('RGBA',(width,height));d=ImageDraw.Draw(im)
     if kind=='column':

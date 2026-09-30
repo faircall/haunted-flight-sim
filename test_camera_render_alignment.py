@@ -105,7 +105,8 @@ class CameraRenderAlignmentTests(unittest.TestCase):
             "source_rect": {"x": 0.0, "y": 0.0, "width": 16.0, "height": 16.0},
             "dest_rect": {"x": 20.0, "y": 40.0, "width": 16.0, "height": 16.0},
         }
-        with mock.patch.object(g_graphics.pr, "draw_texture_pro") as draw_texture:
+        draw_texture=mock.Mock()
+        with mock.patch.object(g_graphics.pr, "rl", SimpleNamespace(DrawTexturePro=draw_texture)):
             g_graphics._draw_render_item_main_shape(item, object(), camera)
 
         destination = draw_texture.call_args.args[2]
@@ -120,12 +121,26 @@ class CameraRenderAlignmentTests(unittest.TestCase):
             "source_rect": {"x": 0.0, "y": 0.0, "width": 32.0, "height": 32.0},
             "dest_rect": {"x": 100.4, "y": 40.25, "width": 32.0, "height": 32.0},
         }
-        with mock.patch.object(g_graphics.pr, "draw_texture_pro") as draw_texture:
+        draw_texture=mock.Mock()
+        with mock.patch.object(g_graphics.pr, "rl", SimpleNamespace(DrawTexturePro=draw_texture)):
             g_graphics._draw_render_item_main_shape(item, object(), camera)
 
         destination = draw_texture.call_args.args[2]
         expected = g_render_order.moving_world_to_screen_pixel(100.4, 40.25, camera)
         self.assertEqual((destination.x, destination.y), (expected["x"], expected["y"]))
+
+    def test_hanging_sprite_keeps_pivot_fixed_without_rounding_rotation(self):
+        item=dict(source_rect=dict(x=0.,y=0.,width=20.,height=26.),
+            dest_rect=dict(x=100.,y=80.,width=20.,height=26.),sprite_pivot=dict(x=10.,y=0.))
+        draw=mock.Mock();camera=SimpleNamespace(x=2.6,y=3.2)
+        with mock.patch.object(g_graphics.pr,'rl',SimpleNamespace(DrawTexturePro=draw)):
+            for angle in (-7.25,-7.19,0.,8.13):
+                item['sprite_rotation']=angle
+                g_graphics._draw_render_item_main_shape(item,object(),camera)
+                destination,origin,rotation=draw.call_args.args[2:5]
+                self.assertEqual((destination.x,destination.y),(107.,77.))
+                self.assertEqual((origin.x,origin.y),(10.,0.))
+                self.assertEqual(rotation,angle)
 
 
 if __name__ == "__main__":

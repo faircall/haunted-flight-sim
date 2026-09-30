@@ -41,7 +41,7 @@ SUPPORTED_EVENT_TYPES = {
     "pickup_ammo", "pickup_health", "ui_hover", "fire_crackle",
     "flashlight_click",
     "redhead_startle", "redhead_pursuit_hiss", "redhead_evade",
-    "ambience_incidental",
+    "ambience_incidental", "weather_thunder",
     "sound_emitter_cadence",
 }
 CONTROL_EVENT_TYPES = {"reload_stop", "sound_instance_stop"}
@@ -375,9 +375,14 @@ def make_audio_manifest():
             "health": _family(fallback="sounds/health_apply.wav", base_gain=0.75, voice_count=3),
         },
         "weather": {
-            name: _family(optional=True, base_gain=1.0, voice_count=1,
+            name: _family(optional=True, fallback={
+                              'rain_open_body':'art/temple/rain_open.wav',
+                              'rain_roof':'art/temple/rain_roof.wav',
+                              'rain_muffled':'art/temple/rain_muffled.wav',
+                              'thunder':'art/temple/thunder.wav'}.get(name),
+                          base_gain=.65 if name=='thunder' else 1.0, voice_count=2 if name=='thunder' else 1,
                           spatial=False, bus="weather")
-            for name in ("rain_open_body", "rain_open_detail", "rain_roof", "rain_muffled", "rain_drips")
+            for name in ("rain_open_body", "rain_open_detail", "rain_roof", "rain_muffled", "rain_drips", "thunder")
         },
         "fire": {
             "fire_bed_small": _family(optional=True, voice_count=1, bus="ambience"),
@@ -664,7 +669,8 @@ def estimate_event_audibility(event, listener, acoustic_context, audio_profile):
     if not isinstance(event, dict):
         return 0.0
     profile = normalize_audio_profile(audio_profile)
-    if event.get("source_kind") == "ui" or event.get("type") == "ui_hover":
+    # Distant thunder is a nonspatial weather bed event, not a source at (0, 0).
+    if event.get("source_kind") == "ui" or event.get("type") in {"ui_hover", "weather_thunder"}:
         attenuation = 1.0
     else:
         spatial_policy = _event_spatial_policy(event, profile)
@@ -1441,6 +1447,7 @@ def _process_event(runtime, event, listener, tile_map, entities, profile):
         )
         return []
     family_map = {
+        "weather_thunder": "weather.thunder",
         "reload_start": "weapons.pistol_reload", "weapon_empty": "weapons.pistol_empty",
         "weapon_unholster": "weapons.pistol_unholster",
         "weapon_holster": "weapons.pistol_holster",

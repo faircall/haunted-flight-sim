@@ -1279,7 +1279,7 @@ def capture_editor_ui_regions(ui_state, editor_state, editor_mode,
     } and not editor_state.get("inspector_collapsed", False)
 
     if (editor_mode == "tile" and editor_state.get("tile_edit_mode") == "materials"
-            and g_ui.ui_point_in_rect(mouse, pr.Rectangle(328, 30, 149, 190))):
+            and g_ui.ui_point_in_rect(mouse, pr.Rectangle(328, 30, 149, 220))):
         g_ui.ui_capture_mouse(ui_state)
 
     if g_ui.ui_point_in_rect(mouse, toolbar_rect) or (inspector_visible and g_ui.ui_point_in_rect(mouse, inspector_rect)):

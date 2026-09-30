@@ -1,0 +1,258 @@
+{
+  "python_game": {
+    "approach": {
+      "submit_ms": {
+        "median": 23.041,
+        "p95": 29.863,
+        "p99": 36.182,
+        "maximum": 56.505,
+        "over_16_67_ms": 720,
+        "frames": 720
+      },
+      "complete_ms": {
+        "median": 27.584,
+        "p95": 35.833,
+        "p99": 40.726,
+        "maximum": 63.681,
+        "over_16_67_ms": 720,
+        "frames": 720
+      }
+    },
+    "walking": {
+      "submit_ms": {
+        "median": 33.363,
+        "p95": 37.806,
+        "p99": 46.094,
+        "maximum": 48.264,
+        "over_16_67_ms": 720,
+        "frames": 720
+      },
+      "complete_ms": {
+        "median": 40.285,
+        "p95": 45.826,
+        "p99": 52.589,
+        "maximum": 56.923,
+        "over_16_67_ms": 720,
+        "frames": 720
+      }
+    },
+    "interior": {
+      "submit_ms": {
+        "median": 24.714,
+        "p95": 30.06,
+        "p99": 36.731,
+        "maximum": 43.469,
+        "over_16_67_ms": 720,
+        "frames": 720
+      },
+      "complete_ms": {
+        "median": 30.062,
+        "p95": 34.658,
+        "p99": 42.355,
+        "maximum": 86.987,
+        "over_16_67_ms": 720,
+        "frames": 720
+      }
+    }
+  },
+  "compiled_c_game": {
+    "approach": {
+      "submit_ms": {
+        "median": 17.89,
+        "p95": 19.638,
+        "p99": 26.867,
+        "maximum": 52.995,
+        "over_16_67_ms": 720,
+        "frames": 720
+      },
+      "complete_ms": {
+        "median": 21.732,
+        "p95": 25.357,
+        "p99": 30.246,
+        "maximum": 65.65,
+        "over_16_67_ms": 720,
+        "frames": 720
+      }
+    },
+    "walking": {
+      "submit_ms": {
+        "median": 22.739,
+        "p95": 25.772,
+        "p99": 35.372,
+        "maximum": 41.299,
+        "over_16_67_ms": 720,
+        "frames": 720
+      },
+      "complete_ms": {
+        "median": 28.785,
+        "p95": 31.736,
+        "p99": 40.607,
+        "maximum": 44.944,
+        "over_16_67_ms": 720,
+        "frames": 720
+      }
+    },
+    "interior": {
+      "submit_ms": {
+        "median": 19.813,
+        "p95": 21.869,
+        "p99": 29.189,
+        "maximum": 40.498,
+        "over_16_67_ms": 720,
+        "frames": 720
+      },
+      "complete_ms": {
+        "median": 24.909,
+        "p95": 27.108,
+        "p99": 33.511,
+        "maximum": 44.725,
+        "over_16_67_ms": 720,
+        "frames": 720
+      }
+    }
+  },
+  "native_renderer_only": {
+    "approach": {
+      "submit_ms": {
+        "median": 2.051,
+        "p95": 2.672,
+        "p99": 2.965,
+        "maximum": 3.111,
+        "over_16_67_ms": 0,
+        "frames": 240
+      },
+      "complete_readback_ms": {
+        "median": 8.566,
+        "p95": 9.868,
+        "p99": 11.769,
+        "maximum": 13.279,
+        "over_16_67_ms": 0,
+        "frames": 240
+      },
+      "gpu_elapsed_ms": {
+        "median": 4.984,
+        "p95": 7.309,
+        "p99": 8.004,
+        "maximum": 8.661,
+        "over_16_67_ms": 0,
+        "frames": 240
+      }
+    },
+    "walking": {
+      "submit_ms": {
+        "median": 2.109,
+        "p95": 2.902,
+        "p99": 3.983,
+        "maximum": 5.528,
+        "over_16_67_ms": 0,
+        "frames": 240
+      },
+      "complete_readback_ms": {
+        "median": 8.488,
+        "p95": 9.057,
+        "p99": 9.771,
+        "maximum": 12.031,
+        "over_16_67_ms": 0,
+        "frames": 240
+      },
+      "gpu_elapsed_ms": {
+        "median": 4.857,
+        "p95": 7.011,
+        "p99": 7.695,
+        "maximum": 10.158,
+        "over_16_67_ms": 0,
+        "frames": 240
+      }
+    },
+    "interior": {
+      "submit_ms": {
+        "median": 2.028,
+        "p95": 2.181,
+        "p99": 2.243,
+        "maximum": 2.812,
+        "over_16_67_ms": 0,
+        "frames": 240
+      },
+      "complete_readback_ms": {
+        "median": 8.585,
+        "p95": 8.912,
+        "p99": 9.079,
+        "maximum": 9.637,
+        "over_16_67_ms": 0,
+        "frames": 240
+      },
+      "gpu_elapsed_ms": {
+        "median": 5.18,
+        "p95": 7.12,
+        "p99": 7.328,
+        "maximum": 7.436,
+        "over_16_67_ms": 0,
+        "frames": 240
+      }
+    }
+  },
+  "renderer_validation": {
+    "frames": 744,
+    "pixel_mismatches": 0,
+    "native_rays": 82582,
+    "native_ray_mismatches": 0
+  },
+  "game_validation": {
+    "frames": 744,
+    "mismatches": []
+  },
+  "inputs": {
+    "python": [
+      "artifacts/moonlit-water-temple/c-port-python-repeat-1-timings.json",
+      "artifacts/moonlit-water-temple/c-port-python-repeat-2-timings.json",
+      "artifacts/moonlit-water-temple/c-port-python-repeat-3-timings.json"
+    ],
+    "compiled_game": [
+      "artifacts/moonlit-water-temple/c-port-game-repeat-1-timings.json",
+      "artifacts/moonlit-water-temple/c-port-game-repeat-2-timings.json",
+      "artifacts/moonlit-water-temple/c-port-game-repeat-3-timings.json"
+    ],
+    "native_renderer": "c_port/output/native-240.csv"
+  },
+  "notes": [
+    "Complete game uses generated C for game modules, native C visibility/geometry, and the existing CPython/third-party runtime.",
+    "Native renderer-only replays prepared rendering commands and recomputes visibility rays; excludes other scene preparation and gameplay.",
+    "Complete timings include GPU readback cost; all figures exclude window presentation.",
+    "Eight warmup frames per view in each run; fixed 1/60 simulation step; no FPS cap. Frame counts are in each distribution.",
+    "GPU elapsed is a GL_TIME_ELAPSED query around native command execution; not a CPU submission timer."
+  ],
+  "provenance": {
+    "date": "2026-09-28",
+    "source_revision": "d266eca608903ab102cc0f063d0b65bf379e256d",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "gpu": "NVIDIA GeForce RTX 3060 Ti",
+    "graphics": "OpenGL 3.3.0 NVIDIA 610.47 / raylib 5.0",
+    "internal_resolution": [
+      480,
+      270
+    ],
+    "full_game_repeats": 3,
+    "run_order": [
+      "python",
+      "compiled_game",
+      "compiled_game",
+      "python",
+      "python",
+      "compiled_game"
+    ],
+    "reference_trace_sha256": "e3967838cdc3ff43460d1ae48058c531ea8c7cedd14531ca4f591c1f8b494112",
+    "compiled_modules": 48,
+    "validation": {
+      "behavior_passed": 447,
+      "behavior_skipped": 5,
+      "native_ray_cases": 16000,
+      "native_polygon_points": 44210,
+      "native_polygon_rectangles": 8000,
+      "gpu_smokes": [
+        "water",
+        "night",
+        "surfaces"
+      ]
+    }
+  }
+}

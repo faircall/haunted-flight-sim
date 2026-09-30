@@ -17,7 +17,7 @@ PLAYER_CUTOUT_RIG_DEFAULTS = {'enabled': True,
  'knee': {'x': 16.0, 'y': 26.0},
  'neck': {'x': 16.0, 'y': 10.0},
  'far_leg_tint': [190, 190, 205, 255],
- 'far_arm_tint': [190, 190, 205, 255]}
+ 'far_arm_tint': [255, 255, 255, 255]}
 
 PLAYER_CUTOUT_GAIT_PROFILES = {'walk': [{'near_upper_leg_degrees': 24.0,
            'near_knee_bend_degrees': 0.0,
