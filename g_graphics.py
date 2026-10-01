@@ -20,7 +20,7 @@ CHARACTER_CONTACT_SHADOWS_ENABLED = False
 # Optional pitch-darkness fallback. Occlusion uses localized transparency.
 PLAYER_DARKNESS_OUTLINE_ENABLED = False
 
-ENTITY_SELF_SHADOW_MODES = {"none": 0, "upright_box": 1, "directional_profiles": 2}
+ENTITY_SELF_SHADOW_MODES = {"none": 0, "upright_box": 1, "directional_profiles": 2, "normal_map": 3}
 _REPORTED_DIRECTIONAL_PROFILE_ASSET_ERRORS = set()
 
 def make_lighting_profile(profile_name="inky"):
@@ -1555,8 +1555,10 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
     for item, sample_points in zip(render_items, sample_lists):
         policy = item.get("self_shadow", {})
         plain_key = None
-        if policy.get('mode', 'none') == 'none' and '_facade' not in item and not collect_diagnostics:
-            plain_key = (item.get('source_id'), tuple((p['x'], p['y']) for p in sample_points),
+        if policy.get('mode', 'none') in ('none','normal_map') and '_facade' not in item and not collect_diagnostics:
+            # Normal-map orientation is evaluated on the GPU; CPU eligibility
+            # uses the same reusable geometric samples as a plain sprite.
+            plain_key = (policy.get('mode','none'),item.get('source_id'), tuple((p['x'], p['y']) for p in sample_points),
                          tuple(item.get('bounds_world', {}).items()), tuple(item.get('base_world', {}).items()),
                          item.get('light_sample_height'), tuple(item.get('excluded_light_owners', ())), blocker_stamp)
         summary = make_empty_entity_self_shadow_summary()
@@ -1639,6 +1641,8 @@ def prepare_entity_self_shadows(render_items, prepared_lights, major_occluders, 
                 "direction_entry": direction_entry,
                 "self_shadow_mode": mode
             }
+            if mode == 'normal_map':
+                light_record['geometry_light']=[prepared_light['world_position']['x'],prepared_light['world_position']['y'],float(light.get('height',32.))]
             per_light.append(light_record)
             if records is not None:records[record_key] = (record_stamp, light_record)
 
@@ -1845,12 +1849,18 @@ def resolve_entity_self_shadow_resources(render_item, source_texture, game_asset
     fallback_used = False
     failure_reason = None
 
-    if active_mode == "directional_profiles":
+    position_texture = None
+    if active_mode in {"directional_profiles", "normal_map"}:
         response_texture = resolve_texture_reference(response_reference, game_assets)
         if response_texture is None:
             failure_reason = "is missing or invalid"
         elif not _matching_texture_dimensions(source_texture, response_texture):
             failure_reason = "does not match the source texture dimensions"
+
+        if active_mode == 'normal_map':
+            position_texture = resolve_texture_reference(policy.get('position_texture', {}), game_assets)
+            if position_texture is None or not _matching_texture_dimensions(source_texture, position_texture):
+                failure_reason = 'has a missing or mismatched position map'
 
         if failure_reason is not None:
             response_texture = None
@@ -1869,7 +1879,16 @@ def resolve_entity_self_shadow_resources(render_item, source_texture, game_asset
         "failure_reason": failure_reason
     }
     render_item["self_shadow_runtime"] = runtime
-    return dict(runtime, response_texture=response_texture, mode_value=ENTITY_SELF_SHADOW_MODES[active_mode])
+    return dict(runtime, response_texture=response_texture, position_texture=position_texture, mode_value=ENTITY_SELF_SHADOW_MODES[active_mode])
+
+def set_baked_normal_shader_values(shader, location, policy, light_position, rotation=0.):
+    low=policy.get('geometry_min',[0.,0.,0.]);high=policy.get('geometry_max',[1.,1.,1.])
+    values=[*low,policy.get('minimum_direct',.07),*[b-a for a,b in zip(low,high)],policy.get('strength',1.),
+            *policy.get('geometry_origin',[0.,0.,0.]),policy.get('normal_bands',6.),
+            *light_position,policy.get('normal_specular',0.),
+            *policy.get('geometry_view',[0.,.866,.5]),policy.get('normal_transmission',0.),math.radians(rotation),0.,0.,0.]
+    pr.rl.SetShaderValueV(shader,location,pr.ffi.new('float[]',values),pr.SHADER_UNIFORM_VEC4,6)
+
 
 def set_entity_self_shadow_shader_values(shader_info, render_item, texture, lighting_profile, entity_lighting, entity_readability_lighting, game_assets, debug_output_mode=0, self_shadow_pass=0):
     shader = shader_info["shader"]
@@ -1897,6 +1916,10 @@ def set_entity_self_shadow_shader_values(shader_info, render_item, texture, ligh
     if self_shadow_pass == 1 and resources["mode_value"] == 0:
         # Plain wood/railings only need the per-pixel light texture.
         return resources
+    if resources['mode_value']==3:
+        set_baked_normal_shader_values(shader,shader_info['normal_data_location'],policy,
+            summary.get('geometry_light',[0.,0.,100000.]),render_item.get('sprite_rotation',0.))
+        if self_shadow_pass==1:return resources
     set_shader_vec2(shader, shader_info["source_uv_min_location"], source["x"] / texture_width, source["y"] / texture_height)
     set_shader_vec2(shader, shader_info["source_uv_max_location"], (source["x"] + source["width"]) / texture_width, (source["y"] + source["height"]) / texture_height)
     set_shader_vec4(shader, shader_info["face_exposure_location"], exposure[0], exposure[1], exposure[2], exposure[3])
@@ -1947,8 +1970,10 @@ def begin_entity_self_shadow_shader(shader_info, render_item, texture, lighting_
     set_shader_texture(shader_info["shader"], shader_info["entity_light_texture_location"], entity_lighting.texture)
     if self_shadow_pass == 0:
         set_shader_texture(shader_info["shader"], shader_info["entity_readability_light_texture_location"], entity_readability_lighting.texture)
-    if resources["mode_value"] == ENTITY_SELF_SHADOW_MODES["directional_profiles"]:
+    if resources["mode_value"] in (2,3):
         set_shader_texture(shader_info["shader"], shader_info["directional_response_texture_location"], resources["response_texture"])
+    if resources['mode_value']==3:
+        set_shader_texture(shader_info['shader'],shader_info['position_texture_location'],resources['position_texture'])
     return resources
 
 def _render_single_prepared_entity_light(prepared_light, game_camera, scratch_target, game_assets):
@@ -1972,6 +1997,7 @@ def _make_per_light_render_item(render_item, light_record, mode_override=None):
         "world_occlusion_scale": 1.0,
         "direction_origin_world": dict(light_record.get("direction_origin_world", light_record.get("light_position", {})))
     }
+    if 'geometry_light' in light_record:result['self_shadow_summary']['geometry_light']=light_record['geometry_light']
     return result
 
 def _color_from_components(components):

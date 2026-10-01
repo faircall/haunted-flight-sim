@@ -1,0 +1,1218 @@
+{
+  "version": 1,
+  "assets": {
+    "column": {
+      "size": [
+        10,
+        58
+      ],
+      "scale": 0.9523809523809523,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        5.0,
+        54.83407375216484
+      ],
+      "position_min": [
+        -4.285714285714286,
+        -3.333333333333333,
+        0.0
+      ],
+      "position_max": [
+        4.285714285714286,
+        3.333333333333333,
+        59.52380952380952
+      ],
+      "raw_min": [
+        -4.5,
+        -3.5,
+        0.0
+      ],
+      "raw_max": [
+        4.5,
+        3.5,
+        62.5
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 196,
+      "depth_range": [
+        0.8051016968152371,
+        32.407580103193006
+      ],
+      "sha256": {
+        "": "72cb9e52761b45862cbbaf90fa3717029238628b196591fb9e45c3a0dfbff8a6",
+        "_normal": "3e390e355bee0972147195eafcd0910349a156ae158e6651b02fb6cd856daad8",
+        "_position": "77b1e289d06be6e70a4639b8c8a3be9336176a45f0a84c6fa49704641ae00fc6",
+        "_height": "61ba560bd7494bb9814d7c5aa7d89eb6f01ffe45ac245f00a1714542605ca353",
+        "_depth": "8f1ac15e8873f52858134bb5cd959ee0132542b4906c21aded8a6f04f7b87cf0",
+        "_ao": "592066993fd414baef0d61248103449327f71d5671915887d5b9dfe11a4c3abd",
+        "_mask": "2b93d25dce415cd3db42eeb701bf3391371edd9e8a943571148433c68ef4218b"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "rail32": {
+      "size": [
+        32,
+        17
+      ],
+      "scale": 0.9439527598714571,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        16.0,
+        14.766419559717178
+      ],
+      "position_min": [
+        -15.292035430096407,
+        -1.793510221250181,
+        0.0
+      ],
+      "position_max": [
+        15.292035430096407,
+        1.793510221250181,
+        14.253687034148404
+      ],
+      "raw_min": [
+        -16.200000762939453,
+        -1.899999976158142,
+        0.0
+      ],
+      "raw_max": [
+        16.200000762939453,
+        1.899999976158142,
+        15.100000381469727
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 352,
+      "depth_range": [
+        1.7121195412098693,
+        8.559529712878792
+      ],
+      "sha256": {
+        "": "a149bf5cdccce4bba1b298aef72dee9d1ad3cd50f681aa997b4362cec13ac89a",
+        "_normal": "cec05477b1472d15cd070b596d1079ea8d3b83c89df03d73d0fb442785a5b7da",
+        "_position": "93efbccdaed07a9038ad1d896863becddf04404d03dcf9311f8c2b6e7fe50f37",
+        "_height": "ef650d23d5073c6db83ca1bf97c23a1b0c47e6bdf2b40604f8778e9a4367f431",
+        "_depth": "de0503fb47f43744cf14a70353266e305357269db00ef6a54340c6f48ca4194d",
+        "_ao": "223b97f8ef1a3cfb5dd4261ec72417e1968e4c89962af3cc6c0a6c7c5a579918",
+        "_mask": "796993c46219ae42453597f69a82b88be0f0d197b388133131f8f86ce757680c"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "rail24": {
+      "size": [
+        24,
+        17
+      ],
+      "scale": 0.9266409402890141,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        12.0,
+        14.651495486497879
+      ],
+      "position_min": [
+        -11.30501929478324,
+        -1.7606177644562853,
+        0.0
+      ],
+      "position_max": [
+        11.30501929478324,
+        1.7606177644562853,
+        13.99227855184958
+      ],
+      "raw_min": [
+        -12.199999809265137,
+        -1.899999976158142,
+        0.0
+      ],
+      "raw_max": [
+        12.199999809265137,
+        1.899999976158142,
+        15.100000381469727
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 352,
+      "depth_range": [
+        1.6265209572575414,
+        8.37032783907781
+      ],
+      "sha256": {
+        "": "0d05037e085c386663c3c17fbb20bcfa40f2738b25fdf87fd5e5dd1dfc260f0f",
+        "_normal": "7e3791f0430fe37be9182a21bde2b48112e4a0c14de807634bb62fe74532ae0b",
+        "_position": "087e74d4f9305355aa7028bd6e27dd37baf83c2dba9dfd240bf1192eff104b42",
+        "_height": "da7830d1be3ef36cd25cfae35d5115727f04be75ed14642e6bd81a565d24364f",
+        "_depth": "b675bf320ef70be7dc198d73eec91508cb47490a7ac720fd2a6e0c92a17f7aae",
+        "_ao": "5401dac7a8ea69224cc3705a393a4122ca539038362d7e272b070c6f226b78af",
+        "_mask": "f25b91896ff9a7ca9f652c8a78eb8d983be4580b7f1e7cf23656a4cca0fd9177"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "pile28": {
+      "size": [
+        5,
+        28
+      ],
+      "scale": 0.7692307692307693,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        2.5,
+        23.814077258110046
+      ],
+      "position_min": [
+        -1.9230769230769231,
+        -1.9230769230769231,
+        0.43076923260321986
+      ],
+      "position_max": [
+        1.9230769230769231,
+        1.9230769230769231,
+        21.969230358417217
+      ],
+      "raw_min": [
+        -2.5,
+        -2.5,
+        0.5600000023841858
+      ],
+      "raw_max": [
+        2.5,
+        2.5,
+        28.559999465942383
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 88,
+      "depth_range": [
+        1.8698071782563523,
+        12.195702545279264
+      ],
+      "sha256": {
+        "": "965261b7831ed5b9fba91882d80d972394b7e8ce0dd794b57eeb592b0babb778",
+        "_normal": "cb0b636e2c3cad0b43fe24676f9156ca68b9d12219a6c1d8da0b1b0eb0e4749f",
+        "_position": "5b19a55b8c02fe63b23dc8d8445050b2ba0a97f5f0bd472591036456c75c36de",
+        "_height": "7c26c9f0a7f8d1da6f48f7f23c1866da70fb0922694d116f5a4aa1ebcc5ff752",
+        "_depth": "e2e9eb9e15e7817a34dc3ef20c2aa3d0e9ec260bb6d29357f9a03b0cba78ab22",
+        "_ao": "70b163bd01ee66e695f6eb58f6f9275756623e09eacc7683aade3b16fc3b08b4",
+        "_mask": "4ec46c99c77dee57ffa24ec2c03dd1facc79ff0c432bea10dcf8b31ac5a0a3f9"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "pile29": {
+      "size": [
+        5,
+        29
+      ],
+      "scale": 0.7692307692307693,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        2.5,
+        24.653855323791504
+      ],
+      "position_min": [
+        -1.9230769230769231,
+        -1.9230769230769231,
+        0.4461538333159227
+      ],
+      "position_max": [
+        1.9230769230769231,
+        1.9230769230769231,
+        22.753846095158504
+      ],
+      "raw_min": [
+        -2.5,
+        -2.5,
+        0.5799999833106995
+      ],
+      "raw_max": [
+        2.5,
+        2.5,
+        29.579999923706055
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 88,
+      "depth_range": [
+        1.8022405466116678,
+        12.618515828354157
+      ],
+      "sha256": {
+        "": "bd81014dcb818203a0030ca89dc66b74fb48f6919fd12b8e43707da9972446f1",
+        "_normal": "81ce451a1d94e53be67b142856d1bb4cc81df8db1abf8eedc65d1badc8e41fac",
+        "_position": "d4f4250fddb8313be7e1d6c6b566e23b23f4f5be5ff7de33d034711d5382cb31",
+        "_height": "7586622251ca97dfe25e69f55953021d44212708e4301e5f4e1b7e56565cf09b",
+        "_depth": "80bde3db1af2993bad3dfb4ed3a84fc6f45db4e681547050f9bfa674a8c2bf6f",
+        "_ao": "8b109833e1612a8f83ae687314a537f100bfe55692dfda440807dda4c86d9b43",
+        "_mask": "e568ad0b0d94f7605a6a23dc2ce2241fb7995c8bd549f4a69896528821cdb524"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "pile54": {
+      "size": [
+        4,
+        54
+      ],
+      "scale": 0.7272727272727273,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        2.0,
+        44.685791015625
+      ],
+      "position_min": [
+        -1.4545454545454546,
+        -1.4545454545454546,
+        0.785454576665705
+      ],
+      "position_max": [
+        1.4545454545454546,
+        1.4545454545454546,
+        40.05818314985795
+      ],
+      "raw_min": [
+        -2.0,
+        -2.0,
+        1.0800000429153442
+      ],
+      "raw_max": [
+        2.0,
+        2.0,
+        55.08000183105469
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 88,
+      "depth_range": [
+        1.8999201694091905,
+        20.81135014811133
+      ],
+      "sha256": {
+        "": "3bcd6c79985dcc0de73b446b303efe880324798e8b95e1a1fd67b7eeeb1d6298",
+        "_normal": "a649fcd98b3cddf44c3435241e132a1dab772c4e731c67544fd3e752193df278",
+        "_position": "99a1489473ad89f75473d94a8105b846ba5a153ee08dd72de33c134fb4c6962a",
+        "_height": "d37b96139e1ff5d005d8d07ff12ffb472988b5e52f0afbafa02ef212c35e2183",
+        "_depth": "467a959af7987e1a19d49a77e104bcbe0a3f6cbf3a1f5fb063659450307b6964",
+        "_ao": "d02af821e6f2fd7821ed9675bb700d70d4937ebacba38f3d4021cc2fe26857bb",
+        "_mask": "1d7e9eb594928df809763080f6d0d4fd8e78484b7bdc0854b897d824f509e179"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "brazier": {
+      "size": [
+        14,
+        18
+      ],
+      "scale": 0.867202141525742,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        7.0,
+        15.615168571472168
+      ],
+      "position_min": [
+        -5.896974727780727,
+        -5.896974727780727,
+        0.0
+      ],
+      "position_max": [
+        5.896974727780727,
+        5.896974727780727,
+        13.875234264411873
+      ],
+      "raw_min": [
+        -6.800000190734863,
+        -6.800000190734863,
+        0.0
+      ],
+      "raw_max": [
+        6.800000190734863,
+        6.800000190734863,
+        16.0
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 416,
+      "depth_range": [
+        0.5575368605895892,
+        11.896380630326412
+      ],
+      "sha256": {
+        "": "7a4c07594eb74dc637f335d57e9a930933d5707de32584f5b56050bdc982109f",
+        "_normal": "aa6bbdeef7b4d2b1c05d019e853bf73a9e00edf38bb4fa206724a13462fc0f36",
+        "_position": "48525a390132d0953df6e63cb35196d18d50088a5b972216edb2336c67656cc5",
+        "_height": "7dc61e08ff044b4bd88a43ff066fa5bc285c8afb13fe0a4c478bd6a1453abd20",
+        "_depth": "a315656a443712e54a1c8b0cbc81a91f721520f2b12f809dd3f3259185c11442",
+        "_ao": "46a4e0cbecbe3b643b1e7c549b084bbfda9a2101de9eef11e8af4e0f10e898b2",
+        "_mask": "d07fbcc0dec6330d719ea9f4e5d2722d2fa200ee09c174f785e08c5e1e1c1a10"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "lantern_paper": {
+      "size": [
+        20,
+        30
+      ],
+      "scale": 1.051201410562928,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        10.0,
+        28.685957081615925
+      ],
+      "position_min": [
+        -7.884010579221959,
+        -7.884010579221959,
+        0.0
+      ],
+      "position_max": [
+        7.884010579221959,
+        7.884010579221959,
+        32.0616430221693
+      ],
+      "raw_min": [
+        -7.5,
+        -7.5,
+        0.0
+      ],
+      "raw_max": [
+        7.5,
+        7.5,
+        30.5
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 572,
+      "depth_range": [
+        2.463541761355226,
+        19.3123362890312
+      ],
+      "sha256": {
+        "": "bf0a641d9e685f42c1a4fb48c90ab24258247992cbf75ec789c63e1684ded39d",
+        "_normal": "70981d3539e282d2dd39942a89b805840814fdf7e133b51fa79705957f71c191",
+        "_position": "20d2f4a66a6902a7f02ee22dac42d39e7630281c3d57a1b9475e4fca79e3f557",
+        "_height": "0705c3303a42e033d0d5c188188b29f2a6b52b59918503ba3e188dd2e14b5445",
+        "_depth": "9d800618d7ce92751da8545c33688c2d8d4b6f6bcf50129089208a5ce077d7dc",
+        "_ao": "006ae1d324f948ee73315093faea1211915caab6d0c9de7bb3f4c4002eee5510",
+        "_mask": "7e8ca762996eb03f182a97d28ec4f6a8a79d77811e8b9d9ab1cba901158010e0"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "lantern_porcelain": {
+      "size": [
+        18,
+        32
+      ],
+      "scale": 1.0497763043847808,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        9.0,
+        28.27323293685913
+      ],
+      "position_min": [
+        -7.348434130693465,
+        -7.348434130693465,
+        0.0
+      ],
+      "position_max": [
+        7.348434130693465,
+        7.348434130693465,
+        28.343960218389082
+      ],
+      "raw_min": [
+        -7.0,
+        -7.0,
+        0.0
+      ],
+      "raw_max": [
+        7.0,
+        7.0,
+        27.0
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 624,
+      "depth_range": [
+        1.06574822478501,
+        19.43985868756856
+      ],
+      "sha256": {
+        "": "10fba28f24f86c7ba2c120470c4525acaa5b6ab41dee835378b46faaa345fb41",
+        "_normal": "2f83f869932422f6a30946d2e2958d6246392488df9f50c56827f3c2b254bedd",
+        "_position": "9f364781e96c8a7655bab28e092527ee01e8c3c24a714f119cda94258e1152e6",
+        "_height": "1abf728ff329c538c70cf9dca236f5c2e21f6fe0448924c803fb2f11b30b783e",
+        "_depth": "2dc614f3eba9871ec7cc3bb139a1def4bb964a3a48dbade514f7f5aa891134ba",
+        "_ao": "7afa606b51f489f63ec4210c212a8dbce7ed0f435c6be24d2d5f3857042481ee",
+        "_mask": "28c8fdf218031ad8ae62b6cdeaaeaca319d6fc3479faf710637d9efb6e32d66f"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "altar": {
+      "size": [
+        40,
+        46
+      ],
+      "scale": 0.963855421686747,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        20.0,
+        41.712364822626114
+      ],
+      "position_min": [
+        -19.277108433734938,
+        -7.228915662650603,
+        0.0
+      ],
+      "position_max": [
+        19.277108433734938,
+        7.228915662650603,
+        45.30120481927711
+      ],
+      "raw_min": [
+        -20.0,
+        -7.5,
+        0.0
+      ],
+      "raw_max": [
+        20.0,
+        7.5,
+        47.0
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 820,
+      "depth_range": [
+        0.6246359331626765,
+        20.927882383773326
+      ],
+      "sha256": {
+        "": "4fee72ba49e5e1fe4fa0a57fecf6f775a98ad9b90f0e5cc6c18c5a6fe1270c9e",
+        "_normal": "16284e3d3d65bf2c819696ab8dc0b34dfe0d24c4a643e472dce1563058446678",
+        "_position": "235a1b2aa0658c54e2b0ff124f652c9a11ec786a517ede36496dd33489221f59",
+        "_height": "1a7707584e7a037ecaf13902525133f3c2374eba73fad893b80807f34059542b",
+        "_depth": "c00944a4fd50af2c939948fd021977ddbf98820a36d12d0c423ffb98d8867a49",
+        "_ao": "938995c4e51a7dded9c1a47bea6a7d249d0b51a777f27dfe7404833399f7eefa",
+        "_mask": "de7ec50f03774978ca9e664fca9d2d34f0c33d43428b81cea9160d0c11f06585"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "banner": {
+      "size": [
+        10,
+        30
+      ],
+      "scale": 0.8695652173913043,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        5.0,
+        26.0281240940094
+      ],
+      "position_min": [
+        -4.3478260869565215,
+        -0.521739151166833,
+        0.0
+      ],
+      "position_max": [
+        4.3478260869565215,
+        0.6086956418078878,
+        25.217391304347824
+      ],
+      "raw_min": [
+        -5.0,
+        -0.6000000238418579,
+        0.0
+      ],
+      "raw_max": [
+        5.0,
+        0.699999988079071,
+        29.0
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 556,
+      "depth_range": [
+        0.29679078135761316,
+        12.841434010574105
+      ],
+      "sha256": {
+        "": "ff7536ff3cdb1368253ececf302d9cba20df194abf5514c77825150e6541de99",
+        "_normal": "ec1b6adc6d859a5145a1937c45f065e79733ab44c013d2aebfbd8db5151b3218",
+        "_position": "f0e1d27c16aeaea01f22df1ecaf2b1b7fa8e184259af5757a4302bb1c73451e8",
+        "_height": "7c994050492ac7d02163d974c63c0efe58b77ecfd5cff3f1cc9238cfa80eaf30",
+        "_depth": "43cc54c5fce5c6d013f6a932586f315178fedc0321072f7ee714582a936a29a8",
+        "_ao": "992b0dd82bfe2269ba213f95833d465f795a2fa22d754c5ce94a59789c637ed2",
+        "_mask": "6e13dd921d70581e0072d1dbeb0040eeb6fb146948bdec27661750b79807c7db"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "lily_cluster": {
+      "size": [
+        26,
+        20
+      ],
+      "scale": 1.0483870887111304,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        13.052419304847717,
+        11.733927726745605
+      ],
+      "position_min": [
+        -12.266128737956258,
+        -10.064516451554788,
+        0.5539949243761269
+      ],
+      "position_max": [
+        12.16129062897705,
+        9.120967471822867,
+        5.032258225777394
+      ],
+      "raw_min": [
+        -11.699999809265137,
+        -9.600000381469727,
+        0.528425931930542
+      ],
+      "raw_max": [
+        11.600000381469727,
+        8.699999809265137,
+        4.800000190734863
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 1856,
+      "depth_range": [
+        -7.402176108599562,
+        7.141065447798099
+      ],
+      "sha256": {
+        "": "f9086bdfb2b6a947833ec7d32b611c310c527c9e62d63fe0b51c23ab0153c4d7",
+        "_normal": "a04cf100b37e49f9f62e4db0344fd9366a677bb8aefc33c88c8982ca046c60a0",
+        "_position": "fc3f92434a19c102c6c22fbfc89c692cf154cd582495c93b59986969f5a8b38e",
+        "_height": "b403c174eb0bfaf554ce74e28bce9712bdb27267f0fd940a4def262fd03da446",
+        "_depth": "618abb88d06e0b1a8f56e551e1c0d7b0ff1cb2c402f3855eaeec614ab3d2ed4f",
+        "_ao": "d71319dfcedde3ae829edc0c51e07d0b7f5edd47957ace178f2a119ed7a649f1",
+        "_mask": "ad21a1a4eb0c425c9aae632c4d88ee886ca89817240ba759c8bc32bebb95f595"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "lily_leaves": {
+      "size": [
+        26,
+        20
+      ],
+      "scale": 1.0483870887111304,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        13.052419304847717,
+        11.733927726745605
+      ],
+      "position_min": [
+        -12.266128737956258,
+        -10.064516451554788,
+        0.5539949243761269
+      ],
+      "position_max": [
+        12.16129062897705,
+        9.120967471822867,
+        1.8975805705779556
+      ],
+      "raw_min": [
+        -11.699999809265137,
+        -9.600000381469727,
+        0.528425931930542
+      ],
+      "raw_max": [
+        11.600000381469727,
+        8.699999809265137,
+        1.809999942779541
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 1056,
+      "depth_range": [
+        -7.413293400905149,
+        7.144231543715134
+      ],
+      "sha256": {
+        "": "7ebf509861b77d317a3b03910289084de257de3b19612f8d56f6666c30c29892",
+        "_normal": "d535c168b9ed9965529a98755ff7ba41e4bca1ca375c4de8066462a3b34cb456",
+        "_position": "22d134d6d099eff5164a7ab23b3f2fd866cd76933361da19b4383cbfd326fa9a",
+        "_height": "d99cdab0294e9fb1c57f7a6df36ee8514ae3f2f846a7b2d9b1fae75af024664d",
+        "_depth": "836e94aa16b30358549ec835db5bc57b5879bb35100945b523632fcec1850bd1",
+        "_ao": "07c0bb388a9f195a9baec23ca030ee59b4b19aae1d64159a5409cc35e87f9df2",
+        "_mask": "ad21a1a4eb0c425c9aae632c4d88ee886ca89817240ba759c8bc32bebb95f595"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "window": {
+      "size": [
+        48,
+        56
+      ],
+      "scale": 1.0,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        24.0,
+        55.99996948242051
+      ],
+      "position_min": [
+        -24.0,
+        -4.0,
+        0.0
+      ],
+      "position_max": [
+        24.0,
+        0.800000011920929,
+        64.6632308959961
+      ],
+      "raw_min": [
+        -24.0,
+        -4.0,
+        0.0
+      ],
+      "raw_max": [
+        24.0,
+        0.800000011920929,
+        64.6632308959961
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 1892,
+      "depth_range": [
+        0.21414513239010521,
+        32.47436985479628
+      ],
+      "sha256": {
+        "": "b1c5eb740aac61dd920087a48980916bb9131fda4d273439f849a23ce964be48",
+        "_normal": "307470a8a865791013ebb1b544aa6397f764bf9f4b424472daed916c664f4a40",
+        "_position": "0fec089782e33865ccf0d87996edaa48e0b1e0bf952d76113e8a8499987a89b9",
+        "_height": "9504041be862984f1d8be5ada1ee412f3da77d3a4747150ccebe11e9bb4908af",
+        "_depth": "609cfb57418344233c8097306c4e2deba16bc725472fb2bdb3f7171bd5a3cace",
+        "_ao": "ee3b4f14a0da04a9d46ef78d9519dba22ea198f2bc390e1b56921073949bf969",
+        "_mask": "66d0d3e49a5e3df20268fb3fea6c4ab6ece365ea7f1366eeb401d147d074ffdc"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "wall": {
+      "size": [
+        16,
+        56
+      ],
+      "scale": 1.0,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        8.0,
+        55.99996948242051
+      ],
+      "position_min": [
+        -8.0,
+        -4.0,
+        0.0
+      ],
+      "position_max": [
+        8.0,
+        0.800000011920929,
+        64.6632308959961
+      ],
+      "raw_min": [
+        -8.0,
+        -4.0,
+        0.0
+      ],
+      "raw_max": [
+        8.0,
+        0.800000011920929,
+        64.6632308959961
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 176,
+      "depth_range": [
+        0.21573166686786602,
+        32.474119329917286
+      ],
+      "sha256": {
+        "": "e661fe643db56f6044af0f9cd537c6a54b9e675d44a97afbb1c46228716a65a3",
+        "_normal": "533f57619d4361cdb5934e09678239302afb6a3ef096024d34423a27171081ea",
+        "_position": "16492a45da6ee3660c7eaf71d2ba5d1020984a7f727f4f20c38e83a816229f9c",
+        "_height": "1ababa23e18b287ba4dd1062dba0d21b22db9f22b7b1831130ae5b0a5e830d30",
+        "_depth": "a13316d480c438e83d564ad45414761f7d7f5b1ba86031cd82492f2cab38c9f9",
+        "_ao": "63b8db888d39046c8b8c9d694e1b5dfbdc9f78e20bd0416e418554a6682a2a9f",
+        "_mask": "30c1d70b71c9e9897909fba29262a5f6353b82bd8dc9cdc2bd00e2fab55364e0"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "door_open": {
+      "size": [
+        32,
+        56
+      ],
+      "scale": 1.0,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        16.0,
+        55.99996948242051
+      ],
+      "position_min": [
+        -16.0,
+        -4.0,
+        0.0
+      ],
+      "position_max": [
+        16.0,
+        0.800000011920929,
+        64.6632308959961
+      ],
+      "raw_min": [
+        -16.0,
+        -4.0,
+        0.0
+      ],
+      "raw_max": [
+        16.0,
+        0.800000011920929,
+        64.6632308959961
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 660,
+      "depth_range": [
+        0.19209874868115595,
+        32.47436985479628
+      ],
+      "sha256": {
+        "": "cd5c7817605ad8efffb74a7fa3517ae346809834c272b26ce7f9104f5b0be8b4",
+        "_normal": "f7f19ded71606d1f649a415a5486cae73dc9e4fca6260e7794ac6523e2803d4d",
+        "_position": "8a34beada3513f8a82ff556956a1062ed1fd439b6bf2a04c8f6eeaa72f2eb0a2",
+        "_height": "0a3c2b5e0627991869b0ff89129efe1fe7f3b2bc030ae8743b443821fbf38221",
+        "_depth": "f9c181254cf9ef69cde4ac7e1bbb099b04b719bb171559241d1fb0283093233f",
+        "_ao": "41a0592df84277704485e5f32b976c39fc5b37c3372e2061a7db55a99c17b50a",
+        "_mask": "cd8763312d0f0bd08723fc15d723a0d63a8d5402f9d4a36ba1b9f9a1d1e27e56"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "door_closed": {
+      "size": [
+        32,
+        56
+      ],
+      "scale": 1.0,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        16.0,
+        55.99996948242051
+      ],
+      "position_min": [
+        -16.0,
+        -4.0,
+        0.0
+      ],
+      "position_max": [
+        16.0,
+        0.800000011920929,
+        64.6632308959961
+      ],
+      "raw_min": [
+        -16.0,
+        -4.0,
+        0.0
+      ],
+      "raw_max": [
+        16.0,
+        0.800000011920929,
+        64.6632308959961
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 2860,
+      "depth_range": [
+        0.21467394901885492,
+        32.47436985479628
+      ],
+      "sha256": {
+        "": "7cce5fd8149c41703952439de25ebdd3daf82d60f1cbd4bb7f9f357bcb770206",
+        "_normal": "a66b1499b6b5639b6afd8d01cadb75cde4573e6efeac1d0c503b2214206e7ae2",
+        "_position": "abb9fb0cbdd7d6418ea44f27b0f7d0aa3d2f179b65ba57cedf20ec879c28587a",
+        "_height": "38aafeebaca98d9542de25247c9f7fe0162255dbe6c795bdb16c33399afb282a",
+        "_depth": "0aaffcf17c52596345433d9d4f3903c8bfac4342f5727992f70e6037067c59db",
+        "_ao": "bfe204119da140c0bd550699d70944f1b4f1e87e1aa4e1d78f609b93f4351650",
+        "_mask": "57715de123842dd4a1fd0b64f4363c3e66b4763f82bcd77ab092ef7c912b0f71"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "planks_x": {
+      "size": [
+        128,
+        32
+      ],
+      "scale": 1.0,
+      "elevation": 90.0,
+      "pivot": [
+        64.0,
+        16.0
+      ],
+      "position_min": [
+        -64.0,
+        -16.0,
+        -2.0
+      ],
+      "position_max": [
+        64.0,
+        16.0,
+        0.20000000298023224
+      ],
+      "raw_min": [
+        -64.0,
+        -16.0,
+        -2.0
+      ],
+      "raw_max": [
+        64.0,
+        16.0,
+        0.20000000298023224
+      ],
+      "depth_direction": [
+        0.0,
+        -6.123234262925839e-17,
+        1.0
+      ],
+      "triangles": 716,
+      "depth_range": [
+        -0.43489212777789604,
+        0.20000000298023313
+      ],
+      "sha256": {
+        "": "9da97391c4c484c8cf372f22568d3eac632745b5be1c9803b6e5a0cf72ca68ca",
+        "_normal": "89bf1f8e963ff5c592a44b35e11b9fe798317a5ea302ed10903e3da9789477da",
+        "_position": "d2fc2b0fe384ad56f69d7e0a5b5faf1d8da2476d99b2d05f7086094c642e99c5",
+        "_height": "d1be8638cf9cffc50af5045ce96c36567c8238e6b4470953382df2cf231abf1d",
+        "_depth": "9a5f6459d541e83bb33f89288ce6134871f5dda8728460716445fac10d783992",
+        "_ao": "a6ad61b8c816295074a3d21a4d3d0889ee4f9c86a5dd2778081e62cdb5a8a463",
+        "_mask": "5ad6bdcbc87aa92b0b15e6cbb08c152e9e9ea22725cf42de69061dc6debeeca6"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "wall_ground": {
+      "size": [
+        48,
+        32
+      ],
+      "scale": 1.0,
+      "elevation": 90.0,
+      "pivot": [
+        24.0,
+        16.0
+      ],
+      "position_min": [
+        -43.599998474121094,
+        -16.0,
+        -1.5
+      ],
+      "position_max": [
+        35.599998474121094,
+        16.0,
+        1.0
+      ],
+      "raw_min": [
+        -43.599998474121094,
+        -16.0,
+        -1.5
+      ],
+      "raw_max": [
+        35.599998474121094,
+        16.0,
+        1.0
+      ],
+      "depth_direction": [
+        0.0,
+        -6.123234262925839e-17,
+        1.0
+      ],
+      "triangles": 804,
+      "depth_range": [
+        -0.2626240402460103,
+        1.0000000000000009
+      ],
+      "sha256": {
+        "": "d7aa04edafeed125c9a7976c7f088dbf9f13d5a4171165ab91bbda2e9c2a7f9d",
+        "_normal": "925635e61bd4571114f111847b16f95f7b158d63147310abbc8f3748a5a6a1a9",
+        "_position": "a1f09134e0bc8a6006b4aa61ac6d09e4e5a85345bd05be58840d7ccbbee92ed9",
+        "_height": "3377bfddfba7c3c38c771ecf9c137a477b6c2ff6f460a6608d451d3b2d9fe029",
+        "_depth": "f9476e80846294bb0729f00d07d2ddbeb9b8643ac7c4692f75499f40e88cd30b",
+        "_ao": "dbf2243ac76c64b9dbea5df56bc7bbebe2a43176a6bee3c5e15bd6370e60cb61",
+        "_mask": "2237ce7078ca47e4913012a7ebb6b0f31348bd99274854d733ea3571a79dcd44"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    },
+    "roof": {
+      "size": [
+        216,
+        116
+      ],
+      "scale": 1.0172175927965252,
+      "elevation": 29.999999999999996,
+      "pivot": [
+        108.0,
+        65.99407541751862
+      ],
+      "position_min": [
+        -107.2370868054026,
+        -69.36736845683076,
+        -2.543043981991313
+      ],
+      "position_max": [
+        107.2370868054026,
+        69.36736845683076,
+        59.79202558059604
+      ],
+      "raw_min": [
+        -105.4219741821289,
+        -68.19324493408203,
+        -2.5
+      ],
+      "raw_max": [
+        105.4219741821289,
+        68.19324493408203,
+        58.77997589111328
+      ],
+      "depth_direction": [
+        0.0,
+        -0.8660253882408142,
+        0.5
+      ],
+      "triangles": 2462,
+      "depth_range": [
+        -58.485082665462926,
+        68.2028470917772
+      ],
+      "sha256": {
+        "": "71d1f2590d9a1800d63c88e61682284e637357568da228869ea964cc8843fa53",
+        "_normal": "6fd74f9d84dc0129fac925e4979d491a5f8afcf99eb3a3980253f20a8a6601c1",
+        "_position": "bd2c33d33146c968b44e32313846a18dc2c2db135ff73ede35944e1b1489118d",
+        "_height": "a7ce449456ade5917f32c59dd5dfaf67a61f73b6bc14fcc45b8f6ff428367083",
+        "_depth": "36180936b26e82b0ed004eea155a124ee914148a96acefd72b733d66b31adeb0",
+        "_ao": "a7b067e607a0559555d8b8a4738302904424bdd4dc0acc6a44f7b08fe14795c7",
+        "_mask": "d510c94f163d015164f1f9d03bd571b60be1b226c693e00b1ed00444e5800519"
+      },
+      "normal_encoding": "RGB game-world unit normal (X right, Y down ground, Z up); A ambient occlusion",
+      "position_encoding": "RGB normalized local game position between position_min/max; A roughness"
+    }
+  },
+  "materials": {
+    "wood": {
+      "sources": [
+        "Wood058"
+      ],
+      "operation": "Whole preserved scan, 1024px texture",
+      "sha256": "0213315376760b2e2217e677218b75939fd5eeaf4d0c7137516269f126b51e0a"
+    },
+    "timber": {
+      "sources": [
+        "tang_lantern"
+      ],
+      "operation": {
+        "crop": [
+          210,
+          741,
+          528,
+          765
+        ],
+        "reference_size": [
+          893,
+          1000
+        ],
+        "linear_exposure": 1.0
+      },
+      "sha256": "b7accf3c901f448f91bbf0c00c9c85609f696f4b8bf52e95d3b3ae19043d7d1c"
+    },
+    "brick": {
+      "sources": [
+        "tang_lantern"
+      ],
+      "operation": {
+        "crop": [
+          8,
+          565,
+          185,
+          688
+        ],
+        "reference_size": [
+          893,
+          1000
+        ],
+        "linear_exposure": 1.0
+      },
+      "sha256": "c9c9e18b3186710439b78f2755a8612029ac0900bff999414feadad01df86bef"
+    },
+    "paper": {
+      "sources": [
+        "tang_lantern"
+      ],
+      "operation": {
+        "crop": [
+          294,
+          221,
+          529,
+          512
+        ],
+        "reference_size": [
+          893,
+          1000
+        ],
+        "linear_exposure": 1.45
+      },
+      "sha256": "5446b3c10a3f42818874ee9a7b5fac0a18d920fda90870f77ae4dddb62252c7e"
+    },
+    "painted": {
+      "sources": [
+        "temple_pavilion"
+      ],
+      "operation": {
+        "crop": [
+          651,
+          334,
+          968,
+          367
+        ],
+        "reference_size": [
+          1000,
+          667
+        ],
+        "linear_exposure": 1.0
+      },
+      "sha256": "1b8c8c15a9bd0c4c38624812ff5f64becb463e8a67791ef2ad7c88aaf5dd5d17"
+    },
+    "ceramic": {
+      "sources": [
+        "walters_lantern"
+      ],
+      "operation": {
+        "crop": [
+          254,
+          318,
+          560,
+          730
+        ],
+        "reference_size": [
+          809,
+          1000
+        ],
+        "linear_exposure": 1.0
+      },
+      "sha256": "1a529f388e9d3f8835a31aa6b4742d3ff9126f7f57cc0876cef4d67b19adb981"
+    },
+    "column": {
+      "sources": [
+        "pavilion"
+      ],
+      "operation": "Perspective-rectified pillar, same source quad as photo pipeline",
+      "sha256": "90ba86d272e9f98a70e9d352a3716fdbb0b8562e1d006c2828eb2b0a3138bd34"
+    },
+    "stone": {
+      "sources": [
+        "tang_lantern"
+      ],
+      "operation": "Brick face crop [25,605,76,625] at reference 893x1000; used for stone bowls and plinths",
+      "sha256": "61a203d49a6c1f36a6ec2c4abbea9380ecce26e1b9f0d694ab7b4bd1a30bfd5c"
+    },
+    "pad": {
+      "sources": [
+        "pads_pond"
+      ],
+      "operation": "Existing photo mask and crop, rectified to square UV domain; shallow relief geometry, not a recovered scan",
+      "sha256": "7e948f207a21a650e8cb3687224d3663647461d5407a66692f360b6aca2c98b2"
+    },
+    "pad_small": {
+      "sources": [
+        "pads_pond"
+      ],
+      "operation": "Existing photo mask and crop, rectified to square UV domain; shallow relief geometry, not a recovered scan",
+      "sha256": "198f9eda46a132fbf6f0d24d341bb1adaf16e2b956462a8c3512711ede86f6a9"
+    },
+    "flower": {
+      "sources": [
+        "white_lily"
+      ],
+      "operation": "Existing photo mask and crop, rectified to square UV domain; shallow relief geometry, not a recovered scan",
+      "sha256": "ae2e03e378e8928c62c3c6efbc6cde465d2712f811035cc5c2da58c393eb4d97"
+    },
+    "buddha": {
+      "sources": [
+        "user_buddha"
+      ],
+      "operation": "Existing user photograph sprite on an altar photo-card; no invented back of statue",
+      "sha256": "9d3720eda1a203cd82002b10d5df0cc983c5ae10e2424fdc7d767367cbc0e2f6"
+    },
+    "banner": {
+      "sources": [
+        "temple_pavilion"
+      ],
+      "operation": "Decorative painted motif on a hanging panel; material study, not an authenticated textile",
+      "sha256": "e11980351c8a4971728daa866409f328efa77125986660d7c99a814d31ae79dc"
+    }
+  }
+}

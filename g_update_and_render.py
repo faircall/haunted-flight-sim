@@ -1818,6 +1818,8 @@ def load_shaders():
     }
 
     light_accumulation = g_firelight.load_shader("shaders/light_accumulation.fs")
+    for key,uniform in (('position_texture','geometryPositionTexture'),('normal_data','normalData')):
+        result['entity_self_shadow'][key+'_location']=pr.get_shader_location(entity_self_shadow,uniform)
     result["light_accumulation"] = {
         "shader": light_accumulation,
         "firelight": g_firelight.register(light_accumulation),

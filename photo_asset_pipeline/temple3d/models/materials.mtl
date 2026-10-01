@@ -1,0 +1,118 @@
+newmtl column
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/column.png
+
+newmtl stone
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/stone.png
+
+newmtl painted
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/painted.png
+
+newmtl timber
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/timber.png
+
+newmtl wood
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/wood.png
+
+newmtl paper
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/paper.png
+
+newmtl ceramic
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/ceramic.png
+
+newmtl buddha
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/buddha.png
+
+newmtl banner
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/banner.png
+
+newmtl pad_small
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/pad_small.png
+
+newmtl pad
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/pad.png
+
+newmtl flower
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/flower.png
+
+newmtl brick
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/brick.png
+
+newmtl Tile ends
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/roof_tile_ends.png
+
+newmtl Old timber
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/roof_timber.png
+
+newmtl Photographed tiles
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/roof_tiles.png
+
+newmtl Painted fascia
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+d 1
+map_Kd ../textures/roof_fascia.png

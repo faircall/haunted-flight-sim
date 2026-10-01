@@ -20,6 +20,7 @@ def run():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--water-benchmark',action='store_true')
     parser.add_argument('--label',default='current')
+    parser.add_argument('--art',choices=('original','photo','blender'),default='original',help='Select the independent temple art scene')
     parser.add_argument('--frames',type=int,default=24)
     parser.add_argument('--profile-frames',type=int,default=6)
     parser.add_argument('--reference', action='store_true', help='Use per-tile/per-light scenery submission for A/B checks')
@@ -28,6 +29,11 @@ def run():
     weather.add_argument('--calm', action='store_true', help='Keep the entry trigger disabled for a calm-weather comparison')
     parser.add_argument('--profile-case', choices=('all','approach','walking','interior'), default='all')
     args=parser.parse_args()
+    scene_builder=review_arena
+    if args.art=='photo':
+        from moonlit_water_temple_photo import review_arena as scene_builder
+    elif args.art=='blender':
+        from moonlit_water_temple_blender import review_arena as scene_builder
     if args.frames<1 or args.profile_frames<0:parser.error('invalid frame count')
     game=g_main.update_and_render_module;original=game.update_and_render
     out=Path('artifacts/moonlit-water-temple');out.mkdir(parents=True,exist_ok=True)
@@ -59,7 +65,7 @@ def run():
     def checked(render,lighting,arena,assets,engine):
         frame=state['frame'];case=cases[frame//span];index=frame%span
         if frame==0:
-            arena=review_arena(game,arena)
+            arena=scene_builder(game,arena)
             if args.calm:arena['world_sequences']['triggers']['temple:storm']['enabled']=False
             if args.storm:
                 arena=game.g_weather.update(game.g_weather.start_storm(arena),32.)
@@ -112,7 +118,7 @@ def run():
                 'frame_count':len(ordered)}
         summary[case]['stages_ms']={key:round(statistics.median(row['stages'].get(key,0.) for row in group),3) for key in group[0]['stages']}
         summary[case]['lighting']=group[-1]['lighting']
-    (out/f'{args.label}-timings.json').write_text(json.dumps(dict(reference=args.reference,storm=args.storm,calm=args.calm,summary=summary,frames=rows),indent=2),encoding='utf8')
+    (out/f'{args.label}-timings.json').write_text(json.dumps(dict(art=args.art,reference=args.reference,storm=args.storm,calm=args.calm,summary=summary,frames=rows),indent=2),encoding='utf8')
     with (out/f'{args.label}-profile.txt').open('w',encoding='utf8') as stream:
         if args.profile_frames:
             pstats.Stats(profiler,stream=stream).strip_dirs().sort_stats('cumulative').print_stats(65)

@@ -1,0 +1,71 @@
+{
+  "tiles": {
+    "source": "temple_pavilion",
+    "reference_size": [
+      1000,
+      667
+    ],
+    "quad_tl_bl_br_tr": [
+      [
+        451,
+        243
+      ],
+      [
+        442,
+        280
+      ],
+      [
+        693,
+        281
+      ],
+      [
+        683,
+        240
+      ]
+    ],
+    "operation": "four-corner perspective rectification",
+    "sha256": "ef63ef24e5481aba164f5cacec94326b3fa21e76f299bc3452fc333ea7025dc6"
+  },
+  "tile_ends": {
+    "source": "temple_pavilion",
+    "reference_size": [
+      1000,
+      667
+    ],
+    "crop": [
+      447,
+      280,
+      687,
+      295
+    ],
+    "sha256": "eaf83f505efcb494aa47c86cafb2164888f5b204e18415b1abe8b85a98dca092"
+  },
+  "fascia": {
+    "source": "temple_pavilion",
+    "reference_size": [
+      1000,
+      667
+    ],
+    "crop": [
+      651,
+      334,
+      968,
+      367
+    ],
+    "sha256": "f94f204835627f99ac3b04189f0f7306168361ab0dfdbabe2f956f0709f59e59"
+  },
+  "timber": {
+    "source": "tang_lantern",
+    "reference_size": [
+      893,
+      1000
+    ],
+    "crop": [
+      210,
+      741,
+      528,
+      765
+    ],
+    "sha256": "6372523d16a39619349243bc3abb355b72d42e9f4ab6ad66eb155b13732cf620"
+  }
+}

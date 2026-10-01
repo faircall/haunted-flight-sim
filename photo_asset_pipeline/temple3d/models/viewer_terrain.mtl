@@ -1,0 +1,15 @@
+newmtl grass
+Kd 1 1 1
+map_Kd ../runtime/viewer_grass.png
+
+newmtl planks_x
+Kd 1 1 1
+map_Kd ../runtime/planks_x.png
+
+newmtl planks_y
+Kd 1 1 1
+map_Kd ../runtime/planks_y.png
+
+newmtl wall_ground
+Kd 1 1 1
+map_Kd ../runtime/wall_ground.png

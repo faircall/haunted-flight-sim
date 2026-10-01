@@ -1,0 +1,17 @@
+{
+  "runtime_size": [216, 116],
+  "supersample": 4,
+  "angles": [30, 40, 50],
+  "selected_angle": 30,
+  "half_width": 104.0,
+  "half_depth": 67.0,
+  "ridge_half_width": 52.0,
+  "rise": 48.0,
+  "eave_lift": 5.5,
+  "corner_lift": 8.0,
+  "fascia_height": 7.0,
+  "light_elevation": 40.0,
+  "palette": 64,
+  "front_fascia_world_y": 232,
+  "scene_base_y": 272
+}

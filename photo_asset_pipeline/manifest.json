@@ -1,0 +1,408 @@
+{
+  "version": 1,
+  "assets": {
+    "roof": {
+      "sources": [
+        "temple_pavilion"
+      ],
+      "source_crop": [
+        1325,
+        321,
+        2164,
+        767
+      ],
+      "runtime_size": [
+        216,
+        116
+      ],
+      "palette": 64,
+      "note": "Intact upper roof tier and its painted underside; the larger lower roof is obscured by trees. The photographed finial and asymmetry are retained.",
+      "response": "Conservative geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        108.0,
+        116
+      ],
+      "sha256": "12f04af0bde771f5d07eb2b52769cf57640b6d656d2df044b17e29dd11c6db5f"
+    },
+    "lantern_paper": {
+      "sources": [
+        "tang_lantern"
+      ],
+      "source_crop": [
+        593,
+        397,
+        1094,
+        1237
+      ],
+      "runtime_size": [
+        20,
+        30
+      ],
+      "palette": 64,
+      "note": "Whole photographed Tang-clan paper lantern. Uniform 1.45x linear exposure compensation; the real lettering is retained, not reconstructed.",
+      "response": "Conservative geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        10.0,
+        0
+      ],
+      "sha256": "cf606b5359971b728d677072afc2728cf86a236f74a9f0f36fe86173ccdba8fd"
+    },
+    "lantern_porcelain": {
+      "sources": [
+        "walters_lantern"
+      ],
+      "source_crop": [
+        410,
+        294,
+        1061,
+        1563
+      ],
+      "runtime_size": [
+        18,
+        32
+      ],
+      "palette": 64,
+      "note": "Walters 49.2829, Qing porcelain lantern, shown as a stationary pedestal prop (not swinging paper). Pierced crown and base are masked separately.",
+      "response": "Conservative geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        9.0,
+        0
+      ],
+      "sha256": "746ebfecd6f95b85679c6d3c5d0e8bf9403aaa3deb2e58710e02f9ddb79fb80f"
+    },
+    "lily_pad": {
+      "sources": [
+        "pads_pond"
+      ],
+      "source_crop": [
+        366,
+        741,
+        793,
+        1034
+      ],
+      "runtime_size": [
+        24,
+        17
+      ],
+      "palette": 64,
+      "note": "Whole foreground pad with its natural radial slit and mottled highlights. No water is retained.",
+      "response": "Conservative geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        12.0,
+        17
+      ],
+      "sha256": "37cbb75be5bac82608496478c417d5d4033a2a4102a875595ff8bac448554144"
+    },
+    "lily_pad_small": {
+      "sources": [
+        "pads_pond"
+      ],
+      "source_crop": [
+        514,
+        225,
+        811,
+        374
+      ],
+      "runtime_size": [
+        18,
+        10
+      ],
+      "palette": 64,
+      "note": "Second whole pad; photographed obliquely, retained at that angle.",
+      "response": "Conservative geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        9.0,
+        10
+      ],
+      "sha256": "29cf687bbef85ae0fc707137f1d20910b56ec0ba2904f506d6f562d466eb58b8"
+    },
+    "lily_flower": {
+      "sources": [
+        "white_lily"
+      ],
+      "source_crop": [
+        1066,
+        537,
+        1454,
+        861
+      ],
+      "runtime_size": [
+        16,
+        14
+      ],
+      "palette": 64,
+      "note": "White flower photographed amongst old, weathered pads; selected over the more saturated purple flower for the scene.",
+      "response": "Conservative geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        8.0,
+        14
+      ],
+      "sha256": "71f737ca987ac4864fb393a22541c03c3f621a72e7d9e9e356b5417b10e02ce6"
+    },
+    "lily_purple": {
+      "sources": [
+        "water_lily"
+      ],
+      "source_crop": [
+        212,
+        110,
+        1696,
+        1268
+      ],
+      "runtime_size": [
+        20,
+        16
+      ],
+      "palette": 64,
+      "note": "Optional purple flower. Colour selection inside a hand-authored silhouette excludes water and nearby stems.",
+      "response": "Conservative geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        10.0,
+        16
+      ],
+      "sha256": "f18d39d55fe82b275d7d160ca0043194ae5fb159678ee379b3440d49cb2ae0b7"
+    },
+    "planks_x": {
+      "sources": [
+        "Wood058"
+      ],
+      "runtime_size": [
+        128,
+        32
+      ],
+      "palette": 64,
+      "note": "Photographic scan, rotated grain and perspective-compressed board strips; thin authored joints.",
+      "response": "Conservative wood geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        64.0,
+        32
+      ],
+      "sha256": "e7773763821426e9c11293c4d383134c74c2cadb1376a9192954f68c67d977d0"
+    },
+    "planks_y": {
+      "sources": [
+        "Wood058"
+      ],
+      "runtime_size": [
+        32,
+        128
+      ],
+      "palette": 64,
+      "note": "Same board atlas rotated 90 degrees.",
+      "response": "Conservative wood geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        16.0,
+        128
+      ],
+      "sha256": "eeaf39b85bdf784e1ca8018a33f7c464d465dd0150e46fcdf4d67d91bf4391ef"
+    },
+    "rail": {
+      "sources": [
+        "tang_lantern"
+      ],
+      "runtime_size": [
+        32,
+        17
+      ],
+      "palette": 64,
+      "note": "Actual timber photo fragments placed on the existing open rail geometry.",
+      "response": "Conservative wood geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        16.0,
+        17
+      ],
+      "sha256": "51754a8191054d1591fe36f37f20a3bce3490f38ab6a6947caef65f2aeef6a90"
+    },
+    "column": {
+      "sources": [
+        "pavilion"
+      ],
+      "runtime_size": [
+        10,
+        58
+      ],
+      "palette": 64,
+      "note": "Photographed worn red pillar; a four-corner perspective correction straightens the camera convergence.",
+      "response": "Conservative wood geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        5.0,
+        58
+      ],
+      "sha256": "30adf95904ac835488ab0c59303adeda932d49d2e9d1ce174272e150b6115f51"
+    },
+    "pile": {
+      "sources": [
+        "Wood058"
+      ],
+      "runtime_size": [
+        5,
+        28
+      ],
+      "palette": 64,
+      "note": "Narrow vertical timber scan crop.",
+      "response": "Conservative wood geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        2.5,
+        28
+      ],
+      "sha256": "1a6c479d0f208d6d94a0bf6f8c024a8feb718b080d1d8e617c53f71984424f11"
+    },
+    "wall": {
+      "sources": [
+        "Wood058",
+        "temple_pavilion",
+        "tang_lantern",
+        "pavilion"
+      ],
+      "runtime_size": [
+        48,
+        56
+      ],
+      "palette": 64,
+      "note": "Timber scan, actual painted fascia and red post crops; aperture geometry stays in the renderer.",
+      "response": "Conservative wood geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        24.0,
+        56
+      ],
+      "sha256": "594f5adef6af6219342ea4ad1edd972be92d4eb6cb27245186dfc83bfd2b9912"
+    },
+    "wall_ground": {
+      "sources": [
+        "tang_lantern"
+      ],
+      "runtime_size": [
+        48,
+        32
+      ],
+      "palette": 64,
+      "note": "Actual grey temple brickwork crop for wall footprints.",
+      "response": "Conservative wood geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        24.0,
+        32
+      ],
+      "sha256": "99416fe7e26e840b2c5372fee201fbe1f9641bcd63df18d8c99a483106d37215"
+    },
+    "frieze": {
+      "sources": [
+        "temple_pavilion"
+      ],
+      "runtime_size": [
+        128,
+        14
+      ],
+      "palette": 64,
+      "note": "Painted beam fragment, available as a reusable architectural trim.",
+      "response": "Conservative wood geometry draft: RGBA=down/up/left/right",
+      "pivot": [
+        64.0,
+        14
+      ],
+      "sha256": "8674adde59e5dbd95fe5f71be43ff03a4c89218079f92f5a70fb85f49e42c6f4"
+    },
+    "lily_cluster": {
+      "sources": [
+        "pads_pond",
+        "white_lily"
+      ],
+      "runtime_size": [
+        26,
+        20
+      ],
+      "palette": 64,
+      "note": "Composite of intact photo cutouts; no invented foliage.",
+      "sha256": "f3fe79ae2b0bd3ad65f775d4fde490632e1ad2617e1fe346aa0e0c36a9efd0b9"
+    },
+    "lily_leaves": {
+      "sources": [
+        "pads_pond"
+      ],
+      "runtime_size": [
+        26,
+        20
+      ],
+      "palette": 64,
+      "note": "Composite of intact photo cutouts; no invented foliage.",
+      "sha256": "9576462cc7df39d0abb71cf533a662433df9665250c7c096f2978c78a82c1ee6"
+    },
+    "roof_blender_30": {
+      "sources": [
+        "temple_pavilion",
+        "tang_lantern"
+      ],
+      "runtime_size": [
+        216,
+        116
+      ],
+      "palette": 64,
+      "note": "Photographic tile/wood fragments on a real curved hipped roof; orthographic elevation 30 degrees. Authored geometry, not a recovered 3D scan.",
+      "response": "Blender shadowed white-material directional renders; RGBA down/up/left/right.",
+      "camera": {
+        "elevation": 30,
+        "azimuth": 0,
+        "projection": "ORTHO",
+        "ortho_scale": 215.8439483642578,
+        "front_fascia_pixel": 101.55529841780663,
+        "anchor_y": -142
+      },
+      "pivot": [
+        108.0,
+        116
+      ],
+      "sha256": "dae366bd51a5c0927d20c386376a3a0c9699a315ec51c726fdb35b87063722be"
+    },
+    "roof_blender_40": {
+      "sources": [
+        "temple_pavilion",
+        "tang_lantern"
+      ],
+      "runtime_size": [
+        216,
+        116
+      ],
+      "palette": 64,
+      "note": "Photographic tile/wood fragments on a real curved hipped roof; orthographic elevation 40 degrees. Authored geometry, not a recovered 3D scan.",
+      "response": "Blender shadowed white-material directional renders; RGBA down/up/left/right.",
+      "camera": {
+        "elevation": 40,
+        "azimuth": 0,
+        "projection": "ORTHO",
+        "ortho_scale": 215.8439483642578,
+        "front_fascia_pixel": 108.17188033461571,
+        "anchor_y": -148
+      },
+      "pivot": [
+        108.0,
+        116
+      ],
+      "sha256": "e7ee6e5bea29008023e383655e308d0cc6f39260aa8c005a83d3c30c05d15d22"
+    },
+    "roof_blender_50": {
+      "sources": [
+        "temple_pavilion",
+        "tang_lantern"
+      ],
+      "runtime_size": [
+        216,
+        116
+      ],
+      "palette": 64,
+      "note": "Photographic tile/wood fragments on a real curved hipped roof; orthographic elevation 50 degrees. Authored geometry, not a recovered 3D scan.",
+      "response": "Blender shadowed white-material directional renders; RGBA down/up/left/right.",
+      "camera": {
+        "elevation": 50,
+        "azimuth": 0,
+        "projection": "ORTHO",
+        "ortho_scale": 222.61282348632812,
+        "front_fascia_pixel": 113.57423771172762,
+        "anchor_y": -154
+      },
+      "pivot": [
+        108.0,
+        116
+      ],
+      "sha256": "6c356b730a0430c5703bc5344060374d066b0b8fbaff71eccecff331cd1b9f97"
+    }
+  }
+}

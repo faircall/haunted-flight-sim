@@ -1,0 +1,80 @@
+{
+  "roof_blender_30": {
+    "sources": [
+      "temple_pavilion",
+      "tang_lantern"
+    ],
+    "runtime_size": [
+      216,
+      116
+    ],
+    "palette": 64,
+    "note": "Photographic tile/wood fragments on a real curved hipped roof; orthographic elevation 30 degrees. Authored geometry, not a recovered 3D scan.",
+    "response": "Blender shadowed white-material directional renders; RGBA down/up/left/right.",
+    "camera": {
+      "elevation": 30,
+      "azimuth": 0,
+      "projection": "ORTHO",
+      "ortho_scale": 215.8439483642578,
+      "front_fascia_pixel": 101.55529841780663,
+      "anchor_y": -142
+    },
+    "pivot": [
+      108.0,
+      116
+    ],
+    "sha256": "dae366bd51a5c0927d20c386376a3a0c9699a315ec51c726fdb35b87063722be"
+  },
+  "roof_blender_40": {
+    "sources": [
+      "temple_pavilion",
+      "tang_lantern"
+    ],
+    "runtime_size": [
+      216,
+      116
+    ],
+    "palette": 64,
+    "note": "Photographic tile/wood fragments on a real curved hipped roof; orthographic elevation 40 degrees. Authored geometry, not a recovered 3D scan.",
+    "response": "Blender shadowed white-material directional renders; RGBA down/up/left/right.",
+    "camera": {
+      "elevation": 40,
+      "azimuth": 0,
+      "projection": "ORTHO",
+      "ortho_scale": 215.8439483642578,
+      "front_fascia_pixel": 108.17188033461571,
+      "anchor_y": -148
+    },
+    "pivot": [
+      108.0,
+      116
+    ],
+    "sha256": "e7ee6e5bea29008023e383655e308d0cc6f39260aa8c005a83d3c30c05d15d22"
+  },
+  "roof_blender_50": {
+    "sources": [
+      "temple_pavilion",
+      "tang_lantern"
+    ],
+    "runtime_size": [
+      216,
+      116
+    ],
+    "palette": 64,
+    "note": "Photographic tile/wood fragments on a real curved hipped roof; orthographic elevation 50 degrees. Authored geometry, not a recovered 3D scan.",
+    "response": "Blender shadowed white-material directional renders; RGBA down/up/left/right.",
+    "camera": {
+      "elevation": 50,
+      "azimuth": 0,
+      "projection": "ORTHO",
+      "ortho_scale": 222.61282348632812,
+      "front_fascia_pixel": 113.57423771172762,
+      "anchor_y": -154
+    },
+    "pivot": [
+      108.0,
+      116
+    ],
+    "sha256": "6c356b730a0430c5703bc5344060374d066b0b8fbaff71eccecff331cd1b9f97"
+  }
+}

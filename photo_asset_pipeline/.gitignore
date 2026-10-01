@@ -1,0 +1,6 @@
+__pycache__/
+review/*.log
+blender/*.log
+blender/*.blend1
+temple3d/*.log
+temple3d/*.blend1

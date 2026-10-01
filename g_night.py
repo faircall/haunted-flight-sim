@@ -100,8 +100,20 @@ def facade_art(obj, opened=False):
             for x,y,hh in ((5,11,7),(w-6,20,6),(w//2,30,4)):
                 cut.polygon(((x,y),(x+1,y-1),(x+2,y+hh),(x,y+hh+2)),fill=255)
             draw.rectangle((w-5,h//2,w-4,h//2+3),fill=(179,138,57,255))
+    if obj.get('art_style')=='photo_temple':
+        import g_water_temple_art
+        panel=g_water_temple_art.image('wall',w,h,'photo:wall')
+    elif obj.get('art_style')=='blender_temple':
+        import g_baked_assets
+        panel=g_baked_assets.image(baked_facade_name(obj,opened)).resize((w,h),Image.Resampling.NEAREST)
     panel.paste((0,0,0,0),(0,0,w,h),holes)
     return panel,holes
+
+
+def baked_facade_name(obj,opened):
+    if obj.get('type')=='window_wall':return 'window'
+    if obj.get('type')=='pierced_door':return 'door_open' if opened else 'door_closed'
+    return 'wall'
 
 
 def aperture_emission(panel,holes,source):
@@ -328,6 +340,10 @@ def render_items(assets,tm):
         item['_facade']=entry
         # A facade is one front-facing vertical plane, not a four-sided box.
         item['self_shadow']={'mode':'none','strength':0.}
+        if obj.get('art_style')=='blender_temple' and obj.get('normal_lighting',True):
+            import g_baked_assets
+            name=baked_facade_name(obj,entry['opened']);g_baked_assets.prepare(assets,name)
+            item['self_shadow']=g_baked_assets.policy(name,base)
         if 'emission' in entry:item['_emission']=entry['emission']
         result.append(item)
     return result

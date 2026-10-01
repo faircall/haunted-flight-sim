@@ -88,7 +88,7 @@ def prepare(assets,arena,dt,mode):
         previous=rt.get('cutaways',{}) if rt and rt.get('map') is tm else {}
         unload(assets)
         rt=dict(stamp=stamp,map=tm,cutaways=previous,props={},targets={},shaders={},mode=mode)
-        assets['water_runtime']=rt;assets['water_prop_textures']={}
+        assets['water_runtime']=rt;assets['water_prop_textures']={};assets['water_prop_responses']={}
         rt['mask_image']=water_map_image(tm)
     # Pack cached sky visibility into the unused alpha channel. This lets the
     # water reuse world lighting without counting authored moon ambience twice,
@@ -109,7 +109,10 @@ def prepare(assets,arena,dt,mode):
     feet={axis:feet[axis]+offset.get(axis,0.) for axis in ('x','y')}
     for name,prop in arena['entities'].get('lake_props',{}).items():
         if not prop.get('enabled',True):continue
-        wanted.add(name);signature=(prop['kind'],prop['width'],prop['height'],prop.get('asset'),prop.get('emission'))
+        if prop.get('geometry_asset'):
+            import g_baked_assets
+            g_baked_assets.prepare(assets,prop['geometry_asset'])
+        wanted.add(name);signature=(prop['kind'],prop['width'],prop['height'],prop.get('asset'),prop.get('emission'),prop.get('response'))
         if rt['props'].get(name)!=signature:
             if name in assets['water_prop_textures']:pr.unload_texture(assets['water_prop_textures'][name])
             assets['water_prop_textures'][name]=g_surfaces.upload_image(art.image(*signature[:4]))
@@ -117,6 +120,10 @@ def prepare(assets,arena,dt,mode):
             if name in emission:pr.unload_texture(emission.pop(name))
             if prop.get('emission'):
                 emission[name]=g_surfaces.upload_image(art.image(prop['kind'],prop['width'],prop['height'],prop['emission']))
+            responses=assets['water_prop_responses']
+            if name in responses:pr.unload_texture(responses.pop(name))
+            if prop.get('response'):
+                responses[name]=g_surfaces.upload_image(art.image(prop['kind'],prop['width'],prop['height'],prop['response']))
             rt['props'][name]=signature
         region=prop.get('cutaway')
         if region:
@@ -129,6 +136,7 @@ def prepare(assets,arena,dt,mode):
         pr.unload_texture(assets['water_prop_textures'].pop(name));rt['props'].pop(name);rt['cutaways'].pop(name,None)
         rt.get('metadata',{}).pop(name,None)
         if name in rt.get('emissions',{}):pr.unload_texture(rt['emissions'].pop(name))
+        if name in assets['water_prop_responses']:pr.unload_texture(assets['water_prop_responses'].pop(name))
     rt['mode']=mode
     rt['now']=float(arena.get('time_elapsed',0.))
     rt['wind']=arena.get('wind_profile',{})
@@ -167,6 +175,12 @@ def render_items(assets,entities):
         if prop['kind']=='lily':entity['height_overrides']={'body_height':2.,'sample_height':1.,'projection':'grounded'}
         item=order.make_world_render_item('lake_prop','lake_prop','lake:'+name,name,entity,base,w,h,
             order.make_texture_reference('water_prop_textures',name),dict(x=0,y=0,width=w,height=h))
+        if name in assets.get('water_prop_responses',{}):
+            item['self_shadow']=dict(mode='directional_profiles',strength=.65,minimum_direct=.25,
+                response_texture=order.make_texture_reference('water_prop_responses',name),fallback_mode='none')
+        if prop.get('geometry_asset'):
+            import g_baked_assets
+            item['self_shadow']=g_baked_assets.policy(prop['geometry_asset'],base,prop.get('geometry_offset',(0.,0.,0.)))
         if prop.get('cutaway'):item['sort_y']-=.5
         if prop['kind']=='roof':item['excluded_light_owners']=['altar-left','altar-right']
         if prop['kind']=='lily':
@@ -363,10 +377,13 @@ def reload_shaders(assets):
 
 
 def unload(assets):
+    import g_baked_assets
+    g_baked_assets.unload(assets)
     rt=assets.pop('water_runtime',{})
     if 'mask' in rt:pr.unload_texture(rt['mask'])
     if 'palette' in rt:pr.unload_texture(rt['palette'])
     for target in rt.get('targets',{}).values():pr.unload_render_texture(target)
     for shader,_ in rt.get('shaders',{}).values():pr.unload_shader(shader)
     for texture in assets.pop('water_prop_textures',{}).values():pr.unload_texture(texture)
+    for texture in assets.pop('water_prop_responses',{}).values():pr.unload_texture(texture)
     for texture in rt.get('emissions',{}).values():pr.unload_texture(texture)

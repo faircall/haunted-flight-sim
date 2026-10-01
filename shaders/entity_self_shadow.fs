@@ -7,6 +7,18 @@ uniform sampler2D texture0;
 uniform sampler2D entityLightTexture;
 uniform sampler2D entityReadabilityLightTexture;
 uniform sampler2D directionalResponseTexture;
+uniform sampler2D geometryPositionTexture;
+// One upload per draw, rather than a separate driver call for every scalar.
+uniform vec4 normalData[6];
+#define geometryMinimum normalData[0].xyz
+#define geometrySpan normalData[1].xyz
+#define geometryOrigin normalData[2].xyz
+#define geometryLight normalData[3].xyz
+#define geometryView normalData[4].xyz
+#define geometryRotation normalData[5].x
+#define normalBands normalData[2].w
+#define normalSpecular normalData[3].w
+#define normalTransmission normalData[4].w
 uniform vec2 resolution;
 uniform vec2 sourceUvMin;
 uniform vec2 sourceUvMax;
@@ -110,6 +122,29 @@ float calculateProfileDividerVisibility(vec2 localUv)
 float calculateSelfShadow(vec2 localUv, out vec4 response)
 {
     response = vec4(1.0);
+
+    if (selfShadowMode == 3)
+    {
+        // Data textures are linear, nearest filtered, registered to colour pixels.
+        response = texture(directionalResponseTexture, fragTexCoord);
+        vec3 normal = normalize(response.rgb * 2.0 - 1.0);
+        vec3 axis = normalize(geometryView);
+        // Match the small screen-plane swing of hanging lanterns.
+        float c=cos(geometryRotation), s=sin(geometryRotation);
+        normal=normal*c+cross(axis,normal)*s+axis*dot(axis,normal)*(1.0-c);
+        vec4 data = texture(geometryPositionTexture, fragTexCoord);
+        vec3 point = geometryOrigin + geometryMinimum + data.rgb * geometrySpan;
+        vec3 incoming = normalize(geometryLight - point);
+        float incidence = dot(normal, incoming);
+        float diffuse = max(incidence, 0.0) + normalTransmission * max(-incidence, 0.0);
+        float bands = max(normalBands-1.0, 1.0);
+        diffuse = floor(diffuse*bands+0.5)/bands;
+        vec3 halfVector = normalize(incoming+axis);
+        float specular=pow(max(dot(normal,halfVector),0.0),mix(72.0,8.0,data.a));
+        specular=floor(specular*3.0+0.5)/3.0 * normalSpecular * step(0.001,incidence);
+        float shaped=clamp(diffuse*mix(0.65,1.0,response.a)+specular,normalData[0].w,1.0);
+        return mix(1.0,shaped,clamp(normalData[1].w,0.0,1.0));
+    }
 
     if (selfShadowMode == 1)
     {

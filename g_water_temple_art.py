@@ -33,7 +33,10 @@ def roof():
 
 def image(kind,width=16,height=24,asset=None):
     if asset:
-        path=Path(__file__).resolve().parent/'art'/'temple'/(asset+'.png')
+        root=Path(__file__).resolve().parent
+        path=(root/'photo_asset_pipeline'/'temple3d'/'runtime'/(asset[6:]+'.png') if asset.startswith('baked:') else
+              root/'photo_asset_pipeline'/'runtime'/(asset[6:]+'.png') if asset.startswith('photo:')
+              else root/'art'/'temple'/(asset+'.png'))
         with Image.open(path) as source:
             return source.convert('RGBA').resize((width,height),Image.Resampling.NEAREST)
     if kind=='roof':return roof()

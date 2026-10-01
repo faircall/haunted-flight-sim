@@ -17,7 +17,9 @@ GRASS_SHADER_VERSION = 2
 def brush_settings(editor):
     settings=dict(density=editor.get('surface_density', 0.65), seed=editor.get('surface_seed', 17), soft=editor.get('surface_soft', True))
     if editor.get('surface_material')=='wood':
-        settings.update(plank_axis=editor.get('surface_plank_axis','auto'),style='temple')
+        settings.update(plank_axis=editor.get('surface_plank_axis','auto'),style=editor.get('surface_art_style','temple'))
+    elif editor.get('surface_material')=='wall' and editor.get('surface_art_style') in ('photo_temple','blender_temple'):
+        settings['style']=editor['surface_art_style']
     return settings
 
 def draw_controls(ui, editor):
@@ -81,6 +83,8 @@ def paint(tm, points, material, density=0.65, seed=17, soft=True,plank_axis=None
             if material=='wood':
                 if plank_axis in ('x','y'):tile['surface_axis']=plank_axis
                 if style is not None:tile['surface_style']=style
+            elif material=='wall' and style in ('photo_temple','blender_temple'):
+                tile.pop('surface_axis',None);tile['surface_style']=style
             else:
                 tile.pop('surface_axis',None);tile.pop('surface_style',None)
         changed += before != tuple(tile.get(k) for k in keys)
@@ -249,9 +253,11 @@ def vegetation_blocked(tm, tile):
     return game.tile_is_collidable(tile, tm)
 
 
-@lru_cache(maxsize=2)
-def plank_sample(axis):
-    with Image.open(ART.parent/'temple'/('planks_'+axis+'.png')) as image:
+@lru_cache(maxsize=6)
+def plank_sample(axis,style='temple'):
+    folder=ART.parent.parent/'photo_asset_pipeline'/'runtime' if style=='photo_temple' else ART.parent/'temple'
+    if style=='blender_temple':folder=ART.parent.parent/'photo_asset_pipeline'/'temple3d'/'runtime'
+    with Image.open(folder/('planks_'+axis+'.png')) as image:
         return np.asarray(image.convert('RGBA')).copy()
 
 
@@ -265,15 +271,17 @@ def wood_layer(tm,wx,wy,w,h):
     result=base_patch('wood',wx,wy,w,h).copy();pixels=np.asarray(result).copy()
     yy,xx=np.mgrid[wy:wy+h,wx:wx+w]
     tw,th=tm['tile_width'],tm['tile_height']
-    for axis in ('x','y'):
+    styles={cell(tm,tx,ty).get('surface_style')
+            for ty in range(wy//th,(wy+h-1)//th+1) for tx in range(wx//tw,(wx+w-1)//tw+1)}
+    for style,axis in ((style,axis) for style in ('temple','photo_temple','blender_temple') if style in styles for axis in ('x','y')):
         selected=np.zeros((h,w),dtype=bool)
         for ty in range(wy//th,(wy+h-1)//th+1):
             for tx in range(wx//tw,(wx+w-1)//tw+1):
                 tile=cell(tm,tx,ty)
-                if tile.get('surface_style')=='temple' and tile.get('surface_axis','x')==axis:
+                if tile.get('surface_style')==style and tile.get('surface_axis','x')==axis:
                     selected|=(xx//tw==tx)&(yy//th==ty)
         if not selected.any():continue
-        sample=plank_sample(axis);sh,sw=sample.shape[:2]
+        sample=plank_sample(axis,style);sh,sw=sample.shape[:2]
         # Offset entire repeated strips, never separate tile-sized patches.
         if axis=='x':
             phase=(noise_grid(np.zeros_like(yy),yy//sh,91)*sw).astype(int)
@@ -283,6 +291,28 @@ def wood_layer(tm,wx,wy,w,h):
             sampled=sample[(yy+phase)%sh,xx%sw]
         pixels[selected]=sampled[selected]
     return Image.fromarray(pixels)
+
+
+@lru_cache(maxsize=2)
+def photo_wall_sample(style='photo_temple'):
+    folder=ART.parent.parent/'photo_asset_pipeline'
+    if style=='blender_temple':folder=folder/'temple3d'
+    with Image.open(folder/'runtime'/'wall_ground.png') as image:
+        return np.asarray(image.convert('RGBA')).copy()
+
+
+def wall_layer(tm,wx,wy,w,h):
+    result=np.asarray(base_patch('wall',wx,wy,w,h)).copy()
+    yy,xx=np.mgrid[wy:wy+h,wx:wx+w];tw,th=tm['tile_width'],tm['tile_height']
+    for style in ('photo_temple','blender_temple'):
+        selected=np.zeros((h,w),dtype=bool)
+        for ty in range(wy//th,(wy+h-1)//th+1):
+            for tx in range(wx//tw,(wx+w-1)//tw+1):
+                if cell(tm,tx,ty).get('surface_style')==style:selected|=(xx//tw==tx)&(yy//th==ty)
+        if selected.any():
+            sample=photo_wall_sample(style);sh,sw=sample.shape[:2]
+            result[selected]=sample[yy%sh,xx%sw][selected]
+    return Image.fromarray(result)
 
 def candidates(tm, ox, oy, width, height):
     """Anchor identity depends on world position and seed, never paint order."""
@@ -320,11 +350,13 @@ def bake_chunk(tm, cx, cy):
         if kind not in fields:
             continue
         mask = fields[kind].crop(crop)
-        layer = wood_layer(tm,wx,wy,w,h) if kind=='wood' else base_patch(kind, wx, wy, w, h).copy()
+        layer = (wood_layer(tm,wx,wy,w,h) if kind=='wood' else wall_layer(tm,wx,wy,w,h) if kind=='wall'
+                 else base_patch(kind, wx, wy, w, h).copy())
         for k, x, y, record, scale, flip in nearby:
             if k != kind:
                 continue
-            if k=='wood' and cell(tm,math.floor(x/tw),math.floor(y/th)).get('surface_style')=='temple':
+            style=cell(tm,math.floor(x/tw),math.floor(y/th)).get('surface_style')
+            if (k=='wood' and style in ('temple','photo_temple','blender_temple')) or (k=='wall' and style in ('photo_temple','blender_temple')):
                 continue  # The authored samples already contain grain/knots.
             mx, my = (round(x - origin[0]), round(y - origin[1]))
             if not (0 <= mx < fields[k].width and 0 <= my < fields[k].height) or fields[k].getpixel((mx, my)) < 180:

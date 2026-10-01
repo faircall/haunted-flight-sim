@@ -1,0 +1,153 @@
+{
+  "wood": {
+    "sources": [
+      "Wood058"
+    ],
+    "operation": "Whole preserved scan, 1024px texture",
+    "sha256": "0213315376760b2e2217e677218b75939fd5eeaf4d0c7137516269f126b51e0a"
+  },
+  "timber": {
+    "sources": [
+      "tang_lantern"
+    ],
+    "operation": {
+      "crop": [
+        210,
+        741,
+        528,
+        765
+      ],
+      "reference_size": [
+        893,
+        1000
+      ],
+      "linear_exposure": 1.0
+    },
+    "sha256": "b7accf3c901f448f91bbf0c00c9c85609f696f4b8bf52e95d3b3ae19043d7d1c"
+  },
+  "brick": {
+    "sources": [
+      "tang_lantern"
+    ],
+    "operation": {
+      "crop": [
+        8,
+        565,
+        185,
+        688
+      ],
+      "reference_size": [
+        893,
+        1000
+      ],
+      "linear_exposure": 1.0
+    },
+    "sha256": "c9c9e18b3186710439b78f2755a8612029ac0900bff999414feadad01df86bef"
+  },
+  "paper": {
+    "sources": [
+      "tang_lantern"
+    ],
+    "operation": {
+      "crop": [
+        294,
+        221,
+        529,
+        512
+      ],
+      "reference_size": [
+        893,
+        1000
+      ],
+      "linear_exposure": 1.45
+    },
+    "sha256": "5446b3c10a3f42818874ee9a7b5fac0a18d920fda90870f77ae4dddb62252c7e"
+  },
+  "painted": {
+    "sources": [
+      "temple_pavilion"
+    ],
+    "operation": {
+      "crop": [
+        651,
+        334,
+        968,
+        367
+      ],
+      "reference_size": [
+        1000,
+        667
+      ],
+      "linear_exposure": 1.0
+    },
+    "sha256": "1b8c8c15a9bd0c4c38624812ff5f64becb463e8a67791ef2ad7c88aaf5dd5d17"
+  },
+  "ceramic": {
+    "sources": [
+      "walters_lantern"
+    ],
+    "operation": {
+      "crop": [
+        254,
+        318,
+        560,
+        730
+      ],
+      "reference_size": [
+        809,
+        1000
+      ],
+      "linear_exposure": 1.0
+    },
+    "sha256": "1a529f388e9d3f8835a31aa6b4742d3ff9126f7f57cc0876cef4d67b19adb981"
+  },
+  "column": {
+    "sources": [
+      "pavilion"
+    ],
+    "operation": "Perspective-rectified pillar, same source quad as photo pipeline",
+    "sha256": "90ba86d272e9f98a70e9d352a3716fdbb0b8562e1d006c2828eb2b0a3138bd34"
+  },
+  "stone": {
+    "sources": [
+      "tang_lantern"
+    ],
+    "operation": "Brick face crop [25,605,76,625] at reference 893x1000; used for stone bowls and plinths",
+    "sha256": "61a203d49a6c1f36a6ec2c4abbea9380ecce26e1b9f0d694ab7b4bd1a30bfd5c"
+  },
+  "pad": {
+    "sources": [
+      "pads_pond"
+    ],
+    "operation": "Existing photo mask and crop, rectified to square UV domain; shallow relief geometry, not a recovered scan",
+    "sha256": "7e948f207a21a650e8cb3687224d3663647461d5407a66692f360b6aca2c98b2"
+  },
+  "pad_small": {
+    "sources": [
+      "pads_pond"
+    ],
+    "operation": "Existing photo mask and crop, rectified to square UV domain; shallow relief geometry, not a recovered scan",
+    "sha256": "198f9eda46a132fbf6f0d24d341bb1adaf16e2b956462a8c3512711ede86f6a9"
+  },
+  "flower": {
+    "sources": [
+      "white_lily"
+    ],
+    "operation": "Existing photo mask and crop, rectified to square UV domain; shallow relief geometry, not a recovered scan",
+    "sha256": "ae2e03e378e8928c62c3c6efbc6cde465d2712f811035cc5c2da58c393eb4d97"
+  },
+  "buddha": {
+    "sources": [
+      "user_buddha"
+    ],
+    "operation": "Existing user photograph sprite on an altar photo-card; no invented back of statue",
+    "sha256": "9d3720eda1a203cd82002b10d5df0cc983c5ae10e2424fdc7d767367cbc0e2f6"
+  },
+  "banner": {
+    "sources": [
+      "temple_pavilion"
+    ],
+    "operation": "Decorative painted motif on a hanging panel; material study, not an authenticated textile",
+    "sha256": "e11980351c8a4971728daa866409f328efa77125986660d7c99a814d31ae79dc"
+  }
+}

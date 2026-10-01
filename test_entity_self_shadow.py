@@ -46,7 +46,8 @@ class EntitySelfShadowTests(unittest.TestCase):
             "source_rect": {"x": 0.0, "y": 0.0, "width": 128.0, "height": 128.0},
             "dest_rect": {"x": 20.25, "y": 40.75, "width": 128.0, "height": 128.0},
         }
-        with mock.patch.object(g_graphics.pr, "draw_texture_pro") as draw_texture:
+        draw_texture = mock.Mock()
+        with mock.patch.object(g_graphics.pr, "rl", SimpleNamespace(DrawTexturePro=draw_texture)):
             g_graphics._draw_render_item_main_shape(item, object(), SimpleNamespace(x=2.6, y=3.2))
 
         destination = draw_texture.call_args.args[2]

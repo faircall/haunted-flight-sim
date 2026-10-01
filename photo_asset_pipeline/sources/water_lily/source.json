@@ -1,0 +1,89 @@
+{
+  "url": "https://upload.wikimedia.org/wikipedia/commons/5/50/Water_Lily.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "descriptionurl": "https://commons.wikimedia.org/wiki/File:Water_Lily.jpg",
+  "descriptionshorturl": "https://commons.wikimedia.org/w/index.php?curid=26308774",
+  "extmetadata": {
+    "DateTime": {
+      "value": "2013-05-25 17:19:51",
+      "source": "mediawiki-metadata",
+      "hidden": ""
+    },
+    "ObjectName": {
+      "value": "Water Lily",
+      "source": "mediawiki-metadata"
+    },
+    "CommonsMetadataExtension": {
+      "value": 1.2,
+      "source": "extension",
+      "hidden": ""
+    },
+    "Categories": {
+      "value": "Taken with Pentax K-30|CC-Zero|Self-published work|Nymphaea tropical day blooming group|Nymphaea cultivars in Kew Gardens",
+      "source": "commons-categories",
+      "hidden": ""
+    },
+    "Assessments": {
+      "value": "",
+      "source": "commons-categories",
+      "hidden": ""
+    },
+    "ImageDescription": {
+      "value": "Water Lily - Kew Gardens",
+      "source": "commons-desc-page"
+    },
+    "DateTimeOriginal": {
+      "value": "2013-04-27 15:44:01",
+      "source": "commons-desc-page"
+    },
+    "Credit": {
+      "value": "<span class=\"int-own-work\" lang=\"en\">Own work</span>",
+      "source": "commons-desc-page"
+    },
+    "Artist": {
+      "value": "<a href=\"//commons.wikimedia.org/wiki/User:Dinkum\" title=\"User:Dinkum\">Dinkum</a>",
+      "source": "commons-desc-page"
+    },
+    "LicenseShortName": {
+      "value": "CC0",
+      "source": "commons-desc-page",
+      "hidden": ""
+    },
+    "UsageTerms": {
+      "value": "Creative Commons Zero, Public Domain Dedication",
+      "source": "commons-desc-page"
+    },
+    "AttributionRequired": {
+      "value": "false",
+      "source": "commons-desc-page",
+      "hidden": ""
+    },
+    "LicenseUrl": {
+      "value": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "source": "commons-desc-page"
+    },
+    "Copyrighted": {
+      "value": "True",
+      "source": "commons-desc-page",
+      "hidden": ""
+    },
+    "Restrictions": {
+      "value": "",
+      "source": "commons-desc-page",
+      "hidden": ""
+    },
+    "License": {
+      "value": "cc0",
+      "source": "commons-templates",
+      "hidden": ""
+    }
+  },
+  "institution": "Wikimedia Commons",
+  "title": "Water Lily.jpg",
+  "licence": "CC0",
+  "object_url": "https://commons.wikimedia.org/wiki/File:Water_Lily.jpg",
+  "rights_url": "https://commons.wikimedia.org/wiki/File:Water_Lily.jpg",
+  "direct_image_url": "https://upload.wikimedia.org/wikipedia/commons/5/50/Water_Lily.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "download_date": "2026-09-30T22:49:59.741259+00:00",
+  "sha256": "9c40d1c82787f6ca3fb890aa8457515cd885b232089abe400d9f6f0a282b202c",
+  "original_file": "sources/water_lily/original.jpg"
+}
