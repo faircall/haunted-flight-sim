@@ -48,6 +48,10 @@ def floor_cells(tm):
     return result
 
 
+def original_temple(tm,x,z,height):
+    return tm.get('temple3d_layout') and not tm.get('temple3d_custom_temple') and height==structure.TEMPLE_HEIGHT and 400<=x<560 and 176<=z<280
+
+
 def layout(tm):
     cells=floor_cells(tm)
     bands=defaultdict(list)
@@ -60,7 +64,7 @@ def layout(tm):
 
     def add(kind,axis,a0,a1,b0,b1,h0,h1):
         x0,z0,x1,z1=(a0,b0,a1,b1) if axis=='x' else (b0,a0,b1,a1)
-        owner='temple' if tm.get('temple3d_layout') and height==structure.TEMPLE_HEIGHT else 'bridge'
+        owner='temple' if original_temple(tm,(x0+x1)/2,(z0+z1)/2,height) else 'bridge'
         parts.append(Part(kind,(x0,h0,z0),(x1,h1,z1),axis,owner))
 
     for (height,axis,across),longs in sorted(bands.items()):
@@ -87,7 +91,8 @@ def layout(tm):
             for first,end in runs(across_values):
                 lo,hi=first*16,end*16
                 top=height-BOARD_THICKNESS
-                temple=tm.get('temple3d_layout') and height==structure.TEMPLE_HEIGHT
+                cx,cz=(station,(lo+hi)/2) if axis=='x' else ((lo+hi)/2,station)
+                temple=original_temple(tm,cx,cz,height)
                 depth=4.
                 half_width=2.5 if temple else 1.75
                 add('joist',axis,station-half_width,station+half_width,lo+.5,hi-.5,top-depth,top)
@@ -103,7 +108,7 @@ def layout(tm):
                         piers.add(key)
                         radius=3.5 if temple else 2.
                         parts.append(Part('pier',(x-radius,-20.,z-radius),(x+radius,top-depth,z+radius),'vertical','temple' if temple else 'bridge'))
-    if tm.get('temple3d_layout'):parts=finish_structures(parts)
+    if tm.get('temple3d_layout'):parts=finish_structures(parts,tm)
     return parts
 
 
@@ -117,40 +122,48 @@ def subtract(part,bounds):
     return [Part(part.kind,(a,h0,b),(c,h1,d),part.axis,part.owner) for a,b,c,d in boxes if a<c and b<d]
 
 
-def finish_structures(parts):
+def finish_structures(parts,tm=None):
+    tm=tm or {}
+    stairs_list=structure.stairs_for(tm)
+    custom=tm.get('temple3d_authored_geometry',False)
+    custom_temple=tm.get('temple3d_custom_temple',False)
     result=[]
     for part in parts:
-        if part.owner=='bridge' and part.kind!='board' and part.high[2]<=296:continue
+        if not custom and part.owner=='bridge' and part.kind!='board' and part.high[2]<=296:continue
         chunks=[part]
-        if part.kind=='board':
-            for bounds in [s.bounds for s in structure.STAIRS]+[(400,272,560,280)]:
+        if part.kind=='board' or custom:
+            openings=[s.bounds for s in stairs_list]+([] if custom_temple else [(400,272,560,280)])
+            for bounds in openings:
                 chunks=[piece for chunk in chunks for piece in subtract(chunk,bounds)]
         result.extend(chunks)
     # A narrow front sill belongs to the building, with its own perimeter beams
     # and column supports. There is no wraparound forecourt underneath it.
-    for x in range(400,560,32):
-        result.append(Part('board',(x+GAP/2,21.75,272),(x+32-GAP/2,24,280),'x','temple'))
-    for low,high,axis in (((400,14.75,274),(560,21.75,280),'x'),
+    if not custom_temple:
+        for x in range(400,560,32):
+            result.append(Part('board',(x+GAP/2,21.75,272),(x+32-GAP/2,24,280),'x','temple'))
+    for low,high,axis in (() if custom_temple else (((400,14.75,274),(560,21.75,280),'x'),
                           ((400,14.75,176),(404,21.75,274),'y'),
                           ((556,14.75,176),(560,21.75,274),'y'),
-                          ((400,14.75,176),(560,21.75,180),'x')):
+                          ((400,14.75,176),(560,21.75,180),'x'))):
         result.append(Part('joist',low,high,axis,'temple'))
-    for z in (180,224,276):
+    for z in (() if custom_temple else (180,224,276)):
         result.append(Part('joist',(400,10.75,z-3),(560,17.75,z+3),'x','temple'))
         for x in (404,454,506,556):
             result.append(Part('pier',(x-3.5,-20,z-3.5),(x+3.5,10.75,z+3.5),'vertical','temple'))
-    for stairs in structure.STAIRS:
+    for stairs in stairs_list:
         previous=stairs.bottom
         for (x0,z0,x1,z1),top in stairs.treads():
             owner='stairs:'+stairs.name
-            axis='y' if stairs.axis=='x' else 'x'
+            axis='y' if stairs.axis.endswith('x') else 'x'
             result.append(Part('tread',(x0,top-2,z0),(x1,top,z1),axis,owner))
             # Closed risers and stepped side stringers support each tread.
-            if stairs.axis=='x':
-                result.append(Part('riser',(x0,previous,z0),(x0+.8,top,z1),'y',owner))
+            if stairs.axis.endswith('x'):
+                face=x1-.8 if stairs.axis.startswith('-') else x0
+                result.append(Part('riser',(face,previous,z0),(face+.8,top,z1),'y',owner))
                 for z in (z0,z1-2):result.append(Part('stringer',(x0,stairs.bottom-4,z),(x1,top-1,z+2),'x',owner))
             else:
-                result.append(Part('riser',(x0,previous,z1-.8),(x1,top,z1),'x',owner))
+                face=z1-.8 if stairs.axis.startswith('-') else z0
+                result.append(Part('riser',(x0,previous,face),(x1,top,face+.8),'x',owner))
                 for x in (x0,x1-2):result.append(Part('stringer',(x,stairs.bottom-4,z0),(x+2,top-1,z1),'y',owner))
             previous=top
     return result

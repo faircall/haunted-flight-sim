@@ -16,6 +16,7 @@ import g_night
 import g_audio
 import g_temple_cameras as cameras
 import g_temple_structure as structure
+import g_temple_layout as layout
 from g_temple_scene import atomic_json, point
 from photo_asset_pipeline.temple3d.living.gait import SETTINGS
 
@@ -27,6 +28,9 @@ class Exploration:
         self.scene = scene
         self.assets = assets if assets is not None else {}
         self.arena = interactions.ensure(puzzles.ensure_arena(arena))
+        self.base_tile_map = deepcopy(arena['tile_map'])
+        self.applied_layout = None
+        self.geometry_revision = 0
         self.walk = cameras.Walkthrough(*scene.document['spawn'])
         self.static_props = {k: deepcopy(p) for k, p in arena['entities']['lake_props'].items()
                              if p['kind'] in ('roof', 'rail', 'column')}
@@ -38,6 +42,9 @@ class Exploration:
         self.footsteps = []
         self.apply_scene()
         self.set_position(self.walk.x, self.walk.y)
+        self.spawn_error=''
+        try:self.ensure_clear_position()
+        except ValueError as exc:self.spawn_error=str(exc)
 
     @property
     def player(self):
@@ -50,6 +57,7 @@ class Exploration:
     def set_position(self, x, z):
         self.walk.x, self.walk.y = float(x), float(z)
         self.walk.director.update(x, z)
+        self.update_camera()
         self.walk.intent = cameras.MovementIntent()
         self.walk.moving = False
         self.player['position'] = dict(game.get_tile_index_and_offset_from_pos(dict(x=x, y=z), self.arena['tile_map']), z=0.)
@@ -59,6 +67,24 @@ class Exploration:
     def sync_position(self):
         self.player['position'].update(game.get_tile_index_and_offset_from_pos(
             dict(x=self.walk.x, y=self.walk.y), self.arena['tile_map']))
+
+    def update_camera(self,dt=0.):
+        tm=self.arena['tile_map']
+        tx,tz=layout.cell_at((self.walk.x,self.walk.y))
+        if tz*layout.WIDTH+tx not in self.new_floor_indices:
+            self.walk.director.override=None
+            return
+        # New floor outside the original footprint gets a clear local view.
+        # The accepted authored shots still cover the original temple/bridge.
+        floor=structure.floor_height(tm,self.walk.x,self.walk.y)
+        target=(self.walk.x,floor+14,self.walk.y)
+        previous=self.walk.director.override
+        if previous and dt:
+            amount=1-math.exp(-dt*12)
+            target=tuple(old+(goal-old)*amount for old,goal in zip(previous['target'],target))
+        self.walk.director.override=dict(title='New layout',target=target,
+            eye=(target[0]+100,target[1]+151,target[2]+220),span=140,
+            hide_front_facade=self.walk.director.shots[self.walk.director.active].get('hide_front_facade',False))
 
     def ensure_clear_position(self):
         if self.can_walk(self.walk.x, self.walk.y):
@@ -71,11 +97,31 @@ class Exploration:
                     if self.can_walk(x, z):
                         self.set_position(x, z)
                         return
+        tm=self.arena['tile_map']
+        candidates=sorted(((math.hypot((x+.5)*16-self.walk.x,(z+.5)*16-self.walk.y),x,z)
+            for z in range(tm['map_height']) for x in range(tm['map_width'])))
+        for _,x,z in candidates:
+            if self.can_walk((x+.5)*16,(z+.5)*16):
+                self.set_position((x+.5)*16,(z+.5)*16)
+                return
         raise ValueError('No clear player position near the edited layout.')
 
     def apply_scene(self):
+        authored_layout=self.scene.document['layout']
+        if authored_layout != self.applied_layout:
+            self.geometry_revision += 1
+            self.arena=self.arena.set('tile_map',layout.apply(self.base_tile_map,authored_layout,self.geometry_revision))
+            self.applied_layout=deepcopy(authored_layout)
+            tm=self.arena['tile_map']
+            self.new_floor_indices={i for i,t in enumerate(tm['tiles']) if not t.get('water') and not t.get('force_collidable')
+                and (self.base_tile_map['tiles'][i].get('water') or self.base_tile_map['tiles'][i].get('force_collidable'))}
+            self.update_camera()
         entities = self.arena['entities']
         entities['lake_props'] = deepcopy(self.static_props)
+        if layout.authored(authored_layout) or not authored_layout['rails']:
+            entities['lake_props']={k:p for k,p in entities['lake_props'].items() if p['kind']!='rail'}
+            if authored_layout['rails']:
+                entities['lake_props'].update(layout.generated_rails(self.arena['tile_map']))
         entities['emitters'] = deepcopy(self.static_emitters)
         # Authored bowls own their emitters; removing a bowl removes its light.
         for identity in list(entities['emitters']):
@@ -167,6 +213,12 @@ class Exploration:
                 return False
         return True
 
+    def can_move_to(self,x,z):
+        if not self.can_walk(x,z):return False
+        tm=self.arena['tile_map']
+        # Check both directions at a ledge; authored stairs are small risers.
+        return abs(structure.floor_height(tm,x,z)-structure.floor_height(tm,self.walk.x,self.walk.y))<=4.001
+
     def tick(self, dt, keys=(), running=False, pressed=(), editor=False):
         dt = max(0., min(.05, dt))
         pressed = set(pressed)
@@ -190,9 +242,20 @@ class Exploration:
         else:
             old = self.walk.x, self.walk.y
             gait = 'run' if running else 'walk'
-            self.walk.step(keys, dt, self.can_walk, SETTINGS[gait]['speed'])
+            start=self.walk.x,self.walk.y
+            def move_allowed(x,z):
+                if not self.can_walk(x,z):return False
+                tm=self.arena['tile_map']
+                # Track each accepted swept position, rather than comparing an
+                # entire frame's stair ascent to its initial elevation.
+                allowed=abs(structure.floor_height(tm,x,z)-structure.floor_height(tm,*move_allowed.previous))<=4.001
+                if allowed:move_allowed.previous=(x,z)
+                return allowed
+            move_allowed.previous=start
+            self.walk.step(keys, dt, move_allowed, SETTINGS[gait]['speed'])
             self.travel = math.hypot(self.walk.x-old[0], self.walk.y-old[1])
             self.sync_position()
+            self.update_camera(dt)
             self.footsteps = g_audio.update_actor_footstep_travel(self.player,
                 dict(x=self.walk.x, y=self.walk.y), SETTINGS[gait]['stride']/2, 'player', 'player', gait=gait)
             self.clock += dt

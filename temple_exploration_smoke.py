@@ -25,6 +25,8 @@ class Review:
         self.steps = 0
         self.audio_events = 0
         self.missing_audio = set()
+        self.mesh_rebuilds=0
+        self.audio_surfaces=set()
         self.metrics = {}
         self.script = self.run()
 
@@ -36,6 +38,29 @@ class Review:
 
     def press(self, *names):
         yield set(), set(names), False
+
+    def native_floor_drag(self,a,b,material,height):
+        """Real camera projection/picking with mouse input injected at its boundary."""
+        from unittest.mock import patch
+        from g_temple_editor import VIEW_SCALE,VIEW_TOP,gameplay_camera
+        import g_temple_structure as structure
+        editor,g=self.editor,self.gameplay
+        editor.choose_tool(5);editor.material=material;editor.floor_height=height
+        camera=editor.camera(gameplay_camera(g))
+        before=g.scene.checkpoint();count=len(g.scene.undo_stack)
+        for phase,point in enumerate((a,b,b)):
+            floor=structure.floor_height(g.arena['tile_map'],*point)
+            p=pr.get_world_to_screen_ex(pr.Vector3(point[0],floor,point[1]),camera,480,270)
+            mouse=pr.Vector2(p.x*VIEW_SCALE,p.y*VIEW_SCALE+VIEW_TOP)
+            with patch.object(pr,'get_mouse_position',return_value=mouse), \
+                 patch.object(pr,'is_key_down',return_value=False),patch.object(pr,'is_key_pressed',return_value=False), \
+                 patch.object(pr,'get_mouse_wheel_move',return_value=0), \
+                 patch.object(pr,'is_mouse_button_pressed',side_effect=lambda k:k==pr.MOUSE_BUTTON_LEFT and phase==0), \
+                 patch.object(pr,'is_mouse_button_released',side_effect=lambda k:k==pr.MOUSE_BUTTON_LEFT and phase==2), \
+                 patch.object(pr,'is_mouse_button_down',side_effect=lambda k:k==pr.MOUSE_BUTTON_LEFT and phase<2):
+                editor.update(g,camera,.05)
+            if phase<2:assert g.scene.document==before
+        assert len(g.scene.undo_stack)==count+1
 
     def confirm_pickup(self):
         yield from self.press('E')
@@ -159,11 +184,66 @@ class Review:
         yield from self.wait(3, '07-editor-game-camera')
         editor.toggle(g)
         yield from self.wait(2, '08-progress-restored')
+        import g_temple_layout as layout
+        import g_temple_structure as structure
+        editor.toggle(g)
+        editor.overhead=True;editor.focus=[486,340];editor.span=180;editor.choose_tool(5)
+        baseline=scene.checkpoint()
+        self.native_floor_drag([504,328],[552,344],'wood',16)
+        layout.paint(scene,[560,320],[607,351],'stone',16)
+        layout.paint(scene,[576,384],[607,415],'wood',32)
+        layout.add_stairs(scene,[576,336],[607,383],16,32,'z')
+        scene.path=self.folder/'blockout.scene.json'
+        scene.save();g.apply_scene()
+        assert g.can_walk(552,334) and g.can_walk(600,334) and g.can_walk(584,406)
+        assert structure.floor_height(g.arena['tile_map'],584,406)==32
+        self.capture='09-blockout-editor'
+        yield from self.wait(3)
+        editor.toggle(g)
+        g.set_position(480,334)
+        yield from self.move((552,334))
+        self.capture='10-walkway-extension'
+        yield from self.wait(2)
+        yield from self.move((592,330))
+        yield from self.move((584,330))
+        yield from self.move((584,404))
+        self.capture='11-raised-terrace'
+        yield from self.wait(2)
+        assert structure.floor_height(g.arena['tile_map'],g.walk.x,g.walk.y)==32
+        layout.paint(scene,[576,384],[591,399],'wall',32);g.apply_scene()
+        assert not g.can_walk(584,392)
+        yield from self.wait(2,'11b-wall-blockout')
+        assert scene.undo();g.apply_scene()
+        assert g.can_walk(584,392)
+        yield from self.wait(2)
+        self.metrics['wall_geometry_collision']=True
+        progress=g.snapshot();g.save(self.folder/'blockout-progress.json')
+        g.set_position(256,334);g.load(self.folder/'blockout-progress.json')
+        assert g.snapshot()==progress
+        edited=scene.checkpoint()
+        scene.document=baseline;scene.commit(edited);g.apply_scene();g.ensure_clear_position()
+        yield from self.wait(2,'12-blockout-undone')
+        assert not g.can_walk(584,404)
+        assert scene.undo();g.apply_scene()
+        assert g.can_walk(584,404)
+        yield from self.wait(2,'13-blockout-restored')
+        editor.toggle(g)
+        layout.paint(scene,[0,0],[895,639],'water');g.apply_scene()
+        yield from self.wait(2,'14-empty-layout-editor')
+        assert scene.undo();g.apply_scene();g.ensure_clear_position()
+        editor.toggle(g)
+        yield from self.wait(2)
+        self.metrics['empty_geometry_rebuild']=True
+        self.metrics['blockout_walk_stairs_save_undo']=True
+        self.metrics['native_floor_brush']=True
+        self.metrics['mesh_rebuilds']=self.mesh_rebuilds
+        assert self.mesh_rebuilds>=3
         self.metrics.update(scene_edit_round_trip=True, footsteps=self.steps, frames=self.frames,
-                            accepted_audio_events=self.audio_events, missing_audio=sorted(self.missing_audio))
+                            accepted_audio_events=self.audio_events,footstep_surfaces=sorted(self.audio_surfaces),missing_audio=sorted(self.missing_audio))
         assert self.steps > 5
         assert self.audio_events > 0
         assert not any(name.startswith('footsteps.') for name in self.missing_audio)
+        assert {'wood','stone'}<=self.audio_surfaces
         (self.folder/'report.json').write_text(json.dumps(self.metrics, indent=2)+'\n', encoding='utf-8')
         self.done = True
 
@@ -179,6 +259,16 @@ class Review:
 
     def after_frame(self, target, camera):
         self.steps += len(self.gameplay.footsteps)
+        if not self.editor.active:
+            import g_temple_layout as layout
+            import g_temple_structure as structure
+            g=self.gameplay
+            x,z=layout.cell_at((g.walk.x,g.walk.y))
+            if z*layout.WIDTH+x in g.new_floor_indices:
+                floor=structure.floor_height(g.arena['tile_map'],g.walk.x,g.walk.y)
+                for height in (floor+1,floor+28):
+                    p=pr.get_world_to_screen_ex(pr.Vector3(g.walk.x,height,g.walk.y),camera,480,270)
+                    assert 8<p.x<472 and 8<p.y<262,('New floor player framing',p.x,p.y)
         if self.capture:
             image = pr.load_image_from_texture(target.texture)
             pr.image_flip_vertical(image)
@@ -195,6 +285,7 @@ class Review:
     def audio_stats(self, stats):
         self.audio_events += stats['accepted_events']
         self.missing_audio.update(stats['missing_asset_families'])
+        if stats.get('last_footstep_base_surface'):self.audio_surfaces.add(stats['last_footstep_base_surface'])
 
     def close(self):
         self.gameplay.scene.path = self.original_path

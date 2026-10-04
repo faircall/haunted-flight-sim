@@ -39,14 +39,16 @@ class CameraDirector:
     shots:dict=field(default_factory=load_shots)
     active:str='approach'
     cut_count:int=0
+    override:dict|None=None
 
     @property
-    def shot(self):return self.shots[self.active]
+    def shot(self):return self.override or self.shots[self.active]
 
     def update(self,x,y):
         candidates=[name for name,s in self.shots.items() if contains(s['enter'],x,y)]
         candidate=max(candidates,key=lambda n:self.shots[n]['priority'],default=self.active)
-        if self.shots[candidate]['priority']>self.shot['priority'] or not contains(self.shot['hold'],x,y):
+        active_shot=self.shots[self.active]
+        if self.shots[candidate]['priority']>active_shot['priority'] or not contains(active_shot['hold'],x,y):
             if candidate!=self.active:self.active=candidate;self.cut_count+=1;return True
         return False
 

@@ -24,22 +24,25 @@ class Stairs:
     def treads(self):
         x0,z0,x1,z1=self.bounds
         for i in range(self.count):
-            if self.axis=='x':
-                a=x0+(x1-x0)*i/self.count;b=x0+(x1-x0)*(i+1)/self.count
-                bounds=(a,z0,b,z1)
-            else:
-                a=z1-(z1-z0)*(i+1)/self.count;b=z1-(z1-z0)*i/self.count
-                bounds=(x0,a,x1,b)
+            low,high=(x0,x1) if self.axis.endswith('x') else (z0,z1)
+            start,end=(i/self.count,(i+1)/self.count) if not self.axis.startswith('-') else (1-(i+1)/self.count,1-i/self.count)
+            a=low+(high-low)*start;b=low+(high-low)*end
+            bounds=(a,z0,b,z1) if self.axis.endswith('x') else (x0,a,x1,b)
             yield bounds,self.bottom+(self.top-self.bottom)*(i+1)/self.count
 
     def height(self,x,z):
         x0,z0,x1,z1=self.bounds
-        t=(x-x0)/(x1-x0) if self.axis=='x' else (z1-z)/(z1-z0)
+        t=(x-x0)/(x1-x0) if self.axis.endswith('x') else (z-z0)/(z1-z0)
+        if self.axis.startswith('-'):t=1-t
         return self.bottom+(self.top-self.bottom)*min(self.count,max(1,math.floor(t*self.count)+1))/self.count
 
 
 STAIRS=(Stairs('shore',(140.,320.,176.,352.),'x',0.,BRIDGE_HEIGHT,6),
         Stairs('threshold',(464.,280.,496.,296.),'-z',BRIDGE_HEIGHT,TEMPLE_HEIGHT,4))
+
+
+def stairs_for(tm):
+    return tm.get('temple3d_stairs', STAIRS)
 
 
 def prepare(arena):
@@ -94,11 +97,12 @@ def prepare(arena):
 
 
 def floor_height(tm,x,z):
-    if tm.get('temple3d_layout'):
-        for stairs in STAIRS:
-            if stairs.contains(x,z):return stairs.height(x,z)
-        if 400<=x<560 and 272<=z<280:return TEMPLE_HEIGHT
     tx,ty=math.floor(x/16),math.floor(z/16)
+    if tm.get('temple3d_layout'):
+        for stairs in stairs_for(tm):
+            if stairs.contains(x,z):return stairs.height(x,z)
+        if 400<=x<560 and 272<=z<280 and ty*tm['map_width']+tx not in tm.get('temple3d_edited_cells', ()):
+            return TEMPLE_HEIGHT
     if 0<=tx<tm['map_width'] and 0<=ty<tm['map_height']:
         return float(tm['tiles'][ty*tm['map_width']+tx].get('surface_elevation',0.))
     return 0.

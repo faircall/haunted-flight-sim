@@ -1,4 +1,4 @@
-# Temple: 3D exploration and level placement
+# Temple: 3D exploration and level editing
 
 ```powershell
 python moonlit_water_temple_3d.py
@@ -75,7 +75,7 @@ the current shot otherwise persists until the player leaves its `hold` rectangle
 Terrain generation writes into the ignored artifact cache, rather than changing
 the exported model files.
 
-## Placement and design markup
+## Level blockout, placement and design markup
 
 Press **F2** to pause exploration and open the editor. **C** switches between
 an overhead view and the actual game camera. The complete camera composition is
@@ -91,6 +91,15 @@ shown beside the tool panel. In the overhead view, WASD pans and the wheel zooms
 | 3 / Note | Click, type a design note, Enter commits, Esc cancels text |
 | 4 / Arrow | Click the start and end, then type an optional note |
 | 5 / Area | Click opposite corners, then type an optional note |
+| 6 / Floor | Choose a material and drag a rectangle to build floors or walkways |
+| 7 / Stairs | Click the lower corner, then the opposite upper corner |
+| 8 / Spawn | Click a clear walkable spot for the starting position |
+| [ / ] | Lower / raise the chosen floor or stair landing height by four units |
+| V | Change wood grain direction or stair ascent direction |
+| Right drag (Floor) | Erase a floor rectangle into water |
+| Alt+click (Floor) | Sample an existing floor's material, height and grain |
+| Right click (Stairs) | Remove the stair flight under the cursor |
+| J | Toggle automatic edge rails |
 | K | Choose yellow, blue or red markup |
 | Enter | Edit the selected mark's text |
 | Ctrl+Z / Ctrl+Y | Undo / redo; a complete drag is one operation |
@@ -105,9 +114,35 @@ bowl also moves its emitter and collision. Collected items retain their progress
 through layout edits; duplicates receive new IDs. If an edited prop overlaps the
 player, returning to play moves him to a nearby clear position.
 
-Floors, bridge geometry, stairs, walls, the entrance and camera regions still use
-the existing authored layout. Editing rooms and walkway footprints is a later
-blockout milestone; this initial editor handles object placement and markup.
+The second milestone adds saved floor footprints. Wood produces suspended
+boards, beams and piers; stone and grass produce solid platforms. Walls stand
+48 units above their selected base height and block movement. Water removes
+walkable floor. **Restore original** restores the shipped surface and any
+original stair flight touched by the rectangle. Each complete floor drag is
+one undo operation. Rectangle boundaries use 16-unit construction increments.
+
+Heights range from 0 to 48; the original bridge is at 16 and the temple at 24.
+Stair flights rise in any of four map directions, with automatically sized
+risers. Set the upper landing height before placing stairs; their lower height
+comes from the first clicked location. Draw a longer rectangle if the tool
+reports that the flight is too short. Floor painting across stairs replaces
+the whole flight. The player can climb short risers and cannot step directly
+up or down a tall ledge. Individual foot IK remains future animation work.
+
+Floor commits, undo/redo and scene reload rebuild the visible meshes from the
+same data that drives collision, floor height and surface footsteps. Boundary
+rails follow exposed raised wood edges and disappear across newly connected
+floor. New walkable areas outside the original footprint get a local camera
+view so the player remains visible; the original authored shots are retained
+on the original route. Leaving the editor relocates the player if a floor or
+prop edit makes the current position invalid. A completely erased layout stays
+in the editor until it has a walkable starting point again.
+
+The scene file stores edits to the original layout rather than duplicating
+all exported geometry. Older placement scenes load with the original floor and
+stairs automatically. The decorated temple shell, its entrance and original
+camera regions remain anchored; new walls are blockout masonry. There is one
+walkable surface at each map position, so overlapping floors are later work.
 
 ## Exploration saves
 
@@ -170,7 +205,7 @@ older assets by default; to orbit the new models, run
 `artifacts/temple3d-env/Scripts/python.exe temple_3d_viewer.py --living-assets`.
 
 ```powershell
-python -m unittest test_temple_exploration test_inventory test_puzzles test_temple_cameras test_audio
+python -m unittest test_temple_layout test_temple_exploration test_inventory test_puzzles test_temple_cameras test_audio test_temple_gait_deck
 python moonlit_water_temple_3d.py --gameplay-smoke
 python moonlit_water_temple_3d.py --player-review
 ```
@@ -183,11 +218,18 @@ are written to `artifacts/temple-exploration/`; all smoke saves use that directo
 and leave the shipped scene and user progress untouched. The original art,
 structure and animation review modes remain available.
 
-The next useful milestone is connecting the existing interaction and character
-gameplay logic, followed by 3D shadows, water reflections and the temple
-storm. Evaluate those together at the intended low resolution and profile the
-frame time before deciding on a full migration. More general terrain/foot IK
-can build on the separate ground positions and render heights used by the stairs.
+The same review now injects a mouse drag through the actual editor/camera picking
+path, builds an extended walkway, stone landing, stair flight and upper terrace,
+and walks the player over them. It verifies material footsteps, framing, wall
+collision, progress reload, geometry undo/restore and an empty-mesh rebuild.
+The editable demo is saved as `artifacts/temple-exploration/blockout.scene.json`;
+try it with `python moonlit_water_temple_3d.py --scene artifacts/temple-exploration/blockout.scene.json`.
+
+The next gameplay migration work is enemies, combat and the temple storm.
+Shadows and water reflections can be evaluated at the intended low resolution
+alongside those systems, with frame-time profiling to guide the rendering work.
+More general terrain/foot IK can build on the separate ground positions and
+render heights used by the stairs.
 
 ## Verification
 

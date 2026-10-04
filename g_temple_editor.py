@@ -5,15 +5,18 @@ import math
 import pyray as pr
 import g_narrative_text as text
 import g_temple_structure as structure
+import g_temple_layout as layout
 from g_temple_scene import PROP_LABELS, prop_origin
 
-TOOLS = ('Select', 'Place', 'Note', 'Arrow', 'Area')
+TOOLS = ('Select', 'Place', 'Note', 'Arrow', 'Area', 'Floor / walkway', 'Stairs', 'Player spawn')
 COLORS = (pr.Color(242, 191, 83, 255), pr.Color(99, 202, 239, 255), pr.Color(238, 112, 111, 255))
 VIEW_SCALE = 1140 / 480
 VIEW_TOP = (810 - 270 * VIEW_SCALE) / 2
+TOOL_TOP,TOOL_ROW,PALETTE_TOP,PALETTE_ROW=80,24,314,20
+FLOOR_LABELS=('Wood walkway','Stone floor','Grass / ground','Wall','Water / erase','Restore original')
 
 
-def ground_point(eye, target, up, span, screen, floor):
+def ground_point(eye, target, up, span, screen, floor, levels=None):
     """Orthographic ray / stepped floor intersection, independent of Raylib."""
     def normalize(v):
         length = math.sqrt(sum(a*a for a in v))
@@ -29,7 +32,7 @@ def ground_point(eye, target, up, span, screen, floor):
         return None
     # Test actual discrete levels, avoiding oscillation across stair edges.
     candidates = []
-    for height in (0., 16., 18., 20., 22., 24., 16/6, 32/6, 8., 64/6, 80/6):
+    for height in levels or (0., 16., 18., 20., 22., 24., 16/6, 32/6, 8., 64/6, 80/6):
         distance = (height-origin[1])/forward[1]
         x, z = origin[0]+forward[0]*distance, origin[2]+forward[2]*distance
         if distance >= 0 and 0 <= x < 896 and 0 <= z < 640 and abs(floor(x, z)-height) < .01:
@@ -54,6 +57,12 @@ class Editor:
         self.edit_text = None
         self.text_before = None
         self.color = 0
+        self.material='wood'
+        self.floor_height=16.
+        self.grain='x'
+        self.stair_axis='x'
+        self.floor_drag=None
+        self.hover=None
         self.status = ''
         self.palette_index = 0
         self.palette = [dict(kind='key', label='Brass key', rotation=0, group='temple'),
@@ -102,13 +111,30 @@ class Editor:
         if self.drag:
             self.scene.commit(self.drag['before'])
             self.drag = None
+        if self.floor_drag:self.finish_floor(gameplay)
         self.pending = None
         self.active = not self.active
         if self.active:
             self.focus = [gameplay.walk.x, gameplay.walk.y]
         gameplay.apply_scene()
         if not self.active:
-            gameplay.ensure_clear_position()
+            try:gameplay.ensure_clear_position()
+            except ValueError:
+                self.active=True
+                raise
+
+    def finish_floor(self,gameplay):
+        drag=self.floor_drag
+        self.floor_drag=None
+        if drag and self.hover:
+            changed=layout.paint(self.scene,drag['start'],self.hover,drag['material'],drag['height'],drag['axis'])
+            if changed:gameplay.apply_scene()
+
+    def choose_tool(self,index):
+        self.tool=index
+        self.pending=None
+        self.floor_drag=None
+        if index>=5:self.selected=None
 
     def pick(self, camera, mouse, tm):
         candidates = []
@@ -179,16 +205,23 @@ class Editor:
         try:
             if control:
                 if pr.is_key_pressed(pr.KEY_S):
+                    if self.floor_drag:
+                        self.finish_floor(gameplay)
+                        before=scene.checkpoint()
+                        changed=True
                     scene.save()
                     self.status = 'Scene saved.'
                 if pr.is_key_pressed(pr.KEY_O):
+                    self.floor_drag=None;self.pending=None
                     scene.reload()
                     self.selected = None
                     changed = True
                     self.status = 'Scene reloaded; Ctrl+Z restores previous edits.'
                 if pr.is_key_pressed(pr.KEY_Z):
+                    self.floor_drag=None;self.pending=None
                     changed = scene.undo()
                 if pr.is_key_pressed(pr.KEY_Y):
+                    self.floor_drag=None;self.pending=None
                     changed = scene.redo()
                 if pr.is_key_pressed(pr.KEY_D):
                     self.selected = scene.duplicate(self.selected) or self.selected
@@ -200,9 +233,16 @@ class Editor:
                     self.snap = not self.snap
                 if pr.is_key_pressed(pr.KEY_K):
                     self.color = (self.color+1) % len(COLORS)
-                for i, key in enumerate((pr.KEY_ONE, pr.KEY_TWO, pr.KEY_THREE, pr.KEY_FOUR, pr.KEY_FIVE)):
+                if pr.is_key_pressed(pr.KEY_J):
+                    scene.document['layout']['rails']=not scene.document['layout']['rails']
+                if self.tool in (5,6):
+                    self.floor_height=max(0,min(48,self.floor_height+4*(int(pr.is_key_pressed(pr.KEY_RIGHT_BRACKET))-int(pr.is_key_pressed(pr.KEY_LEFT_BRACKET)))))
+                    if pr.is_key_pressed(pr.KEY_V):
+                        if self.tool==5:self.grain='y' if self.grain=='x' else 'x'
+                        else:self.stair_axis=layout.AXES[(layout.AXES.index(self.stair_axis)+1)%4]
+                for i, key in enumerate((pr.KEY_ONE, pr.KEY_TWO, pr.KEY_THREE, pr.KEY_FOUR, pr.KEY_FIVE,pr.KEY_SIX,pr.KEY_SEVEN,pr.KEY_EIGHT)):
                     if pr.is_key_pressed(key):
-                        self.tool, self.pending = i, None
+                        self.choose_tool(i)
                 if self.overhead:
                     self.focus[0] = max(0, min(896, self.focus[0] +
                         (int(pr.is_key_down(pr.KEY_D))-int(pr.is_key_down(pr.KEY_A)))*self.span*dt))
@@ -210,7 +250,7 @@ class Editor:
                         (int(pr.is_key_down(pr.KEY_S))-int(pr.is_key_down(pr.KEY_W)))*self.span*dt))
                     self.span = max(60, min(640, self.span-pr.get_mouse_wheel_move()*16))
                 if pr.is_key_pressed(pr.KEY_ESCAPE):
-                    self.tool, self.pending = 0, None
+                    self.choose_tool(0)
             obj = scene.get(self.selected)
             if obj and obj['kind'] != 'door' and not control:
                 step = 1 if pr.is_key_down(pr.KEY_LEFT_SHIFT) else 4
@@ -235,20 +275,42 @@ class Editor:
             mouse = pr.get_mouse_position()
             if mouse.x >= 1140:
                 if pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_LEFT):
-                    if 80 <= mouse.y < 80+len(TOOLS)*30:
-                        self.tool = int((mouse.y-80)//30)
-                        self.pending = None
-                    if 290 <= mouse.y < 290+len(self.palette)*24:
-                        self.palette_index = int((mouse.y-290)//24)
-                        self.tool = 1
+                    if TOOL_TOP <= mouse.y < TOOL_TOP+len(TOOLS)*TOOL_ROW:
+                        self.choose_tool(int((mouse.y-TOOL_TOP)//TOOL_ROW))
+                    if self.tool==5 and PALETTE_TOP <= mouse.y < PALETTE_TOP+len(FLOOR_LABELS)*PALETTE_ROW:
+                        self.material=layout.MATERIALS[int((mouse.y-PALETTE_TOP)//PALETTE_ROW)]
+                    elif self.tool==6 and PALETTE_TOP <= mouse.y < PALETTE_TOP+4*PALETTE_ROW:
+                        self.stair_axis=layout.AXES[int((mouse.y-PALETTE_TOP)//PALETTE_ROW)]
+                    elif self.tool<5 and PALETTE_TOP <= mouse.y < PALETTE_TOP+len(self.palette)*PALETTE_ROW:
+                        self.palette_index = int((mouse.y-PALETTE_TOP)//PALETTE_ROW)
+                        self.choose_tool(1)
             else:
                 # Camera may have changed from panning or toggling this frame.
                 camera = self.camera(gameplay_camera(gameplay))
                 coordinates = (mouse.x/VIEW_SCALE, (mouse.y-VIEW_TOP)/VIEW_SCALE)
                 values = lambda v: (v.x, v.y, v.z)
                 p = ground_point(values(camera.position), values(camera.target), values(camera.up),
-                    camera.fovy, coordinates, lambda x, z: structure.floor_height(gameplay.arena['tile_map'], x, z)) if 0 <= coordinates[1] < 270 else None
-                if p and pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_LEFT):
+                    camera.fovy, coordinates, lambda x, z: structure.floor_height(gameplay.arena['tile_map'], x, z),
+                    gameplay.arena['tile_map'].get('temple3d_levels')) if 0 <= coordinates[1] < 270 else None
+                if p:self.hover=p
+                if p and self.tool==5:
+                    if pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_LEFT) and pr.is_key_down(pr.KEY_LEFT_ALT):
+                        tx,tz=layout.cell_at(p)
+                        tile=gameplay.arena['tile_map']['tiles'][tz*layout.WIDTH+tx]
+                        self.material='water' if tile.get('water') else tile.get('surface_material','grass')
+                        self.floor_height=structure.floor_height(gameplay.arena['tile_map'],*p)
+                        self.grain=tile.get('surface_axis','x')
+                    elif pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_LEFT) or pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_RIGHT):
+                        self.floor_drag=dict(start=p,material='water' if pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_RIGHT) else self.material,
+                                             height=self.floor_height,axis=self.grain)
+                    if self.floor_drag and (pr.is_mouse_button_released(pr.MOUSE_BUTTON_LEFT) or pr.is_mouse_button_released(pr.MOUSE_BUTTON_RIGHT)):
+                        self.finish_floor(gameplay)
+                        before=scene.checkpoint()
+                        changed=True
+                if p and self.tool==6 and pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_RIGHT):
+                    changed=layout.remove_stairs(scene,p)
+                    before=scene.checkpoint()
+                if p and self.tool!=5 and pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_LEFT):
                     p = self.snapped(p)
                     if self.tool == 0:
                         self.selected = self.pick(camera, coordinates, gameplay.arena['tile_map'])
@@ -263,6 +325,16 @@ class Editor:
                         self.selected = scene.add(dict(kind='note', position=p, text='', color=self.color), markup=True)
                         self.begin_text(self.selected)
                         changed = True
+                    elif self.tool==6:
+                        if self.pending is None:
+                            self.pending=dict(position=p,bottom=structure.floor_height(gameplay.arena['tile_map'],*p))
+                        else:
+                            layout.add_stairs(scene,self.pending['position'],p,self.pending['bottom'],self.floor_height,self.stair_axis)
+                            self.pending=None
+                            changed=True
+                    elif self.tool==7:
+                        if not gameplay.can_walk(*p):raise ValueError('Choose a clear walkable spot for the player spawn.')
+                        scene.document['spawn']=p
                     elif self.pending is None:
                         self.pending = p
                     else:
@@ -284,6 +356,10 @@ class Editor:
             if self.drag and pr.is_mouse_button_released(pr.MOUSE_BUTTON_LEFT):
                 scene.commit(self.drag['before'])
                 self.drag = None
+            if self.floor_drag and (pr.is_mouse_button_released(pr.MOUSE_BUTTON_LEFT) or pr.is_mouse_button_released(pr.MOUSE_BUTTON_RIGHT)):
+                self.finish_floor(gameplay)
+                before=scene.checkpoint()
+                changed=True
             elif not self.drag and before != scene.document and not changed:
                 changed = scene.commit(before)
             if changed:
@@ -315,7 +391,7 @@ class Editor:
         if obj:
             pr.draw_cube_wires(vec(obj['position']), 9, 6, 9, pr.YELLOW)
         if self.pending:
-            pr.draw_cube_wires(vec(self.pending), 4, 4, 4, COLORS[self.color])
+            pr.draw_cube_wires(vec(self.pending['position'] if isinstance(self.pending,dict) else self.pending), 4, 4, 4, COLORS[self.color])
 
     def draw_overlay(self, camera, tm, assets):
         # Native-resolution editor text remains legible over the PS1 viewport.
@@ -354,32 +430,79 @@ class Editor:
         if selected:
             p = projected(selected['position'])
             pr.draw_circle_lines(int(p.x), int(p.y), 12, pr.YELLOW)
+        spawn=projected(self.scene.document['spawn'])
+        pr.draw_circle_lines(int(spawn.x),int(spawn.y),10,pr.GREEN)
+        pr.draw_text('Spawn',int(spawn.x)+13,int(spawn.y)-7,14,pr.GREEN)
+        preview=None
+        if self.tool==5 and self.hover:
+            preview=layout.rectangle(self.floor_drag['start'] if self.floor_drag else self.hover,self.hover)
+        elif self.tool==6 and self.pending and self.hover:
+            preview=layout.rectangle(self.pending['position'],self.hover)
+        if preview:
+            x0,z0,x1,z1=preview
+            height=self.floor_height if self.material!='water' or self.tool==6 else 0.
+            corners=[]
+            for x,z in ((x0,z0),(x1,z0),(x1,z1),(x0,z1)):
+                p=pr.get_world_to_screen_ex(pr.Vector3(x,height+.7,z),camera,480,270)
+                corners.append(pr.Vector2(p.x*VIEW_SCALE,p.y*VIEW_SCALE+VIEW_TOP))
+            for a,b in zip(corners,corners[1:]+corners[:1]):pr.draw_line_ex(a,b,3,pr.YELLOW)
+            pr.draw_text(f'{x1-x0:.0f} x {z1-z0:.0f} | height {height:g}',int(corners[0].x)+4,int(corners[0].y)-20,14,pr.YELLOW)
+        if self.tool==6:
+            for stairs in self.scene.document['layout']['stairs']:
+                x0,z0,x1,z1=stairs['bounds']
+                a=projected([(x0+x1)/2,(z0+z1)/2])
+                pr.draw_text('Stairs '+stairs['axis'],int(a.x)-24,int(a.y),14,pr.SKYBLUE)
         pr.end_scissor_mode()
         pr.draw_rectangle(1140, 0, 300, 810, pr.Color(13, 20, 30, 245))
-        pr.draw_text('LEVEL PLACEMENT', 1156, 20, 20, pr.RAYWHITE)
+        pr.draw_text('LEVEL EDITOR', 1156, 20, 20, pr.RAYWHITE)
         pr.draw_text(('Unsaved edits' if self.scene.dirty else 'Scene saved') + ' | simulation paused', 1156, 50, 14, pr.YELLOW if self.scene.dirty else pr.GRAY)
         for i, label in enumerate(TOOLS):
-            y = 80+i*30
+            y = TOOL_TOP+i*TOOL_ROW
             if i == self.tool:
-                pr.draw_rectangle(1148, y, 282, 28, pr.Color(48, 65, 80, 255))
-            pr.draw_text(f'{i+1}  {label}', 1160, y+6, 16, pr.RAYWHITE)
-        pr.draw_text('Place an object:', 1156, 260, 16, pr.GRAY)
-        for i, obj in enumerate(self.palette):
-            if i == self.palette_index:
-                pr.draw_rectangle(1148, 290+i*24, 282, 23, pr.Color(48, 65, 80, 255))
-            pr.draw_text(obj['label'][:26], 1160, 294+i*24, 14, pr.RAYWHITE)
+                pr.draw_rectangle(1148, y, 282, TOOL_ROW-2, pr.Color(48, 65, 80, 255))
+            pr.draw_text(f'{i+1}  {label}', 1160, y+4, 16, pr.RAYWHITE)
+        heading='Floor material:' if self.tool==5 else 'Stairs rise toward:' if self.tool==6 else 'Spawn placement' if self.tool==7 else 'Place an object:'
+        pr.draw_text(heading,1156,290,16,pr.GRAY)
+        if self.tool==5:
+            entries=FLOOR_LABELS
+            active=layout.MATERIALS.index(self.material)
+        elif self.tool==6:
+            entries=('Map right (+X)','Map down (+Z)','Map left (-X)','Map up (-Z)')
+            active=layout.AXES.index(self.stair_axis)
+        elif self.tool==7:
+            entries=('Click a clear walkable spot.',)
+            active=-1
+        else:
+            entries=[o['label'][:26] for o in self.palette]
+            active=self.palette_index
+        for i,label in enumerate(entries):
+            y=PALETTE_TOP+i*PALETTE_ROW
+            if i==active:pr.draw_rectangle(1148,y,282,PALETTE_ROW-1,pr.Color(48,65,80,255))
+            pr.draw_text(label,1160,y+3,14,pr.RAYWHITE)
+        if self.tool in (5,6):
+            label='Upper landing' if self.tool==6 else 'Wall base' if self.material=='wall' else 'Floor'
+            pr.draw_text(f'{label} height: {self.floor_height:g}',1156,458,16,pr.YELLOW)
+            pr.draw_text('[ / ]: height - / + 4 units',1156,484,14,pr.RAYWHITE)
+            pr.draw_text('V: grain '+self.grain if self.tool==5 else 'V: cycle stair direction',1156,506,14,pr.RAYWHITE)
+            pr.draw_text('Drag a rectangle to build.' if self.tool==5 else 'Click low corner, then high corner.',1156,530,14,pr.RAYWHITE)
+            pr.draw_text('Right drag: erase | Alt+click: sample' if self.tool==5 else 'Right click: remove a stair flight',1156,552,14,pr.RAYWHITE)
         obj = self.scene.get(self.selected)
-        y = max(590, 300+len(self.palette)*24)
+        y=584
         if obj:
             text.draw(assets, obj.get('label', obj['kind'])[:28], 1156, y, pr.YELLOW)
             pr.draw_text(f"X {obj['position'][0]:.0f}  Z {obj['position'][1]:.0f}", 1156, y+22, 14, pr.RAYWHITE)
         pr.draw_text('C: overhead / game camera', 1156, y+48, 14, pr.RAYWHITE)
         pr.draw_text('WASD: pan | wheel: zoom', 1156, y+68, 14, pr.RAYWHITE)
-        pr.draw_text('Drag / arrows: move | Q/E: rotate', 1156, y+88, 14, pr.RAYWHITE)
-        pr.draw_text('G: snap '+('ON' if self.snap else 'OFF')+' | Shift: fine | K: colour', 1156, y+108, 14, pr.RAYWHITE)
-        pr.draw_text('Ctrl+D: duplicate | Delete: remove', 1156, y+128, 14, pr.RAYWHITE)
-        pr.draw_text('Ctrl+Z/Y: undo/redo | Enter: note', 1156, y+148, 14, pr.RAYWHITE)
-        pr.draw_text('Ctrl+S: save | Ctrl+O: reload | F2: play', 1156, y+168, 14, pr.RAYWHITE)
+        if self.tool<5:
+            pr.draw_text('Drag / arrows: move | Q/E: rotate',1156,y+88,14,pr.RAYWHITE)
+            pr.draw_text('G: snap '+('ON' if self.snap else 'OFF')+' | Shift: fine | K: colour',1156,y+108,14,pr.RAYWHITE)
+            pr.draw_text('Ctrl+D: duplicate | Delete: remove',1156,y+128,14,pr.RAYWHITE)
+        else:
+            pr.draw_text('Floor edges snap to 16 units.',1156,y+88,14,pr.RAYWHITE)
+            pr.draw_text('J: edge rails '+('ON' if self.scene.document['layout']['rails'] else 'OFF'),1156,y+108,14,pr.RAYWHITE)
+            pr.draw_text('Esc: cancel / return to Select',1156,y+128,14,pr.RAYWHITE)
+        pr.draw_text('Ctrl+Z/Y: undo/redo | Enter: note',1156,y+148,14,pr.RAYWHITE)
+        pr.draw_text('Ctrl+S: save | Ctrl+O: reload | F2: play',1156,y+168,14,pr.RAYWHITE)
         if self.edit_text is not None:
             pr.draw_rectangle(18, 718, 1104, 70, pr.Color(13, 20, 30, 250))
             pr.draw_text('DESIGN NOTE | Enter: finish | Esc: cancel', 30, 728, 16, pr.YELLOW)

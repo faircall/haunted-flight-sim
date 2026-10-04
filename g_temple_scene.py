@@ -8,6 +8,7 @@ from pathlib import Path
 import json
 import math
 import uuid
+import g_temple_layout as layout
 
 ROOT = Path(__file__).resolve().parent
 SCENE_FILE = ROOT / 'art' / 'temple' / 'exploration.scene.json'
@@ -53,6 +54,7 @@ def validate(document):
         raise ValueError('A scene needs object and markup arrays.')
     if document.get('version') != 1 or document.get('scene_id') != 'moonlit-temple':
         raise ValueError('Unsupported temple scene.')
+    if 'layout' in document:layout.validate(document['layout'])
     point(document['spawn'])
     for collection, kinds in (('objects', KINDS), ('marks', {'note', 'arrow', 'area'})):
         if any(not isinstance(o, dict) or o.get('kind') not in kinds for o in document[collection]):
@@ -124,6 +126,7 @@ class Scene:
     """One authoring document; a drag or text edit is a single undo operation."""
     def __init__(self, document, path=SCENE_FILE):
         self.document = json.loads(json.dumps(validate(document), allow_nan=False))
+        self.document.setdefault('layout', json.loads(json.dumps(layout.default_layout())))
         self.path = Path(path)
         self.saved = deepcopy(self.document)
         self.undo_stack = []
@@ -175,7 +178,7 @@ class Scene:
         self.saved = self.checkpoint()
 
     def reload(self):
-        loaded = validate(json.loads(self.path.read_text(encoding='utf-8')))
+        loaded = Scene.load(self.path).document
         before = self.checkpoint()
         self.document = loaded
         self.commit(before)

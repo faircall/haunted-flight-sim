@@ -32,7 +32,7 @@ def build_terrain(tm,folder=None):
             kind=tile.get('surface_material','grass')
             if kind=='wood' and tile.get('surface_elevation',0.)>0:
                 continue  # separate suspended boards, not a solid tile extrusion
-            mat=('planks_'+tile.get('surface_axis','x')) if kind=='wood' else 'wall_ground' if kind=='wall' else 'grass'
+            mat=('planks_'+tile.get('surface_axis','x')) if kind=='wood' else 'wall_ground' if kind in ('wall','stone') else 'grass'
             if mat!=material:continue
             x=i%tm['map_width']*16;y=i//tm['map_width']*16
             z=tile.get('surface_elevation',0.)+(48. if kind=='wall' else 0.)
@@ -115,9 +115,9 @@ def run(fixed_cameras=False,living_assets=False):
         if args.smoke:print('VIEWER loading '+name,flush=True)
         models[name]=temple_mesh_loader.load(path,shader,loaded_textures)
         if not models[name]:raise RuntimeError('Empty live mesh: '+name)
-    def draw(name,position,angle=0.):
+    def draw(name,position,angle=0.,scale=(1,1,1)):
         for model in models[name]:
-            pr.draw_model_ex(model,position,pr.Vector3(0,1,0),angle,pr.Vector3(1,1,1),pr.WHITE)
+            pr.draw_model_ex(model,position,pr.Vector3(0,1,0),angle,pr.Vector3(*scale),pr.WHITE)
     for name in records:load(name,ART/'models'/(name+'.obj'))
     load('terrain',build_terrain(tm,ROOT/'artifacts'/'temple-camera-trial'/'cache'))
     load('deck',g_temple_deck.write(tm,ROOT/'artifacts'/'temple-camera-trial'/'cache',ART))
@@ -126,7 +126,21 @@ def run(fixed_cameras=False,living_assets=False):
     tree=pr.load_texture(str(ROOT/'art'/'willow_tree_128.png'));pr.set_texture_filter(tree,pr.TEXTURE_FILTER_POINT)
     player_x,player_y=232.,334.;player_floor=None;azimuth=0.;elevation=30.;span=330.;inspection=False;roof_override=False;roof_alpha=1.;frame=0
     walk=cameras.Walkthrough();help_visible=True;living=None
-    gameplay=None;editor=None;exploration_props=None;audio=None;smoke=None;status='';status_time=0.
+    gameplay=None;editor=None;exploration_props=None;audio=None;smoke=None;status='';status_time=0.;rendered_revision=0
+    def rebuild_layout(new_map):
+        cache=ROOT/'artifacts'/'temple-camera-trial'/'cache'
+        replacement={}
+        try:
+            for name,path in (('terrain',build_terrain(new_map,cache)),('deck',g_temple_deck.write(new_map,cache,ART))):
+                replacement[name]=temple_mesh_loader.load(path,shader,loaded_textures)
+        except Exception:
+            for group in replacement.values():
+                for model in group:pr.unload_model(model)
+            raise
+        # Install both new batches together; a failed load retains the old view.
+        for name,group in replacement.items():
+            for old in models[name]:pr.unload_model(old)
+            models[name]=group
     try:
         if gameplay_enabled:
             from g_temple_scene import Scene,SCENE_FILE
@@ -135,7 +149,11 @@ def run(fixed_cameras=False,living_assets=False):
             from g_temple_exploration_view import Props,Audio,draw_ui
             scene=Scene.load(args.scene or SCENE_FILE)
             gameplay=Exploration(arena,scene);walk=gameplay.walk;arena=gameplay.arena
+            import g_temple_layout
+            if not g_temple_layout.authored(scene.document['layout']):rendered_revision=gameplay.geometry_revision
             editor=Editor(scene);exploration_props=Props(shader)
+            if gameplay.spawn_error:
+                editor.active=True;editor.status=gameplay.spawn_error;editor.focus=list(scene.document['spawn'])
             try:audio=Audio()
             except RuntimeError as exc:status='Audio unavailable: '+str(exc);status_time=6.
             if args.gameplay_smoke:
@@ -177,7 +195,8 @@ def run(fixed_cameras=False,living_assets=False):
                         dt=.05;keys,pressed,running=smoke.input()
                     editor_transition=pr.is_key_pressed(pr.KEY_F2) and not gameplay.modal
                     if editor_transition:
-                        editor.toggle(gameplay)
+                        try:editor.toggle(gameplay)
+                        except ValueError as exc:editor.status=str(exc)
                     if not editor.active and not gameplay.modal:
                         if 'ESCAPE' in pressed:break
                         try:
@@ -191,7 +210,7 @@ def run(fixed_cameras=False,living_assets=False):
                         except (OSError,ValueError,KeyError,TypeError) as exc:
                             status='Cannot load/save: '+str(exc);status_time=5.
                     gameplay.tick(dt,keys,running,pressed,editor.active or editor_transition)
-                    arena=gameplay.arena;props=arena['entities']['lake_props'];walk=gameplay.walk
+                    arena=gameplay.arena;tm=arena['tile_map'];props=arena['entities']['lake_props'];walk=gameplay.walk
                     now=gameplay.clock
                     if audio:
                         audio.update(gameplay,dt)
@@ -224,9 +243,14 @@ def run(fixed_cameras=False,living_assets=False):
                 if args.smoke:roof_alpha=0. if inside else 1.
             if editor and editor.active:
                 editor.update(gameplay,camera,dt)
+                arena=gameplay.arena;tm=arena['tile_map']
                 props=arena['entities']['lake_props']
                 camera=editor.camera(camera)
                 if editor.overhead:roof_alpha=0.
+            if gameplay and rendered_revision!=gameplay.geometry_revision:
+                rebuild_layout(tm);rendered_revision=gameplay.geometry_revision
+                player_floor=None
+                if smoke:smoke.mesh_rebuilds+=1
             if args.structure_review:
                 eye,focus,extent=(((330,43,495),(330,10,335),110),
                                   ((330,100,445),(480,23,256),165),
@@ -264,7 +288,7 @@ def run(fixed_cameras=False,living_assets=False):
                 if prop['kind']=='roof':continue
                 if prop['kind']=='pile' and not identity.startswith('lantern-post:'):continue
                 name=prop['asset'][6:]
-                draw(name,pr.Vector3(*prop_origin(identity,prop,records)),prop.get('rotation_y',0.))
+                draw(name,pr.Vector3(*prop_origin(identity,prop,records)),prop.get('rotation_y',0.),prop.get('scale',(1,1,1)))
             for obj in arena['entities']['facades'].values():
                 if fixed_cameras and shot.get('hide_front_facade',False):continue
                 name=g_night.baked_facade_name(obj,obj.get('open',False));p=obj['position']

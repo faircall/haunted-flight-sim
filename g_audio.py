@@ -754,7 +754,7 @@ def get_tile_audio_surface(tile_map, world_position):
     tile = tile_info[3]
     if not isinstance(tile, dict):
         return "generic"
-    material_surface = {"grass": "grass", "dirt": "dirt", "wood": "wood",
+    material_surface = {"grass": "grass", "dirt": "dirt", "wood": "wood", "stone": "stone",
                         "wall": "wood", "carpet": "carpet", "ceramic": "tile"}.get(tile.get("surface_material"))
     if material_surface:
         return material_surface
