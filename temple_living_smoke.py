@@ -70,6 +70,33 @@ def paired_leg_metrics(points):
         knee_height_from_hip=k[2]-h[2])
 
 
+def arm_height_record(points,side,phase,frame):
+    """Actual joint heights relative to shoulder and pelvis-centre anchors."""
+    normalized={name:tuple(points[name+'.'+side][axis] for axis in (0,2,1))
+                for name in ('shoulder','elbow','wrist','hand')}
+    normalized['hip']=tuple(points['hip'][axis] for axis in (0,2,1))
+    result=dict(phase=phase,local_phase=(phase+(.5 if side=='R' else 0.))%1.,
+                native_frame=frame,points=normalized)
+    for name in ('elbow','wrist','hand'):
+        p=normalized[name]
+        result[name]=dict(height_from_shoulder=p[2]-normalized['shoulder'][2],
+                          height_from_hip=p[2]-normalized['hip'][2],
+                          forward_from_hip=p[1]-normalized['hip'][1],world_height=p[2])
+    return result
+
+
+def arm_height_summary(samples):
+    result={}
+    for side,records in samples.items():
+        distance=lambda phase,target:abs((phase-target+.5)%1.-.5)
+        result[side]=dict(back_reversal=min(records,key=lambda r:distance(r['local_phase'],0.)),
+            front_reversal=min(records,key=lambda r:distance(r['local_phase'],.5)),
+            peak_heights={name:{anchor:max(records,key=lambda r:r[name][anchor])
+                         for anchor in ('height_from_shoulder','height_from_hip')}
+                         for name in ('elbow','wrist','hand')})
+    return result
+
+
 def main():
     import hashlib
     import json
@@ -229,6 +256,7 @@ def main():
         walking_support=[];walking_hand_drift=[];running_arm_cycle=[]
         running_recovery=[];running_pairs=[];lateral_swing={};pelvis_travel={};running_rear_pump=[]
         running_leg_samples={side:[] for side in ('L','R')};running_arm_samples={side:[] for side in ('L','R')}
+        running_arm_heights={side:[] for side in ('L','R')}
         walking_leg_samples={side:[] for side in ('L','R')}
         stance_tracks={clip:{side:[] for side in ('L','R')} for clip in ('walk','run')}
         bones_by_label={'hip':'thigh','knee':'shin','ankle':'foot',
@@ -253,6 +281,8 @@ def main():
                 assert all(np.isfinite(p).all() for p in native_pose['points'].values()),'Non-finite native pose'
                 review_deformed_hands(clip,phase)
                 if clip=='run':
+                    for suffix in ('L','R'):
+                        running_arm_heights[suffix].append(arm_height_record(native_pose['points'],suffix,phase,assets.animation_frame))
                     running_posture.append(native_pose['angles'])
                     run_flights.append((min(native_pose['sole_clearance'].values()),native_pose['points']['hip'][1]))
                     running_hips.append(native_pose['points']['hip'])
@@ -398,6 +428,21 @@ def main():
             support,recovery=rear['legs'][side],rear['legs'][opposite]
             assert -45.<support['thigh_angle_degrees']<-25. and -45.<support['hip_ankle_angle_degrees']<-25. and 3.<support['knee_flex_degrees']<30.,('Rear support lost its soft extended push-off',side,rear)
             assert 65.<recovery['thigh_angle_degrees']<95. and 75.<recovery['knee_flex_degrees']<105.,('Forward thigh drive did not pair with rear support',side,rear)
+        rear_foot_recovery={}
+        run_period=gait.SETTINGS['run']['stride']/gait.SETTINGS['run']['speed']
+        for side in ('L','R'):
+            legs=sorted((record['legs'][side] for record in running_pairs),key=lambda leg:leg['local_phase'])
+            intervals=[]
+            for before,after in zip(legs,legs[1:]):
+                midpoint=(before['local_phase']+after['local_phase'])/2
+                if not .48<=midpoint<=.62:continue
+                seconds=(after['local_phase']-before['local_phase'])*run_period
+                advances=[leg['ankle'][1]-leg['hip'][1] for leg in (before,after)]
+                intervals.append(dict(local_phase=midpoint,forward_speed=(advances[1]-advances[0])/seconds))
+            assert len(intervals)>=6,'Insufficient native rear-foot recovery samples'
+            minimum=min(interval['forward_speed'] for interval in intervals)
+            assert minimum>.30*gait.SETTINGS['run']['speed'],('Rear shoe stalled while the recovering knee kept moving',side,minimum,intervals)
+            rear_foot_recovery[side]=dict(minimum_forward_speed=minimum,intervals=intervals)
         open_angle,open_phase,_=max(running_arm_cycle)
         rear_angles=[angle for angle,p,_ in running_arm_cycle if p<.025 or p>.98]
         assert 150<open_angle<175,('Running elbow did not extend during the down/back sweep',max(running_arm_cycle))
@@ -405,6 +450,21 @@ def main():
         assert elbow_range>50.,'Running elbow did not close again after the backsweep'
         closed_elbow=min(running_arm_samples['L'],key=lambda sample:sample[1])
         assert 60.<closed_elbow[1]<75.,('Front running elbow did not tuck tightly',closed_elbow)
+        arm_heights=arm_height_summary(running_arm_heights);arm_height_changes={}
+        arm_baseline_path=output.parent/'temple3d-living-baseline-v10'/'arm-heights.json'
+        arm_baseline=json.loads(arm_baseline_path.read_text())['summary'] if arm_baseline_path.exists() else None
+        for side,summary in arm_heights.items():
+            front=summary['front_reversal']
+            assert -gait.UPPER_ARM*.75<front['elbow']['height_from_shoulder']<-gait.UPPER_ARM*.60,('Forward elbow did not rise with the arm pump',side,front)
+            assert gait.HAND*.60<front['hand']['height_from_shoulder']<gait.HAND*1.25,('Forward hand did not pump clearly above shoulder height',side,front)
+            if arm_baseline:
+                old_front=arm_baseline[side]['front_reversal']
+                changes={joint:front[joint]['height_from_shoulder']-old_front[joint]['height_from_shoulder'] for joint in ('elbow','wrist','hand')}
+                assert .1<changes['elbow']<.7 and .2<changes['hand']<1.,('Native forward pump did not lift both elbow and hand modestly',side,changes)
+                rear=summary['back_reversal'];old_rear=arm_baseline[side]['back_reversal']
+                rear_changes={joint:rear[joint]['height_from_shoulder']-old_rear[joint]['height_from_shoulder'] for joint in ('elbow','wrist','hand')}
+                assert max(abs(delta) for delta in rear_changes.values())<.05,('Front lift altered the preserved rear reversal',side,rear_changes)
+                arm_height_changes[side]=dict(front=changes,rear=rear_changes)
         assert running_rear_pump and max(v[0] for v in running_rear_pump)>145.,'Elbow extension never carried the hand behind the hip'
         extended_rear_fraction=sum(angle>150. and hand<-.4 for angle,_,hand in running_arm_cycle)/len(running_arm_cycle)
         assert extended_rear_fraction>.075,('Rear elbow extension ended before the hand completed its backsweep',extended_rear_fraction)
@@ -619,6 +679,16 @@ def main():
             elbows_sheet.paste(Image.fromarray(pixels),(column*256,30))
             elbows_labels.text((column*256+6,5),f'elbow {closed_elbow[1]:.1f} / view {angle}',font=font,fill=(210,203,180))
         elbows_sheet.save(output/'run-peak-elbow-closeups.png')
+        pump_peak=arm_heights['L']['peak_heights']['hand']['height_from_shoulder']
+        pump_sheet=Image.new('RGB',(1024,335),(25,31,36));pump_labels=ImageDraw.Draw(pump_sheet)
+        for column,angle in enumerate((0,45,90,270)):
+            pixels=render('upper',f'run-pump-close-{angle}',angle=angle,phase=pump_peak['phase']+1e-6,clip='run')
+            pump_sheet.paste(Image.fromarray(pixels),(column*256,30))
+            pump_labels.text((column*256+6,5),f'front pump / view {angle}',font=font,fill=(210,203,180))
+            pump_labels.text((column*256+6,291),f'elbow {pump_peak["elbow"]["height_from_shoulder"]:+.2f} / hand {pump_peak["hand"]["height_from_shoulder"]:+.2f}',font=font,fill=(210,203,180))
+        pump_sheet.save(output/'run-front-pump-closeups.png')
+        (output/'run-arm-heights.json').write_text(json.dumps(dict(summary=arm_heights,changes_from_v10=arm_height_changes,
+            native_samples=running_arm_heights),indent=2)+'\n')
         posture_sheet=Image.new('RGB',(1024,330),(25,31,36));posture_labels=ImageDraw.Draw(posture_sheet)
         posture_frames=[]
         for column,phase in enumerate((0.,.25,.5,.75)):
@@ -728,9 +798,11 @@ def main():
                                                extended_rear_cycle_fraction=extended_rear_fraction,
                                                extended_rear_seconds=extended_rear_fraction*gait.SETTINGS['run']['stride']/gait.SETTINGS['run']['speed']),
                     running_elbow_contraction=dict(phase=closed_elbow[0],degrees=closed_elbow[1]),
+                    running_arm_heights=arm_heights,running_arm_height_changes_from_v10=arm_height_changes,
                     running_rear_elbow_pump=running_rear_pump,
                     returning_elbow_minimum=min(returning_elbows),running_knee_sequences=knee_sequences,
                     running_paired_landmarks=paired_landmarks,running_terminal_extension=terminal_extension,
+                    running_rear_foot_recovery=rear_foot_recovery,
                     paired_pose_samples=running_pairs,settings=gait.SETTINGS['run'],
                     running_touchdown_knee_flex=touchdowns,
                     running_touchdown_sole_height=touchdown_heights,

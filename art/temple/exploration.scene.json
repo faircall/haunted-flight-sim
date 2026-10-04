@@ -1,0 +1,611 @@
+{
+  "version": 1,
+  "scene_id": "moonlit-temple",
+  "spawn": [
+    256,
+    334
+  ],
+  "objects": [
+    {
+      "id": "altar",
+      "kind": "prop",
+      "label": "Altar",
+      "template": {
+        "kind": "altar",
+        "width": 40,
+        "height": 46,
+        "asset": "baked:altar",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "altar"
+      },
+      "position": [
+        480.0,
+        218.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "banner:414",
+      "kind": "prop",
+      "label": "Banner (414)",
+      "template": {
+        "kind": "banner",
+        "width": 10,
+        "height": 30,
+        "asset": "baked:banner",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "banner"
+      },
+      "position": [
+        414.0,
+        260.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "banner:540",
+      "kind": "prop",
+      "label": "Banner (540)",
+      "template": {
+        "kind": "banner",
+        "width": 10,
+        "height": 30,
+        "asset": "baked:banner",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "banner"
+      },
+      "position": [
+        540.0,
+        260.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lantern:0",
+      "kind": "prop",
+      "label": "Paper lantern (0)",
+      "template": {
+        "kind": "lantern",
+        "width": 20,
+        "height": 30,
+        "asset": "baked:lantern_paper",
+        "anchor_y": -58,
+        "phase": 0.0,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "emission": "baked:lantern_paper_emission",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          33.848941139930574
+        ],
+        "geometry_asset": "lantern_paper"
+      },
+      "position": [
+        422.0,
+        272.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lantern:1",
+      "kind": "prop",
+      "label": "Paper lantern (1)",
+      "template": {
+        "kind": "lantern",
+        "width": 20,
+        "height": 30,
+        "asset": "baked:lantern_paper",
+        "anchor_y": -58,
+        "phase": 1.7,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "emission": "baked:lantern_paper_emission",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          33.848941139930574
+        ],
+        "geometry_asset": "lantern_paper"
+      },
+      "position": [
+        538.0,
+        272.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lantern-post:2",
+      "kind": "prop",
+      "label": "Lantern post (2)",
+      "template": {
+        "kind": "pile",
+        "width": 4,
+        "height": 54,
+        "asset": "baked:pile54",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "pile54"
+      },
+      "position": [
+        272.0,
+        348.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lantern:2",
+      "kind": "prop",
+      "label": "Porcelain lantern (2)",
+      "template": {
+        "kind": "ornament",
+        "width": 18,
+        "height": 32,
+        "asset": "baked:lantern_porcelain",
+        "anchor_y": -86,
+        "phase": 3.4,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          66.6571290067024
+        ],
+        "geometry_asset": "lantern_porcelain"
+      },
+      "position": [
+        272.0,
+        348.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lantern-post:3",
+      "kind": "prop",
+      "label": "Lantern post (3)",
+      "template": {
+        "kind": "pile",
+        "width": 4,
+        "height": 54,
+        "asset": "baked:pile54",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "pile54"
+      },
+      "position": [
+        446.0,
+        348.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lantern:3",
+      "kind": "prop",
+      "label": "Paper lantern (3)",
+      "template": {
+        "kind": "lantern",
+        "width": 20,
+        "height": 30,
+        "asset": "baked:lantern_paper",
+        "anchor_y": -58,
+        "phase": 5.1,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "emission": "baked:lantern_paper_emission",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          33.848941139930574
+        ],
+        "geometry_asset": "lantern_paper"
+      },
+      "position": [
+        446.0,
+        348.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lily:0",
+      "kind": "prop",
+      "label": "Water lilies (0)",
+      "template": {
+        "kind": "lily",
+        "width": 26,
+        "height": 20,
+        "asset": "baked:lily_cluster",
+        "anchor_y": -10,
+        "phase": 0.0,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "lily_cluster"
+      },
+      "position": [
+        172.0,
+        297.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lily:1",
+      "kind": "prop",
+      "label": "Lily leaves (1)",
+      "template": {
+        "kind": "lily",
+        "width": 26,
+        "height": 20,
+        "asset": "baked:lily_leaves",
+        "anchor_y": -10,
+        "phase": 1.3,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "lily_leaves"
+      },
+      "position": [
+        194.0,
+        285.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lily:2",
+      "kind": "prop",
+      "label": "Lily leaves (2)",
+      "template": {
+        "kind": "lily",
+        "width": 26,
+        "height": 20,
+        "asset": "baked:lily_leaves",
+        "anchor_y": -10,
+        "phase": 2.6,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "lily_leaves"
+      },
+      "position": [
+        239.0,
+        287.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lily:3",
+      "kind": "prop",
+      "label": "Water lilies (3)",
+      "template": {
+        "kind": "lily",
+        "width": 26,
+        "height": 20,
+        "asset": "baked:lily_cluster",
+        "anchor_y": -10,
+        "phase": 3.9000000000000004,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "lily_cluster"
+      },
+      "position": [
+        365.0,
+        383.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lily:4",
+      "kind": "prop",
+      "label": "Lily leaves (4)",
+      "template": {
+        "kind": "lily",
+        "width": 26,
+        "height": 20,
+        "asset": "baked:lily_leaves",
+        "anchor_y": -10,
+        "phase": 5.2,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "lily_leaves"
+      },
+      "position": [
+        388.0,
+        390.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lily:5",
+      "kind": "prop",
+      "label": "Lily leaves (5)",
+      "template": {
+        "kind": "lily",
+        "width": 26,
+        "height": 20,
+        "asset": "baked:lily_leaves",
+        "anchor_y": -10,
+        "phase": 6.5,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "lily_leaves"
+      },
+      "position": [
+        596.0,
+        315.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lily:6",
+      "kind": "prop",
+      "label": "Water lilies (6)",
+      "template": {
+        "kind": "lily",
+        "width": 26,
+        "height": 20,
+        "asset": "baked:lily_cluster",
+        "anchor_y": -10,
+        "phase": 7.800000000000001,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "lily_cluster"
+      },
+      "position": [
+        619.0,
+        331.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lily:7",
+      "kind": "prop",
+      "label": "Lily leaves (7)",
+      "template": {
+        "kind": "lily",
+        "width": 26,
+        "height": 20,
+        "asset": "baked:lily_leaves",
+        "anchor_y": -10,
+        "phase": 9.1,
+        "player_reveal_enabled": false,
+        "occludes_render_items": false,
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "lily_leaves"
+      },
+      "position": [
+        578.0,
+        355.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "bowl:approach",
+      "kind": "prop",
+      "label": "Fire bowl (approach)",
+      "template": {
+        "kind": "brazier",
+        "width": 14,
+        "height": 18,
+        "asset": "baked:brazier",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "brazier"
+      },
+      "position": [
+        222.0,
+        344.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "bowl:crossing",
+      "kind": "prop",
+      "label": "Fire bowl (crossing)",
+      "template": {
+        "kind": "brazier",
+        "width": 14,
+        "height": 18,
+        "asset": "baked:brazier",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "brazier"
+      },
+      "position": [
+        334.0,
+        344.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "bowl:landing",
+      "kind": "prop",
+      "label": "Fire bowl (landing)",
+      "template": {
+        "kind": "brazier",
+        "width": 14,
+        "height": 18,
+        "asset": "baked:brazier",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "brazier"
+      },
+      "position": [
+        422.0,
+        258.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "bowl:landing-r",
+      "kind": "prop",
+      "label": "Fire bowl (landing-r)",
+      "template": {
+        "kind": "brazier",
+        "width": 14,
+        "height": 18,
+        "asset": "baked:brazier",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "brazier"
+      },
+      "position": [
+        538.0,
+        258.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "bowl:altar-left",
+      "kind": "prop",
+      "label": "Fire bowl (altar-left)",
+      "template": {
+        "kind": "brazier",
+        "width": 14,
+        "height": 18,
+        "asset": "baked:brazier",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "brazier"
+      },
+      "position": [
+        440.0,
+        236.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "bowl:altar-right",
+      "kind": "prop",
+      "label": "Fire bowl (altar-right)",
+      "template": {
+        "kind": "brazier",
+        "width": 14,
+        "height": 18,
+        "asset": "baked:brazier",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "brazier"
+      },
+      "position": [
+        520.0,
+        236.0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "temple-key",
+      "kind": "key",
+      "label": "Brass key",
+      "position": [
+        352,
+        334
+      ],
+      "rotation": 25,
+      "group": "temple"
+    },
+    {
+      "id": "bridge-medicine",
+      "kind": "medicine",
+      "label": "Medicine",
+      "position": [
+        244,
+        342
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "temple-entrance",
+      "kind": "door",
+      "label": "Temple door",
+      "position": [
+        480,
+        264
+      ],
+      "rotation": 0,
+      "group": "temple"
+    },
+    {
+      "id": "altar-inscription",
+      "kind": "inscription",
+      "label": "Altar inscription",
+      "position": [
+        480,
+        236
+      ],
+      "rotation": 0,
+      "description": "old_inscription"
+    }
+  ],
+  "marks": []
+}

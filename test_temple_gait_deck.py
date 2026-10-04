@@ -153,7 +153,9 @@ class GaitTests(unittest.TestCase):
                 self.assertLess(sign*offset[0],ends-.1)
                 self.assertGreater(gait.SHOULDER_HALF_WIDTH+sign*offset[0],2.8)
             front=self.hand_offset('run',.5,sign)
-            self.assertTrue(1.<gait.SHOULDER_HALF_WIDTH+sign*front[0]<2.5)
+            # The higher pump brings the hand inward; keep it on its own side
+            # of the chest while native checks verify actual surface clearance.
+            self.assertTrue(.5<gait.SHOULDER_HALF_WIDTH+sign*front[0]<2.5)
 
     def test_running_elbow_stays_open_through_rear_reversal_and_return_to_hip(self):
         for sign in (-1,1):
@@ -206,6 +208,23 @@ class GaitTests(unittest.TestCase):
                 self.assertTrue(60<inside<75)
                 self.assertGreater(gait.arm_vectors('run',phase,sign)[1][2],.6)
                 self.assertGreater(hand[2],gait.TORSO*.6)
+                vectors=gait.arm_vectors('run',phase,sign)
+                # Raise the upper arm as well as the hand: simply tightening
+                # the elbow would leave the elbow near the jacket's waist.
+                self.assertGreater(vectors[0][1],.60)
+                self.assertGreater(vectors[0][2],-.78)
+                hand_height=sum(length*vector[2] for length,vector in zip(
+                    (gait.UPPER_ARM,gait.FOREARM,gait.HAND),vectors))
+                self.assertGreater(hand_height,.40)
+            # The peak stays high, but neither side of it holds a fixed bend.
+            self.assertGreater(self.hand_offset('run',.5,sign)[2],1.1)
+        bends=[gait.arm('run',phase)[1] for phase in (.42,.46,.49,.5,.51,.54,.58)]
+        self.assertTrue(all(a<b for a,b in zip(bends[:4],bends[1:4])))
+        self.assertTrue(all(a>b for a,b in zip(bends[3:],bends[4:])))
+        # Less time near the upper-arm peak prevents a whole-pose pause even
+        # though angular velocity must pass through zero at each reversal.
+        shoulder_near_peak=sum(math.degrees(gait.arm('run',i/1000)[0])>40. for i in range(1000))
+        self.assertLess(shoulder_near_peak,120)
 
     def test_running_pairs_under_body_recovery_with_late_forward_knee_drive(self):
         stance=gait.SETTINGS['run']['stance'];poses=[]
@@ -234,6 +253,13 @@ class GaitTests(unittest.TestCase):
         self.assertLess(self.knee_flex(rear[1]),15.)
         self.assertTrue(70<thigh(rear[2])<90)
         self.assertTrue(80<self.knee_flex(rear[2])<100)
+        # Recovery and under-body alignment are passing poses, so the knee
+        # must keep moving relative to the pelvis at both landmarks.
+        for phase in (.38,.43,.48,.62):
+            eps=1e-5
+            before,after=[gait.leg_3d('run',phase+d) for d in (-eps,eps)]
+            relative=[tuple(k-h for k,h in zip(pose['knee'],pose['hip'])) for pose in (before,after)]
+            self.assertGreater(math.dist(*relative)/(2*eps),4.)
 
     def test_running_opens_the_shin_progressively_into_soft_touchdown(self):
         phases=(.90,.95,.98,.999)
@@ -281,6 +307,19 @@ class GaitTests(unittest.TestCase):
         for i in range(500):
             pose=gait.leg_3d('run',i/500)
             self.assertLess(-(pose['knee'][0]-pose['hip'][0]),gait.THIGH*.12)
+
+    def test_running_rear_foot_advances_continuously_out_of_folded_recovery(self):
+        period=gait.SETTINGS['run']['stride']/gait.SETTINGS['run']['speed']
+        for side in (0.,.5):
+            for i in range(141):
+                local=.48+.001*i;phase=local-side;eps=1e-5
+                before,after=[gait.leg_3d('run',phase+d,side) for d in (-eps,eps)]
+                relative=[pose['ankle'][1]-pose['hip'][1] for pose in (before,after)]
+                speed=(relative[1]-relative[0])/(2*eps*period)
+                # A moving knee can still leave the folded shoe almost still.
+                # Check sustained forward shoe travel through the entire rear
+                # recovery interval, relative to its moving hip.
+                self.assertGreater(speed,.30*gait.SETTINGS['run']['speed'])
 
     def test_swing_foot_arcs_sideways_then_tracks_in_for_a_stable_landing(self):
         for clip,minimum_arc in (('walk',.12),('run',.07)):
@@ -351,7 +390,9 @@ class GaitTests(unittest.TestCase):
 
     def test_contact_paths_and_body_motion_close_with_continuous_velocity(self):
         for clip in gait.SETTINGS:
-            for phase in (0.,gait.SETTINGS[clip]['stance']):
+            phases=(0.,gait.SETTINGS[clip]['stance'])
+            if clip=='run':phases+=(.38,.48,.565,.62,gait.SETTINGS['run']['recovery_peak'],gait.SETTINGS['run']['knee_drive'])
+            for phase in phases:
                 eps=1e-5
                 a,b,c=[gait.foot(clip,phase+d) for d in (-eps,0,eps)]
                 for key in ('forward','height','pitch'):

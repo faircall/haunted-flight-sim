@@ -136,7 +136,7 @@ def activate(arena, candidate):
     return puzzles.interact(arena, obj["persistent_id"])
 
 
-def update(arena, enabled, assets):
+def update(arena, enabled, assets, *, dt=None, pressed=None):
     arena = ensure(arena)
     runtime = arena["interaction_runtime"]
     modal = runtime["modal"]
@@ -144,10 +144,11 @@ def update(arena, enabled, assets):
         runtime["modal"] = None
         runtime.pop("prompt", None)
         return arena, bool(modal)
-    dt = max(0.0, pr.get_frame_time())
+    dt = max(0.0, pr.get_frame_time() if dt is None else dt)
     candidate = nearest(arena) if not modal and not arena["puzzle_runtime"].get("keypad") else None
     update_prompt(runtime, candidate, dt)
-    pressed = lambda name: pr.is_key_pressed(getattr(pr.KeyboardKey, "KEY_" + name))
+    if pressed is None:
+        pressed = lambda name: pr.is_key_pressed(getattr(pr.KeyboardKey, "KEY_" + name))
     if modal:
         if "closing_elapsed" in modal:
             modal["closing_elapsed"] += dt

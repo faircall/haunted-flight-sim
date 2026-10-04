@@ -113,7 +113,12 @@ support leg reaches about 34 degrees without stretching. The shin then opens
 through the final descent: native samples progress through roughly 70, 40, 20
 and 16 degrees toward the soft 15-degree authored touchdown. Imported contact
 samples read 15-16 degrees because the two events fall between different frames.
-There is no straight airborne hold. The pelvis vaults over the support foot
+The recovering thigh keeps moving through heel recovery and the under-body
+pass. A rounded knee bend replaces the fixed recovery pose, and the shin
+starts opening before the forward thigh reversal. Forward drive begins earlier
+so the folded rear shoe advances throughout recovery; native frame intervals
+keep it above 13.4 game units/sec relative to the hip. There is no straight
+airborne hold. The pelvis vaults over the support foot
 with about 17 degrees of knee softness.
 The pelvis pitches 6 degrees, the torso leans 3.45-4.35 degrees, and the body
 shifts about 1.3 units side to side. The chest banks about 2.24 degrees each way
@@ -128,7 +133,14 @@ support and shin opening right into contact.
 The elbow stays near 158 degrees through the backsweep, rear reversal and early
 return. It remains above 145 degrees while the returning hand is behind the
 hip, then folds to about 68 degrees at the front pump. Slight shoulder abduction
-and an outward rear elbow plane keep the hands clear of the thighs. Front hands
+and an outward rear elbow plane keep the hands clear of the thighs. Forward
+shoulder swing reaches about 44 degrees. A continuous elbow curve folds and
+opens through the front pump without a held pose. The shoulder turns around
+more briskly, spending about 18% less time near each end of its swing. The elbow
+reaches the lower chest and the fingertips peak about 1.17 units above the
+shoulder toward lower-chin height, following the reference around 47.447
+seconds. The [front-pump close-ups](artifacts/temple3d-living/run-front-pump-closeups.png)
+show the lifted pose. Front hands
 move inward at chest height.
 
 Compare the [quarter-speed run](artifacts/temple3d-living/run-side-slow.gif),
@@ -141,7 +153,7 @@ phases differ slightly because the runtime uses discrete samples.
 Walking feet trace a 0.24-unit lateral swing arc; running recovery uses a smaller
 0.10-unit inward arc with little outward knee movement. Contact feet retain
 fixed tracks and smooth heel/toe roll. Running lifts both feet between supports,
-with about 2.52 units of simultaneous sole clearance and 0.42 units of pelvis
+with about 2.31 units of simultaneous sole clearance and 0.42 units of pelvis
 rise. Use **Back / Front** to inspect knee tracking and hand/thigh clearance,
 and **Side** for heel recovery, stride length, shin extension and elbow timing.
 
@@ -174,7 +186,7 @@ and locked foot contacts. It also checks one continuous running recovery,
 paired support/swing poses, actual travelling stride, progressive contact extension, front elbow
 contraction and held elbow extension during the forward return. Actual skinned hand/cuff
 surfaces are checked against the trouser geometry in all three clips: minimum
-gaps are 0.10 units in idle, 0.14 in walk and 0.30 in run, with no penetration.
+gaps are 0.10 units in idle, 0.14 in walk and 0.41 in run, with no penetration.
 The [native measurements](artifacts/temple3d-living/gpu-check.json) keep stance
 height error below 0.011 units, sliding below 0.0075 and lateral drift below
 0.0015. The 480x270 full-game review verifies walking, running, night lighting
