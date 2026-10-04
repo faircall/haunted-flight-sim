@@ -9,6 +9,7 @@ The earlier painted scene and first photo/roof study remain available.
 python moonlit_water_temple_blender.py
 python moonlit_water_temple_blender.py --lighting flat
 python temple_3d_viewer.py
+python moonlit_water_temple_3d.py
 ```
 
 The first command is the **playable 2D game**, with baked sprites and per-pixel
@@ -30,6 +31,15 @@ animated grass or tree deformation. Existing trees are static billboards there.
 Viewer controls: **WASD** walk; **Q/E** orbit; **up/down** change camera elevation;
 **mouse wheel** zoom; **R** roof cutaway; **L** inspection light; **Home** reset
 camera; **F12** screenshot; **Esc** quit. Movement follows world axes.
+
+The fourth command is the **fixed-camera walkthrough**: three authored views
+along the boardwalk and into the temple, automatic region cuts, and movement
+that preserves its world direction while a key is held through a cut. The
+interior view cuts away the front facade as well as the roof. This remains a
+separate experiment with simplified water and lighting. It now includes a
+sprite-derived rigged player and wind-animated 3D willows, running in a local
+Raylib 5.5 environment. [Living model kit](living/README.md).
+See [controls, camera authoring and verification](../../TEMPLE_3D_CAMERA_TRIAL.md).
 
 - [Playable scene comparison](review/comparison.png)
 - [Actual normal/height lighting sweep](review/normal-lighting-study.png)
