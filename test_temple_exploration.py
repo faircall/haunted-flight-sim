@@ -28,14 +28,15 @@ def exploration(path=None):
 
 
 class ExplorationTests(unittest.TestCase):
-    def test_world_position_camera_chord_and_swept_collision(self):
+    def test_world_position_and_swept_tank_collision(self):
         g = exploration()
         for _ in range(50):
-            g.tick(.05, {'d'}, running=True)
+            g.tick(.05, {'w'}, running=True)
         pos = game.tile_and_offset_to_absolute(g.arena['tile_map'], g.player['position'])
         self.assertEqual((pos['x'], pos['y']), (g.walk.x, g.walk.y))
         self.assertGreater(g.walk.distance, 0)
         g.set_position(480, 283)
+        g.walk.facing=(0,-1)
         for _ in range(100):
             g.tick(1, {'w'}, running=True)
         self.assertGreaterEqual(g.walk.y, 275)
@@ -78,17 +79,18 @@ class ExplorationTests(unittest.TestCase):
             g.tick(.05, {'d'}, True)
         self.assertIsNone(g.modal)
         self.assertEqual((g.walk.x, g.walk.y, g.clock), frozen)
-        g.tick(.05, {'d'}, True)
+        g.tick(.05, {'w'}, True)
         self.assertGreater(g.walk.x, frozen[0])
 
     def test_footsteps_use_resolved_distance_and_stop_when_blocked(self):
         g = exploration()
         count = 0
         for _ in range(40):
-            g.tick(.05, {'d'}, True)
+            g.tick(.05, {'w'}, True)
             count += len(g.footsteps)
         self.assertGreater(count, 0)
         g.set_position(480, 283)
+        g.walk.facing=(0,-1)
         for _ in range(40):
             g.tick(.05, {'w'}, True)
         self.assertFalse(g.footsteps)

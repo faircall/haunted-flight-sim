@@ -1,7 +1,6 @@
-"""Saved 3D object layout and design markup. No graphics or gameplay progress.
+"""Saved blockout, objects and encounter definitions, with stable authoring IDs.
 
-The existing tile footprint still supplies floors, stairs and walls. Decorative
-objects and exploration objects are authored here with stable IDs.
+Graphics resources and playthrough progress remain outside the scene document.
 """
 from copy import deepcopy
 from pathlib import Path
@@ -12,7 +11,7 @@ import g_temple_layout as layout
 
 ROOT = Path(__file__).resolve().parent
 SCENE_FILE = ROOT / 'art' / 'temple' / 'exploration.scene.json'
-KINDS = {'prop', 'key', 'medicine', 'inscription', 'door'}
+KINDS = {'prop', 'key', 'medicine', 'inscription', 'door', 'enemy_spawn', 'encounter', 'gate', 'ammo'}
 PROP_LABELS = {'altar': 'Altar', 'banner': 'Banner', 'lantern_paper': 'Paper lantern',
                'lantern_porcelain': 'Porcelain lantern', 'pile54': 'Lantern post',
                'lily_cluster': 'Water lilies', 'lily_leaves': 'Lily leaves', 'brazier': 'Fire bowl'}
@@ -22,7 +21,7 @@ def atomic_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + '.tmp')
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + '\n', encoding='utf-8')
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + '\n', encoding='utf-8',newline='\n')
     temporary.replace(path)
 
 
@@ -70,7 +69,7 @@ def validate(document):
         point(obj['position'])
         if obj['kind'] not in KINDS | {'note', 'arrow', 'area'}:
             raise ValueError('Unknown scene object: ' + str(obj['kind']))
-        if obj['kind'] in ('arrow', 'area'):
+        if obj['kind'] in ('arrow', 'area', 'encounter'):
             point(obj['end'])
         if obj['kind'] in ('note', 'arrow', 'area'):
             if not isinstance(obj.get('text', ''), str):
@@ -89,6 +88,16 @@ def validate(document):
                 raise ValueError('Exploration objects need a label.')
             if obj['kind'] == 'key' and not isinstance(obj.get('group'), str):
                 raise ValueError('Keys need a door group.')
+            if obj['kind'] in ('enemy_spawn','encounter','gate') and (not isinstance(obj.get('group'),str) or not obj['group'].strip() or len(obj['group'])>80):
+                raise ValueError('Encounter objects need a group name (up to 80 characters).')
+            if obj['kind']=='gate' and obj.get('rotation',0) not in (0,90,180,270):
+                raise ValueError('Gates align to map directions (90-degree turns).')
+            if obj['kind']=='encounter' and (obj['position'][0]==obj['end'][0] or obj['position'][1]==obj['end'][1]):
+                raise ValueError('A trigger needs an area, not a line.')
+            if obj['kind']=='encounter' and 'camera_offset' in obj:
+                offset=obj['camera_offset'];span=obj.get('camera_span',140)
+                if not isinstance(offset,list) or len(offset)!=3 or any(not isinstance(v,(int,float)) or not math.isfinite(v) for v in offset) or offset[1]<40 or math.hypot(offset[0],offset[2])<10 or not isinstance(span,(int,float)) or not 70<=span<=400:
+                    raise ValueError('Invalid encounter camera.')
     doors = [o for o in document['objects'] if o['kind'] == 'door']
     if len(doors) != 1 or doors[0]['id'] != 'temple-entrance' or doors[0]['position'] != [480, 264] or doors[0].get('rotation', 0) != 0:
         raise ValueError('The temple entrance remains fixed in this placement milestone.')

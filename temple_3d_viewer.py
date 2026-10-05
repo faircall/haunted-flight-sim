@@ -75,6 +75,7 @@ def run(fixed_cameras=False,living_assets=False):
     parser.add_argument('--structure-review',action='store_true',help='Save bridge, temple and shore-step construction views and exit')
     parser.add_argument('--player-review',action='store_true',help='Capture the new player walking/running at game resolution, plus an inspection-light costume pass')
     parser.add_argument('--gameplay-smoke',action='store_true',help='Exercise exploration, progress saves and scene editing in a hidden native window')
+    parser.add_argument('--combat-smoke',action='store_true',help='Exercise the full 3D encounter, combat animations and saved progress')
     parser.add_argument('--scene',type=Path,help='Use a separate authored scene file')
     parser.add_argument('--fixed-cameras',action='store_true',default=fixed_cameras,help='Play the three-shot camera walkthrough')
     assets=parser.add_mutually_exclusive_group()
@@ -85,6 +86,7 @@ def run(fixed_cameras=False,living_assets=False):
     if args.structure_review:args.smoke=True
     if args.player_review:
         args.smoke=True;args.living_assets=True;fixed_cameras=True
+    if args.combat_smoke:args.gameplay_smoke=True
     if args.gameplay_smoke:
         args.smoke=True;args.living_assets=True;fixed_cameras=True
     gameplay_enabled=fixed_cameras and not (args.smoke and not args.gameplay_smoke)
@@ -126,7 +128,8 @@ def run(fixed_cameras=False,living_assets=False):
     tree=pr.load_texture(str(ROOT/'art'/'willow_tree_128.png'));pr.set_texture_filter(tree,pr.TEXTURE_FILTER_POINT)
     player_x,player_y=232.,334.;player_floor=None;azimuth=0.;elevation=30.;span=330.;inspection=False;roof_override=False;roof_alpha=1.;frame=0
     walk=cameras.Walkthrough();help_visible=True;living=None
-    gameplay=None;editor=None;exploration_props=None;audio=None;smoke=None;status='';status_time=0.;rendered_revision=0
+    gameplay=None;editor=None;exploration_props=None;audio=None;smoke=None;status='';status_time=0.;rendered_revision=0;combat_view=None
+    willow_fades={138:1.,686:1.}
     def rebuild_layout(new_map):
         cache=ROOT/'artifacts'/'temple-camera-trial'/'cache'
         replacement={}
@@ -152,16 +155,19 @@ def run(fixed_cameras=False,living_assets=False):
             import g_temple_layout
             if not g_temple_layout.authored(scene.document['layout']):rendered_revision=gameplay.geometry_revision
             editor=Editor(scene);exploration_props=Props(shader)
+            from g_temple_combat_view import CombatView
+            combat_view=CombatView()
             if gameplay.spawn_error:
                 editor.active=True;editor.status=gameplay.spawn_error;editor.focus=list(scene.document['spawn'])
             try:audio=Audio()
             except RuntimeError as exc:status='Audio unavailable: '+str(exc);status_time=6.
             if args.gameplay_smoke:
-                from temple_exploration_smoke import Review
+                if args.combat_smoke:from temple_combat_smoke import Review
+                else:from temple_exploration_smoke import Review
                 smoke=Review(gameplay,editor,ROOT/'artifacts'/'temple-exploration')
         if args.living_assets:
             from g_temple_living import LivingScene
-            living=LivingScene()
+            living=LivingScene(combat=bool(gameplay))
         while not pr.window_should_close():
             dt=min(.05,pr.get_frame_time());now=pr.get_time()
             if args.smoke and not args.gameplay_smoke:
@@ -178,7 +184,7 @@ def run(fixed_cameras=False,living_assets=False):
                 if fixed_cameras:walk=cameras.Walkthrough();roof_override=False
                 else:player_x,player_y=232.,334.
                 if living:living.yaw=90.;living.phase=0.;living.pose('idle',0.)
-            if gameplay and not gameplay.modal and not editor.active and pr.is_key_pressed(pr.KEY_HOME):
+            if gameplay and not gameplay.combat.dead and not gameplay.modal and not editor.active and pr.is_key_pressed(pr.KEY_HOME):
                 gameplay.set_position(*gameplay.scene.document['spawn']);gameplay.ensure_clear_position();player_floor=None
                 if living:living.phase=0.;living.pose('idle',0.)
             if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
@@ -209,7 +215,10 @@ def run(fixed_cameras=False,living_assets=False):
                                 status='Progress loaded.';status_time=3.
                         except (OSError,ValueError,KeyError,TypeError) as exc:
                             status='Cannot load/save: '+str(exc);status_time=5.
-                    gameplay.tick(dt,keys,running,pressed,editor.active or editor_transition)
+                    from g_temple_combat_view import controls as combat_controls
+                    combat_input=combat_controls(gameplay) if not editor.active and not gameplay.modal else {}
+                    if smoke:combat_input=getattr(smoke,'action',{})
+                    gameplay.tick(dt,keys,running,pressed,editor.active or editor_transition,**combat_input)
                     arena=gameplay.arena;tm=arena['tile_map'];props=arena['entities']['lake_props'];walk=gameplay.walk
                     now=gameplay.clock
                     if audio:
@@ -251,6 +260,10 @@ def run(fixed_cameras=False,living_assets=False):
                 rebuild_layout(tm);rendered_revision=gameplay.geometry_revision
                 player_floor=None
                 if smoke:smoke.mesh_rebuilds+=1
+            if smoke and getattr(smoke,'camera_override',None):
+                review=smoke.camera_override
+                camera=pr.Camera3D(pr.Vector3(*review['eye']),pr.Vector3(*review['target']),pr.Vector3(0,1,0),review['span'],pr.CAMERA_ORTHOGRAPHIC)
+            if smoke and hasattr(smoke,'inspection'):inspection=smoke.inspection
             if args.structure_review:
                 eye,focus,extent=(((330,43,495),(330,10,335),110),
                                   ((330,100,445),(480,23,256),165),
@@ -259,7 +272,9 @@ def run(fixed_cameras=False,living_assets=False):
                 inspection=True
             scalar('inspection',float(inspection));scalar('time',now);scalar('opacity',1.);integer('waterPass',0)
             pr.set_shader_value(shader,locations['moonDirection'],pr.ffi.new('float[]',[-.45,.75,-.52]),pr.SHADER_UNIFORM_VEC3)
-            lamps=[e for e in arena['entities']['emitters'].values() if e.get('type')=='fire'][:6]
+            lamps=[e for e in arena['entities']['emitters'].values() if e.get('type')=='fire']
+            if gameplay:lamps.sort(key=lambda e:math.hypot(e['position']['x']-camera.target.x,e['position']['y']-camera.target.z))
+            lamps=lamps[:6]
             positions=[v for e in lamps for v in (e['position']['x'],e.get('base_height',16.)+42.,e['position']['y'])]
             integer('lampCount',len(lamps));pr.set_shader_value_v(shader,locations['lamps'],pr.ffi.new('float[]',positions),pr.SHADER_UNIFORM_VEC3,len(lamps))
             if living:
@@ -275,11 +290,15 @@ def run(fixed_cameras=False,living_assets=False):
                 elif fixed_cameras:
                     travel=gameplay.travel if gameplay else math.hypot(walk.x-old_position[0],walk.y-old_position[1])
                     if not gameplay or not gameplay.paused:
-                        living.update(dt,walk.moving,walk.heading,travel,running)
+                        if gameplay:
+                            living.phase+=travel/GAIT_SETTINGS['run' if walk.running and not gameplay.combat.aiming else 'walk']['stride']
+                        else:living.update(dt,walk.moving,walk.heading,travel,running)
                 else:
                     travel_x,travel_y=player_x-old_position[0],player_y-old_position[1]
                     travel=math.hypot(travel_x,travel_y)
                     living.update(dt,travel>1e-6,(travel_x,travel_y),travel,running)
+            if combat_view:combat_view.update(gameplay,living,dt,inspection,positions)
+            if smoke and hasattr(smoke,'observe_visual'):smoke.observe_visual(living,combat_view)
             pr.begin_texture_mode(target);pr.clear_background(pr.Color(3,7,12,255));pr.begin_mode_3d(camera)
             integer('waterPass',1);pr.draw_model(water,pr.Vector3(448,-.2,320),1.,pr.WHITE);integer('waterPass',0)
             draw('terrain',pr.Vector3(0,0,0))
@@ -297,7 +316,10 @@ def run(fixed_cameras=False,living_assets=False):
             for e in lamps:
                 p=e['position'];pr.draw_sphere(pr.Vector3(p['x'],e.get('base_height',16.)+19,p['y']),2.,pr.Color(255,150,50,255))
             for x in (138,686):
-                if living:living.draw_willow(x,376,0. if x==138 else 83.)
+                if living:
+                    fade=.12 if gameplay and walk.director.override and math.hypot(player_x-x,player_y-376)<85 else 1.
+                    willow_fades[x]+=(fade-willow_fades[x])*min(1.,dt*10)
+                    living.draw_willow(x,376,0. if x==138 else 83.,willow_fades[x])
                 else:pr.draw_billboard(camera,tree,pr.Vector3(x,58,376),116,pr.Color(90,115,145,255) if not inspection else pr.WHITE)
             floor=structure.floor_height(tm,player_x,player_y)
             # Follow each low riser smoothly instead of teleporting up a whole
@@ -309,12 +331,14 @@ def run(fixed_cameras=False,living_assets=False):
                     assert 8<screen.x<472 and 8<screen.y<262,('Player outside frame',frame,screen.x,screen.y)
             if living:living.draw_player(player_x,player_floor,player_y)
             else:pr.draw_capsule(pr.Vector3(player_x,player_floor+4,player_y),pr.Vector3(player_x,player_floor+24,player_y),3.,4,4,pr.Color(156,146,118,255))
+            if combat_view:combat_view.draw(gameplay,living,player_floor)
             if roof_alpha>.001:
                 scalar('opacity',roof_alpha);draw('roof',pr.Vector3(480,structure.TEMPLE_HEIGHT+64,208));scalar('opacity',1.)
             if editor and editor.active:editor.draw_world(tm)
             pr.end_mode_3d()
             status_time=max(0.,status_time-dt)
             if gameplay and not editor.active:draw_ui(gameplay,status if status_time>0 else '')
+            if combat_view and not editor.active:combat_view.draw_ui(gameplay)
             pr.end_texture_mode()
             pr.begin_drawing();pr.clear_background(pr.BLACK)
             destination=pr.Rectangle(0,0,1440,810)
@@ -326,7 +350,7 @@ def run(fixed_cameras=False,living_assets=False):
                 editor.draw_overlay(camera,tm,gameplay.assets)
             elif gameplay and help_visible:
                 pr.draw_text(walk.director.shot['title'],18,18,18,pr.Color(198,189,164,255))
-                pr.draw_text('WASD move | Shift run | E interact | Tab inventory | F5 save / F6 load | F2 edit level | H help | Esc quit',18,780,16,pr.Color(198,189,164,255))
+                pr.draw_text('W/S forward/back | A/D turn (strafe with RMB) | Shift run | RMB aim / LMB fire | T reload | E interact | Tab inventory | F2 editor',18,780,16,pr.Color(198,189,164,255))
             elif fixed_cameras and help_visible:
                 pr.draw_text(walk.director.shot['title'],18,18,18,pr.Color(198,189,164,255))
                 pr.draw_text('WASD move | Shift run | release keys to follow new view | H help | Home restart | L light | R roof',18,780,16,pr.Color(198,189,164,255))
@@ -354,6 +378,7 @@ def run(fixed_cameras=False,living_assets=False):
         if smoke:smoke.close()
         if audio:audio.close()
         if exploration_props:exploration_props.close()
+        if combat_view:combat_view.close()
         if gameplay:
             import g_narrative_text
             g_narrative_text.unload(gameplay.assets)

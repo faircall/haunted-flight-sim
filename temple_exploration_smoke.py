@@ -4,7 +4,6 @@ All writes go to artifacts; the shipped scene and the user's progress are never
 changed. Captures include the actual low-resolution UI and native editor UI.
 """
 from copy import deepcopy
-import itertools
 import json
 import math
 import pyray as pr
@@ -16,6 +15,14 @@ import g_puzzles as puzzles
 class Review:
     def __init__(self, gameplay, editor, folder):
         self.gameplay, self.editor, self.folder = gameplay, editor, folder
+        if type(self) is Review:
+            # Keep the earlier exploration/blockout regression fixture calm.
+            # The separate combat review exercises the shipped encounter.
+            import g_temple_layout as layout
+            gameplay.scene.document['objects']=[o for o in gameplay.scene.document['objects']
+                if not o['id'].startswith('terrace-')]
+            gameplay.scene.document['layout']=layout.default_layout()
+            gameplay.apply_scene()
         folder.mkdir(parents=True, exist_ok=True)
         self.original_path = gameplay.scene.path
         gameplay.scene.path = folder/'edited.scene.json'
@@ -77,18 +84,12 @@ class Review:
             if math.hypot(dx, dz) < 2.2:
                 yield from self.wait(1)
                 return
-            basis = gameplay.walk.intent.basis or cameras.movement_basis(gameplay.walk.director.shot)
-            right, forward = basis
-            choices = []
-            for horizontal, vertical in itertools.product((-1, 0, 1), repeat=2):
-                if not (horizontal or vertical):
-                    continue
-                x, z = right[0]*horizontal+forward[0]*vertical, right[1]*horizontal+forward[1]*vertical
-                dot = (x*dx+z*dz)/math.hypot(x, z)
-                keys = ({'d' if horizontal > 0 else 'a'} if horizontal else set()) | \
-                       ({'w' if vertical > 0 else 's'} if vertical else set())
-                choices.append((dot, keys))
-            yield max(choices, key=lambda c: c[0])[1], set(), True
+            target=math.degrees(math.atan2(dx,dz))
+            facing=math.degrees(math.atan2(*gameplay.walk.facing))
+            error=(target-facing+180)%360-180
+            keys={'d' if error>0 else 'a'} if abs(error)>3.1 else set()
+            if abs(error)<12:keys.add('w')
+            yield keys,set(),True
         raise AssertionError(('Route got stuck', destination, gameplay.walk.x, gameplay.walk.y))
 
     def run(self):
@@ -189,6 +190,7 @@ class Review:
         editor.toggle(g)
         editor.overhead=True;editor.focus=[486,340];editor.span=180;editor.choose_tool(5)
         baseline=scene.checkpoint()
+        layout.paint(scene,[504,328],[552,344],'water');g.apply_scene()
         self.native_floor_drag([504,328],[552,344],'wood',16)
         layout.paint(scene,[560,320],[607,351],'stone',16)
         layout.paint(scene,[576,384],[607,415],'wood',32)

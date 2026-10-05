@@ -18,6 +18,7 @@ import g_temple_cameras as cameras
 import g_temple_structure as structure
 import g_temple_layout as layout
 from g_temple_scene import atomic_json, point
+from g_temple_combat import Combat
 from photo_asset_pipeline.temple3d.living.gait import SETTINGS
 
 SAVE_FILE = Path(__file__).resolve().parent / 'saved_editor_states' / 'temple3d-progress.json'
@@ -28,10 +29,11 @@ class Exploration:
         self.scene = scene
         self.assets = assets if assets is not None else {}
         self.arena = interactions.ensure(puzzles.ensure_arena(arena))
+        self.arena['player_info'].update(entity_width=6,entity_height=6,collision_center_offset=dict(x=0.,y=0.))
         self.base_tile_map = deepcopy(arena['tile_map'])
         self.applied_layout = None
         self.geometry_revision = 0
-        self.walk = cameras.Walkthrough(*scene.document['spawn'])
+        self.walk = cameras.TankWalkthrough(*scene.document['spawn'])
         self.static_props = {k: deepcopy(p) for k, p in arena['entities']['lake_props'].items()
                              if p['kind'] in ('roof', 'rail', 'column')}
         self.static_emitters = deepcopy(arena['entities']['emitters'])
@@ -45,6 +47,8 @@ class Exploration:
         self.spawn_error=''
         try:self.ensure_clear_position()
         except ValueError as exc:self.spawn_error=str(exc)
+        self.combat=Combat(self)
+        self.initial_progress=self.snapshot()
 
     @property
     def player(self):
@@ -55,18 +59,22 @@ class Exploration:
         return self.arena['interaction_runtime']['modal']
 
     def set_position(self, x, z):
+        previous=deepcopy(self.player['position'])
         self.walk.x, self.walk.y = float(x), float(z)
         self.walk.director.update(x, z)
         self.update_camera()
         self.walk.intent = cameras.MovementIntent()
-        self.walk.moving = False
+        self.walk.stop()
         self.player['position'] = dict(game.get_tile_index_and_offset_from_pos(dict(x=x, y=z), self.arena['tile_map']), z=0.)
+        game.update_tile_manager(previous,self.player['position'],'player',self.arena['tile_map'],entity=self.player)
         self.player.pop('audio_step_state', None)
         g_audio.update_actor_footstep_travel(self.player, dict(x=x, y=z), SETTINGS['walk']['stride']/2, 'player', 'player')
 
     def sync_position(self):
+        previous=deepcopy(self.player['position'])
         self.player['position'].update(game.get_tile_index_and_offset_from_pos(
             dict(x=self.walk.x, y=self.walk.y), self.arena['tile_map']))
+        game.update_tile_manager(previous,self.player['position'],'player',self.arena['tile_map'],entity=self.player)
 
     def update_camera(self,dt=0.):
         tm=self.arena['tile_map']
@@ -82,8 +90,14 @@ class Exploration:
         if previous and dt:
             amount=1-math.exp(-dt*12)
             target=tuple(old+(goal-old)*amount for old,goal in zip(previous['target'],target))
-        self.walk.director.override=dict(title='New layout',target=target,
-            eye=(target[0]+100,target[1]+151,target[2]+220),span=140,
+        offset=(100,151,220);span=140;title='New layout'
+        for trigger in self.scene.document['objects']:
+            if trigger['kind']!='encounter' or 'camera_offset' not in trigger:continue
+            points=[trigger['position'],trigger['end']]+[o['position'] for o in self.scene.document['objects'] if o.get('group')==trigger['group']]
+            if min(p[0] for p in points)-32<=self.walk.x<=max(p[0] for p in points)+48 and min(p[1] for p in points)-32<=self.walk.y<=max(p[1] for p in points)+32:
+                offset=trigger['camera_offset'];span=trigger.get('camera_span',140);title=trigger['label'];break
+        self.walk.director.override=dict(title=title,target=target,
+            eye=tuple(a+b for a,b in zip(target,offset)),span=span,
             hide_front_facade=self.walk.director.shots[self.walk.director.active].get('hide_front_facade',False))
 
     def ensure_clear_position(self):
@@ -148,19 +162,22 @@ class Exploration:
                         emitter.update(position=dict(x=x, y=z), base_height=floor)
                         entities['emitters'][identity.removeprefix('bowl:')] = emitter
                 continue
-            if kind == 'medicine':
+            if kind in ('enemy_spawn','encounter'):
+                continue
+            if kind in ('medicine','ammo'):
                 if identity not in self.collected:
                     entities['pickups'][identity] = dict(id=identity, persistent_id=identity,
-                        type='health_pickup', label=record['label'], value=25,
+                        type='health_pickup' if kind=='medicine' else 'pistol_ammo_pickup', label=record['label'], value=25 if kind=='medicine' else 12,
                         position=game.get_tile_index_and_offset_from_pos(dict(x=x, y=z), tm))
                 continue
-            if kind == 'door':
+            if kind in ('door','gate'):
                 # The existing entrance is two cells wide. Both leaves share a
                 # single interaction and retain the shared full-cell collision.
                 for index, dx in enumerate((-8, 8)):
+                    a=math.radians(record.get('rotation',0))
                     leaf_id = identity + ':' + str(index)
                     leaf = puzzles.init_object(dict(id=leaf_id, type='key door',
-                        position=game.get_tile_index_and_offset_from_pos(dict(x=x+dx, y=z), tm)), 'key door')
+                        position=game.get_tile_index_and_offset_from_pos(dict(x=x+dx*math.cos(a), y=z-dx*math.sin(a)), tm)), 'key door')
                     leaf.update(persistent_id=leaf_id, compound_id=identity,
                                 puzzle_group=record.get('group', 'temple'), label=record['label'])
                     entities['puzzles'][leaf_id] = leaf
@@ -172,6 +189,7 @@ class Exploration:
             if kind == 'inscription':
                 obj['description_id'] = record.get('description', 'old_inscription')
             entities['puzzles'][identity] = obj
+        if hasattr(self,'combat'):self.combat.sync()
         self.sync_doors()
 
     def sync_doors(self):
@@ -191,15 +209,21 @@ class Exploration:
             return
         self.arena = puzzles.interact(self.arena, obj['persistent_id'])
         if bool(state.get('open')) != was_open:
-            self.arena = puzzles.message(self.arena, 'The temple door is ' + ('open.' if state['open'] else 'closed.'))
+            self.arena = puzzles.message(self.arena, obj.get('label','Door') + ' is ' + ('open.' if state['open'] else 'closed.'))
         elif not state.get('unlocked'):
-            self.arena = puzzles.message(self.arena, 'The temple door is locked. Look for a brass key.')
+            self.arena = puzzles.message(self.arena, 'The temple door is locked. Look for a brass key.' if obj['compound_id']=='temple-entrance' else 'The gate is sealed. Clear its encounter to unlock it.')
         for leaf in leaves:
             puzzles.object_state(self.arena, leaf).update(state)
         self.sync_doors()
 
-    def can_walk(self, x, z):
+    def can_walk(self, x, z, ignore_actor=None):
         tm = self.arena['tile_map']
+        if hasattr(self,'combat'):
+            from g_temple_combat import world
+            for identity,actor in self.combat.actors.items():
+                if identity!=ignore_actor and actor['health']>0 and math.dist((x,z),world(actor,tm))<6:
+                    return False
+            if ignore_actor and math.hypot(x-self.walk.x,z-self.walk.y)<6:return False
         for dx, dz in ((-3, -3), (3, -3), (-3, 3), (3, 3)):
             p = game.get_tile_index_and_offset_from_pos(dict(x=x+dx, y=z+dz), tm)
             if game.tile_not_in_bounds(p['tile_x'], p['tile_y'], tm) or game.position_collides_within_tile_shape(p, tm):
@@ -219,15 +243,27 @@ class Exploration:
         # Check both directions at a ledge; authored stairs are small risers.
         return abs(structure.floor_height(tm,x,z)-structure.floor_height(tm,self.walk.x,self.walk.y))<=4.001
 
-    def tick(self, dt, keys=(), running=False, pressed=(), editor=False):
+    def tick(self, dt, keys=(), running=False, pressed=(), editor=False, aiming=False, aim=None, fire=False, reload=False):
         dt = max(0., min(.05, dt))
         pressed = set(pressed)
         self.travel = 0.
         self.footsteps = []
+        self.walk.stop()
         if editor:
             self.walk.moving = False
             self.walk.intent = cameras.MovementIntent()
             self.paused = True
+            self.combat.aiming=False
+            return
+        if self.combat.dead:
+            if 'ENTER' in pressed:
+                restart=deepcopy(self.initial_progress)
+                restart['position']=list(self.scene.document['spawn'])
+                restart['combat']=dict(encounters={},actors={},reload=0.,death_time=0.)
+                self.restore(restart)
+                self.ensure_clear_position()
+            else:self.combat.tick(dt)
+            self.walk.moving=False;self.paused=True
             return
         candidate = interactions.nearest(self.arena) if not self.modal else None
         door_action = candidate and candidate[2].get('compound_id') and 'E' in pressed
@@ -252,31 +288,41 @@ class Exploration:
                 if allowed:move_allowed.previous=(x,z)
                 return allowed
             move_allowed.previous=start
-            self.walk.step(keys, dt, move_allowed, SETTINGS[gait]['speed'])
+            frozen=bool(self.combat.reload or reload)
+            target=(aim[0],aim[2]) if aim is not None else None
+            self.walk.step(() if frozen else keys, dt, move_allowed, SETTINGS[gait]['speed'],
+                aiming=aiming and not frozen,aim=target,running=running)
+            gait='run' if self.walk.running and not aiming else 'walk'
             self.travel = math.hypot(self.walk.x-old[0], self.walk.y-old[1])
             self.sync_position()
             self.update_camera(dt)
             self.footsteps = g_audio.update_actor_footstep_travel(self.player,
                 dict(x=self.walk.x, y=self.walk.y), SETTINGS[gait]['stride']/2, 'player', 'player', gait=gait)
             self.clock += dt
+            self.combat.tick(dt,aiming,aim,fire,reload)
             runtime = self.arena['puzzle_runtime']
             runtime['message_time'] = max(0., runtime['message_time']-dt)
         self.collected.update(o['id'] for o in self.scene.document['objects']
-            if o['kind'] == 'medicine' and o['id'] not in self.arena['entities']['pickups'])
+            if o['kind'] in ('medicine','ammo') and o['id'] not in self.arena['entities']['pickups'])
 
     def snapshot(self):
         return dict(version=1, scene_id=self.scene.document['scene_id'],
-            position=[self.walk.x, self.walk.y], heading=list(self.walk.heading), clock=self.clock,
+            position=[self.walk.x, self.walk.y], heading=list(self.walk.facing), clock=self.clock,
             player={k: deepcopy(self.player[k]) for k in ('health', 'ammo', 'inventory', 'inventory_overflow')},
-            puzzle_state=deepcopy(self.arena['puzzle_state']), collected=sorted(self.collected))
+            puzzle_state=deepcopy(self.arena['puzzle_state']), collected=sorted(self.collected),combat=self.combat.snapshot())
 
     def save(self, path=SAVE_FILE):
         atomic_json(path, self.snapshot())
 
     def load(self, path=SAVE_FILE):
         value = json.loads(Path(path).read_text(encoding='utf-8'))
+        self.restore(value)
+
+    def restore(self,value):
         if not isinstance(value, dict) or value.get('version') != 1 or value.get('scene_id') != self.scene.document['scene_id']:
             raise ValueError('This progress belongs to a different scene.')
+        combat=value.get('combat',dict(encounters={},actors={},reload=0.,death_time=0.))
+        self.combat.validate_snapshot(combat)
         point(value['position'])
         player = value['player']
         if not isinstance(player, dict) or not isinstance(player.get('health'), (int, float)) or not 0 <= player['health'] <= 100:
@@ -295,10 +341,11 @@ class Exploration:
         if any(not isinstance(v, dict) or any(not isinstance(v.get(k, False), bool) for k in ('collected', 'open', 'unlocked'))
                for v in state['objects'].values()):
             raise ValueError('Invalid saved object state.')
-        door_states = [state['objects'].get('temple-entrance:' + str(i), {}) for i in (0, 1)]
-        if any(s.get('open') and not s.get('unlocked') for s in door_states) or any(
-            bool(door_states[0].get(k)) != bool(door_states[1].get(k)) for k in ('open', 'unlocked')):
-            raise ValueError('The saved entrance leaves disagree.')
+        for door in (o for o in self.scene.document['objects'] if o['kind'] in ('door','gate')):
+            door_states = [state['objects'].get(door['id']+':' + str(i), {}) for i in (0, 1)]
+            if any(s.get('open') and not s.get('unlocked') for s in door_states) or any(
+                bool(door_states[0].get(k)) != bool(door_states[1].get(k)) for k in ('open', 'unlocked')):
+                raise ValueError('The saved door leaves disagree.')
         if not isinstance(value.get('collected'), list) or any(not isinstance(v, str) for v in value['collected']):
             raise ValueError('Invalid saved pickup IDs.')
         if not isinstance(player.get('ammo'), dict) or any(not isinstance(v, int) or v < 0 for v in player['ammo'].values()):
@@ -317,7 +364,12 @@ class Exploration:
         self.arena['puzzle_runtime'].update(message='', message_time=0., sounds=[], keypad=None)
         self.collected = set(value['collected'])
         self.clock = clock
+        self.combat.actors={};self.combat.encounters={}
         self.apply_scene()
         self.set_position(*value['position'])
         self.ensure_clear_position()
-        self.walk.heading = tuple(heading)
+        length=math.hypot(*heading)
+        self.walk.facing = tuple(v/length for v in heading) if length>1e-6 else (1.,0.)
+        self.walk.heading = self.walk.facing
+        self.combat.restore(combat)
+        self.sync_doors()

@@ -14,7 +14,7 @@ ANIMATION_SAMPLE_SECONDS = .017
 
 
 class LivingScene:
-    def __init__(self, include_willow=True):
+    def __init__(self, include_willow=True, combat=False, actor='player'):
         if not hasattr(pr, 'update_model_animation_bones'):
             raise RuntimeError('3D characters require Raylib 5.5. Run play_temple_3d.cmd.')
         self.shaders = []
@@ -29,17 +29,22 @@ class LivingScene:
         self.clip = 'idle'
         self.animation_frame = 0
         self.pose_blend = 1.
+        self.actor=actor
+        self.asset_root=ROOT/'art'/'temple'/'combat' if combat or actor=='redhead' else ASSETS/'models'
+        self.pistol=None
         try:
             self.skin = self.load_shader('temple_skin')
             self.wind = self.load_shader('temple_willow') if include_willow else None
-            self.player = self.load_model('player', self.skin)
+            self.player = self.load_model(actor, self.skin)
+            if combat and actor=='player':self.pistol=self.load_model('pistol',self.skin)
             self.willow = self.load_model('willow', self.wind) if include_willow else None
             count = pr.ffi.new('int *')
-            self.animations = pr.load_model_animations(str(ASSETS/'models'/'player.glb'), count)
+            self.animations = pr.load_model_animations(str(self.asset_root/(actor+'.glb')), count)
             self.animation_count = count[0]
             self.clips = {pr.ffi.string(self.animations[i].name).decode(): i for i in range(count[0])}
-            self.clip_seconds = json.loads((ASSETS/'manifest.json').read_text())['player']['clips']
-            if not {'idle','walk','run'} <= self.clips.keys():
+            manifest=ROOT/'art'/'temple'/'combat'/'manifest.json' if combat or actor=='redhead' else ASSETS/'manifest.json'
+            self.clip_seconds = json.loads(manifest.read_text())[actor]['clips']
+            if not ({'idle','walk','run'} if actor=='player' else {'enemy_idle','enemy_walk','enemy_attack','enemy_stagger','enemy_death'}) <= self.clips.keys():
                 raise RuntimeError('Player export is missing animation clips')
             for mesh in self.player.meshes[0:self.player.meshCount]:
                 if mesh.boneCount != self.player.boneCount or not mesh.vboId[7] or not mesh.vboId[8]:
@@ -49,7 +54,7 @@ class LivingScene:
             self.previous_pose = pr.ffi.new('Matrix[]',self.player.boneCount)
             self.previous_location = pr.get_shader_location(self.skin,'previousPose')
             self.blend_location = pr.get_shader_location(self.skin,'poseBlend')
-            self.pose('idle', 0.)
+            self.pose('idle' if actor=='player' else 'enemy_idle', 0.)
         except Exception:
             self.close()
             raise
@@ -66,11 +71,13 @@ class LivingScene:
             if shader.locs[pr.SHADER_LOC_BONE_MATRICES] < 0:
                 raise RuntimeError('Bone uniform not active')
         self.locations[shader.id] = {key: pr.get_shader_location(shader,key) for key in
-                                     ('time','inspection','windStrength','moonDirection','lampCount','lamps')}
+                                     ('time','inspection','windStrength','moonDirection','lampCount','lamps','opacity')}
+        pr.set_shader_value(shader,self.locations[shader.id]['opacity'],pr.ffi.new('float[]',[1.]),pr.SHADER_UNIFORM_FLOAT)
         return shader
 
     def load_model(self, name, shader):
-        model = pr.load_model(str(ASSETS/'models'/(name+'.glb')))
+        folder=ASSETS/'models' if name=='willow' else self.asset_root
+        model = pr.load_model(str(folder/(name+'.glb')))
         self.models.append(model)
         if not model.meshCount:
             raise RuntimeError('Empty model: '+name)
@@ -110,12 +117,13 @@ class LivingScene:
             pr.rl.rlEnableShader(self.skin.id)
             pr.rl.rlSetUniformMatrices(self.previous_location,self.previous_pose,self.player.boneCount)
             pr.rl.rlDisableShader()
-            self.pose_blend = 0.
+            self.pose_blend = min(1.,max(0.,dt)/.035) if clip=='recoil' else 0.
         else:
-            self.pose_blend = min(1.,self.pose_blend+max(0.,dt)/.14)
+            self.pose_blend = min(1.,self.pose_blend+max(0.,dt)/(.035 if clip=='recoil' else .14))
         animation = self.animations[self.clips[clip]]
         frame = min(animation.frameCount-1, int((phase % 1.)*self.clip_seconds[clip]/ANIMATION_SAMPLE_SECONDS))
         pr.update_model_animation_bones(self.player,animation,frame)
+        if self.pistol:pr.update_model_animation_bones(self.pistol,animation,frame)
         pr.set_shader_value(self.skin,self.blend_location,pr.ffi.new('float[]',[self.pose_blend]),pr.SHADER_UNIFORM_FLOAT)
         self.clip, self.animation_frame = clip, frame
 
@@ -132,10 +140,17 @@ class LivingScene:
     def draw_player(self, x, floor, z):
         pr.draw_model_ex(self.player,pr.Vector3(x,floor,z),pr.Vector3(0,1,0),self.yaw,pr.Vector3(1,1,1),pr.WHITE)
 
-    def draw_willow(self, x, z, angle=0.):
+    def draw_pistol(self,x,floor,z):
+        if self.pistol:pr.draw_model_ex(self.pistol,pr.Vector3(x,floor,z),pr.Vector3(0,1,0),self.yaw,pr.Vector3(1,1,1),pr.WHITE)
+
+    def draw_willow(self, x, z, angle=0.,opacity=1.):
         # Alpha-tested leaves write depth normally; both sides of each ribbon show.
         pr.rl.rlDisableBackfaceCulling()
+        pr.set_shader_value(self.wind,self.locations[self.wind.id]['opacity'],pr.ffi.new('float[]',[opacity]),pr.SHADER_UNIFORM_FLOAT)
+        if opacity<.999:pr.rl.rlDisableDepthMask()
         pr.draw_model_ex(self.willow,pr.Vector3(x,0,z),pr.Vector3(0,1,0),angle,pr.Vector3(1,1,1),pr.WHITE)
+        if opacity<.999:pr.rl.rlEnableDepthMask()
+        pr.set_shader_value(self.wind,self.locations[self.wind.id]['opacity'],pr.ffi.new('float[]',[1.]),pr.SHADER_UNIFORM_FLOAT)
         pr.rl.rlEnableBackfaceCulling()
 
     def close(self):

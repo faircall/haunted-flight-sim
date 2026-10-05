@@ -1,0 +1,37 @@
+{
+  "player": {
+    "clips": {
+      "idle": 2.0,
+      "walk": 1.0,
+      "run": 1.0,
+      "walk_back": 1.0,
+      "turn_left": 1.0,
+      "turn_right": 1.0,
+      "aim": 1.0,
+      "aim_walk": 1.0,
+      "aim_back": 1.0,
+      "aim_left": 1.0,
+      "aim_right": 1.0,
+      "recoil": 0.23333333333333334,
+      "reload": 1.15,
+      "hurt": 0.3,
+      "death": 0.9
+    }
+  },
+  "redhead": {
+    "clips": {
+      "enemy_idle": 2.0,
+      "enemy_walk": 0.9,
+      "enemy_attack": 1.0,
+      "enemy_stagger": 0.35,
+      "enemy_death": 0.9
+    },
+    "vertices": 540,
+    "triangles": 970,
+    "bones": 15,
+    "height": 21.6,
+    "aim_height": 14.5,
+    "reference": "Margaret Breindel, The Chorus; artdev/ChorusReference.jpg, short leftmost figure"
+  },
+  "source": "Accepted living kit; original exports preserved"
+}

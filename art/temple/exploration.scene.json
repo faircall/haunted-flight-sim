@@ -605,7 +605,371 @@
       ],
       "rotation": 0,
       "description": "old_inscription"
+    },
+    {
+      "id": "terrace-trigger",
+      "kind": "encounter",
+      "label": "Terrace encounter",
+      "position": [
+        568,
+        320
+      ],
+      "end": [
+        596,
+        368
+      ],
+      "rotation": 0,
+      "group": "temple-terrace",
+      "camera_offset": [
+        -180,
+        151,
+        140
+      ],
+      "camera_span": 130
+    },
+    {
+      "id": "terrace-redhead",
+      "kind": "enemy_spawn",
+      "label": "Pale chorus spawn",
+      "position": [
+        624,
+        336
+      ],
+      "rotation": 270,
+      "group": "temple-terrace"
+    },
+    {
+      "id": "terrace-gate",
+      "kind": "gate",
+      "label": "Terrace gate",
+      "position": [
+        664,
+        352
+      ],
+      "rotation": 90,
+      "group": "temple-terrace"
+    },
+    {
+      "id": "terrace-ammo",
+      "kind": "ammo",
+      "label": "Pistol ammunition",
+      "position": [
+        684,
+        352
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "terrace-medicine",
+      "kind": "medicine",
+      "label": "Medicine",
+      "position": [
+        600,
+        376
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "terrace-fire-west",
+      "kind": "prop",
+      "label": "Terrace fire bowl",
+      "position": [
+        568,
+        308
+      ],
+      "rotation": 0,
+      "template": {
+        "kind": "brazier",
+        "width": 14,
+        "height": 18,
+        "asset": "baked:brazier",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "brazier"
+      }
+    },
+    {
+      "id": "terrace-fire-east",
+      "kind": "prop",
+      "label": "Terrace fire bowl",
+      "position": [
+        640,
+        376
+      ],
+      "rotation": 0,
+      "template": {
+        "kind": "brazier",
+        "width": 14,
+        "height": 18,
+        "asset": "baked:brazier",
+        "geometry_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry_asset": "brazier"
+      }
     }
   ],
-  "marks": []
+  "marks": [],
+  "layout": {
+    "cells": {
+      "31,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "32,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "33,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "34,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "31,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "32,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "33,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "34,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "35,19": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "36,19": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "37,19": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "38,19": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "39,19": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "40,19": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "35,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "36,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "37,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "38,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "39,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "40,20": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "35,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "36,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "37,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "38,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "39,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "40,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "35,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "36,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "37,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "38,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "39,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "40,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "35,23": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "36,23": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "37,23": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "38,23": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "39,23": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "40,23": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "41,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "42,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "43,21": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "41,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "42,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      },
+      "43,22": {
+        "material": "wood",
+        "height": 16,
+        "axis": "x"
+      }
+    },
+    "stairs": [
+      {
+        "name": "shore",
+        "bounds": [
+          140.0,
+          320.0,
+          176.0,
+          352.0
+        ],
+        "axis": "x",
+        "bottom": 0.0,
+        "top": 16.0,
+        "count": 6,
+        "id": "stairs:shore",
+        "authored": false
+      },
+      {
+        "name": "threshold",
+        "bounds": [
+          464.0,
+          280.0,
+          496.0,
+          296.0
+        ],
+        "axis": "-z",
+        "bottom": 16.0,
+        "top": 24.0,
+        "count": 4,
+        "id": "stairs:threshold",
+        "authored": false
+      }
+    ],
+    "rails": true
+  }
 }

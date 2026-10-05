@@ -8,6 +8,7 @@ uniform vec4 colDiffuse;
 uniform vec3 moonDirection;
 uniform float inspection;
 uniform float time;
+uniform float opacity;
 uniform int lampCount;
 uniform vec3 lamps[6];
 out vec4 finalColor;
@@ -31,5 +32,5 @@ void main() {
     }
     vec3 neutral=vec3(.80)+vec3(.17)*band(response(normal,normalize(vec3(-.4,1.,.7))));
     light=mix(light,neutral,inspection);
-    finalColor=vec4(tex.rgb*light,1.0);
+    finalColor=vec4(tex.rgb*light,opacity);
 }

@@ -8,11 +8,11 @@ import g_temple_structure as structure
 import g_temple_layout as layout
 from g_temple_scene import PROP_LABELS, prop_origin
 
-TOOLS = ('Select', 'Place', 'Note', 'Arrow', 'Area', 'Floor / walkway', 'Stairs', 'Player spawn')
+TOOLS = ('Select', 'Place', 'Note', 'Arrow', 'Area', 'Floor / walkway', 'Stairs', 'Player spawn', 'Encounter trigger')
 COLORS = (pr.Color(242, 191, 83, 255), pr.Color(99, 202, 239, 255), pr.Color(238, 112, 111, 255))
 VIEW_SCALE = 1140 / 480
 VIEW_TOP = (810 - 270 * VIEW_SCALE) / 2
-TOOL_TOP,TOOL_ROW,PALETTE_TOP,PALETTE_ROW=80,24,314,20
+TOOL_TOP,TOOL_ROW,PALETTE_TOP,PALETTE_ROW=80,24,338,20
 FLOOR_LABELS=('Wood walkway','Stone floor','Grass / ground','Wall','Water / erase','Restore original')
 
 
@@ -65,9 +65,14 @@ class Editor:
         self.hover=None
         self.status = ''
         self.palette_index = 0
+        self.palette_scroll=0
+        self.edit_field='text'
         self.palette = [dict(kind='key', label='Brass key', rotation=0, group='temple'),
                         dict(kind='medicine', label='Medicine', rotation=0),
                         dict(kind='inscription', label='Inscription', rotation=0, description='old_inscription')]
+        self.palette += [dict(kind='enemy_spawn',label='Pale chorus spawn',rotation=0,group='temple-terrace'),
+                         dict(kind='gate',label='Encounter gate',rotation=0,group='temple-terrace'),
+                         dict(kind='ammo',label='Pistol ammunition',rotation=0)]
         seen = set()
         for obj in scene.document['objects']:
             if obj['kind'] != 'prop':
@@ -92,22 +97,27 @@ class Editor:
 
     def begin_text(self, identity):
         obj = self.scene.get(identity)
-        if not obj or obj['kind'] not in ('note', 'arrow', 'area'):
+        if not obj or obj['kind'] not in ('note', 'arrow', 'area','enemy_spawn','encounter','gate'):
             return
+        self.edit_field='group' if obj['kind'] in ('enemy_spawn','encounter','gate') else 'text'
         self.text_before = self.scene.checkpoint()
-        self.edit_text = obj.get('text', '')
+        self.edit_text = obj.get(self.edit_field, '')
         self.selected = identity
 
     def finish_text(self, cancel=False):
         if self.edit_text is not None:
             if not cancel:
-                self.scene.get(self.selected)['text'] = self.edit_text
-                self.scene.commit(self.text_before)
+                self.scene.get(self.selected)[self.edit_field] = self.edit_text
+                try:self.scene.commit(self.text_before)
+                except ValueError as exc:
+                    self.status=str(exc)
+                    return False
             self.edit_text = None
             self.text_before = None
+        return True
 
     def toggle(self, gameplay):
-        self.finish_text()
+        if not self.finish_text():return
         if self.drag:
             self.scene.commit(self.drag['before'])
             self.drag = None
@@ -149,11 +159,11 @@ class Editor:
             x, z = obj['position']
             floor = structure.floor_height(tm, x, z)
             kind = obj['kind']
-            if kind in ('note', 'arrow', 'area'):
+            if kind in ('note', 'arrow', 'area','encounter'):
                 points = [obj['position']]
                 if kind == 'arrow':
                     points.append(obj['end'])
-                elif kind == 'area':
+                elif kind in ('area','encounter'):
                     a, b = obj['position'], obj['end']
                     points = [a, [b[0], a[1]], b, [a[0], b[1]], a]
                 points = [project(p[0], structure.floor_height(tm, *p)+1, p[1]) for p in points]
@@ -170,7 +180,8 @@ class Editor:
             else:
                 origin = x, floor, z
                 width, depth, height = {'key': (7, 4, 2), 'medicine': (4, 3, 3),
-                                        'inscription': (9, 2, 7), 'door': (32, 4, 24)}[kind]
+                                        'inscription': (9, 2, 7), 'door': (32, 4, 24),
+                                        'enemy_spawn':(6,6,28),'gate':(32,4,30),'ammo':(4,3,3)}[kind]
                 low, high = (-width/2, -depth/2, 0), (width/2, depth/2, height)
             a = math.radians(obj.get('rotation', 0))
             corners = [project(origin[0]+dx*math.cos(a)+dz*math.sin(a), origin[1]+h,
@@ -197,12 +208,15 @@ class Editor:
             if pr.is_key_pressed(pr.KEY_BACKSPACE):
                 self.edit_text = self.edit_text[:-1]
             if pr.is_key_pressed(pr.KEY_ENTER):
-                self.finish_text()
+                if self.finish_text():gameplay.apply_scene()
             if pr.is_key_pressed(pr.KEY_ESCAPE):
                 self.finish_text(cancel=True)
             return
         changed = False
         try:
+            if pr.is_key_pressed(pr.KEY_F4):
+                gameplay.combat.reset()
+                self.status='Encounters reset; health and pistol restored. Layout retained.'
             if control:
                 if pr.is_key_pressed(pr.KEY_S):
                     if self.floor_drag:
@@ -240,7 +254,7 @@ class Editor:
                     if pr.is_key_pressed(pr.KEY_V):
                         if self.tool==5:self.grain='y' if self.grain=='x' else 'x'
                         else:self.stair_axis=layout.AXES[(layout.AXES.index(self.stair_axis)+1)%4]
-                for i, key in enumerate((pr.KEY_ONE, pr.KEY_TWO, pr.KEY_THREE, pr.KEY_FOUR, pr.KEY_FIVE,pr.KEY_SIX,pr.KEY_SEVEN,pr.KEY_EIGHT)):
+                for i, key in enumerate((pr.KEY_ONE, pr.KEY_TWO, pr.KEY_THREE, pr.KEY_FOUR, pr.KEY_FIVE,pr.KEY_SIX,pr.KEY_SEVEN,pr.KEY_EIGHT,pr.KEY_NINE)):
                     if pr.is_key_pressed(key):
                         self.choose_tool(i)
                 if self.overhead:
@@ -263,7 +277,7 @@ class Editor:
                             p[0] += dx
                             p[1] += dz
                 if obj['kind'] not in ('note', 'arrow', 'area'):
-                    obj['rotation'] = (obj.get('rotation', 0)+15*
+                    obj['rotation'] = (obj.get('rotation', 0)+(90 if obj['kind']=='gate' else 15)*
                         (int(pr.is_key_pressed(pr.KEY_E))-int(pr.is_key_pressed(pr.KEY_Q)))) % 360
                 if pr.is_key_pressed(pr.KEY_DELETE):
                     scene.delete(self.selected)
@@ -274,6 +288,8 @@ class Editor:
                     self.begin_text(self.selected)
             mouse = pr.get_mouse_position()
             if mouse.x >= 1140:
+                if self.tool<5:
+                    self.palette_scroll=max(0,min(max(0,len(self.palette)-10),self.palette_scroll-int(pr.get_mouse_wheel_move())))
                 if pr.is_mouse_button_pressed(pr.MOUSE_BUTTON_LEFT):
                     if TOOL_TOP <= mouse.y < TOOL_TOP+len(TOOLS)*TOOL_ROW:
                         self.choose_tool(int((mouse.y-TOOL_TOP)//TOOL_ROW))
@@ -281,8 +297,8 @@ class Editor:
                         self.material=layout.MATERIALS[int((mouse.y-PALETTE_TOP)//PALETTE_ROW)]
                     elif self.tool==6 and PALETTE_TOP <= mouse.y < PALETTE_TOP+4*PALETTE_ROW:
                         self.stair_axis=layout.AXES[int((mouse.y-PALETTE_TOP)//PALETTE_ROW)]
-                    elif self.tool<5 and PALETTE_TOP <= mouse.y < PALETTE_TOP+len(self.palette)*PALETTE_ROW:
-                        self.palette_index = int((mouse.y-PALETTE_TOP)//PALETTE_ROW)
+                    elif self.tool<5 and PALETTE_TOP <= mouse.y < PALETTE_TOP+min(10,len(self.palette))*PALETTE_ROW:
+                        self.palette_index = self.palette_scroll+int((mouse.y-PALETTE_TOP)//PALETTE_ROW)
                         self.choose_tool(1)
             else:
                 # Camera may have changed from panning or toggling this frame.
@@ -319,6 +335,7 @@ class Editor:
                             self.drag = dict(before=scene.checkpoint(), position=list(obj['position']),
                                 end=list(obj['end']) if 'end' in obj else None, mouse=p)
                     elif self.tool == 1:
+                        if self.palette[self.palette_index]['kind'] in ('enemy_spawn','gate','ammo') and not gameplay.can_walk(*p):raise ValueError('Place this encounter object on clear floor.')
                         self.selected = scene.add(dict(deepcopy(self.palette[self.palette_index]), position=p))
                         changed = True
                     elif self.tool == 2:
@@ -335,6 +352,13 @@ class Editor:
                     elif self.tool==7:
                         if not gameplay.can_walk(*p):raise ValueError('Choose a clear walkable spot for the player spawn.')
                         scene.document['spawn']=p
+                    elif self.tool==8:
+                        if self.pending is None:self.pending=p
+                        else:
+                            self.selected=scene.add(dict(kind='encounter',position=self.pending,end=p,
+                                label='Encounter area',rotation=0,group='temple-terrace',camera_offset=[-180,151,140],camera_span=130))
+                            self.pending=None;changed=True
+                            self.begin_text(self.selected)
                     elif self.pending is None:
                         self.pending = p
                     else:
@@ -387,6 +411,13 @@ class Editor:
                 corners = (a, [b[0], a[1]], b, [a[0], b[1]])
                 for p, q in zip(corners, corners[1:]+corners[:1]):
                     pr.draw_line_3d(vec(p), vec(q), color)
+        for obj in self.scene.document['objects']:
+            if obj['kind']=='enemy_spawn':
+                pr.draw_cube_wires(vec(obj['position']),6,28,6,pr.Color(220,96,83,255))
+            elif obj['kind']=='encounter':
+                a,b=obj['position'],obj['end']
+                corners=(a,[b[0],a[1]],b,[a[0],b[1]])
+                for p,q in zip(corners,corners[1:]+corners[:1]):pr.draw_line_3d(vec(p),vec(q),pr.SKYBLUE)
         obj = self.scene.get(self.selected)
         if obj:
             pr.draw_cube_wires(vec(obj['position']), 9, 6, 9, pr.YELLOW)
@@ -427,6 +458,11 @@ class Editor:
                     pr.draw_rectangle(int(p.x)-4, int(p.y)-3, min(900, int(text.width(assets, label))+8), 22, pr.Color(10, 16, 24, 225))
                     text.draw(assets, label, p.x, p.y, COLORS[mark.get('color', 0) % len(COLORS)])
         selected = self.scene.get(self.selected)
+        for obj in self.scene.document['objects']:
+            if obj['kind'] in ('enemy_spawn','encounter','gate'):
+                p=projected(obj['position'],5)
+                if 0<=p.x<1100 and VIEW_TOP<=p.y<750:
+                    text.draw(assets,obj['label']+' / '+obj['group'],p.x+8,p.y,pr.SKYBLUE)
         if selected:
             p = projected(selected['position'])
             pr.draw_circle_lines(int(p.x), int(p.y), 12, pr.YELLOW)
@@ -462,50 +498,57 @@ class Editor:
                 pr.draw_rectangle(1148, y, 282, TOOL_ROW-2, pr.Color(48, 65, 80, 255))
             pr.draw_text(f'{i+1}  {label}', 1160, y+4, 16, pr.RAYWHITE)
         heading='Floor material:' if self.tool==5 else 'Stairs rise toward:' if self.tool==6 else 'Spawn placement' if self.tool==7 else 'Place an object:'
-        pr.draw_text(heading,1156,290,16,pr.GRAY)
+        if self.tool==8:heading='Click two corners; name the group.'
+        pr.draw_text(heading,1156,314,16,pr.GRAY)
         if self.tool==5:
             entries=FLOOR_LABELS
             active=layout.MATERIALS.index(self.material)
         elif self.tool==6:
             entries=('Map right (+X)','Map down (+Z)','Map left (-X)','Map up (-Z)')
             active=layout.AXES.index(self.stair_axis)
-        elif self.tool==7:
-            entries=('Click a clear walkable spot.',)
+        elif self.tool in (7,8):
+            entries=('Click a clear walkable spot.',) if self.tool==7 else ('Same group links trigger,','enemy spawns and gates.')
             active=-1
         else:
-            entries=[o['label'][:26] for o in self.palette]
-            active=self.palette_index
+            entries=[o['label'][:26] for o in self.palette[self.palette_scroll:self.palette_scroll+10]]
+            active=self.palette_index-self.palette_scroll
         for i,label in enumerate(entries):
             y=PALETTE_TOP+i*PALETTE_ROW
             if i==active:pr.draw_rectangle(1148,y,282,PALETTE_ROW-1,pr.Color(48,65,80,255))
             pr.draw_text(label,1160,y+3,14,pr.RAYWHITE)
+        if self.tool<5 and len(self.palette)>10:pr.draw_text('Wheel over palette: more objects',1156,550,14,pr.GRAY)
+        if self.tool==8:
+            pr.draw_text('Enter: edit a selected group',1156,458,14,pr.RAYWHITE)
+            pr.draw_text('F4: reset encounters, HP and pistol',1156,484,14,pr.RAYWHITE)
+            pr.draw_text('Q/E: turn a selected gate 90 deg',1156,506,14,pr.RAYWHITE)
         if self.tool in (5,6):
             label='Upper landing' if self.tool==6 else 'Wall base' if self.material=='wall' else 'Floor'
-            pr.draw_text(f'{label} height: {self.floor_height:g}',1156,458,16,pr.YELLOW)
-            pr.draw_text('[ / ]: height - / + 4 units',1156,484,14,pr.RAYWHITE)
-            pr.draw_text('V: grain '+self.grain if self.tool==5 else 'V: cycle stair direction',1156,506,14,pr.RAYWHITE)
-            pr.draw_text('Drag a rectangle to build.' if self.tool==5 else 'Click low corner, then high corner.',1156,530,14,pr.RAYWHITE)
-            pr.draw_text('Right drag: erase | Alt+click: sample' if self.tool==5 else 'Right click: remove a stair flight',1156,552,14,pr.RAYWHITE)
+            pr.draw_text(f'{label} height: {self.floor_height:g}',1156,474,16,pr.YELLOW)
+            pr.draw_text('[ / ]: height - / + 4 units',1156,498,14,pr.RAYWHITE)
+            pr.draw_text('V: grain '+self.grain if self.tool==5 else 'V: cycle stair direction',1156,520,14,pr.RAYWHITE)
+            pr.draw_text('Drag a rectangle to build.' if self.tool==5 else 'Click low corner, then high corner.',1156,542,14,pr.RAYWHITE)
+            pr.draw_text('Right drag: erase | Alt+click: sample' if self.tool==5 else 'Right click: remove a stair flight',1156,564,14,pr.RAYWHITE)
         obj = self.scene.get(self.selected)
         y=584
         if obj:
             text.draw(assets, obj.get('label', obj['kind'])[:28], 1156, y, pr.YELLOW)
             pr.draw_text(f"X {obj['position'][0]:.0f}  Z {obj['position'][1]:.0f}", 1156, y+22, 14, pr.RAYWHITE)
-        pr.draw_text('C: overhead / game camera', 1156, y+48, 14, pr.RAYWHITE)
-        pr.draw_text('WASD: pan | wheel: zoom', 1156, y+68, 14, pr.RAYWHITE)
+            if obj['kind'] in ('enemy_spawn','encounter','gate'):text.draw(assets,'Enter: edit group',1156,y+40,pr.SKYBLUE)
+        pr.draw_text('C: overhead / game camera', 1156, y+60, 14, pr.RAYWHITE)
+        pr.draw_text('WASD: pan | wheel: zoom', 1156, y+80, 14, pr.RAYWHITE)
         if self.tool<5:
-            pr.draw_text('Drag / arrows: move | Q/E: rotate',1156,y+88,14,pr.RAYWHITE)
-            pr.draw_text('G: snap '+('ON' if self.snap else 'OFF')+' | Shift: fine | K: colour',1156,y+108,14,pr.RAYWHITE)
-            pr.draw_text('Ctrl+D: duplicate | Delete: remove',1156,y+128,14,pr.RAYWHITE)
+            pr.draw_text('Drag / arrows: move | Q/E: rotate',1156,y+100,14,pr.RAYWHITE)
+            pr.draw_text('G: snap '+('ON' if self.snap else 'OFF')+' | Shift: fine | K: colour',1156,y+120,14,pr.RAYWHITE)
+            pr.draw_text('Ctrl+D: duplicate | Delete: remove',1156,y+140,14,pr.RAYWHITE)
         else:
-            pr.draw_text('Floor edges snap to 16 units.',1156,y+88,14,pr.RAYWHITE)
-            pr.draw_text('J: edge rails '+('ON' if self.scene.document['layout']['rails'] else 'OFF'),1156,y+108,14,pr.RAYWHITE)
-            pr.draw_text('Esc: cancel / return to Select',1156,y+128,14,pr.RAYWHITE)
-        pr.draw_text('Ctrl+Z/Y: undo/redo | Enter: note',1156,y+148,14,pr.RAYWHITE)
-        pr.draw_text('Ctrl+S: save | Ctrl+O: reload | F2: play',1156,y+168,14,pr.RAYWHITE)
+            pr.draw_text('Floor edges snap to 16 units.',1156,y+100,14,pr.RAYWHITE)
+            pr.draw_text('J: edge rails '+('ON' if self.scene.document['layout']['rails'] else 'OFF'),1156,y+120,14,pr.RAYWHITE)
+            pr.draw_text('Esc: cancel / return to Select',1156,y+140,14,pr.RAYWHITE)
+        pr.draw_text('Ctrl+Z/Y: undo/redo | Enter: edit',1156,y+160,14,pr.RAYWHITE)
+        pr.draw_text('Ctrl+S: save | Ctrl+O: reload | F2: play',1156,y+180,14,pr.RAYWHITE)
         if self.edit_text is not None:
             pr.draw_rectangle(18, 718, 1104, 70, pr.Color(13, 20, 30, 250))
-            pr.draw_text('DESIGN NOTE | Enter: finish | Esc: cancel', 30, 728, 16, pr.YELLOW)
+            pr.draw_text(('ENCOUNTER GROUP' if self.edit_field=='group' else 'DESIGN NOTE')+' | Enter: finish | Esc: cancel', 30, 728, 16, pr.YELLOW)
             text.draw(assets, self.edit_text[-110:]+'_', 30, 755)
         if self.status:
             pr.draw_text(self.status[:130], 18, 18, 16, pr.YELLOW)

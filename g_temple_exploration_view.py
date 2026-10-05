@@ -23,12 +23,24 @@ class Props:
         tm = gameplay.arena['tile_map']
         for obj in gameplay.scene.document['objects']:
             kind, identity = obj['kind'], obj['id']
-            if kind not in ('key', 'medicine', 'inscription'):
+            if kind=='gate':
+                x,z=obj['position'];h=structure.floor_height(tm,x,z);yaw=obj.get('rotation',0)
+                a=math.radians(yaw)
+                def at(dx,y,dz=0):return (x+dx*math.cos(a)+dz*math.sin(a),h+y,z-dx*math.sin(a)+dz*math.cos(a))
+                wood=pr.Color(99,74,53,255)
+                for dx in (-15,15):self.part('cube',at(dx,15),(2,30,2),wood,yaw)
+                self.part('cube',at(0,29),(32,2,2),wood,yaw)
+                state=gameplay.arena['puzzle_state']['objects'].get(identity+':0',{})
+                if not state.get('open'):
+                    for dx in range(-12,13,4):self.part('cube',at(dx,14),(1.2,26,1.2),pr.Color(59,68,70,255),yaw)
+                    for y in (7,20):self.part('cube',at(0,y),(28,1.2,1.2),wood,yaw)
+                continue
+            if kind not in ('key', 'medicine', 'inscription','ammo'):
                 continue
             if not editor:
                 if kind == 'key' and gameplay.arena['puzzle_state']['objects'].get(identity, {}).get('collected'):
                     continue
-                if kind == 'medicine' and identity in gameplay.collected:
+                if kind in ('medicine','ammo') and identity in gameplay.collected:
                     continue
             x, z = obj['position']
             h = structure.floor_height(tm, x, z)
@@ -42,6 +54,9 @@ class Props:
                 self.part('cube', at(.5, 0, 1), (4, .7, .7), gold, yaw)
                 for dx in (1.4, 2.4):
                     self.part('cube', at(dx, .55, 1), (.7, .7, 1.6), gold, yaw)
+            elif kind=='ammo':
+                self.part('cube',(x,h+1.2,z),(4,2.4,3),pr.Color(107,116,84,255),yaw)
+                self.part('cube',(x,h+2.45,z),(3,.15,1.2),pr.Color(208,184,119,255),yaw)
             elif kind == 'medicine':
                 self.part('cube', (x, h+1.5, z), (4, 3, 3), pr.Color(211, 204, 174, 255), yaw)
                 self.part('cube', (x, h+3.1, z), (2.8, .25, .6), pr.Color(154, 62, 56, 255), yaw)
@@ -64,9 +79,10 @@ class Audio:
         self.profile = g_audio.make_audio_profile()
 
     def update(self, gameplay, dt):
-        for event in gameplay.footsteps + gameplay.arena['puzzle_runtime']['sounds']:
+        for event in gameplay.footsteps + gameplay.combat.events + gameplay.arena['puzzle_runtime']['sounds']:
             g_audio.queue_audio_event(self.runtime, event)
         gameplay.arena['puzzle_runtime']['sounds'].clear()
+        gameplay.combat.events.clear()
         entities = gameplay.arena['entities']
         listener = dict(world_position=dict(x=gameplay.walk.x, y=gameplay.walk.y))
         g_audio.update_audio(self.runtime, self.engine, 0 if gameplay.paused else dt, listener,
@@ -93,4 +109,4 @@ def draw_ui(gameplay, status=''):
     if status:
         pr.draw_rectangle(12, 72, 456, 22, pr.Color(7, 12, 20, 220))
         text.draw(assets, status, 20, 76, pr.YELLOW)
-    g_interactions.draw(arena, assets)
+    if not gameplay.combat.dead:g_interactions.draw(arena, assets)

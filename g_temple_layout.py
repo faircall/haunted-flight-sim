@@ -166,6 +166,13 @@ def apply(base, layout, revision=0):
             if base['tiles'][z*WIDTH+x].get('acoustic_zone_id'):
                 tm['tiles'][z*WIDTH+x]['acoustic_zone_id']=base['tiles'][z*WIDTH+x]['acoustic_zone_id']
     tm['temple3d_stairs'] = stair_records(layout)
+    # Shared AI/pathfinding uses cell addresses and neighbour topology in
+    # addition to surface fields. Painting must preserve that derived graph.
+    for i,tile in enumerate(tm['tiles']):
+        original=base['tiles'][i]
+        for key in ('tile_x','tile_y','neighbours'):
+            if key in original:tile[key]=deepcopy(original[key])
+        tile.pop('current_entities',None)
     tm['temple3d_levels']=tuple(sorted({0., *(t.get('surface_elevation',0.) for t in tm['tiles']),
         *(height for stairs in tm['temple3d_stairs'] for _,height in stairs.treads())}))
     tm['temple3d_edited_cells'] = {z*WIDTH+x for key in layout['cells'] for x, z in [map(int, key.split(','))]}

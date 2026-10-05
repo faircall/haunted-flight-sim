@@ -102,6 +102,54 @@ class Walkthrough:
         return self.director.update(self.x,self.y)
 
 
+@dataclass
+class TankWalkthrough(Walkthrough):
+    """Character-relative gameplay input; camera cuts never change facing.
+
+    heading records resolved travel for directional animation. facing is the
+    persistent body direction, including stationary turns and backward steps.
+    """
+    facing:tuple=(1.,0.)
+    turning:float=0.
+    turn_distance:float=0.
+    backwards:bool=False
+    running:bool=False
+
+    def stop(self):
+        self.moving=False;self.turning=0.;self.backwards=False;self.running=False
+
+    def face(self,target):
+        dx,dz=target[0]-self.x,target[1]-self.y
+        length=math.hypot(dx,dz)
+        if length>.01:self.facing=(dx/length,dz/length)
+
+    def step(self,keys,dt,can_walk,speed=20.,aiming=False,aim=None,running=False):
+        keys=set(keys);dt=max(0.,dt);self.stop()
+        turn=int('d' in keys)-int('a' in keys)
+        forward=int('w' in keys)-int('s' in keys)
+        if aiming:
+            if aim is not None:self.face(aim)
+            fx,fz=self.facing
+            # A/D becomes a deliberately slow strafe while the mouse owns yaw.
+            dx,dz=fx*forward*12+fz*turn*7,fz*forward*12-fx*turn*7
+            length=math.hypot(dx,dz)
+            if length>12:dx*=12/length;dz*=12/length
+        else:
+            if turn:
+                angle=math.atan2(*self.facing)+math.radians(turn*120*dt)
+                self.facing=(math.sin(angle),math.cos(angle))
+            self.turning=turn*120.;self.turn_distance+=abs(self.turning)*dt
+            self.backwards=forward<0
+            self.running=bool(running and forward>0)
+            velocity=forward*(speed if forward>=0 else 13.)
+            dx,dz=self.facing[0]*velocity,self.facing[1]*velocity
+        old=(self.x,self.y);velocity=math.hypot(dx,dz)
+        if velocity:self.x,self.y=move_with_collision(self.x,self.y,dx/velocity,dz/velocity,velocity*dt,can_walk)
+        travel=math.dist(old,(self.x,self.y));self.distance+=travel;self.moving=travel>1e-5
+        if self.moving:self.heading=((self.x-old[0])/travel,(self.y-old[1])/travel)
+        return self.director.update(self.x,self.y)
+
+
 REVIEW_ROUTE=((128.,334.),(152.,334.),(176.,334.),(256.,334.),(402.,334.),(480.,334.),
               (480.,292.),(480.,258.),(480.,231.),(480.,294.),(480.,334.),(320.,334.),(128.,334.))
 REVIEW_SHOTS=('approach','approach','approach','approach','landing','landing',

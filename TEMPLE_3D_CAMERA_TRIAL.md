@@ -15,6 +15,11 @@ boardwalk, unlock the temple entrance, open it with a second interaction, and
 inspect the inscription in front of the altar. Medicine near the starting point
 can be collected and used from the inventory when health is below 100.
 
+The third milestone adds a complete encounter on the timber terrace beyond the
+boardwalk's right-hand end. Walk onto the terrace to wake a pale chorus figure; retreat to
+the bridge or fight it. Defeating it unlocks the slatted gate. Open the gate with
+E and collect the ammunition beyond it. Medicine sits at the terrace's near edge.
+
 Walk along the boardwalk, turn toward the entrance, enter the temple, and return.
 Three composed orthographic views cut automatically: across the lake, the temple
 landing, and the altar room. The image remains 480 x 270, enlarged with nearest
@@ -24,14 +29,18 @@ filtering. This uses the photo-textured Blender meshes from the live art viewer.
 
 | Key | Action |
 | --- | --- |
-| WASD | Move relative to the current shot |
-| Shift | Run |
-| Release all movement keys | Adopt the new shot's movement directions |
+| W / S | Move forward / step backward along the player's heading |
+| A / D | Turn left / right, with pivot steps when standing still |
+| Shift + W | Run forward |
+| Hold right mouse | Mouse controls facing; W/S moves forward/back and A/D slowly strafes |
+| Left mouse while aiming | Fire the pistol |
+| T | Reload from inventory ammunition; stand still during the 1.15-second reload |
+| Enter after death | Restart fresh progress using the current authored spawn |
 | E | Inspect, collect, unlock/open or close the nearby door |
 | Tab | Inventory; arrows select, E/Enter uses an item |
 | E / Enter | Continue dialogue; left/right selects a choice |
 | F5 / F6 | Save / reload exploration progress |
-| F2 | Enter / leave the placement editor |
+| F2 | Enter / leave the level editor |
 | Home | Return to the authored spawn, retaining progress |
 | H | Hide/show the help and shot title |
 | R | Toggle roof cutaway for inspection |
@@ -39,10 +48,12 @@ filtering. This uses the photo-textured Blender meshes from the live art viewer.
 | F12 | Save `artifacts/temple-camera-trial/fixed-camera-user.png` |
 | Esc | Cancel a dialogue, close inventory, or quit during exploration |
 
-Holding a direction through a cut preserves its world direction. Adding another
-movement key retains that same basis until all movement keys are released. This
-prevents an abrupt reversal when the new camera looks from the opposite side.
+Gameplay uses tank controls: camera cuts and key releases preserve the player's
+heading. Turning can be combined with forward/backward movement. Rotation runs
+at 120 degrees/second, backward steps at 13 units/second, and aimed strafing at
+7 units/second (aimed forward movement is 12). Shift affects forward running.
 Movement slides along blocked tile edges, including the sides of the boardwalk.
+The independent `--fixed-cameras` art review retains its camera-relative controls.
 
 Each shot has a smaller entry region and a larger retention region. These
 overlapping regions keep a player near a boundary from repeatedly switching
@@ -58,7 +69,7 @@ a deliberate shot-specific cutaway, not a change to the original scene.
   stable exploration IDs, spawn and design markup. Load a separate scene with
   `python moonlit_water_temple_3d.py --scene path/to/scene.json`.
 - [Exploration controller](g_temple_gameplay.py): synchronizes the original
-  player state with camera-relative movement and uses the shared inventory,
+  player state with tank movement and uses the shared inventory,
   descriptions, choices and puzzle handlers. Movement, footsteps, animation
   and the gameplay clock pause for modal UI and scene editing. Opening and
   closing a modal also consume their input frames.
@@ -85,7 +96,7 @@ shown beside the tool panel. In the overhead view, WASD pans and the wheel zooms
 | --- | --- |
 | 1 / Select | Click an object or mark, then drag it; arrows nudge |
 | 2 / Place | Choose an object in the palette and click the scene |
-| Q / E | Rotate the selected object in 15-degree increments |
+| Q / E | Rotate the selected object by 15 degrees; gates use 90-degree turns |
 | G | Toggle four-unit snapping; Shift enables one-unit placement/nudges |
 | Ctrl+D / Delete | Duplicate / remove the selected object or mark |
 | 3 / Note | Click, type a design note, Enter commits, Esc cancels text |
@@ -94,6 +105,7 @@ shown beside the tool panel. In the overhead view, WASD pans and the wheel zooms
 | 6 / Floor | Choose a material and drag a rectangle to build floors or walkways |
 | 7 / Stairs | Click the lower corner, then the opposite upper corner |
 | 8 / Spawn | Click a clear walkable spot for the starting position |
+| 9 / Encounter | Click opposite trigger corners, then enter an encounter group |
 | [ / ] | Lower / raise the chosen floor or stair landing height by four units |
 | V | Change wood grain direction or stair ascent direction |
 | Right drag (Floor) | Erase a floor rectangle into water |
@@ -101,7 +113,9 @@ shown beside the tool panel. In the overhead view, WASD pans and the wheel zooms
 | Right click (Stairs) | Remove the stair flight under the cursor |
 | J | Toggle automatic edge rails |
 | K | Choose yellow, blue or red markup |
-| Enter | Edit the selected mark's text |
+| Enter | Edit markup text or the selected encounter object's group |
+| F4 (editor) | Reset encounters and gates; restore health and a full pistol |
+| Wheel over object palette | Scroll additional props, spawns, gates and ammunition |
 | Ctrl+Z / Ctrl+Y | Undo / redo; a complete drag is one operation |
 | Ctrl+S / Ctrl+O | Save / reload the scene; reload is undoable |
 | F2 | Return to exploration, applying unsaved edits in the current session |
@@ -144,6 +158,57 @@ stairs automatically. The decorated temple shell, its entrance and original
 camera regions remain anchored; new walls are blockout masonry. There is one
 walkable surface at each map position, so overlapping floors are later work.
 
+## Combat and encounter authoring
+
+The pistol has a 20-round magazine and a 0.24-second shot cooldown. Body hits
+use the existing 20-point bullet damage against the redhead's 60 health. Mouse
+aiming follows the current orthographic camera; nearby projected bodies provide
+a small aim target. The actual bullet trace checks height, walls, doors and solid
+props, so a target behind a gate cannot be hit through it. Shots can cross open
+water. The redhead reuses the original noticing, hearing, pursuit, windup,
+committed attack, stagger, evasion, fleeing and death behaviours at speeds tuned
+for the 3D player's scale. Movement respects live bodies, painted floors, props,
+stairs and tall ledges; melee cannot damage the player across a large height gap.
+
+In **Place**, choose **Redhead spawn** or **Encounter gate**. Tool **9** creates
+a rectangular encounter trigger. Select a trigger, spawn or gate and press
+**Enter** to change its group. Matching groups connect the objects: entering any
+trigger in a group activates its spawns; defeating all of them unlocks the group's
+gates. Groups with no spawns do not complete. Blocked spawn points wait until clear.
+Gates occupy two adjacent 16-unit cells and can be rotated with Q/E. Duplicate,
+move, delete, save and undo use the same stable-ID scene workflow as other props.
+
+The authored terrace has a west-side camera and two fire bowls so the fight stays
+readable. Additional fire lights are chosen by proximity to the current view.
+A nearby foreground willow fades during the new layout views to keep the player
+visible. Optional trigger fields `camera_offset` and `camera_span` allow camera
+composition to be adjusted in the scene JSON; the original route keeps its shots.
+
+Use **F4 while editing** to test the encounter again without discarding the layout,
+pickups or unrelated puzzle progress. It resets enemy/encounter state, reseals
+encounter gates and restores health and a loaded pistol. It does not save progress
+or alter scene history. F5 saves the resulting progress after returning to play.
+
+The separate [Blender combat kit](art/temple/combat/combat_kit.blend) contains the
+accepted player geometry and locomotion plus left/right pivot turns, backward
+steps, aim, forward/backward/sideways aimed walking, recoil, reload, hurt and death
+clips. The pale chorus figure uses a 128px monochrome atlas, fifteen bones and
+idle/walk/attack/stagger/death clips. Its 21.6-unit stature is shorter than the
+25.65-unit player, with an oversized pale mask, dark rounded hair, outlined eyes,
+long nose, angular cheek marks and a knee-length charcoal coat. The short leftmost
+figure in Margaret Breindel's *The Chorus* is the visual reference, inspected from
+[the supplied local image](artdev/ChorusReference.jpg). The
+legacy `redhead` asset and AI identifiers keep old scenes/progress compatible. Both deform
+on the GPU. The pistol is weighted to the player's right hand. Rebuild with:
+
+```powershell
+& 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python-exit-code 1 --python build_temple_combat_assets.py
+```
+
+This writes only the combat kit; the original living exports and animation review
+files remain intact. More advanced aim overlays and individual stair-foot IK are
+future animation refinements.
+
 ## Exploration saves
 
 **F5** writes `saved_editor_states/temple3d-progress.json`; **F6** reloads it.
@@ -153,6 +218,11 @@ voices, modal dialogue or editor history. Startup begins a fresh exploration;
 press F6 to continue a saved one. Invalid saves are rejected before changing
 progress. Layout and player progress are separate files, so a playthrough cannot
 overwrite level design. F5/F6 are available during exploration, outside modals.
+
+Combat progress also records activated/completed groups, enemy health/position/
+behaviour timing and pending reload time. Restoring a defeated enemy retains its
+corpse and completion state. Saves without combat data load with unstarted
+encounters. Combat and compound-door data are validated before changing progress.
 
 ## Raised bridge and temple floor
 
@@ -196,7 +266,7 @@ Interactions, pickups, inventory, healing, linked entrance collision, inspection
 callbacks, progress saves and distance-driven footsteps now run in 3D. Footsteps
 use the existing surface-aware spatial audio runtime and sound files; optional
 ambient/fire families fall back to silence when their recordings are absent.
-Enemies, combat, storm scripting, richer water/reflections, cast shadows and
+Storm scripting, richer water/reflections, cast shadows and
 animated grass remain later migration work. The Buddha remains part of the
 existing altar asset.
 The separate 2D game launchers remain available. `--classic-assets` restores
@@ -207,6 +277,8 @@ older assets by default; to orbit the new models, run
 ```powershell
 python -m unittest test_temple_layout test_temple_exploration test_inventory test_puzzles test_temple_cameras test_audio test_temple_gait_deck
 python moonlit_water_temple_3d.py --gameplay-smoke
+python -m unittest test_temple_combat test_temple_combat_assets -q
+python moonlit_water_temple_3d.py --combat-smoke
 python moonlit_water_temple_3d.py --player-review
 ```
 
@@ -225,7 +297,21 @@ collision, progress reload, geometry undo/restore and an empty-mesh rebuild.
 The editable demo is saved as `artifacts/temple-exploration/blockout.scene.json`;
 try it with `python moonlit_water_temple_3d.py --scene artifacts/temple-exploration/blockout.scene.json`.
 
-The next gameplay migration work is enemies, combat and the temple storm.
+The earlier gameplay review uses a calm fixture of the original temple so its
+blockout route is independent of enemy encounters. The separate combat review
+uses the shipped terrace in a hidden native window. It checks pursuit and melee,
+real camera/mouse aiming, recoil/reload/hurt/death GPU clips, modal pause, healing,
+gate traversal, ammunition pickup, active and completed progress round trips,
+native trigger placement/undo, tank turns, backward steps and restart. Front/side
+enemy inspections and pivot-step captures are included. The control regressions
+in `test_temple_tank_controls.py` check facing across cuts, mouse-owned yaw,
+slow strafe speed, collision, modal pause and stationary-facing save/load.
+Captures and reports are written to
+`artifacts/temple-combat/`; the test never saves over the shipped scene or user
+progress. Export tests compare the accepted mesh and all original locomotion
+channels against the combat export.
+
+The next gameplay migration work is the temple storm.
 Shadows and water reflections can be evaluated at the intended low resolution
 alongside those systems, with frame-time profiling to guide the rendering work.
 More general terrain/foot IK can build on the separate ground positions and
