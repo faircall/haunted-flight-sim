@@ -52,13 +52,24 @@ def review():
         ('09-side-profile',(3.15,.80,0),(0,.80,0),60,'exterior',18.,True),
         ('10-front-profile',(0,.80,-4),(0,.80,0),60,'exterior',18.,True),
         ('11-top-profile',(0,6,0),(0,0,0),60,'exterior',18.,True),
+        ('12-front-belt-guide',(.08,1.20,.48),(.745,1.12,.08),52,'interior',18.,True),
+        ('13-rear-belt-and-buckles',(0,1.14,.34),(.53,.79,.76),60,'interior',18.,True),
+        ('14-seatback-pocket',(0,1.00,.50),(.39,.72,.21),58,'interior',18.,True),
+        ('15-door-handle-crank',(.18,1.10,.36),(.735,.765,.53),52,'interior',18.,True),
+        ('16-night-cabin',(.02,1.235,.53),(.02,1.04,-1.3),75,'interior',113.,False),
+        ('17-seat-base-hardware',(0,.67,.48),(.58,.40,.06),62,'interior',18.,True),
+        ('18-back-seat-buckle',(0,1.07,.44),(.52,.59,.56),55,'interior',18.,True),
     ]
     try:
         view=View();intro=Intro(load_script());draw=view.draw
         FOLDER.mkdir(parents=True,exist_ok=True)
         samples=[]
         for name,eye,target,fov,mode,timestamp,empty in shots:
-            view.draw=lambda name,*args,**kwargs: None if empty and name in ACTORS else draw(name,*args,**kwargs)
+            seen=set()
+            def inspection_draw(model,*args,**kwargs):
+                if empty and model in ACTORS:return
+                seen.add(model);return draw(model,*args,**kwargs)
+            view.draw=inspection_draw
             intro.elapsed=timestamp
             camera=camera_from_pose(dict(eye=eye,target=target,fov=fov))
             if name in ('09-side-profile','10-front-profile','11-top-profile'):
@@ -69,13 +80,27 @@ def review():
             pr.draw_texture_pro(view.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),
                                 pr.Rectangle(0,0,960,540),pr.Vector2(0,0),0,pr.WHITE)
             pr.end_drawing();capture(view.frame,FOLDER/(name+'.png'))
-            samples.append(dict(name=name,camera=eye,target=target,view=mode,actors_hidden=empty,time=timestamp))
+            if mode=='interior':
+                assert {'sedan_interior','cabin_fittings'}<=seen and 'sedan' not in seen
+                assert view.cabin_models[-1]=='steering_interior'
+            else:
+                assert 'sedan' in seen and not {'sedan_interior','cabin_fittings'}&seen
+                assert view.cabin_models[-1]=='steering'
+            samples.append(dict(name=name,camera=eye,target=target,view=mode,actors_hidden=empty,time=timestamp,
+                                cabin_models=list(view.cabin_models)))
         sheet=Image.new('RGB',(WIDTH*3,(HEIGHT+24)*2),(19,24,26));labels=ImageDraw.Draw(sheet)
         for i,(name,*_) in enumerate(shots[:6]):
             x=(i%3)*WIDTH;y=(i//3)*(HEIGHT+24)
             with Image.open(FOLDER/(name+'.png')) as frame:sheet.paste(frame,(x,y))
             labels.text((x+10,y+HEIGHT+5),name[3:].replace('-',' ').upper(),fill=(212,222,212))
         sheet.save(FOLDER/'santana-review.png')
+        interior_views=(shots[2],shots[11],shots[5],shots[4],shots[13],shots[16],shots[14],shots[12],shots[15])
+        sheet=Image.new('RGB',(WIDTH*3,(HEIGHT+24)*3),(19,24,26));labels=ImageDraw.Draw(sheet)
+        for i,(name,*_) in enumerate(interior_views):
+            x=(i%3)*WIDTH;y=(i//3)*(HEIGHT+24)
+            with Image.open(FOLDER/(name+'.png')) as frame:sheet.paste(frame,(x,y))
+            labels.text((x+10,y+HEIGHT+5),name[3:].replace('-',' ').upper(),fill=(212,222,212))
+        sheet.save(FOLDER/'interior-review.png')
         reference_comparison()
         (FOLDER/'report.json').write_text(json.dumps(dict(samples=samples,glass_panes=len(view.windows),
             actual_game_renderer=True,resolution=[WIDTH,HEIGHT]),indent=2)+'\n',encoding='utf-8')
@@ -83,7 +108,7 @@ def review():
     finally:
         if view:view.close()
         pr.close_window()
-    print('Santana native review passed: exterior, dashboard, doors, both seat rows, night and occupied cabin.')
+    print('Santana native review passed: distinct exterior/interior models, belts, buckles, pockets, door fittings, seat controls and night cabin.')
 
 
 if __name__=='__main__':review()

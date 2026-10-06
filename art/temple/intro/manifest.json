@@ -25,6 +25,21 @@
       "triangles": 318,
       "atlas": "santana_interior"
     },
+    "sedan_interior": {
+      "vertices": 4715,
+      "triangles": 8374,
+      "atlas": "santana_cabin"
+    },
+    "cabin_fittings": {
+      "vertices": 3386,
+      "triangles": 5796,
+      "atlas": "santana_cabin_details"
+    },
+    "steering_interior": {
+      "vertices": 372,
+      "triangles": 710,
+      "atlas": "santana_cabin"
+    },
     "driver": {
       "vertices": 816,
       "triangles": 408
@@ -81,6 +96,37 @@
     "glass_triangles": 12,
     "wheel_instances": 4,
     "editable_source": "santana.blend",
+    "interior": {
+      "triangles": 14880,
+      "budget": [
+        12000,
+        15000
+      ],
+      "models": [
+        "sedan_interior",
+        "cabin_fittings",
+        "steering_interior"
+      ],
+      "editable_source": "santana_interior.blend",
+      "features": {
+        "belt_guides_retractors_and_webbing": 1584,
+        "five_buckle_housings_buttons_and_stalks": 760,
+        "seat_pockets_seams_rails_and_recline_hardware": 1380,
+        "door_latches_locks_cranks_pockets_and_speakers": 944,
+        "dashboard_controls_vents_shifter_and_ashtray": 772,
+        "grab_mounts_visor_hinges_and_dome_light": 356
+      },
+      "atlases": {
+        "santana_cabin": [
+          256,
+          256
+        ],
+        "santana_cabin_details": [
+          256,
+          256
+        ]
+      }
+    },
     "atlases": {
       "santana_exterior": [
         256,

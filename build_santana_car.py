@@ -296,16 +296,17 @@ class Mesh:
         return obj
 
 
-def save_car_blend(out,exterior,material):
+def save_car_blend(out,exterior,material,interior=False):
     """A portable, assembled editing scene, separate from the crowded intro kit."""
-    scene=bpy.data.scenes.new('Santana / assembled vehicle')
-    asset=bpy.data.collections.new('CAR / textured parts');scene.collection.children.link(asset)
+    scene=bpy.data.scenes.new('Santana / first-person cabin' if interior else 'Santana / assembled vehicle')
+    asset=bpy.data.collections.new('CABIN / textured parts' if interior else 'CAR / textured parts');scene.collection.children.link(asset)
     studio=bpy.data.collections.new('STUDIO / cameras and lighting');scene.collection.children.link(studio)
-    for name in ('sedan_exterior','sedan','headlamps','steering'):
+    parts=('sedan_interior','cabin_fittings','steering_interior') if interior else ('sedan_exterior','sedan','headlamps','steering')
+    for name in parts:
         obj=bpy.data.objects[name].copy();asset.objects.link(obj)
-        if name=='steering':obj.location=(STEERING[0],-STEERING[2],STEERING[1])
+        if name.startswith('steering'):obj.location=(STEERING[0],-STEERING[2],STEERING[1])
         obj['Game export']=name+'.glb'
-    for x in (-WHEEL_X,WHEEL_X):
+    for x in (() if interior else (-WHEEL_X,WHEEL_X)):
         for z in AXLES:
             obj=bpy.data.objects['tyre'].copy();obj.name=f'Wheel {x:+.3f} {z:+.2f}'
             obj.location=(x,-z,WHEEL_Y);asset.objects.link(obj);obj['Game export']='tyre.glb (four instances)'
@@ -328,10 +329,16 @@ def save_car_blend(out,exterior,material):
     layer=data.uv_layers.new(name='PS1 atlas')
     for polygon,uv in zip(data.polygons,wipers.uv):
         for index,value in zip(polygon.loop_indices,uv):layer.data[index].uv=value
-    for name,eye,target,lens in (
+    cameras=(
+        ('Camera / back seat',(.02,1.235,.53),(.02,1.05,-.88),28),
+        ('Camera / front seat backs',(0,1.31,.76),(0,.69,-.28),22),
+        ('Camera / rear bench',(0,1.31,.18),(0,.79,.81),20),
+        ('Camera / belt guide',(.08,1.20,.48),(.745,1.12,.08),32),
+        ('Camera / dashboard',(0,1.22,-.22),(0,.81,-.88),24)) if interior else (
         ('Camera / front quarter',(3.7,1.70,-5.4),(0,.76,-.15),40),
         ('Camera / rear quarter',(-3.7,1.70,5.4),(0,.78,-.12),40),
-            ('Camera / dashboard',(0,1.22,-.22),(0,.81,-.88),24)):
+        ('Camera / dashboard',(0,1.22,-.22),(0,.81,-.88),24))
+    for name,eye,target,lens in cameras:
         data=bpy.data.cameras.new(name);data.lens=lens;data.clip_start=.025
         obj=bpy.data.objects.new(name,data);studio.objects.link(obj);obj.location=(eye[0],-eye[2],eye[1])
         destination=Vector((target[0],-target[2],target[1]))
@@ -341,6 +348,11 @@ def save_car_blend(out,exterior,material):
         data=bpy.data.lights.new(name,'AREA');data.energy=power;data.shape='DISK';data.size=size
         obj=bpy.data.objects.new(name,data);studio.objects.link(obj);obj.location=position
         obj.rotation_euler=(Vector((0,0,.7))-obj.location).to_track_quat('-Z','Y').to_euler()
+    if interior:
+        for name,position,power in (('Cabin soft fill',(0,-.28,1.32),5),('Dashboard bounce',(0,.75,1.25),4)):
+            data=bpy.data.lights.new(name,'AREA');data.energy=power;data.size=.70
+            obj=bpy.data.objects.new(name,data);studio.objects.link(obj);obj.location=position
+            obj.rotation_euler=(Vector((0,-.1,.65))-obj.location).to_track_quat('-Z','Y').to_euler()
     world=bpy.data.worlds.new('Studio charcoal');world.use_nodes=True
     world.node_tree.nodes['Background'].inputs['Color'].default_value=(.08,.10,.12,1)
     world.node_tree.nodes['Background'].inputs['Strength'].default_value=.55;scene.world=world
@@ -349,8 +361,8 @@ def save_car_blend(out,exterior,material):
     mat=bpy.data.materials.new('Studio matte');mat.diffuse_color=(.13,.16,.17,1);floor.materials.append(mat)
     scene.render.engine='BLENDER_EEVEE';scene.render.resolution_x=960;scene.render.resolution_y=640;scene.render.resolution_percentage=100
     scene.view_settings.view_transform='Standard';scene.render.image_settings.file_format='PNG'
-    scene['Opaque car triangles']=sum(sum(len(p.vertices)-2 for p in obj.data.polygons)
-        for obj in asset.objects if obj.type=='MESH' and obj.name not in ('Glass / game uses animated rain shader','Wipers / preview pose only'))
+    scene['Opaque cabin triangles' if interior else 'Opaque car triangles']=sum(sum(len(p.vertices)-2 for p in obj.data.polygons)
+        for obj in asset.objects if obj.type=='MESH' and obj.get('Game export'))
     scene['Glazing triangles']=12;scene['Preview wiper triangles']=48
     scene['Authoring']='build_santana_car.py; regenerate with build_temple_intro_assets.py. Textures packed; game cameras stay in dialogue.json.'
     # Write a normal .blend with its UI/camera, so opening it shows the assembled
@@ -363,7 +375,7 @@ def save_car_blend(out,exterior,material):
                 viewports.append((space,space.shading.type,region.view_perspective,space.overlay.show_overlays))
                 space.shading.type='MATERIAL';region.view_perspective='CAMERA';space.overlay.show_overlays=False
     for layer in scene.view_layers:layer.update()
-    bpy.ops.wm.save_as_mainfile(filepath=str(out/'santana.blend'),copy=True)
+    bpy.ops.wm.save_as_mainfile(filepath=str(out/('santana_interior.blend' if interior else 'santana.blend')),copy=True)
     bpy.context.window.scene=previous
     for space,shading,perspective,overlays in viewports:
         space.shading.type=shading;space.region_3d.view_perspective=perspective;space.overlay.show_overlays=overlays
@@ -423,8 +435,26 @@ def build(out,models):
     wheel.export(out,models)
     total=sum(models[n]['triangles']*copies for n,copies in (('sedan_exterior',1),('sedan',1),('headlamps',1),('tyre',4),('steering',1)))
     save_car_blend(out,ext,em)
+
+    # Close-view cabin has its own budget; exterior shots retain the accepted kit.
+    from build_santana_fittings import fittings_atlas,build_fittings,build_steering
+    close=interior_atlas();close.name='santana_cabin'
+    close.patch('cloth',(0,0,96,96),(122,126,122),'cloth')
+    for x in (3,92):
+        close.line((x,2),(x,93),(82,89,86))
+        for y in range(4,93,4):close.pixel(x,y,(163,165,154))
+    cm=close.material(out);fittings=fittings_atlas(Atlas);fm=fittings.material(out)
+    cabin=Mesh('sedan_interior',close,cm);build_cabin(cabin,detailed=True);cabin.export(out,models)
+    detail=Mesh('cabin_fittings',fittings,fm);features=build_fittings(detail);detail.export(out,models)
+    steering=Mesh('steering_interior',close,cm);build_steering(steering);steering.export(out,models)
+    interior_models=('sedan_interior','cabin_fittings','steering_interior')
+    interior_total=sum(models[name]['triangles'] for name in interior_models)
+    save_car_blend(out,ext,em,interior=True)
     return dict(triangles=total,budget=12000,glass_triangles=12,wheel_instances=4,
                 editable_source='santana.blend',
+                interior=dict(triangles=interior_total,budget=[12000,15000],models=list(interior_models),
+                              editable_source='santana_interior.blend',features=features,
+                              atlases={'santana_cabin':[256,256],'santana_cabin_details':[256,256]}),
                 atlases={'santana_exterior':[256,256],'santana_interior':[256,256],'santana_wheels':[128,128]},
                 references=['artdev/car_reference.png','artdev/car_reference_2.png','artdev/Classic Santana Vehicle Reference Sheet.png'],
                 description='Charcoal civilian Santana; shaped body, cloth seats, manual cranks, textured dashboard and steel wheel covers')

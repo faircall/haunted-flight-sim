@@ -20,7 +20,7 @@ required to rebuild or run the game.
 | Part | Triangles in game |
 | --- | ---: |
 | Body and exterior trim | 5,920 |
-| Cabin | 4,950 |
+| Cabin used in exterior shots | 4,950 |
 | Lamp lenses | 8 |
 | Four rounded tyres/domed wheel covers, 384 each | 1,536 |
 | Steering wheel | 318 |
@@ -32,13 +32,37 @@ the opaque car count. The standalone Blender scene includes a held 48-triangle
 wiper pose for inspection, so its car collection has 12,792 triangles with glass.
 Its studio floor is separate from the asset collection.
 
+Interior shots use an independent **14,880-triangle** cabin, within the requested
+12,000–15,000 budget. It replaces the lighter cabin and steering wheel rather
+than rendering both versions together. Window openings, actor placements and
+rain/wiper anchors remain shared with the reference-proportioned exterior.
+
+| First-person part | Triangles |
+| --- | ---: |
+| Curved upholstery, dashboard, door cards and lining | 8,374 |
+| Belt guides/retractors/webbing, buckles, pockets and other fittings | 5,796 |
+| Detailed steering wheel, column and stalk | 710 |
+| Opaque interior total | **14,880** |
+
+The fittings include hollow shoulder-belt guides, pillar adjusters, retractor
+housings, thin textured webbing, metal tongues, red release buttons and flexible
+buckle stalks. Seat backs have padded cloth pockets and sewn welts; seat bases
+have slide rails, hinges and recline wheels. Door latches, lock pulls, window
+cranks, lower pockets and grilles are modelled for close inspection. Dashboard
+details include vent slats, rotary controls, hazard switch, shifter bellows and
+rear ashtray. The lining has visor hinges, grab-handle mounts and a dome fitting.
+Opaque counts exclude actors and procedural wipers; six glass panes add 12.
+The interior Blender collection totals 14,940 with glass and held preview wipers.
+
 | Texture sheet | Size |
 | --- | --- |
 | `art/temple/intro/santana_exterior.png` | 256x256 |
 | `art/temple/intro/santana_interior.png` | 256x256 |
 | `art/temple/intro/santana_wheels.png` | 128x128 |
+| `art/temple/intro/santana_cabin.png` (first person) | 256x256 |
+| `art/temple/intro/santana_cabin_details.png` (first-person fittings) | 256x256 |
 
-The five GLBs embed their PNGs and have no external texture dependencies.
+All eight car GLBs embed their PNGs and have no external texture dependencies.
 The renderer retains the animated rain/refraction, wiper clearing arcs,
 wheel rotation, steering and headlight transition. Glass, wheels and wipers use
 the same anchors in Blender and the game, defined in `g_santana_geometry.py`.
@@ -51,12 +75,18 @@ Open [santana.blend](art/temple/intro/santana.blend) for an assembled car with
 packed textures and front-quarter, rear-quarter and dashboard cameras. Its
 `CAR / textured parts` collection is the asset; `STUDIO / cameras and lighting`
 contains the inspection setup. The other scene holds the five export prototypes.
+Open [santana_interior.blend](art/temple/intro/santana_interior.blend) for the
+separate close-view cabin, with packed textures and back-seat, seat-back, rear
+bench, belt-guide and dashboard cameras. Its `CABIN / textured parts` collection
+contains the three first-person exports; the studio collection is preview-only.
 The broader [intro kit](art/temple/intro/intro_kit.blend) also contains colleagues,
 the accepted seated player and countryside props.
 
 Edit [build_santana_car.py](build_santana_car.py) for atlases and reusable mesh
 helpers, [build_santana_body.py](build_santana_body.py) for the silhouette,
 [build_santana_cabin.py](build_santana_cabin.py) for upholstery/interior, and
+[build_santana_fittings.py](build_santana_fittings.py) for close-view belt hardware,
+seat pockets/welts, fittings and steering. Use
 [g_santana_geometry.py](g_santana_geometry.py) for shared placement anchors.
 Regenerate through the existing intro builder:
 
@@ -79,6 +109,9 @@ python -m unittest test_santana_car test_temple_intro -q
 `temple_car_review.py` uses the actual 480x270 intro renderer and writes
 empty exterior/night views, orthographic side/front/top views, an occupied
 back-seat view and an inspection contact sheet to `artifacts/santana-car/`.
+`interior-review.png` collects the detailed cabin inspection views, including
+belts, buckles, pockets, seat controls and night occupancy. Each native view
+asserts that the appropriate exterior or first-person model is actually drawn.
 All inspection views hide actors; only the explicitly occupied view shows them.
 It does not change cinematic or progress files. The
 intro review additionally checks every cinematic cut, rainy glass, audio and

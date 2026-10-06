@@ -78,6 +78,13 @@ analog dashboard, radio, vents and steel wheel covers use two 256x256 sheets and
 one 128x128 wheel sheet. The complete opaque car is **12,732 triangles**, including
 all four wheel instances and the steering wheel; six rain-glass panes add 12.
 The moving wipers remain procedural. See [SANTANA_ASSET.md](SANTANA_ASSET.md).
+First-person shots select a separate **14,880-triangle** interior, including a
+more detailed steering wheel and 5,796 triangles of belt hardware, buckles,
+seat-back pockets/welts, seat controls, door fittings and dashboard details.
+It has two dedicated 256x256 sheets. Exterior shots retain the lighter cabin;
+both versions use the same window openings and actor placements. Inspect the
+[first-person Blender scene](art/temple/intro/santana_interior.blend) or run
+`python temple_car_review.py` for detailed native close-ups and variant checks.
 The [assembled car Blender scene](art/temple/intro/santana.blend) opens with the
 vehicle assembled, packed textures, studio lighting and three inspection cameras.
 

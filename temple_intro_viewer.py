@@ -219,7 +219,9 @@ class View:
 
     def cabin(self,intro,exterior=False):
         s=self.scene_shader;self.uniform(s,'interior',1.);self.uniform(s,'surface',0,'int')
-        self.draw('sedan')
+        self.cabin_models=('sedan','steering') if exterior else ('sedan_interior','cabin_fittings','steering_interior')
+        self.draw('sedan' if exterior else 'sedan_interior')
+        if not exterior:self.draw('cabin_fittings')
         size=(ACTOR_SCALE,)*3
         self.draw('driver',FRONT_ACTOR_POSITION,size);self.draw('colleague',FRONT_ACTOR_POSITION,size)
         self.draw('player_seated' if exterior else 'player_lap',REAR_ACTOR_POSITION,size)
@@ -229,7 +231,8 @@ class View:
         self.draw('driver_head',actor_point((-.45,1.405+.002*math.sin(intro.elapsed*1.8),-.36)),size,yaw=2.5*math.sin(intro.elapsed*.42))
         self.draw('colleague_head',actor_point((.45,1.405+.002*math.sin(intro.elapsed*1.5),-.36)),size,yaw=-glance)
         steering=math.degrees(math.atan(road_slope(intro.distance)))*1.3
-        pr.draw_model_ex(self.models['steering'],pr.Vector3(*STEERING),pr.Vector3(0,.673,.74),steering,pr.Vector3(1,1,1),pr.WHITE)
+        model=self.cabin_models[-1]
+        pr.draw_model_ex(self.models[model],pr.Vector3(*STEERING),pr.Vector3(0,.673,.74),steering,pr.Vector3(1,1,1),pr.WHITE)
 
     def subtitles(self,intro,help_visible=True,audio_error=''):
         line=intro.line

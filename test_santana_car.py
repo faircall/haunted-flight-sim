@@ -13,6 +13,7 @@ from g_santana_geometry import (AXLES,WHEEL_Y,ACTOR_SCALE,actor_point,roof_heigh
 
 KIT=Path(__file__).resolve().parent/'art'/'temple'/'intro'
 PARTS={'sedan_exterior':1,'sedan':1,'headlamps':1,'tyre':4,'steering':1}
+INTERIOR_PARTS={'sedan_interior':1,'cabin_fittings':1,'steering_interior':1}
 
 
 def glb(name):
@@ -26,6 +27,19 @@ def glb(name):
 
 
 class SantanaTests(unittest.TestCase):
+    def test_first_person_version_has_an_independent_complete_interior_budget(self):
+        manifest=json.loads((KIT/'manifest.json').read_text());interior=manifest['car']['interior'];total=0
+        self.assertEqual(set(interior['models']),set(INTERIOR_PARTS))
+        for name in INTERIOR_PARTS:
+            doc,binary=glb(name)
+            triangles=sum(len(accessor(doc,binary,p['indices']))//3 for m in doc['meshes'] for p in m['primitives'])
+            self.assertEqual(triangles,manifest['models'][name]['triangles'],name);total+=triangles
+        self.assertEqual(total,interior['triangles'])
+        self.assertEqual(interior['budget'],[12000,15000])
+        self.assertTrue(12000<=total<=15000,total)
+        self.assertEqual(sum(interior['features'].values()),manifest['models']['cabin_fittings']['triangles'])
+        self.assertEqual(interior['editable_source'],'santana_interior.blend')
+
     def test_complete_vehicle_budget_counts_four_wheels_and_agrees_with_exports(self):
         manifest=json.loads((KIT/'manifest.json').read_text());total=0
         for name,copies in PARTS.items():
@@ -98,19 +112,21 @@ class SantanaTests(unittest.TestCase):
         manifest=json.loads((KIT/'manifest.json').read_text())
         self.assertEqual(manifest['car']['atlases'],dict(santana_exterior=[256,256],
             santana_interior=[256,256],santana_wheels=[128,128]))
-        for name in PARTS:
+        atlases={**manifest['car']['atlases'],**manifest['car']['interior']['atlases']}
+        self.assertEqual(manifest['car']['interior']['atlases'],dict(santana_cabin=[256,256],santana_cabin_details=[256,256]))
+        for name in {**PARTS,**INTERIOR_PARTS}:
             doc,binary=glb(name);atlas=manifest['models'][name]['atlas']
             self.assertEqual(len(doc['images']),1)
             self.assertNotIn('uri',doc['images'][0])
             view=doc['bufferViews'][doc['images'][0]['bufferView']]
             start=view.get('byteOffset',0);end=start+view['byteLength']
             with Image.open(BytesIO(binary[start:end])) as embedded,Image.open(KIT/(atlas+'.png')) as source:
-                self.assertEqual(list(embedded.size),manifest['car']['atlases'][atlas])
+                self.assertEqual(list(embedded.size),atlases[atlas])
                 self.assertEqual(embedded.convert('RGBA').tobytes(),source.convert('RGBA').tobytes())
             self.assertEqual(doc['samplers'][0]['magFilter'],9728)
 
     def test_triangles_are_non_degenerate_and_atlas_coordinates_are_in_bounds(self):
-        for name in PARTS:
+        for name in {**PARTS,**INTERIOR_PARTS}:
             doc,binary=glb(name)
             for mesh in doc['meshes']:
                 for p in mesh['primitives']:
