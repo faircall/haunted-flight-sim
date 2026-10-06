@@ -19,7 +19,7 @@ See [CINEMATICS_EDITOR.md](CINEMATICS_EDITOR.md) for the controls. Saved framing
 and camera moves are used by normal game playback.
 
 The game now opens with a **2 minute 22 second** rainy drive, then fades into the
-temple in the same native window. You are in the rear seat of a boxy silver sedan;
+temple in the same native window. You are in the rear seat of a charcoal Santana;
 two anonymous colleagues sit up front in plain clothes. Their heads are deliberately
 featureless until the character references arrive. The player lap keeps the blue
 shirtjacket, brown trousers and shoes. The car follows a narrow, gently bending
@@ -72,12 +72,21 @@ The handoff smoke continues through the existing exploration/editor checks in
 the same window. Other gameplay/art smoke modes bypass the intro automatically.
 Neither the ride nor its reviews write progress or alter level designs.
 
-The [editable Blender kit](art/temple/intro/intro_kit.blend) contains the cabin,
+The car now follows the additional Santana exterior and interior references.
+Its curved body, cloth seat bolsters/headrests, moulded door cards, window cranks,
+analog dashboard, radio, vents and steel wheel covers use two 256x256 sheets and
+one 128x128 wheel sheet. The complete opaque car is **12,732 triangles**, including
+all four wheel instances and the steering wheel; six rain-glass panes add 12.
+The moving wipers remain procedural. See [SANTANA_ASSET.md](SANTANA_ASSET.md).
+The [assembled car Blender scene](art/temple/intro/santana.blend) opens with the
+vehicle assembled, packed textures, studio lighting and three inspection cameras.
+
+The [editable intro Blender kit](art/temple/intro/intro_kit.blend) contains the cabin,
 colleagues, steering wheel, player lap, countryside props and approach gateway,
 plus exterior bodywork, rotating wheels, headlamps and the accepted player model
 in a seated pose with its existing face atlas. The original locomotion assets
 remain the source for that character.
-Rebuild the models, original 256px atlas and synthesized audio with:
+Rebuild the models, texture sheets, Blender scenes and synthesized audio with:
 
 ```powershell
 & 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python-exit-code 1 --python build_temple_intro_assets.py
@@ -86,9 +95,11 @@ Rebuild the models, original 256px atlas and synthesized audio with:
 The [ride controller](g_temple_intro.py) integrates travel independently of frame
 rate; nearby scenery stays bounded as it scrolls past the stationary car. The
 [intro renderer](temple_intro_viewer.py) owns and releases its models, frame
-buffers, exposure history, fonts, shaders and audio before handing off. The car proportions follow
-the supplied `artdev/car_reference.png`; the generated models have no dependency
-on that untracked reference file at runtime.
+buffers, exposure history, fonts, shaders and audio before handing off. The car
+uses the three supplied `artdev` car references, with a lower/shorter roof,
+revised wheelbase, rounded panels and shared cabin/glass/wiper placement anchors.
+Its generated assets do not depend on those untracked
+reference images at runtime.
 
 The first gameplay milestone now runs here: collect the brass key on the
 boardwalk, unlock the temple entrance, open it with a second interaction, and

@@ -1,20 +1,29 @@
 {
   "models": {
-    "sedan": {
-      "vertices": 1968,
-      "triangles": 984
-    },
     "sedan_exterior": {
-      "vertices": 1840,
-      "triangles": 920
+      "vertices": 3657,
+      "triangles": 5920,
+      "atlas": "santana_exterior"
+    },
+    "sedan": {
+      "vertices": 2843,
+      "triangles": 4950,
+      "atlas": "santana_interior"
     },
     "headlamps": {
-      "vertices": 96,
-      "triangles": 48
+      "vertices": 16,
+      "triangles": 8,
+      "atlas": "santana_exterior"
     },
     "tyre": {
-      "vertices": 792,
-      "triangles": 384
+      "vertices": 242,
+      "triangles": 384,
+      "atlas": "santana_wheels"
+    },
+    "steering": {
+      "vertices": 172,
+      "triangles": 318,
+      "atlas": "santana_interior"
     },
     "driver": {
       "vertices": 816,
@@ -41,10 +50,6 @@
       "triangles": 2930,
       "source": "Accepted player mesh and face atlas"
     },
-    "steering": {
-      "vertices": 392,
-      "triangles": 196
-    },
     "pine": {
       "vertices": 168,
       "triangles": 76
@@ -70,11 +75,38 @@
       "triangles": 276
     }
   },
+  "car": {
+    "triangles": 12732,
+    "budget": 12000,
+    "glass_triangles": 12,
+    "wheel_instances": 4,
+    "editable_source": "santana.blend",
+    "atlases": {
+      "santana_exterior": [
+        256,
+        256
+      ],
+      "santana_interior": [
+        256,
+        256
+      ],
+      "santana_wheels": [
+        128,
+        128
+      ]
+    },
+    "references": [
+      "artdev/car_reference.png",
+      "artdev/car_reference_2.png",
+      "artdev/Classic Santana Vehicle Reference Sheet.png"
+    ],
+    "description": "Charcoal civilian Santana; shaped body, cloth seats, manual cranks, textured dashboard and steel wheel covers"
+  },
   "reference": "artdev/car_reference.png",
   "cabin_camera": [
     0.02,
-    1.34,
-    0.65
+    1.235,
+    0.53
   ],
   "texture": [
     256,

@@ -11,9 +11,9 @@ uniform float dusk;
 out vec4 finalColor;
 float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
 float clean(vec2 uv,vec2 pivot) {
-    vec2 d=(uv-pivot)*vec2(1.76,.79);
+    vec2 d=(uv-pivot)*vec2(1.389,.629);
     float r=length(d);float a=atan(d.y,d.x);
-    float sector=step(.13,a)*step(a,1.80)*smoothstep(.12,.22,r)*(1.-smoothstep(.60,.72,r));
+    float sector=step(.13,a)*step(a,1.80)*smoothstep(.105,.19,r)*(1.-smoothstep(.49,.57,r));
     float up=step(0.,sin(time*6.2831853/1.85));
     float behind=mix(step(wiperAngle,a),step(a,wiperAngle),up);
     return sector*behind;
@@ -34,7 +34,7 @@ void main() {
     float rivulet=(1.-smoothstep(.012,.030,abs(rivuletX)))*step(.54,hash(vec2(column,4.)));
     rivulet*=smoothstep(.05,.14,flow)*(1.-smoothstep(.68,.81,flow));
     float wet=1.;
-    if(windshield>.5)wet=1.-.88*max(clean(uv,vec2(.17,.015)),clean(uv,vec2(.66,.015)));
+    if(windshield>.5)wet=1.-.88*max(clean(uv,vec2(.184,.015)),clean(uv,vec2(.658,.015)));
     head*=wet;edge*=wet;tail*=wet;rivulet*=wet;
     vec2 screen=gl_FragCoord.xy/vec2(480.,270.);
     vec2 refract=vec2(q.x*.017,-.004)*head+vec2(rivulet*.0015,0.);

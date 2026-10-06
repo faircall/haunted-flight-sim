@@ -1,6 +1,7 @@
 """Portable camera poses shared by intro playback and the cinematics editor."""
 from copy import deepcopy
 import math
+from g_santana_geometry import inside_cabin,CABIN_EYE
 
 
 def pose(eye,target,fov):return dict(eye=list(eye),target=list(target),fov=float(fov))
@@ -8,7 +9,7 @@ def pose(eye,target,fov):return dict(eye=list(eye),target=list(target),fov=float
 
 def default_camera(kind):
     if kind=='opening':
-        start=pose((1.78,1.40,.76),(0,1.30,.74),48);end=pose((1.90,1.40,.63),(0,1.30,.74),48)
+        start=pose((1.61,1.29,.63),(0,1.22,.62),48);end=pose((1.72,1.29,.53),(0,1.22,.62),48)
     elif kind=='drone':
         start=pose((5,20,7),(0,.1,-3),48);end=pose((6.5,20,3),(0,.1,-3),48)
     elif kind=='tracking':
@@ -17,7 +18,8 @@ def default_camera(kind):
         start=pose((0,4.6,8),(0,1.1,-10),58);end=pose((0,4.9,7),(0,1.1,-10),58)
     elif kind=='interior':
         a=math.radians(-8)
-        start=end=pose((.02,1.34,.65),(.02,1.34+math.sin(a),.65-math.cos(a)),62)
+        x,y,z=CABIN_EYE
+        start=end=pose(CABIN_EYE,(x,y+math.sin(a),z-math.cos(a)),62)
     else:start=end=pose((6,3,6),(0,1,0),58)
     return dict(mode='interactive' if kind=='interior' else 'fixed',
                 view='interior' if kind=='interior' else 'exterior',ease='smooth',
@@ -52,9 +54,6 @@ def sample_camera(shot,elapsed):
         delta=[y-x for x,y in zip(a['eye'],a['target'])];length=math.sqrt(sum(v*v for v in delta))
         result['target']=[x+.05*d/length for x,d in zip(result['eye'],delta)]
     return result
-
-
-def inside_cabin(eye):return abs(eye[0])<.93 and .42<eye[1]<1.63 and -1.60<eye[2]<1.40
 
 
 def fly_pose(frame,mouse=(0,0),movement=(0,0,0),dt=0,speed=2):

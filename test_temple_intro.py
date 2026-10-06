@@ -105,7 +105,7 @@ class IntroTests(unittest.TestCase):
         manifest=json.loads((KIT/'manifest.json').read_text())
         self.assertTrue({'sedan_exterior','headlamps','tyre','player_seated'}<=manifest['models'].keys())
         self.assertEqual(manifest['models']['player_seated']['triangles'],2930)
-        self.assertLess(manifest['models']['sedan']['triangles'],3000)
+        self.assertLess(manifest['models']['sedan']['triangles'],6500)
         for name in manifest['models']:
             raw=(KIT/(name+'.glb')).read_bytes();size,kind=struct.unpack_from('<II',raw,12)
             doc=json.loads(raw[20:20+size]);offset=20+size;length,_=struct.unpack_from('<II',raw,offset)

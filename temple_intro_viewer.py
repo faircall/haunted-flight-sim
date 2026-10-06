@@ -8,6 +8,9 @@ from PIL import Image
 import g_narrative_text as text
 from g_temple_intro import Intro,load_script,local_point,road_slope,scenery,wiper_angle,WIPER_PERIOD,smooth
 from g_temple_cinematics import sample_camera,default_camera
+from g_santana_geometry import (window_panes,wiper_pose,WIPER_PIVOTS,AXLES,WHEEL_X,WHEEL_Y,
+                                TYRE_RADIUS,STEERING,ACTOR_SCALE,actor_point,
+                                FRONT_ACTOR_POSITION,REAR_ACTOR_POSITION)
 
 ROOT=Path(__file__).resolve().parent
 KIT=ROOT/'art'/'temple'/'intro'
@@ -95,15 +98,8 @@ class View:
                         self.textures[texture.id]=texture;pr.set_texture_filter(texture,pr.TEXTURE_FILTER_POINT)
             for name,mesh in (('ground',pr.gen_mesh_plane(240,240,1,1)),('road',pr.gen_mesh_plane(3.8,6.8,1,1)),('cube',pr.gen_mesh_cube(1,1,1))):
                 model=pr.load_model_from_mesh(mesh);model.materials[0].shader=self.scene_shader;self.models[name]=model
-            front=[(-.873,.964,-1.621),(.873,.964,-1.621),(.802,1.566,-1.133),(-.802,1.566,-1.133)]
-            self.windows.append((pane(front,self.glass_shader,self.world.texture),True))
-            for sign in (-1,1):
-                x=sign*.967
-                front=[(x,.96,-1.55),(x,.96,.055),(sign*.922,1.54,.055),(sign*.850,1.54,-1.12)]
-                rear=[(x,.96,.185),(x,.96,1.395),(sign*.857,1.54,1.09),(sign*.922,1.54,.185)]
-                self.windows.extend((pane(p,self.glass_shader,self.world.texture),False) for p in (front,rear))
-            rear=[(.88,1.03,1.48),(-.88,1.03,1.48),(-.81,1.54,1.10),(.81,1.54,1.10)]
-            self.windows.append((pane(rear,self.glass_shader,self.world.texture),False))
+            for points,windshield in window_panes():
+                self.windows.append((pane(points,self.glass_shader,self.world.texture),windshield))
             self.sign=pr.load_render_texture(128,40);self.targets.append(self.sign)
             pr.set_texture_filter(self.sign.texture,pr.TEXTURE_FILTER_POINT)
             pr.begin_texture_mode(self.sign);pr.clear_background(pr.Color(37,49,36,255))
@@ -143,12 +139,9 @@ class View:
     def wipers(self,intro):
         angle=wiper_angle(intro.elapsed)
         colour_=pr.Color(24,30,28,255)
-        for x in (-.58,.28):
-            pivot=pr.Vector3(x,.955,-1.647)
-            up=pr.Vector3(0,.776,.63)
-            tip=pr.Vector3(x+.53*math.cos(angle),pivot.y+.53*math.sin(angle)*up.y,pivot.z+.53*math.sin(angle)*up.z)
+        for x in WIPER_PIVOTS:
+            pivot,tip,perpendicular=[pr.Vector3(*p) for p in wiper_pose(x,angle)]
             pr.draw_cylinder_ex(pivot,tip,.011,.010,5,colour_)
-            perpendicular=pr.Vector3(-math.sin(angle)*.16,math.cos(angle)*.16*up.y,math.cos(angle)*.16*up.z)
             pr.draw_cylinder_ex(pr.vector3_subtract(tip,perpendicular),pr.vector3_add(tip,perpendicular),.013,.013,5,colour_)
 
     def countryside(self,intro):
@@ -206,19 +199,19 @@ class View:
         s=self.scene_shader
         self.uniform(s,'interior',0.);self.uniform(s,'surface',0,'int');self.uniform(s,'fogEnd',70.)
         self.draw('sedan_exterior')
-        spin=-math.degrees(intro.distance/.32)%360
-        for x in (-1.035,1.035):
-            for z in (-1.65,1.52):
-                pr.draw_model_ex(self.models['tyre'],pr.Vector3(x,.34,z),pr.Vector3(1,0,0),spin,pr.Vector3(1,1,1),pr.WHITE)
+        spin=-math.degrees(intro.distance/TYRE_RADIUS)%360
+        for x in (-WHEEL_X,WHEEL_X):
+            for z in AXLES:
+                pr.draw_model_ex(self.models['tyre'],pr.Vector3(x,WHEEL_Y,z),pr.Vector3(1,0,0),spin,pr.Vector3(1,1,1),pr.WHITE)
                 self.draw_calls+=1
         self.uniform(s,'surface',2,'int');self.draw('headlamps');self.uniform(s,'surface',0,'int')
         if intro.headlights:
             # A faint broad cone catches the rain/fog; the brighter road spill
             # is evaluated in the road material rather than painted on screen.
             pr.rl.rlDisableBackfaceCulling();pr.rl.rlDisableDepthMask()
-            for x in (-.72,.72):
+            for x in (-.615,.615):
                 tint=pr.Color(220,221,166,int(13*intro.headlights))
-                start=pr.Vector3(x,.74,-2.72)
+                start=pr.Vector3(x,.701,-2.25)
                 corners=[pr.Vector3(x-2,.08,-17),pr.Vector3(x+2,.08,-17),
                          pr.Vector3(x+2,1.4,-17),pr.Vector3(x-2,1.4,-17)]
                 for i in range(4):pr.draw_triangle_3d(start,corners[i],corners[(i+1)%4],tint)
@@ -226,15 +219,17 @@ class View:
 
     def cabin(self,intro,exterior=False):
         s=self.scene_shader;self.uniform(s,'interior',1.);self.uniform(s,'surface',0,'int')
-        self.draw('sedan');self.draw('driver');self.draw('colleague')
-        self.draw('player_seated' if exterior else 'player_lap')
+        self.draw('sedan')
+        size=(ACTOR_SCALE,)*3
+        self.draw('driver',FRONT_ACTOR_POSITION,size);self.draw('colleague',FRONT_ACTOR_POSITION,size)
+        self.draw('player_seated' if exterior else 'player_lap',REAR_ACTOR_POSITION,size)
         line=intro.line;talking=line and line['speaker']=='FRONT PASSENGER'
         # No likenesses yet: separate blank heads leave references easy to swap.
         glance=18*smooth((intro.elapsed-line['start'])/.9)*smooth((line['end']-intro.elapsed)/.8) if talking else 0.
-        self.draw('driver_head',(-.45,1.405+.002*math.sin(intro.elapsed*1.8),-.36),yaw=2.5*math.sin(intro.elapsed*.42))
-        self.draw('colleague_head',(.45,1.405+.002*math.sin(intro.elapsed*1.5),-.36),yaw=-glance)
+        self.draw('driver_head',actor_point((-.45,1.405+.002*math.sin(intro.elapsed*1.8),-.36)),size,yaw=2.5*math.sin(intro.elapsed*.42))
+        self.draw('colleague_head',actor_point((.45,1.405+.002*math.sin(intro.elapsed*1.5),-.36)),size,yaw=-glance)
         steering=math.degrees(math.atan(road_slope(intro.distance)))*1.3
-        pr.draw_model_ex(self.models['steering'],pr.Vector3(-.45,1.025,-.95),pr.Vector3(0,.673,.74),steering,pr.Vector3(1,1,1),pr.WHITE)
+        pr.draw_model_ex(self.models['steering'],pr.Vector3(*STEERING),pr.Vector3(0,.673,.74),steering,pr.Vector3(1,1,1),pr.WHITE)
 
     def subtitles(self,intro,help_visible=True,audio_error=''):
         line=intro.line
