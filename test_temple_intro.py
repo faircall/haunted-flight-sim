@@ -13,6 +13,12 @@ ROOT=Path(__file__).resolve().parent
 KIT=ROOT/'art'/'temple'/'intro'
 
 
+def controller_fixture():
+    from test_cinematics_editor import fixture_document
+    document=load_script();document['duration']=142;document['shots']=fixture_document()['shots']
+    return document
+
+
 class IntroTests(unittest.TestCase):
     def test_script_is_bounded_ordered_and_covers_dispatch_lore_and_arrival(self):
         document=load_script();self.assertTrue(90<=document['duration']<=180)
@@ -23,7 +29,7 @@ class IntroTests(unittest.TestCase):
         state.elapsed=document['lines'][0]['end'];self.assertIsNone(state.line)
 
     def test_full_ride_integral_is_independent_of_frame_rate_and_stops(self):
-        document=load_script();states=[]
+        document=controller_fixture();states=[]
         for dt in (.02,.05,.10):
             state=Intro(document)
             while not state.finished:state.tick(dt)
@@ -34,7 +40,7 @@ class IntroTests(unittest.TestCase):
         self.assertEqual(states[0].fade,1.)
 
     def test_pause_freezes_camera_scrolling_weather_and_subtitle_clock(self):
-        state=Intro(load_script());state.elapsed=20.;frozen=state.elapsed,state.distance,state.yaw,state.pitch
+        state=Intro(controller_fixture());state.elapsed=20.;frozen=state.elapsed,state.distance,state.yaw,state.pitch
         state.tick(.05,pause=True)
         for _ in range(12):state.tick(.05,(100,-100))
         self.assertEqual((state.elapsed,state.distance,state.yaw,state.pitch),frozen)
@@ -42,7 +48,7 @@ class IntroTests(unittest.TestCase):
         state.tick(.05,skip=True);self.assertTrue(state.finished)
 
     def test_look_can_turn_to_all_windows_and_clamps_vertical_limits(self):
-        state=Intro(load_script(),elapsed=17.);distance=state.distance
+        state=Intro(controller_fixture(),elapsed=17.);distance=state.distance
         state.tick(0,(700,-900));self.assertEqual(state.pitch,62)
         self.assertAlmostEqual(state.yaw,98)
         state.tick(0,(800,1800));self.assertLess(state.yaw,0);self.assertEqual(state.pitch,-65)
@@ -50,7 +56,7 @@ class IntroTests(unittest.TestCase):
         state.tick(0,reset=True);self.assertEqual((state.yaw,state.pitch),(0,-8))
 
     def test_cuts_cover_the_ride_and_preserve_interior_look(self):
-        state=Intro(load_script());shots=state.document['shots']
+        state=Intro(controller_fixture());shots=state.document['shots']
         self.assertEqual([s['kind'] for s in shots],['opening','interior','drone','interior','tracking','interior','arrival'])
         for shot in shots:
             state.elapsed=shot['start'];self.assertEqual(state.shot,shot)
@@ -65,7 +71,7 @@ class IntroTests(unittest.TestCase):
         self.assertTrue(state.interactive);self.assertEqual((state.yaw,state.pitch),(56.,-9.))
 
     def test_night_and_headlights_transition_in_the_side_tracking_shot(self):
-        state=Intro(load_script());shot=state.night_shot
+        state=Intro(controller_fixture());shot=state.night_shot
         state.elapsed=shot['start'];self.assertAlmostEqual(state.dusk,.18);self.assertEqual(state.headlights,0)
         state.elapsed=shot['start']+6;self.assertTrue(0<state.headlights<1)
         state.elapsed=shot['end'];self.assertEqual(state.dusk,1);self.assertEqual(state.headlights,1)
@@ -88,7 +94,7 @@ class IntroTests(unittest.TestCase):
         self.assertTrue(all(b>a for a,b in zip(angles,angles[1:])))
 
     def test_dusk_and_braking_are_smooth_and_monotonic(self):
-        state=Intro(load_script());last=0;last_dusk=0
+        state=Intro(controller_fixture());last=0;last_dusk=0
         for i in range(state.duration*10+1):
             state.elapsed=i/10
             self.assertGreaterEqual(state.distance,last);self.assertGreaterEqual(state.dusk,last_dusk)

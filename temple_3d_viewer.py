@@ -80,6 +80,8 @@ def run(fixed_cameras=False,living_assets=False):
     parser.add_argument('--intro-only',action='store_true',help='Preview the interactive back-seat drive, then exit')
     parser.add_argument('--intro-review',action='store_true',help='Capture the rainy car intro from several directions in a hidden native window')
     parser.add_argument('--intro-handoff-smoke',action='store_true',help='Review the intro and then run exploration checks in the same native window')
+    parser.add_argument('--cinematics-editor',action='store_true',help='Open the intro timeline and camera editor')
+    parser.add_argument('--cinematics-editor-review',action='store_true',help='Run native camera-editing and save/reload checks')
     parser.add_argument('--scene',type=Path,help='Use a separate authored scene file')
     parser.add_argument('--fixed-cameras',action='store_true',default=fixed_cameras,help='Play the three-shot camera walkthrough')
     assets=parser.add_mutually_exclusive_group()
@@ -87,6 +89,9 @@ def run(fixed_cameras=False,living_assets=False):
     assets.add_argument('--classic-assets',dest='living_assets',action='store_false',help='Compare the capsule and tree billboards')
     parser.set_defaults(living_assets=living_assets)
     args=parser.parse_args();fixed_cameras=args.fixed_cameras
+    if args.cinematics_editor or args.cinematics_editor_review:
+        from temple_cinematics_editor import run
+        run(review=args.cinematics_editor_review);return
     if args.structure_review:args.smoke=True
     if args.player_review:
         args.smoke=True;args.living_assets=True;fixed_cameras=True

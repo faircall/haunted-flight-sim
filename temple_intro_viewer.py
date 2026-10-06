@@ -7,6 +7,7 @@ import pyray as pr
 from PIL import Image
 import g_narrative_text as text
 from g_temple_intro import Intro,load_script,local_point,road_slope,scenery,wiper_angle,WIPER_PERIOD,smooth
+from g_temple_cinematics import sample_camera,default_camera
 
 ROOT=Path(__file__).resolve().parent
 KIT=ROOT/'art'/'temple'/'intro'
@@ -55,7 +56,7 @@ class Audio:
             sound=self.sounds[name]
             if intro.paused:sound.stop()
             elif not sound.is_playing:sound.start()
-        exterior=not intro.interactive
+        exterior=(intro.shot.get('camera') or default_camera(intro.shot['kind']))['view']=='exterior'
         self.sounds['rain_cabin'].volume=gain*(.72 if exterior else .50+.12*abs(math.sin(math.radians(intro.yaw))))
         self.sounds['rain_cabin'].pan=0 if exterior else math.sin(math.radians(intro.yaw))*.14
         self.sounds['engine'].volume=gain*(.25+.16*intro.speed/10.5)*(.82 if exterior else 1)
@@ -129,28 +130,15 @@ class View:
         self.draw_calls+=1
 
     def camera(self,intro):
-        kind=intro.shot['kind'];u=intro.shot_progress
-        if kind=='opening':
-            eye=(1.78+u*.12,1.40,.76-u*.13);target=(0,1.30,.74);fov=48
-        elif kind=='drone':
-            eye=(5+u*1.5,20,7-u*4);target=(0,.1,-3);fov=48
-        elif kind=='tracking':
-            eye=(3.55,1.55,.06);target=(0,.87,-.12);fov=62
-        elif kind=='arrival':
-            eye=(0,4.6+u*.3,8-u);target=(0,1.1,-10);fov=58
-        else:
-            return self.interior_camera(intro)
-        return pr.Camera3D(pr.Vector3(*eye),pr.Vector3(*target),pr.Vector3(0,1,0),fov,pr.CAMERA_PERSPECTIVE)
-
-    def interior_camera(self,intro):
-        yaw=math.radians(intro.yaw);pitch=math.radians(intro.pitch)
-        motion=intro.speed/10.5;t=intro.elapsed
-        # Mild suspension movement; the cabin stays rigid around the seated eye.
-        bob=.006*math.sin(t*3.3)*motion+.003*math.sin(t*8.1)*motion
-        eye=pr.Vector3(.02+.004*math.sin(t*1.3)*motion,1.34+bob,.65)
-        direction=pr.Vector3(math.sin(yaw)*math.cos(pitch),math.sin(pitch),-math.cos(yaw)*math.cos(pitch))
-        target=pr.vector3_add(eye,direction)
-        return pr.Camera3D(eye,target,pr.Vector3(0,1,0),62.,pr.CAMERA_PERSPECTIVE)
+        frame=sample_camera(intro.shot,intro.elapsed);eye=frame['eye'];target=frame['target']
+        if intro.interactive:
+            delta=[b-a for a,b in zip(eye,target)];length=math.sqrt(sum(v*v for v in delta))
+            yaw=math.atan2(delta[0],-delta[2])+math.radians(intro.yaw)
+            pitch=max(-1.52,min(1.52,math.asin(delta[1]/length)+math.radians(intro.pitch+8)))
+            motion=intro.speed/10.5;t=intro.elapsed
+            eye=[eye[0]+.004*math.sin(t*1.3)*motion,eye[1]+(.006*math.sin(t*3.3)+.003*math.sin(t*8.1))*motion,eye[2]]
+            target=[eye[0]+math.sin(yaw)*math.cos(pitch),eye[1]+math.sin(pitch),eye[2]-math.cos(yaw)*math.cos(pitch)]
+        return camera_from_pose(dict(eye=eye,target=target,fov=frame['fov']))
 
     def wipers(self,intro):
         angle=wiper_angle(intro.elapsed)
@@ -263,6 +251,8 @@ class View:
             pr.draw_text('Late afternoon',18,233,10,pr.Color(196,205,188,255))
         if help_visible and not intro.paused and 7<=intro.elapsed<15:
             pr.draw_text('Mouse: look   |   Esc: pause   |   Enter: skip',105,12,10,pr.Color(212,218,204,255))
+        if help_visible and not intro.paused and intro.elapsed<15:
+            pr.draw_text('F2: cinematics editor',12,HEIGHT-13,10,pr.Color(184,199,170,255))
         if intro.elapsed>intro.duration-8 and intro.fade<.9:
             title=intro.document['place_name'];width=pr.measure_text(title,16)
             pr.draw_text(title,(WIDTH-width)//2,25,16,pr.Color(211,216,196,255))
@@ -274,8 +264,8 @@ class View:
             pr.draw_text('Esc: resume   |   Enter: arrive at temple',116,132,10,pr.Color(202,211,192,255))
             pr.draw_text('Q: quit   |   Home: look forward',142,151,10,pr.Color(167,183,167,255))
 
-    def render(self,intro,help_visible=True,audio_error=''):
-        self.draw_calls=0;camera=self.camera(intro);s=self.scene_shader
+    def render(self,intro,help_visible=True,audio_error='',camera_override=None,scene_view=None,overlays=True,apply_fade=True,trails=True):
+        self.draw_calls=0;camera=camera_override or self.camera(intro);s=self.scene_shader
         fog=colour((141,156,143),(24,37,47),intro.dusk)
         self.uniform(s,'eyePosition',(camera.position.x,camera.position.y,camera.position.z))
         self.uniform(s,'fogColour',(fog.r/255,fog.g/255,fog.b/255))
@@ -288,7 +278,7 @@ class View:
         # Short exposure trails only in the held side-on shot. Scenery smears
         # past, while the car is drawn crisply over it; reset on cuts and seeks.
         background=self.world.texture
-        if intro.shot['kind']=='tracking':
+        if intro.shot['kind']=='tracking' and trails:
             fresh=self.echo_time is None or not 0<=intro.elapsed-self.echo_time<.25
             previous=self.echo[self.echo_index];self.echo_index=1-self.echo_index;current=self.echo[self.echo_index]
             pr.begin_texture_mode(current);pr.clear_background(pr.BLACK)
@@ -296,7 +286,7 @@ class View:
             if not fresh:self.copy(previous.texture,pr.Color(255,255,255,92))
             pr.end_texture_mode();background=current.texture;self.echo_time=intro.elapsed
         else:self.echo_time=None
-        exterior=not intro.interactive
+        exterior=(scene_view or (intro.shot.get('camera') or default_camera(intro.shot['kind']))['view'])=='exterior'
         if exterior:
             # Include the seated player behind the glass in its refracted source.
             # Copy the scenery first, then add opaque vehicle depth in that FBO.
@@ -325,8 +315,8 @@ class View:
             window.materials[0].maps[pr.MATERIAL_MAP_DIFFUSE].texture=background
             self.uniform(self.glass_shader,'windshield',float(windshield));pr.draw_model(window,pr.Vector3(0,0,0),1.,pr.WHITE)
         pr.rl.rlEnableDepthMask();pr.rl.rlEnableBackfaceCulling();pr.end_mode_3d()
-        self.subtitles(intro,help_visible,audio_error)
-        if intro.fade:pr.draw_rectangle(0,0,WIDTH,HEIGHT,pr.Color(0,0,0,int(255*intro.fade)))
+        if overlays:self.subtitles(intro,help_visible,audio_error)
+        if apply_fade and intro.fade:pr.draw_rectangle(0,0,WIDTH,HEIGHT,pr.Color(0,0,0,int(255*intro.fade)))
         pr.end_texture_mode();self.max_draw_calls=max(self.max_draw_calls,self.draw_calls)
         return camera
 
@@ -350,6 +340,13 @@ class View:
 def capture(target,path):
     image=pr.load_image_from_texture(target.texture);pr.image_flip_vertical(image)
     pr.export_image(image,str(path));pr.unload_image(image)
+
+
+def camera_from_pose(frame):
+    eye,target=frame['eye'],frame['target']
+    delta=[b-a for a,b in zip(eye,target)];length=math.sqrt(sum(v*v for v in delta))
+    up=(0,0,-1) if abs(delta[1]/length)>.999 else (0,1,0)
+    return pr.Camera3D(pr.Vector3(*eye),pr.Vector3(*target),pr.Vector3(*up),frame['fov'],pr.CAMERA_PERSPECTIVE)
 
 
 def run_intro(review=False,keep_window=False):
@@ -429,6 +426,11 @@ def run_intro(review=False,keep_window=False):
         else:
             pr.disable_cursor();mouse_ready=False
             while not pr.window_should_close():
+                if pr.is_key_pressed(pr.KEY_F2):
+                    from temple_cinematics_editor import edit_intro
+                    edit_intro(intro,view,audio)
+                    pr.disable_cursor() if not intro.paused else pr.enable_cursor()
+                    mouse_ready=False
                 pause=pr.is_key_pressed(pr.KEY_ESCAPE);skip=pr.is_key_pressed(pr.KEY_ENTER)
                 if intro.paused and pr.is_key_pressed(pr.KEY_Q):break
                 mouse=pr.get_mouse_delta()

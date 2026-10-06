@@ -12,6 +12,12 @@ Raylib 5.0 installation and native C comparison are unchanged.
 
 ## Back-seat introduction
 
+Press **F2 during the drive** to open the camera/timeline editor, or double-click
+`edit_intro_cinematics.cmd`. It supports camera flight/orbit/pan, start/end camera
+keys, lenses, cut timing, shot splitting, looping, save/reload and undo/redo.
+See [CINEMATICS_EDITOR.md](CINEMATICS_EDITOR.md) for the controls. Saved framing
+and camera moves are used by normal game playback.
+
 The game now opens with a **2 minute 22 second** rainy drive, then fades into the
 temple in the same native window. You are in the rear seat of a boxy silver sedan;
 two anonymous colleagues sit up front in plain clothes. Their heads are deliberately

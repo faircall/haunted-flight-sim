@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import math
+from g_temple_cinematics import default_camera,validate_camera
 
 ROOT=Path(__file__).resolve().parent
 SCRIPT=ROOT/'art'/'temple'/'intro'/'dialogue.json'
@@ -11,6 +12,11 @@ WIPER_PERIOD=1.85
 
 def load_script(path=SCRIPT):
     document=json.loads(Path(path).read_text(encoding='utf-8'))
+    validate_script(document)
+    return document
+
+
+def validate_script(document):
     duration=document['duration']
     if not isinstance(duration,(int,float)) or not math.isfinite(duration) or duration<30:
         raise ValueError('Invalid intro duration.')
@@ -20,12 +26,15 @@ def load_script(path=SCRIPT):
             raise ValueError('Dialogue lines must be ordered and not overlap.')
         if not line['speaker'] or not line['text']:raise ValueError('Empty dialogue.')
         end=line['end']
-    end=0.
+    end=0.;identities=set()
     for shot in document['shots']:
+        if not shot.get('id') or shot['id'] in identities:raise ValueError('Shots need unique names.')
+        identities.add(shot['id'])
         if shot['start']!=end or not shot['start']<shot['end']<=duration:
             raise ValueError('Shots must cover the entire ride without gaps or overlaps.')
-        if shot['kind'] not in ('opening','interior','drone','tracking','arrival'):
+        if shot['kind'] not in ('opening','interior','drone','tracking','arrival','exterior'):
             raise ValueError('Unknown intro shot.')
+        if 'camera' in shot:validate_camera(shot['camera'])
         end=shot['end']
     if end!=duration:raise ValueError('Shots must end at arrival.')
     if sum(s['kind']=='tracking' for s in document['shots'])!=1:
@@ -78,7 +87,7 @@ class Intro:
         return next((s for s in self.document['shots'] if s['start']<=self.elapsed<s['end']),self.document['shots'][-1])
 
     @property
-    def interactive(self):return self.shot['kind']=='interior'
+    def interactive(self):return (self.shot.get('camera') or default_camera(self.shot['kind']))['mode']=='interactive'
 
     @property
     def shot_progress(self):return smooth((self.elapsed-self.shot['start'])/(self.shot['end']-self.shot['start']))
@@ -91,12 +100,13 @@ class Intro:
         # Late afternoon barely cools before the side-on time-lapse. All of
         # the substantial light change happens while that camera holds the car.
         shot=self.night_shot
-        return .18*smooth(self.elapsed/shot['start'])+.82*smooth((self.elapsed-shot['start'])/(shot['end']-shot['start']))
+        return .18*smooth(self.elapsed/max(.001,shot['start']))+.82*smooth((self.elapsed-shot['start'])/(shot['end']-shot['start']))
 
     @property
     def headlights(self):
         shot=self.night_shot
-        return smooth((self.elapsed-shot['start']-5)/2.5)
+        phase=(self.elapsed-shot['start'])/(shot['end']-shot['start'])
+        return smooth((phase-5/19)/(2.5/19))
 
     @property
     def distance(self):
