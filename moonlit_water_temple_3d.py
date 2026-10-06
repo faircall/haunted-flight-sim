@@ -1,4 +1,4 @@
-"""Play the isolated fixed-camera temple walkthrough: WASD, H help, Esc quit."""
+"""Rainy car intro, then the temple. Use --skip-intro for direct gameplay."""
 if __name__=='__main__':
     from setup_temple_3d import ensure_runtime
     ensure_runtime()

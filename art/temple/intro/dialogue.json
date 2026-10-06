@@ -1,0 +1,30 @@
+{
+  "duration": 142,
+  "place_name": "Water-Moon Temple",
+  "sign": "水月寺",
+  "notes": "First-pass fictional dialogue. Roles remain unnamed until character references/backstories arrive. Timings are seconds from departure; no voice recordings yet.",
+  "shots": [
+    {"id": "rear-window-portrait", "kind": "opening", "start": 0, "end": 7},
+    {"id": "dispatch-conversation", "kind": "interior", "start": 7, "end": 44},
+    {"id": "over-the-road", "kind": "drone", "start": 44, "end": 56},
+    {"id": "temple-stories", "kind": "interior", "start": 56, "end": 95},
+    {"id": "night-falls", "kind": "tracking", "start": 95, "end": 114},
+    {"id": "approaching-the-temple", "kind": "interior", "start": 114, "end": 135},
+    {"id": "arrival", "kind": "arrival", "start": 135, "end": 142}
+  ],
+  "lines": [
+    {"start": 7, "end": 13, "speaker": "DRIVER", "text": "That pothole's still there. They fixed everything except the road."},
+    {"start": 16, "end": 22, "speaker": "FRONT PASSENGER", "text": "Slow down. This car has to get us home as well."},
+    {"start": 26, "end": 32, "speaker": "YOU", "text": "What did the caller actually say?"},
+    {"start": 35, "end": 43, "speaker": "FRONT PASSENGER", "text": "The temple caretaker. He heard people shouting inside. Wouldn't go back through the gate."},
+    {"start": 46, "end": 53, "speaker": "DRIVER", "text": "Three of us for a noise complaint. On market day, too."},
+    {"start": 56, "end": 64, "speaker": "FRONT PASSENGER", "text": "He called twice. The second time he just kept asking how far away we were."},
+    {"start": 68, "end": 73, "speaker": "YOU", "text": "Does anyone still live up there?"},
+    {"start": 76, "end": 84, "speaker": "DRIVER", "text": "Just the caretaker. My grandmother used to take us there when we were small."},
+    {"start": 87, "end": 94, "speaker": "DRIVER", "text": "They said you could hear the bell from the village. Even when nobody rang it."},
+    {"start": 98, "end": 104, "speaker": "FRONT PASSENGER", "text": "Your grandmother told you that so you'd behave."},
+    {"start": 107, "end": 113, "speaker": "DRIVER", "text": "It worked. I didn't like staying after dark."},
+    {"start": 117, "end": 123, "speaker": "FRONT PASSENGER", "text": "The turn's just ahead. He's supposed to meet us by the bridge."},
+    {"start": 127, "end": 134, "speaker": "FRONT PASSENGER", "text": "There it is. Let's find him first, then we go in together."}
+  ]
+}

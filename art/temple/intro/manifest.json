@@ -1,0 +1,84 @@
+{
+  "models": {
+    "sedan": {
+      "vertices": 1968,
+      "triangles": 984
+    },
+    "sedan_exterior": {
+      "vertices": 1840,
+      "triangles": 920
+    },
+    "headlamps": {
+      "vertices": 96,
+      "triangles": 48
+    },
+    "tyre": {
+      "vertices": 792,
+      "triangles": 384
+    },
+    "driver": {
+      "vertices": 816,
+      "triangles": 408
+    },
+    "driver_head": {
+      "vertices": 464,
+      "triangles": 232
+    },
+    "colleague": {
+      "vertices": 816,
+      "triangles": 408
+    },
+    "colleague_head": {
+      "vertices": 464,
+      "triangles": 232
+    },
+    "player_lap": {
+      "vertices": 384,
+      "triangles": 192
+    },
+    "player_seated": {
+      "vertices": 1504,
+      "triangles": 2930,
+      "source": "Accepted player mesh and face atlas"
+    },
+    "steering": {
+      "vertices": 392,
+      "triangles": 196
+    },
+    "pine": {
+      "vertices": 168,
+      "triangles": 76
+    },
+    "broadleaf": {
+      "vertices": 360,
+      "triangles": 180
+    },
+    "rock": {
+      "vertices": 84,
+      "triangles": 42
+    },
+    "mountain": {
+      "vertices": 176,
+      "triangles": 88
+    },
+    "house": {
+      "vertices": 104,
+      "triangles": 52
+    },
+    "gate": {
+      "vertices": 552,
+      "triangles": 276
+    }
+  },
+  "reference": "artdev/car_reference.png",
+  "cabin_camera": [
+    0.02,
+    1.34,
+    0.65
+  ],
+  "texture": [
+    256,
+    256
+  ],
+  "audio": "Original synthesized placeholder rain, engine and wiper"
+}

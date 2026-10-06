@@ -10,6 +10,80 @@ Or double-click `play_temple_3d.cmd`. The launcher selects the local **Raylib
 reuses the already-installed Python game dependencies; the original global
 Raylib 5.0 installation and native C comparison are unchanged.
 
+## Back-seat introduction
+
+The game now opens with a **2 minute 22 second** rainy drive, then fades into the
+temple in the same native window. You are in the rear seat of a boxy silver sedan;
+two anonymous colleagues sit up front in plain clothes. Their heads are deliberately
+featureless until the character references arrive. The player lap keeps the blue
+shirtjacket, brown trousers and shoes. The car follows a narrow, gently bending
+rural road past dense trees, village houses, utility poles and hazy mountains.
+The sequence alternates composed exterior shots with interactive first-person
+dialogue. Travel, rain, wipers, audio and conversation continue across every cut.
+
+| Time | Shot |
+| --- | --- |
+| 0:00–0:07 | Outside the rear side window, framing the seated player |
+| 0:07–0:44 | Interactive interior: dispatch conversation |
+| 0:44–0:56 | Overhead tracking view of the car and rural road |
+| 0:56–1:35 | Interactive interior: caretaker and temple stories |
+| 1:35–1:54 | Side-on tracking: afternoon becomes night, headlights switch on |
+| 1:54–2:15 | Interactive night interior: the approach |
+| 2:15–2:22 | Exterior arrival above the road, then fade to temple gameplay |
+
+The held side-on shot adds short exposure trails to the passing countryside,
+with the car drawn crisply over them. Its time-lapse lighting change reaches full
+night before the next interior cut; the headlamp lenses, fog cones and wet-road
+spill come on together. Shot boundaries are editable in `dialogue.json` alongside
+the dialogue timings.
+
+During interior shots, mouse movement looks around the entire cabin, including the side/rear windows,
+dashboard, headliner and your lap. **Home** looks forward. **Esc** pauses the ride
+and releases the mouse; Esc resumes, Enter skips to the temple, and Q quits from
+that menu. Enter also skips during the ride. F12 saves the current view under
+`artifacts/temple-intro/`. Exterior cameras are authored; returning inside preserves
+your previous look direction. The cursor is restored for temple mouse aiming.
+
+Six real window planes carry refracting drops and winding water trails. Two
+windshield wipers sweep continuously and clear their arcs in the glass shader.
+Quiet original rain/engine loops and a wiper swish are included. The conversation
+is currently subtitled with no recorded voices. Draft dialogue introduces the
+caretaker's call, the small-station colleagues and a local bell story; edit the
+speaker labels, text and timings in [dialogue.json](art/temple/intro/dialogue.json).
+
+```powershell
+python moonlit_water_temple_3d.py --intro-only
+python moonlit_water_temple_3d.py --skip-intro
+python moonlit_water_temple_3d.py --intro-review
+python moonlit_water_temple_3d.py --intro-handoff-smoke
+python -m unittest test_temple_intro -q
+```
+
+The review writes native 480x270 views of each cut, interior window views, the
+day/night tracking progression, arrival, pause and a `cinematic-preview.gif`
+montage to `artifacts/temple-intro/`.
+The handoff smoke continues through the existing exploration/editor checks in
+the same window. Other gameplay/art smoke modes bypass the intro automatically.
+Neither the ride nor its reviews write progress or alter level designs.
+
+The [editable Blender kit](art/temple/intro/intro_kit.blend) contains the cabin,
+colleagues, steering wheel, player lap, countryside props and approach gateway,
+plus exterior bodywork, rotating wheels, headlamps and the accepted player model
+in a seated pose with its existing face atlas. The original locomotion assets
+remain the source for that character.
+Rebuild the models, original 256px atlas and synthesized audio with:
+
+```powershell
+& 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python-exit-code 1 --python build_temple_intro_assets.py
+```
+
+The [ride controller](g_temple_intro.py) integrates travel independently of frame
+rate; nearby scenery stays bounded as it scrolls past the stationary car. The
+[intro renderer](temple_intro_viewer.py) owns and releases its models, frame
+buffers, exposure history, fonts, shaders and audio before handing off. The car proportions follow
+the supplied `artdev/car_reference.png`; the generated models have no dependency
+on that untracked reference file at runtime.
+
 The first gameplay milestone now runs here: collect the brass key on the
 boardwalk, unlock the temple entrance, open it with a second interaction, and
 inspect the inscription in front of the altar. Medicine near the starting point

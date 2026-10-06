@@ -76,6 +76,10 @@ def run(fixed_cameras=False,living_assets=False):
     parser.add_argument('--player-review',action='store_true',help='Capture the new player walking/running at game resolution, plus an inspection-light costume pass')
     parser.add_argument('--gameplay-smoke',action='store_true',help='Exercise exploration, progress saves and scene editing in a hidden native window')
     parser.add_argument('--combat-smoke',action='store_true',help='Exercise the full 3D encounter, combat animations and saved progress')
+    parser.add_argument('--skip-intro',action='store_true',help='Go directly to the temple for gameplay/art iteration')
+    parser.add_argument('--intro-only',action='store_true',help='Preview the interactive back-seat drive, then exit')
+    parser.add_argument('--intro-review',action='store_true',help='Capture the rainy car intro from several directions in a hidden native window')
+    parser.add_argument('--intro-handoff-smoke',action='store_true',help='Review the intro and then run exploration checks in the same native window')
     parser.add_argument('--scene',type=Path,help='Use a separate authored scene file')
     parser.add_argument('--fixed-cameras',action='store_true',default=fixed_cameras,help='Play the three-shot camera walkthrough')
     assets=parser.add_mutually_exclusive_group()
@@ -86,10 +90,17 @@ def run(fixed_cameras=False,living_assets=False):
     if args.structure_review:args.smoke=True
     if args.player_review:
         args.smoke=True;args.living_assets=True;fixed_cameras=True
-    if args.combat_smoke:args.gameplay_smoke=True
+    if args.combat_smoke or args.intro_handoff_smoke:args.gameplay_smoke=True
     if args.gameplay_smoke:
         args.smoke=True;args.living_assets=True;fixed_cameras=True
     gameplay_enabled=fixed_cameras and not (args.smoke and not args.gameplay_smoke)
+    played_intro=False
+    if args.intro_only or args.intro_review or args.intro_handoff_smoke or (gameplay_enabled and not args.smoke and not args.skip_intro):
+        from temple_intro_viewer import run_intro
+        standalone=args.intro_only or args.intro_review
+        outcome=run_intro(review=args.intro_review or args.intro_handoff_smoke,keep_window=not standalone)
+        if standalone or outcome!='arrived':return
+        played_intro=True
     import g_temple_cameras as cameras
     if args.smoke:
         import faulthandler
@@ -97,7 +108,10 @@ def run(fixed_cameras=False,living_assets=False):
         print('VIEWER starting window',flush=True)
     if args.smoke:pr.set_config_flags(pr.ConfigFlags.FLAG_WINDOW_HIDDEN)
     pr.set_trace_log_level(pr.TraceLogLevel.LOG_WARNING)
-    pr.init_window(1440,810,'Moonlit water temple / fixed cameras' if fixed_cameras else 'Photo temple / live 3D comparison');pr.set_target_fps(60)
+    title='Moonlit water temple / fixed cameras' if fixed_cameras else 'Photo temple / live 3D comparison'
+    if pr.is_window_ready():pr.set_window_title(title)
+    else:pr.init_window(1440,810,title)
+    pr.set_target_fps(60)
     if gameplay_enabled:pr.set_exit_key(pr.KEY_NULL)
     if args.gameplay_smoke:pr.set_target_fps(0)
     if args.smoke:print('VIEWER window ready',flush=True)
@@ -130,6 +144,7 @@ def run(fixed_cameras=False,living_assets=False):
     walk=cameras.Walkthrough();help_visible=True;living=None
     gameplay=None;editor=None;exploration_props=None;audio=None;smoke=None;status='';status_time=0.;rendered_revision=0;combat_view=None
     willow_fades={138:1.,686:1.}
+    arrival_fade=1. if played_intro else 0.
     def rebuild_layout(new_map):
         cache=ROOT/'artifacts'/'temple-camera-trial'/'cache'
         replacement={}
@@ -357,6 +372,9 @@ def run(fixed_cameras=False,living_assets=False):
             elif not fixed_cameras:
                 pr.draw_text('LIVE MESH STUDY | WASD walk | Q/E orbit | arrows tilt | wheel zoom | R roof | L light | Home reset',12,12,16,pr.RAYWHITE)
                 pr.draw_text('Shared tile collision; simplified lighting and water. Gameplay remains in the separate 2D scene.',12,786,14,pr.GRAY)
+            if arrival_fade:
+                pr.draw_rectangle(0,0,1440,810,pr.Color(0,0,0,int(arrival_fade*255)))
+                arrival_fade=max(0.,arrival_fade-dt/2.)
             if smoke and editor.active and smoke.capture:smoke.capture_ui()
             pr.end_drawing()
             if pr.is_key_pressed(pr.KEY_F12):
