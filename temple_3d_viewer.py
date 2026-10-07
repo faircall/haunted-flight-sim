@@ -179,12 +179,15 @@ def run(fixed_cameras=False,living_assets=False):
             combat_view=CombatView()
             if gameplay.spawn_error:
                 editor.active=True;editor.status=gameplay.spawn_error;editor.focus=list(scene.document['spawn'])
-            try:audio=Audio()
+            try:audio=Audio(automated=args.smoke)
             except RuntimeError as exc:status='Audio unavailable: '+str(exc);status_time=6.
             if args.gameplay_smoke:
                 if args.combat_smoke:from temple_combat_smoke import Review
                 else:from temple_exploration_smoke import Review
                 smoke=Review(gameplay,editor,ROOT/'artifacts'/'temple-exploration')
+                if audio:
+                    smoke.metrics['audio_output_gain']=audio.engine.volume
+                    if game.g_audio.audio_output_muted(automated=True):assert audio.engine.volume==0.0
         if args.living_assets:
             from g_temple_living import LivingScene
             living=LivingScene(combat=bool(gameplay))

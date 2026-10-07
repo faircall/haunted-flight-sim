@@ -72,9 +72,8 @@ class Props:
 
 
 class Audio:
-    def __init__(self):
-        import cyminiaudio as cma
-        self.engine = cma.Engine()
+    def __init__(self,automated=False):
+        self.engine = g_audio.make_audio_engine(automated)
         self.runtime = g_audio.make_audio_runtime(self.engine)
         self.profile = g_audio.make_audio_profile()
 

@@ -1,4 +1,4 @@
-"""Blender authoring: a reference-proportioned Santana, around 12,000 triangles.
+"""Blender authoring: a reference-proportioned Santana, around 21,000 triangles.
 
 Dedicated 256px exterior/interior and 128px wheel atlases. The empty body follows
 the reference silhouette; actors fit it afterwards. Wet window anchors are
@@ -65,14 +65,14 @@ class Atlas:
 def exterior_atlas():
     a=Atlas('santana_exterior',256)
     for name,rect,colour,style in (
-        ('paint',(0,0,128,64),(67,76,81),'paint'),('hood',(128,0,128,64),(65,73,78),'paint'),
-        ('doors',(0,64,128,64),(59,66,71),'paint'),('roof',(128,64,128,64),(65,74,80),'paint'),
+        ('paint',(0,0,128,64),(65,73,78),'plain'),('hood',(128,0,128,64),(65,73,78),'plain'),
+        ('doors',(0,64,128,64),(63,71,76),'plain'),('roof',(128,64,128,64),(65,73,78),'plain'),
         ('grille',(0,128,96,32),(21,25,27),'plain'),('headlight',(96,128,48,32),(171,177,168),'plain'),
         ('taillight',(144,128,48,32),(114,28,24),'plain'),('plate',(192,128,64,32),(30,56,88),'plain'),
         ('bumper',(0,160,96,32),(39,44,46),'plain'),('chrome',(96,160,48,32),(135,146,151),'plain'),
         ('glass',(144,160,48,32),(69,88,96),'paint'),('amber',(192,160,32,32),(157,90,27),'plain'),
-        ('rubber',(224,160,32,32),(20,24,26),'plain'),('trunk',(0,192,128,64),(62,70,76),'paint'),
-        ('details',(128,192,128,64),(51,60,66),'paint')):a.patch(name,rect,colour,style)
+        ('rubber',(224,160,32,32),(20,24,26),'plain'),('trunk',(0,192,128,64),(65,73,78),'plain'),
+        ('details',(128,192,128,64),(63,71,76),'plain')):a.patch(name,rect,colour,style)
     for y in (132,138,144,150,156):
         a.line((3,y),(92,y),(68,77,78));a.line((3,y+1),(92,y+1),(12,17,18))
     # Small manufacturer badge and the broad rectangular sealed-beam reflector.
@@ -337,6 +337,8 @@ def save_car_blend(out,exterior,material,interior=False):
         ('Camera / dashboard',(0,1.22,-.22),(0,.81,-.88),24)) if interior else (
         ('Camera / front quarter',(3.7,1.70,-5.4),(0,.76,-.15),40),
         ('Camera / rear quarter',(-3.7,1.70,5.4),(0,.78,-.12),40),
+        ('Camera / roof seams',(2.5,2.6,2.1),(0,1.40,.08),50),
+        ('Camera / wheel and mirror',(2.7,1.12,-2.75),(.76,.75,-1.30),55),
         ('Camera / dashboard',(0,1.22,-.22),(0,.81,-.88),24))
     for name,eye,target,lens in cameras:
         data=bpy.data.cameras.new(name);data.lens=lens;data.clip_start=.025
@@ -396,27 +398,33 @@ def build(out,models):
     build_lamps(lamps)
     lamps.export(out,models)
 
-    tyre=Mesh('tyre',wheels,wm);count=24
-    bands=((- .112,.268),(-.116,.307),(-.079,TYRE_RADIUS),(.079,TYRE_RADIUS),(.116,.307),(.112,.268))
+    tyre=Mesh('tyre',wheels,wm);count=32
+    bands=((- .112,.268),(-.116,.294),(-.105,.322),(-.079,.35),
+           (.079,.35),(.105,.322),(.116,.294),(.112,.268))
     for i in range(count):
         a=math.tau*i/count;b=math.tau*(i+1)/count
         for j,((xa,ra),(xb,rb)) in enumerate(zip(bands,bands[1:])):
             tyre.face([(xa,math.sin(a)*ra,math.cos(a)*ra),(xb,math.sin(a)*rb,math.cos(a)*rb),
                        (xb,math.sin(b)*rb,math.cos(b)*rb),(xa,math.sin(b)*ra,math.cos(b)*ra)],
                       'tread' if xa<0<xb else 'tyre',
-                      [(i/count,j/5),(i/count,(j+1)/5),((i+1)/count,(j+1)/5),((i+1)/count,j/5)],smooth=True)
+                      [(i/count,j/7),(i/count,(j+1)/7),((i+1)/count,(j+1)/7),((i+1)/count,j/7)],smooth=True)
         for sign in (-1,1):
             def point(r,x,angle):return (sign*x,math.sin(angle)*r,math.cos(angle)*r)
-            def uv(r,angle):return (.5+.49*r/.268*math.cos(angle),.5+.49*r/.268*math.sin(angle))
+            def uv(r,angle):return (.5+.49*r/.282*math.cos(angle),.5+.49*r/.282*math.sin(angle))
             p=[point(.267,.120,a),point(.14,.136,a),point(.14,.136,b),point(.267,.120,b)]
             coords=[uv(.267,a),uv(.14,a),uv(.14,b),uv(.267,b)]
             if sign==-1:p.reverse();coords.reverse()
+            tyre.face(p,'hub',coords,smooth=True)
+            # A rolled steel outer rim reads as a rounded lip at grazing angles.
+            p=[point(.267,.120,a),point(.282,.114,a),point(.282,.114,b),point(.267,.120,b)]
+            coords=[uv(.267,a),uv(.282,a),uv(.282,b),uv(.267,b)]
+            if sign==1:p.reverse();coords.reverse()
             tyre.face(p,'hub',coords,smooth=True)
             p=[(sign*.141,0,0),point(.14,.136,a),point(.14,.136,b)]
             coords=[(.5,.5),uv(.14,a),uv(.14,b)]
             if sign==1:p.reverse();coords.reverse()
             tyre.face(p,'hub',coords,smooth=True)
-    tyre.v=[Vector((p[0]*.80,p[1],p[2])) for p in tyre.v]
+    tyre.v=[Vector((p[0]*.80,p[1]*TYRE_RADIUS/.35,p[2]*TYRE_RADIUS/.35)) for p in tyre.v]
     tyre.export(out,models)
 
     wheel=Mesh('steering',inner,im);up=Vector((0,.74,-.673));right=Vector((1,0,0));normal=right.cross(up);rows=[]
@@ -450,7 +458,7 @@ def build(out,models):
     interior_models=('sedan_interior','cabin_fittings','steering_interior')
     interior_total=sum(models[name]['triangles'] for name in interior_models)
     save_car_blend(out,ext,em,interior=True)
-    return dict(triangles=total,budget=12000,glass_triangles=12,wheel_instances=4,
+    return dict(triangles=total,budget=[18000,22000],glass_triangles=12,wheel_instances=4,
                 editable_source='santana.blend',
                 interior=dict(triangles=interior_total,budget=[12000,15000],models=list(interior_models),
                               editable_source='santana_interior.blend',features=features,

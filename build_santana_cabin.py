@@ -1,8 +1,8 @@
 """Padded upholstery and a lower, shaped dashboard for the revised Santana."""
 import math
 from mathutils import Vector
-from g_santana_geometry import roof_height,cabin_point
-from build_santana_body import rail
+from g_santana_geometry import roof_height,cabin_point,DOOR_CENTERS
+from build_santana_body import rail,glass_pillar,center_pillar
 
 
 def cushion(car,center,width,depth,height,n=12,m=8,detailed=False):
@@ -61,18 +61,19 @@ def build_cabin(car,detailed=False):
     rows=[]
     ceiling=10 if detailed else 8
     for j in range(ceiling+1):
-        z=-.63+1.44*j/ceiling;width=.694+.040*math.sin(math.pi*j/ceiling)
+        z=-.70+1.51*j/ceiling;width=.671+.030*math.sin(math.pi*j/ceiling)
         rows.append([(width*u,roof_height(width*u,z)-.052,z) for u in [-1+2*i/ceiling for i in range(ceiling+1)]])
     car.grid(rows,'liner',reverse=True)
     for sign in (-1,1):
-        car.box((sign*.792,.691,.07),(.045,.610,2.32),'plastic')
-        rail(car,(sign*.804,.996,-1.085),(sign*.804,.996,1.165),.040,.040,'rubber')
-        rail(car,(sign*.805,1.004,-1.083),(sign*.690,1.425,-.625),.046,.043,'liner')
-        rail(car,(sign*.807,1.011,.074),(sign*.748,1.425,.075),.073,.032,'liner')
-        rail(car,(sign*.806,1.015,1.178),(sign*.695,1.408,.806),.080,.053,'liner')
-        for z in (-.51,.65):
+        car.box((sign*.792,.691,.02),(.045,.610,2.42),'plastic')
+        rail(car,(sign*.804,.996,-1.185),(sign*.804,.996,1.265),.040,.040,'rubber')
+        glass_pillar(car,sign,lining=True)
+        center_pillar(car,sign,lining=True)
+        glass_pillar(car,sign,rear=True,lining=True)
+        for z in DOOR_CENTERS:
             x=sign*.765
-            p=[(x,.966,z-.49),(x,.966,z+.49),(x,.401,z+.49),(x,.401,z-.49)]
+            half=.415 if z<0 else .575
+            p=[(x,.966,z-half),(x,.966,z+half),(x,.401,z+half),(x,.401,z-half)]
             car.panel(list(reversed(p)) if sign==1 else p,'door')
             car.rounded_box((sign*.735,.733,z-.015),(.101,.054,.378),'plastic',.021,2 if detailed else 1)
             car.box((sign*.753,.859,z-.24),(.024,.064,.140),'rubber')
@@ -82,7 +83,7 @@ def build_cabin(car,detailed=False):
             car.tube((sign*.745,.631+crank_lift,crank_z+.265),(sign*.723,.591+crank_lift,crank_z+.194),.012,'plastic',8)
             car.tube((sign*.757,.631+crank_lift,crank_z+.265),(sign*.735,.631+crank_lift,crank_z+.265),.022,'plastic',10)
             car.box((sign*.717,.587+crank_lift,crank_z+.188),(.036,.031,.044),'rubber')
-        car.tube((sign*.701,1.396,.40),(sign*.701,1.396,.62),.013,'plastic',8)
+        car.tube((sign*.677,1.396,.40),(sign*.677,1.396,.62),.013,'plastic',8)
         car.rounded_box((sign*.350,1.401,-.537),(.44,.024,.18),'liner',.010,2 if detailed else 1)
     start=len(car.v)
     sections=[(-1.382,.859,.884),(-1.265,.973,.871),(-1.10,.953,.852),(-1.02,.805,.833),(-1.10,.598,.792)]
@@ -107,6 +108,7 @@ def build_cabin(car,detailed=False):
     car.panel([(.219,.641,-1.06),(.767,.641,-1.06),(.767,.841,-1.008),(.219,.841,-1.008)],'glovebox')
     car.box((.553,.727,-1.013),(.12,.015,.018),'chrome')
     fit(start,dash=True)
+    car.box((0,.991,-1.154),(1.46,.025,.110),'plastic')
     start=len(car.v)
     car.rounded_box((0,.441,-.63),(.272,.25,.91),'plastic',.039,2 if detailed else 1)
     car.box((0,.580,-.44),(.256,.025,.295),'rubber')
@@ -120,7 +122,7 @@ def build_cabin(car,detailed=False):
     car.panel([(-.105,1.319,-.585),(.105,1.319,-.585),(.105,1.367,-.585),(-.105,1.367,-.585)],'mirror')
     car.tube((0,1.384,-.612),(0,1.435,-.577),.008,'rubber',8)
     car.box((0,1.438,.36),(.14,.020,.069),'light')
-    car.box((0,.998,1.046),(1.47,.040,.235),'carpet')
+    car.box((0,.998,1.096),(1.47,.040,.335),'carpet')
     start=len(car.v)
     for x in (-.45,.45):
         cushion(car,(x,.503,-.40),.654,.70,.166,n=18 if detailed else 12,m=10 if detailed else 8,detailed=detailed)

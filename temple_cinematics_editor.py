@@ -357,7 +357,7 @@ def run(review=False):
     view=None;audio=None
     try:
         intro=Intro(load_script());view=View()
-        try:audio=Audio()
+        try:audio=Audio(automated=review)
         except (RuntimeError,OSError):pass
         if review:review_editor(intro,view,audio)
         else:edit_intro(intro,view,audio)
@@ -466,10 +466,14 @@ def review_editor(intro,view,audio):
         assert history[0]=='draw' and 'input' in history
         assert intro.paused and (intro.yaw,intro.pitch)==(31.,-12.) and pr.is_window_ready()
         assert SCRIPT.read_bytes()==original,'Native review must not modify the real cinematic.'
+        if audio:
+            from g_audio import audio_output_muted
+            if audio_output_muted(automated=True):assert audio.engine.volume==0.0
         report=dict(native_widgets=True,camera_flight=True,orbit_and_pan=True,exact_lens=True,
                     invalid_number_rejected=True,undo_redo=True,cut_drag=True,scrub=True,split_remove=True,
                     save_reload=True,runtime_reads_saved_camera=True,loop_and_pause=True,
-                    all_shot_keys_rendered=True,embedded_editor_round_trip=True,source_untouched=True,shots=len(reloaded['shots']))
+                    all_shot_keys_rendered=True,embedded_editor_round_trip=True,source_untouched=True,
+                    audio_output_gain=audio.engine.volume if audio else None,shots=len(reloaded['shots']))
         (folder/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
         print('Cinematics editor native review passed: camera controls, timeline, undo/redo, save/reload and game playback.',flush=True)
     finally:pr.unload_render_texture(target)

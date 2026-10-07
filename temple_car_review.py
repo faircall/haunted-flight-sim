@@ -17,22 +17,50 @@ FOLDER=ROOT/'artifacts'/'santana-car'
 ACTORS={'driver','colleague','driver_head','colleague_head','player_seated','player_lap'}
 
 
-def reference_comparison():
+def reference_comparison(side_bounds):
     """QA only: compare equally sized empty side profiles from reference/game."""
-    reference=ROOT/'artdev'/'car_reference_2.png'
+    reference=ROOT/'artdev'/'Classic Santana Vehicle Reference Sheet.png'
     if not reference.exists():return
     with Image.open(reference) as original:
-        ref=original.convert('RGB').crop((738,136,1438,400))
+        ref=original.convert('RGB').crop((455,165,938,350))
     with Image.open(FOLDER/'09-side-profile.png') as native:
-        car=ImageOps.mirror(native.convert('RGB')).crop((16,63,455,217))
-    sheet=Image.new('RGB',(960,750),(26,31,33));labels=ImageDraw.Draw(sheet)
+        left,top,right,bottom=side_bounds
+        car=ImageOps.mirror(native.convert('RGB')).crop((WIDTH-right,top,WIDTH-left,bottom))
+    sheet=Image.new('RGB',(960,810),(26,31,33));labels=ImageDraw.Draw(sheet)
     for name,picture,top in (('SUPPLIED REFERENCE / SIDE VIEW',ref,38),
-                             ('REBUILT CAR / EMPTY GAME ORTHOGRAPHIC VIEW',car,406)):
+                             ('REBUILT CAR / EMPTY GAME ORTHOGRAPHIC VIEW',car,438)):
         h=round(picture.height*860/picture.width)
         picture=picture.resize((860,h),Image.Resampling.NEAREST)
         sheet.paste(picture,(50,top));labels.text((50,top-23),name,fill=(221,225,213))
-    labels.text((50,718),'Profiles use the same bumper-to-bumper image span. No occupants in the rebuilt car.',fill=(173,188,177))
+    labels.text((50,782),'Classic Santana reference / matched bumper-to-bumper image span / empty car.',fill=(173,188,177))
     sheet.save(FOLDER/'reference-comparison.png')
+    before=FOLDER/'before-classic-pass-09-side-profile.png'
+    if before.exists():
+        sheet=Image.new('RGB',(WIDTH*2,(HEIGHT*2+24)*2),(19,24,26));labels=ImageDraw.Draw(sheet)
+        for i,(label,path) in enumerate((('BEFORE / SAME GAME CAMERA',before),
+                          ('CLASSIC SANTANA / FLAT TRUNK, CROWNED ROOF, REVISED PANELS',FOLDER/'09-side-profile.png'))):
+            y=i*(HEIGHT*2+24)
+            with Image.open(path) as frame:
+                sheet.paste(frame.convert('RGB').resize((WIDTH*2,HEIGHT*2),Image.Resampling.NEAREST),(0,y))
+            labels.text((10,y+HEIGHT*2+5),label,fill=(212,222,212))
+        sheet.save(FOLDER/'classic-shape-review.png')
+
+
+def pillar_comparison():
+    """Match the three user-supplied editor camera angles without editing shots."""
+    names=('22-rear-pillar-overhead','23-rear-roof-corners','24-front-pillar-overhead')
+    w,h=788,443;sheet=Image.new('RGB',(w*2,(h+32)*3),(19,24,26));labels=ImageDraw.Draw(sheet)
+    for i,name in enumerate(names):
+        screenshot=ROOT/f'screenshot{i:03}.png'
+        if not screenshot.exists():return
+        with Image.open(screenshot) as source:
+            original=source.convert('RGB').crop((282,110,1070,553))
+        with Image.open(FOLDER/(name+'.png')) as source:
+            updated=source.convert('RGB').resize((w,h),Image.Resampling.NEAREST)
+        y=i*(h+32);sheet.paste(original,(0,y));sheet.paste(updated,(w,y))
+        labels.text((10,y+h+8),f'SCREENSHOT {i:03} / BEFORE',fill=(212,222,212))
+        labels.text((w+10,y+h+8),'REBUILT PILLARS / MATCHING GAME CAMERA',fill=(212,222,212))
+    sheet.save(FOLDER/'pillar-comparison.png')
 
 
 def review():
@@ -59,15 +87,25 @@ def review():
         ('16-night-cabin',(.02,1.235,.53),(.02,1.04,-1.3),75,'interior',113.,False),
         ('17-seat-base-hardware',(0,.67,.48),(.58,.40,.06),62,'interior',18.,True),
         ('18-back-seat-buckle',(0,1.07,.44),(.52,.59,.56),55,'interior',18.,True),
+        ('19-roof-front-seam',(1.7,2.15,-1.90),(0,1.36,-.46),45,'exterior',18.,True),
+        ('20-roof-rear-seam',(1.7,2.15,1.90),(0,1.34,.68),45,'exterior',18.,True),
+        ('21-wheel-and-mirror',(2.0,1.2,-2.1),(.764,.78,-1.30),50,'exterior',18.,True),
+        ('22-rear-pillar-overhead',(-.06,2.81,1.56),(.32,1.31,1.12),48,'exterior',0.,False),
+        ('23-rear-roof-corners',(-.06,2.81,1.56),(.33,1.57,.57),48,'exterior',0.,False),
+        ('24-front-pillar-overhead',(.57,1.95,-.80),(.82,.64,0),48,'exterior',0.,False),
+        ('25-center-door-joint',(2.0,1.2,.35),(.8,1.1,.075),35,'exterior',18.,True),
+        ('26-rear-quarter-blend',(1.9,1.5,1.9),(.71,1.16,.96),38,'exterior',18.,True),
+        ('27-left-center-door-joint',(-2.0,1.2,.35),(-.8,1.1,.075),35,'exterior',18.,True),
     ]
     try:
         view=View();intro=Intro(load_script());draw=view.draw
         FOLDER.mkdir(parents=True,exist_ok=True)
-        samples=[]
+        samples=[];side_bounds=None
         for name,eye,target,fov,mode,timestamp,empty in shots:
             seen=set()
             def inspection_draw(model,*args,**kwargs):
                 if empty and model in ACTORS:return
+                if name=='09-side-profile' and model in {'pine','broadleaf','rock','house','cube','sign','gate'}:return
                 seen.add(model);return draw(model,*args,**kwargs)
             view.draw=inspection_draw
             intro.elapsed=timestamp
@@ -75,6 +113,15 @@ def review():
             if name in ('09-side-profile','10-front-profile','11-top-profile'):
                 camera.projection=pr.CAMERA_ORTHOGRAPHIC;camera.fovy=2.85
                 if name=='11-top-profile':camera.up=pr.Vector3(0,0,-1);camera.fovy=5.2
+                if name=='09-side-profile':
+                    bounds=pr.get_model_bounding_box(view.models['sedan_exterior'])
+                    corners=[pr.get_world_to_screen_ex(pr.Vector3(x,y,z),camera,WIDTH,HEIGHT)
+                             for x in (bounds.min.x,bounds.max.x) for y in (.005,bounds.max.y)
+                             for z in (bounds.min.z,bounds.max.z)]
+                    side_bounds=(max(0,int(min(p.x for p in corners))-5),
+                                 max(0,int(min(p.y for p in corners))-5),
+                                 min(WIDTH,int(max(p.x for p in corners))+6),
+                                 min(HEIGHT,int(max(p.y for p in corners))+6))
             view.render(intro,camera_override=camera,scene_view=mode,overlays=False,apply_fade=False,trails=False)
             pr.begin_drawing();pr.clear_background(pr.BLACK)
             pr.draw_texture_pro(view.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),
@@ -101,7 +148,22 @@ def review():
             with Image.open(FOLDER/(name+'.png')) as frame:sheet.paste(frame,(x,y))
             labels.text((x+10,y+HEIGHT+5),name[3:].replace('-',' ').upper(),fill=(212,222,212))
         sheet.save(FOLDER/'interior-review.png')
-        reference_comparison()
+        exterior_views=(shots[0],shots[1],shots[6],shots[18],shots[19],shots[20])
+        sheet=Image.new('RGB',(WIDTH*3,(HEIGHT+24)*2),(19,24,26));labels=ImageDraw.Draw(sheet)
+        for i,(name,*_) in enumerate(exterior_views):
+            x=(i%3)*WIDTH;y=(i//3)*(HEIGHT+24)
+            with Image.open(FOLDER/(name+'.png')) as frame:sheet.paste(frame,(x,y))
+            labels.text((x+10,y+HEIGHT+5),name[3:].replace('-',' ').upper(),fill=(212,222,212))
+        sheet.save(FOLDER/'exterior-review.png')
+        joins=(shots[18],shots[19],shots[25],shots[24],shots[26],shots[8])
+        sheet=Image.new('RGB',(WIDTH*3,(HEIGHT+24)*2),(19,24,26));labels=ImageDraw.Draw(sheet)
+        for i,(name,*_) in enumerate(joins):
+            x=(i%3)*WIDTH;y=(i//3)*(HEIGHT+24)
+            with Image.open(FOLDER/(name+'.png')) as frame:sheet.paste(frame,(x,y))
+            labels.text((x+10,y+HEIGHT+5),name[3:].replace('-',' ').upper(),fill=(212,222,212))
+        sheet.save(FOLDER/'roof-quarter-review.png')
+        reference_comparison(side_bounds)
+        pillar_comparison()
         (FOLDER/'report.json').write_text(json.dumps(dict(samples=samples,glass_panes=len(view.windows),
             actual_game_renderer=True,resolution=[WIDTH,HEIGHT]),indent=2)+'\n',encoding='utf-8')
         assert len(view.windows)==6

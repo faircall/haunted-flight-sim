@@ -11,7 +11,7 @@ uniform float dusk;
 out vec4 finalColor;
 float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
 float clean(vec2 uv,vec2 pivot) {
-    vec2 d=(uv-pivot)*vec2(1.389,.629);
+    vec2 d=(uv-pivot)*vec2(1.370,.607);
     float r=length(d);float a=atan(d.y,d.x);
     float sector=step(.13,a)*step(a,1.80)*smoothstep(.105,.19,r)*(1.-smoothstep(.49,.57,r));
     float up=step(0.,sin(time*6.2831853/1.85));

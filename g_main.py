@@ -9,8 +9,6 @@ import g_animation_authoring
 import g_animation_editor_ui
 from pyrsistent import m, pmap, v
 
-import cyminiaudio as cma
-
 g_screen_width = 1920
 g_screen_height = 1080 
 
@@ -352,7 +350,7 @@ def g_main():
     auto_reload = True
     main_arena = main_arena.set("auto_reload", auto_reload)
 
-    cma_engine = cma.Engine()
+    cma_engine = update_and_render_module.g_audio.make_audio_engine()
     
 
     while not pr.window_should_close():                

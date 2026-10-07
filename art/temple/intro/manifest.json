@@ -1,13 +1,13 @@
 {
   "models": {
     "sedan_exterior": {
-      "vertices": 3657,
-      "triangles": 5920,
+      "vertices": 7603,
+      "triangles": 13124,
       "atlas": "santana_exterior"
     },
     "sedan": {
-      "vertices": 2843,
-      "triangles": 4950,
+      "vertices": 2883,
+      "triangles": 5026,
       "atlas": "santana_interior"
     },
     "headlamps": {
@@ -16,8 +16,8 @@
       "atlas": "santana_exterior"
     },
     "tyre": {
-      "vertices": 242,
-      "triangles": 384,
+      "vertices": 450,
+      "triangles": 768,
       "atlas": "santana_wheels"
     },
     "steering": {
@@ -26,12 +26,12 @@
       "atlas": "santana_interior"
     },
     "sedan_interior": {
-      "vertices": 4715,
-      "triangles": 8374,
+      "vertices": 4755,
+      "triangles": 8450,
       "atlas": "santana_cabin"
     },
     "cabin_fittings": {
-      "vertices": 3386,
+      "vertices": 3394,
       "triangles": 5796,
       "atlas": "santana_cabin_details"
     },
@@ -91,13 +91,16 @@
     }
   },
   "car": {
-    "triangles": 12732,
-    "budget": 12000,
+    "triangles": 21548,
+    "budget": [
+      18000,
+      22000
+    ],
     "glass_triangles": 12,
     "wheel_instances": 4,
     "editable_source": "santana.blend",
     "interior": {
-      "triangles": 14880,
+      "triangles": 14956,
       "budget": [
         12000,
         15000

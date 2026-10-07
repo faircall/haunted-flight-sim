@@ -2,10 +2,55 @@ import json
 import math
 import pickle
 import random
+import os
 import unittest
 from unittest import mock
 
 import g_audio
+
+
+class TestOutputMuteTests(unittest.TestCase):
+    def test_automated_entry_points_are_muted_without_disabling_audio(self):
+        runs = (
+            ['moonlit_water_temple_3d.py', '--intro-review'],
+            ['moonlit_water_temple_3d.py', '--intro-handoff-smoke'],
+            ['moonlit_water_temple_3d.py', '--combat-smoke'],
+            ['moonlit_water_temple_3d.py', '--cinematics-editor-review'],
+            ['surface_smoke.py'], ['.inventory_game_smoke.py'],
+            ['temple_car_review.py'], ['test_audio.py'],
+            ['C:\\Python\\Lib\\unittest\\__main__.py', 'discover'],
+            ['pytest', '-q'],
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            for argv in runs:
+                with self.subTest(argv=argv), mock.patch.object(g_audio.sys, 'argv', argv):
+                    engine = mock.Mock(volume=1.0)
+                    with mock.patch.object(g_audio.cma, 'Engine', return_value=engine):
+                        self.assertIs(g_audio.make_audio_engine(), engine)
+                    self.assertEqual(engine.volume, 0.0)
+                    engine.stop.assert_not_called()
+                    engine.close.assert_not_called()
+
+    def test_programmatic_reviews_are_muted_even_without_test_arguments(self):
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(g_audio.sys, 'argv', ['-']):
+            self.assertTrue(g_audio.audio_output_muted(automated=True))
+
+    def test_normal_gameplay_and_interactive_previews_keep_audio(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            for argv in (['moonlit_water_temple_3d.py'], ['moonlit_water_temple.py'],
+                         ['moonlit_water_temple_3d.py', '--intro-only'],
+                         ['moonlit_water_temple_3d.py', '--cinematics-editor']):
+                with self.subTest(argv=argv), mock.patch.object(g_audio.sys, 'argv', argv):
+                    engine = mock.Mock(volume=1.0)
+                    with mock.patch.object(g_audio.cma, 'Engine', return_value=engine):
+                        g_audio.make_audio_engine()
+                    self.assertEqual(engine.volume, 1.0)
+
+    def test_listening_requires_explicit_opt_in_and_force_mute_wins(self):
+        with mock.patch.dict(os.environ, {'HAUNTED_TEST_AUDIO': '1'}, clear=True):
+            self.assertFalse(g_audio.audio_output_muted(automated=True))
+            os.environ['HAUNTED_MUTE_AUDIO'] = '1'
+            self.assertTrue(g_audio.audio_output_muted(automated=True))
 
 
 class FakeSound:

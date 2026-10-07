@@ -6,6 +6,7 @@ import math
 import pyray as pr
 from PIL import Image
 import g_narrative_text as text
+import g_audio
 from g_temple_intro import Intro,load_script,local_point,road_slope,scenery,wiper_angle,WIPER_PERIOD,smooth
 from g_temple_cinematics import sample_camera,default_camera
 from g_santana_geometry import (window_panes,wiper_pose,WIPER_PIVOTS,AXLES,WHEEL_X,WHEEL_Y,
@@ -43,9 +44,9 @@ def pane(points,glass,background):
 
 
 class Audio:
-    def __init__(self):
+    def __init__(self,automated=False):
         import cyminiaudio as cma
-        self.engine=cma.Engine();self.sounds={};self.sweeps=-1
+        self.engine=g_audio.make_audio_engine(automated);self.sounds={};self.sweeps=-1
         try:
             for name in ('rain_cabin','engine','wiper'):
                 sound=cma.Sound(self.engine,str(KIT/(name+'.wav')))
@@ -367,7 +368,7 @@ def run_intro(review=False,keep_window=False):
         view=View()
         # Preload all subtitle glyphs once; later lines reuse the same font atlas.
         text.font(view.fonts,''.join(line['text'] for line in intro.document['lines']))
-        try:audio=Audio()
+        try:audio=Audio(automated=review)
         except (RuntimeError,OSError) as exc:audio_error=str(exc)
         if review:
             folder.mkdir(parents=True,exist_ok=True)
@@ -414,11 +415,13 @@ def run_intro(review=False,keep_window=False):
             intro.tick(.05,skip=True);assert intro.finished
             report=dict(samples=samples,pause_freezes_ride=True,skip_hands_off=True,glass_panes=len(view.windows),
                 max_scene_draw_calls=view.max_draw_calls,audio_error=audio_error,
-                audio_loaded=list(audio.sounds) if audio else [],duration=intro.duration,
+                audio_loaded=list(audio.sounds) if audio else [],
+                audio_output_gain=audio.engine.volume if audio else None,duration=intro.duration,
                 bounded_scenery=True,featureless_colleagues=True)
             report['animated_preview_frames']=len(frames)
             assert len(view.windows)==6 and view.max_draw_calls<200
             assert audio and not audio_error,audio_error
+            if g_audio.audio_output_muted(automated=True):assert audio.engine.volume==0.0
             (folder/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
             outcome='arrived'
         else:

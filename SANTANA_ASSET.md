@@ -2,14 +2,35 @@
 
 The rainy intro uses a charcoal civilian Santana based on `artdev/car_reference.png`,
 `artdev/car_reference_2.png` and `artdev/Classic Santana Vehicle Reference Sheet.png`.
-The roughly 12,000-triangle rebuild keeps nearest-filtered 256/128px textures
-and the game's colour quantisation. Curved panels have smooth normals, with
+The **21,548-triangle exterior car** keeps nearest-filtered 256/128px textures
+and the game's colour quantisation.
+The exterior allowance is 18,000–22,000 triangles. The Classic Santana shape pass
+adds 660 triangles for the shoulder crease, lower valances, quarter-light dividers
+and matching cabin cowl.
+Curved panels have smooth normals, with
 geometry concentrated on body creases, rolled wheel arches, crowned roof/bonnet,
-rounded bumpers, mirrors and padded upholstery. The body is proportioned from
-the empty side view in `car_reference_2.png`, independently of the occupants:
-the roof spans about 33% of the car length, the wheelbase about 63%, and side
-glass is approximately 0.40m high. The earlier long roof and tall windows have
-been replaced with a shorter cabin, thicker doors and longer bonnet/boot.
+rounded bumpers, mirrors and padded upholstery. The roof is a single closed
+shell: crown, thin gutters, front/rear headers and inner skin share their
+boundary vertices. Bevelled rubber surrounds overlap all six glazing edges.
+The front A-pillars follow the windshield and side-window edges. Broader rear
+C-pillar sections roll into the body shoulder and nearly level trunk deck. The
+rear glass has a longer rake into that deck; its side windows include the narrow
+fixed quarter-light dividers. The narrower roof has a rounded crown and a longer
+front slope. Its rim follows the window frames without a projecting slab.
+Painted door-window frames meet the beltline around a recessed black center
+post, closing the gaps between the B-pillars and doors. The post sits farther
+forward to match the reference's front/rear door proportions. Matching interior
+linings, door cards and belt guides follow these openings.
+Finer wheel arches, more curved mirror housings, bumper corners
+and 32-sided tyres with rolled wheel-cover rims improve close exterior views.
+The body is proportioned from
+the empty side view in `Classic Santana Vehicle Reference Sheet.png`, independently
+of the occupants. Wheelbase is about 63% of overall length; side glass is
+approximately 0.42m high. The wheels are 0.63m in diameter, with wider pressed arch
+lips. Higher bumpers, rear lamps and lower valances follow the reference's panel
+divisions. The rear wheel center sits 0.05m behind the side window's lower end.
+The body is approximately 4.26m bumper to bumper, with a 0.55m trunk deck whose
+longitudinal height varies by only 3mm, plus a shallow transverse crown.
 
 The cabin has grey stitched cloth seats/headrests, seatbelt webbing and buckles,
 manual window cranks, grab handles, speaker grilles, stepped dashboard, analog
@@ -19,30 +40,30 @@ required to rebuild or run the game.
 
 | Part | Triangles in game |
 | --- | ---: |
-| Body and exterior trim | 5,920 |
-| Cabin used in exterior shots | 4,950 |
+| Body and exterior trim | 13,124 |
+| Cabin used in exterior shots | 5,026 |
 | Lamp lenses | 8 |
-| Four rounded tyres/domed wheel covers, 384 each | 1,536 |
+| Four rounded tyres/domed wheel covers, 768 each | 3,072 |
 | Steering wheel | 318 |
-| Opaque car total | **12,732** |
+| Opaque car total | **21,548** |
 | Six wet glass panes | 12 |
 
 Characters, scenery, procedural moving wipers and headlight fog cones are outside
 the opaque car count. The standalone Blender scene includes a held 48-triangle
-wiper pose for inspection, so its car collection has 12,792 triangles with glass.
+wiper pose for inspection, so its car collection has 21,608 triangles with glass.
 Its studio floor is separate from the asset collection.
 
-Interior shots use an independent **14,880-triangle** cabin, within the requested
+Interior shots use an independent **14,956-triangle** cabin, within the requested
 12,000–15,000 budget. It replaces the lighter cabin and steering wheel rather
 than rendering both versions together. Window openings, actor placements and
 rain/wiper anchors remain shared with the reference-proportioned exterior.
 
 | First-person part | Triangles |
 | --- | ---: |
-| Curved upholstery, dashboard, door cards and lining | 8,374 |
+| Curved upholstery, dashboard, door cards and lining | 8,450 |
 | Belt guides/retractors/webbing, buckles, pockets and other fittings | 5,796 |
 | Detailed steering wheel, column and stalk | 710 |
-| Opaque interior total | **14,880** |
+| Opaque interior total | **14,956** |
 
 The fittings include hollow shoulder-belt guides, pillar adjusters, retractor
 housings, thin textured webbing, metal tongues, red release buttons and flexible
@@ -52,7 +73,7 @@ cranks, lower pockets and grilles are modelled for close inspection. Dashboard
 details include vent slats, rotary controls, hazard switch, shifter bellows and
 rear ashtray. The lining has visor hinges, grab-handle mounts and a dome fitting.
 Opaque counts exclude actors and procedural wipers; six glass panes add 12.
-The interior Blender collection totals 14,940 with glass and held preview wipers.
+The interior Blender collection totals 15,016 with glass and held preview wipers.
 
 | Texture sheet | Size |
 | --- | --- |
@@ -72,7 +93,7 @@ are unchanged. The stock portrait and back-seat camera poses follow the smaller
 cabin. Camera/timeline data remains editable; custom camera keys are preserved.
 
 Open [santana.blend](art/temple/intro/santana.blend) for an assembled car with
-packed textures and front-quarter, rear-quarter and dashboard cameras. Its
+packed textures and front-quarter, rear-quarter, roof-seam, wheel/mirror and dashboard cameras. Its
 `CAR / textured parts` collection is the asset; `STUDIO / cameras and lighting`
 contains the inspection setup. The other scene holds the five export prototypes.
 Open [santana_interior.blend](art/temple/intro/santana_interior.blend) for the
@@ -112,7 +133,24 @@ back-seat view and an inspection contact sheet to `artifacts/santana-car/`.
 `interior-review.png` collects the detailed cabin inspection views, including
 belts, buckles, pockets, seat controls and night occupancy. Each native view
 asserts that the appropriate exterior or first-person model is actually drawn.
-All inspection views hide actors; only the explicitly occupied view shows them.
+`exterior-review.png` collects front/rear/night views and close-ups of both roof
+headers, gutters, wheels and mirrors. Export tests weld the roof's texture/normal
+seams and verify that its connected shell has no boundary edges, consistent
+winding and positive enclosed volume.
+Pillar tests also check that opaque roof corners remain below the roof profile
+and inside its gutter width, and that both rear quarters and center door joints
+remain opaque across their full height. `roof-quarter-review.png` collects close
+views of both roof headers, the rear quarter, both center door joints and the side
+profile. `pillar-comparison.png` reproduces the camera poses
+from `screenshot000.png`, `screenshot001.png` and `screenshot002.png`, with their
+original preview crops beside the updated in-game render. These temporary
+inspection cameras never alter the saved cinematic shots.
+General inspection views hide actors; occupied and screenshot-matching views show them.
+`reference-comparison.png` crops both side profiles to their actual vehicle bounds;
+`classic-shape-review.png` compares this shape pass with the previous native
+profile at the same camera and scale. Export checks verify rear axle/window
+alignment, overhang, wheel size, center-post placement, a nearly level trunk lid
+and the exported arch crown's alignment with the runtime wheel anchor.
 It does not change cinematic or progress files. The
 intro review additionally checks every cinematic cut, rainy glass, audio and
 arrival. Export tests check complete assembled triangle counts, embedded texture

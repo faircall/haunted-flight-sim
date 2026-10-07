@@ -8,8 +8,44 @@ import copy
 import math
 import os
 import random
+import sys
 
 import cyminiaudio as cma
+
+
+def audio_output_muted(automated=False):
+    """Silence test output, while leaving voices and audio policy fully active.
+
+    HAUNTED_TEST_AUDIO=1 opts a deliberate listening test into playback.
+    HAUNTED_MUTE_AUDIO=1 also covers ad-hoc automation launched via stdin/runpy.
+    """
+    if os.environ.get("HAUNTED_MUTE_AUDIO") == "1":
+        return True
+    arguments = sys.argv
+    entry = (arguments[0] if arguments else "").replace("\\", "/").lower()
+    name = entry.rsplit("/", 1)[-1].lstrip(".")
+    stem = name.rsplit(".", 1)[0]
+    automated = automated or (
+        name.startswith(("test_", "pytest", "py.test"))
+        or "/unittest/" in entry or "/pytest/" in entry
+        or stem.endswith(("_smoke", "_review"))
+        or any(arg == "--smoke" or arg == "--review"
+               or arg.startswith("--") and arg.endswith(("-smoke", "-review"))
+               for arg in arguments[1:])
+    )
+    return bool(automated and os.environ.get("HAUNTED_TEST_AUDIO") != "1")
+
+
+def make_audio_engine(automated=False):
+    """Apply the output mute before any sounds can start on the new engine."""
+    engine = cma.Engine()
+    try:
+        if audio_output_muted(automated):
+            engine.volume = 0.0
+    except Exception:
+        engine.close()
+        raise
+    return engine
 
 
 AUDIO_SURFACES = (

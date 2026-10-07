@@ -75,18 +75,30 @@ Neither the ride nor its reviews write progress or alter level designs.
 The car now follows the additional Santana exterior and interior references.
 Its curved body, cloth seat bolsters/headrests, moulded door cards, window cranks,
 analog dashboard, radio, vents and steel wheel covers use two 256x256 sheets and
-one 128x128 wheel sheet. The complete opaque car is **12,732 triangles**, including
+one 128x128 wheel sheet. The complete opaque exterior car is **21,548 triangles**, including
 all four wheel instances and the steering wheel; six rain-glass panes add 12.
-The moving wipers remain procedural. See [SANTANA_ASSET.md](SANTANA_ASSET.md).
-First-person shots select a separate **14,880-triangle** interior, including a
+The narrower crowned roof, thin gutters and headers form one closed shell.
+The Classic Santana reference guides a nearly flat trunk, longer rear-glass rake,
+forward center pillars, quarter-light dividers, smaller wheels and higher bumper
+and rear-lamp placement. Painted door-window frames meet the beltline; rear quarter
+sections flow into the trunk shoulder. The shape pass adds 660 triangles, keeping
+the complete exterior below 22,000. Finer arches, bevelled window seals and rounded
+mirrors/bumpers improve exterior close-ups.
+Matching inner pillar linings follow the shared glass openings in both cabin variants.
+The moving wipers remain procedural.
+See [SANTANA_ASSET.md](SANTANA_ASSET.md).
+First-person shots select a separate **14,956-triangle** interior, including a
 more detailed steering wheel and 5,796 triangles of belt hardware, buckles,
 seat-back pockets/welts, seat controls, door fittings and dashboard details.
 It has two dedicated 256x256 sheets. Exterior shots retain the lighter cabin;
 both versions use the same window openings and actor placements. Inspect the
 [first-person Blender scene](art/temple/intro/santana_interior.blend) or run
 `python temple_car_review.py` for detailed native close-ups and variant checks.
+Its `artifacts/santana-car/roof-quarter-review.png` shows the revised roof,
+rear quarter, both center door joints and side profile without occupants.
 The [assembled car Blender scene](art/temple/intro/santana.blend) opens with the
-vehicle assembled, packed textures, studio lighting and three inspection cameras.
+vehicle assembled, packed textures, studio lighting and five inspection cameras,
+including roof seams and a wheel/mirror close-up.
 
 The [editable intro Blender kit](art/temple/intro/intro_kit.blend) contains the cabin,
 colleagues, steering wheel, player lap, countryside props and approach gateway,
@@ -416,6 +428,14 @@ More general terrain/foot IK can build on the separate ground positions and
 render heights used by the stairs.
 
 ## Verification
+
+Automated unit tests, smoke tests and native review modes mute the audio engine's
+master output by default. Sound loading, voice timing, pause/resume and audio-event
+checks still run normally. Interactive gameplay and previews retain sound.
+Use `HAUNTED_MUTE_AUDIO=1` for ad-hoc automation launched via stdin or `runpy`.
+Only for a deliberate listening check that cannot be verified from the WAV or
+runtime state, set `HAUNTED_TEST_AUDIO=1` for that test process; an explicit
+`HAUNTED_MUTE_AUDIO=1` takes precedence. No system volume settings are changed.
 
 ```powershell
 artifacts/temple3d-env/Scripts/python.exe -m unittest test_temple_living test_temple_cameras test_temple_gait_deck test_blender_assets -q
