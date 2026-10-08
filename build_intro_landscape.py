@@ -7,6 +7,8 @@ from g_intro_landscape import STAIR_COUNT,STAIR_RISE
 
 
 def build(out,models,Mesh):
+    from build_intro_undergrowth import build as build_undergrowth
+    build_undergrowth(out,models)
     leaf=bpy.data.materials.new('Chinese pine / painted needle cutouts');leaf.use_nodes=True
     image=bpy.data.images.load(str(out/'pine_foliage.png'));image.pack()
     node=leaf.node_tree.nodes.new('ShaderNodeTexImage');node.image=image;node.interpolation='Closest'
@@ -96,19 +98,23 @@ def build(out,models,Mesh):
     for i,name in enumerate(('chinese_pine_a','chinese_pine_b','chinese_pine_c')):export_tree(name,719+i*41)
 
     for seed,name in enumerate(('ridge_a','ridge_b','ridge_c')):
-        mesh=Mesh(name);rows=[];rng=random.Random(91+seed)
+        mesh=Mesh(name);mesh.smooth=True;rows=[];rng=random.Random(91+seed)
         peaks=[(rng.uniform(-.8,.8),rng.uniform(.2,.45),rng.uniform(.35,.65)) for _ in range(5)]
-        for j in range(19):
-            z=-1+2*j/18;crest=sum(h*math.exp(-((z-c)/w)**2) for c,w,h in peaks)*(.48+.09*seed)
+        for j in range(31):
+            z=-1+2*j/30;crest=sum(h*math.exp(-((z-c)/w)**2) for c,w,h in peaks)*(.48+.09*seed)
+            end=min(1.,(1-abs(z))/.30);end=end*end*(3-2*end)
             row=[]
-            for i in range(13):
-                x=-1+2*i/12;shift=.18*math.sin(z*5+seed)
-                profile=max(0.,math.cos(min(1.,abs(x-shift))*math.pi/2))**(1.25+.4*math.sin(z*3+seed))
-                y=crest*profile+.037*math.sin(x*16+z*12+seed)*profile
+            for i in range(23):
+                x=-1+2*i/22;shift=.18*math.sin(z*5+seed)
+                # Every rim reaches the submerged base, including the shifted
+                # cross-section. Otherwise the open side reads as a huge arch.
+                fraction=abs(x-shift)/(1-shift if x>=shift else 1+shift)
+                profile=max(0.,math.cos(min(1.,fraction)*math.pi/2))**(1.25+.4*math.sin(z*3+seed))
+                y=(crest*profile+.037*math.sin(x*16+z*12+seed)*profile)*end
                 row.append((x,y,z))
             rows.append(row)
         for a,b in zip(rows,rows[1:]):
-            for i in range(12):mesh.face([a[i],b[i],b[i+1],a[i+1]],'stone')
+            for i in range(22):mesh.face([a[i],b[i],b[i+1],a[i+1]],'stone')
         mesh.export()
     bank=Mesh('lakeside_bank')
     cross=((-78,23),(-40,15),(-22,8),(-12,3.7),(-7,1.1),(-4,.04),(-2,-.02),(2,-.02),(2.6,-.10),(3.4,-.48),(4.6,-1.6),(8,-2.3))

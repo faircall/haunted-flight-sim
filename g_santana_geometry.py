@@ -32,6 +32,20 @@ def actor_point(point,rear=False):
     return tuple(v*ACTOR_SCALE+d for v,d in zip(point,offset))
 
 
+def front_belt_path(sign):
+    """One shoulder belt fitted outside the two ellipsoids of the seated actor."""
+    def unfit(p):return tuple((v-d)/ACTOR_SCALE for v,d in zip(p,FRONT_ACTOR_POSITION))
+    path=[unfit((sign*.692,1.218,CENTER_POST_Z-.005))]
+    for i in range(10):
+        t=i/9;x=sign*(.61-.30*t);y=1.245-.475*t;front=-.40
+        for cy,cz,rx,ry,rz in ((1.04,-.35,.225,.29,.145),(.76,-.39,.225,.15,.18)):
+            q=1-((x-sign*.45)/rx)**2-((y-cy)/ry)**2
+            if q>=0:front=min(front,cz-rz*math.sqrt(q))
+        path.append((x,y,front-.022))
+    path.append(unfit((sign*.161,.613,-.348)))
+    return path
+
+
 def cabin_point(point,dash=False):
     """Fit existing trim into the independently proportioned body shell."""
     x,y,z=point

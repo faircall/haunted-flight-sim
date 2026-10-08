@@ -6,8 +6,8 @@
       "atlas": "santana_exterior"
     },
     "sedan": {
-      "vertices": 2883,
-      "triangles": 5026,
+      "vertices": 2911,
+      "triangles": 5058,
       "atlas": "santana_interior"
     },
     "headlamps": {
@@ -26,13 +26,13 @@
       "atlas": "santana_interior"
     },
     "sedan_interior": {
-      "vertices": 4755,
-      "triangles": 8450,
+      "vertices": 4783,
+      "triangles": 8482,
       "atlas": "santana_cabin"
     },
     "cabin_fittings": {
-      "vertices": 3394,
-      "triangles": 5796,
+      "vertices": 3226,
+      "triangles": 5544,
       "atlas": "santana_cabin_details"
     },
     "steering_interior": {
@@ -41,16 +41,16 @@
       "atlas": "santana_cabin"
     },
     "driver": {
-      "vertices": 816,
-      "triangles": 408
+      "vertices": 1152,
+      "triangles": 576
     },
     "driver_head": {
       "vertices": 464,
       "triangles": 232
     },
     "colleague": {
-      "vertices": 816,
-      "triangles": 408
+      "vertices": 1152,
+      "triangles": 576
     },
     "colleague_head": {
       "vertices": 464,
@@ -89,6 +89,18 @@
       "vertices": 552,
       "triangles": 276
     },
+    "shrub": {
+      "triangles": 64,
+      "vertices": 96,
+      "wind_uv": true,
+      "atlas": "undergrowth"
+    },
+    "fern": {
+      "triangles": 40,
+      "vertices": 60,
+      "wind_uv": true,
+      "atlas": "undergrowth"
+    },
     "chinese_pine_a": {
       "vertices": 1891,
       "triangles": 1892,
@@ -111,16 +123,16 @@
       "wind_uv": true
     },
     "ridge_a": {
-      "vertices": 864,
-      "triangles": 432
+      "vertices": 2640,
+      "triangles": 1320
     },
     "ridge_b": {
-      "vertices": 864,
-      "triangles": 432
+      "vertices": 2640,
+      "triangles": 1320
     },
     "ridge_c": {
-      "vertices": 864,
-      "triangles": 432
+      "vertices": 2640,
+      "triangles": 1320
     },
     "lakeside_bank": {
       "vertices": 176,
@@ -132,7 +144,7 @@
     }
   },
   "car": {
-    "triangles": 21964,
+    "triangles": 21996,
     "budget": [
       18000,
       22000
@@ -141,7 +153,7 @@
     "wheel_instances": 4,
     "editable_source": "santana.blend",
     "interior": {
-      "triangles": 14956,
+      "triangles": 14736,
       "budget": [
         12000,
         15000
@@ -153,8 +165,8 @@
       ],
       "editable_source": "santana_interior.blend",
       "features": {
-        "belt_guides_retractors_and_webbing": 1584,
-        "five_buckle_housings_buttons_and_stalks": 760,
+        "belt_guides_retractors_and_webbing": 1368,
+        "five_buckle_housings_buttons_and_stalks": 724,
         "seat_pockets_seams_rails_and_recline_hardware": 1380,
         "door_latches_locks_cranks_pockets_and_speakers": 944,
         "dashboard_controls_vents_shifter_and_ashtray": 772,

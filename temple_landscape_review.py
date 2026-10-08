@@ -56,8 +56,18 @@ def gpu_contracts(view,intro):
     assert changed>100,changed
     assert vertices==bytes(pr.ffi.buffer(mesh.vertices,mesh.vertexCount*12))
     capture(view.world,OUT/'pine-wind-inspection.png')
+    # Freeze the opaque scene and road position: only the volume's clock moves.
+    from types import SimpleNamespace
+    camera=camera_from_pose(dict(eye=(50,3,0),target=(130,1,-45),fov=62))
+    clock=SimpleNamespace(elapsed=45.,distance=472.5,dusk=.18,headlights=0.)
+    pr.begin_texture_mode(view.world);pr.clear_background(pr.Color(35,72,59,255));pr.end_texture_mode()
+    volume=[]
+    for t in (45.,53.):
+        clock.elapsed=t;view.mist.draw(view.misty_world,view.world,camera,clock,pr.Color(179,198,182,255),view.copy)
+        volume.append(pixels(view.misty_world))
+    rolling=float(np.abs(volume[0]-volume[1]).mean());assert rolling>.3,rolling
     return dict(near_wall_fog_difference=differences[0],far_wall_fog_difference=differences[1],
-                wind_changed_pixels=changed,wind_keeps_cpu_mesh=True)
+                wind_changed_pixels=changed,wind_keeps_cpu_mesh=True,rolling_volume_only_difference=rolling)
 
 
 def review():
@@ -93,7 +103,7 @@ def review():
             import numpy as np
             difference=float(np.abs(np.array(a,dtype=float)-np.array(b,dtype=float)).mean())
         assert difference>.3,difference
-        assert view.max_draw_calls<200
+        assert view.max_draw_calls<320
         contracts=gpu_contracts(view,intro)
         sheet=Image.new('RGB',(WIDTH*2,(HEIGHT+25)*3),(19,26,29));labels=ImageDraw.Draw(sheet)
         for i,name in enumerate([s[0] for s in shots]+['06-arrival-steps']):

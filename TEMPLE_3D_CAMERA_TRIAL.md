@@ -89,13 +89,35 @@ was generated with built-in image generation; its
 [runtime atlas](art/temple/intro/pine_foliage.png) and
 [exact prompt/provenance](art/temple/intro/pine_foliage_prompt.txt) are retained.
 
-The 480x270 scene has a sampleable depth texture. A 40-step ray march integrates
+The route now has pronounced linked bends, with the car aligned to the road's
+tangent and the steering wheel responding to curvature. Five continuous terrain
+chunks are visible at once; the complete short route is uploaded before playback
+to avoid mesh-generation hitches at boundaries. Three weathered stone bridges
+cross excavated tributaries at stations 315, 748 and 1120 metres. Their road decks
+meet the banks, and the streams share the lake's water level. The hillsides have
+additional pine groves and batched shrubs/ferns, planted at the terrain height.
+Foliage uses mipmaps and trilinear filtering to reduce distant shimmer; car and
+cloth atlases retain their crisp filtering. Mountain silhouettes have smoother
+normals and denser contours. Daylight has a brighter overcast sky, directional
+shading, green bounce and wet highlights, while the night transition is retained.
+
+The 256x256 undergrowth atlas was generated with built-in image generation:
+[runtime sheet](art/temple/intro/undergrowth.png),
+[original](art/temple/intro/undergrowth_source.png),
+[exact prompt](art/temple/intro/undergrowth_prompt.txt). The Blender shrub and fern
+prototypes have 64 and 40 triangles; runtime terrain chunks combine their geometry
+so hundreds of plants do not become hundreds of separate draw calls.
+
+The 480x270 scene has a sampleable depth texture. A 56-step ray march integrates
 height-dependent, drifting 3D mist and warm headlight scattering up to opaque
 scene depth. It supports perspective and orthographic editor cameras. Fog is
 composited before the cabin/glass, with a cabin exclusion volume, then participates
-in the tracking shot's exposure trails. The water uses animated ripples, rain
-flecks and muted sky colour. This is stylized water, without a planar reflection
-pass; the headlight volumes do not yet cast light-space tree shadows.
+in the tracking shot's exposure trails. Lake mist has its own drifting, rising
+billows, distinct from the thinner roadside haze. A mirrored scene pass reflects
+mountains, shore vegetation and bridges in the lake. Fresnel blending, small wave
+distortion, shallow-water tint, highlights and expanding rain rings animate the
+surface. Headlight backscatter is restrained from inside the car; the volumes do
+not yet cast light-space tree shadows.
 
 The new arrival façade is inspired by
 [Fahai Temple's entrance](https://english.beijing.gov.cn/travellinginbeijing/citytours/202504/t20250425_4074848.html):
@@ -106,26 +128,33 @@ playable water courtyard is a separate part of the temple; its level and the ful
 temple layout remain pending the proposed sketch. Gameplay still hands off to
 that existing playable section.
 
-Placement lives in `g_intro_landscape.py`; tree, ridge, bank and façade geometry
-lives in `build_intro_landscape.py`, called by the regular intro Blender build.
+Placement, bends and bridge stations live in `g_intro_landscape.py`; continuous
+terrain/bridge/vegetation batches live in `temple_intro_terrain.py`. Tree, ridge,
+undergrowth and façade prototypes are built by `build_intro_landscape.py` and
+`build_intro_undergrowth.py`, called by the regular intro Blender build.
 All new GLBs embed their textures. Existing shot keys and dialogue are preserved.
 
 ```powershell
 python -m unittest test_intro_landscape test_temple_intro test_cinematics_editor -q
 python temple_landscape_review.py
+python temple_intro_polish_review.py
 ```
 
 The muted native landscape review writes lake/mountain, pine, headlight and arrival
 views to `artifacts/intro-landscape/landscape-review.png`, plus a JSON report. The
 GPU checks verify that an opaque near wall stops the mist, that a farther wall
 admits the intervening volume, and that foliage moves without changing CPU mesh
-buffers. The normal cinematics editor previews exactly this landscape and volume
-pass.
+buffers. An isolated fog test freezes both the opaque scene and road position to
+verify that the volume itself moves. The polish review adds occupied belt views,
+empty rear belts, both footwells, headliner, all three bridges and a stationary
+lake-mist animation under `artifacts/intro-polish/`. It also verifies that driving
+across chunk boundaries reuses uploaded geometry. The normal cinematics editor
+previews exactly this landscape and volume pass.
 
 The car now follows the additional Santana exterior and interior references.
 Its curved body, cloth seat bolsters/headrests, moulded door cards, window cranks,
 analog dashboard, radio, vents and steel wheel covers use two 256x256 sheets and
-one 128x128 wheel sheet. The complete opaque exterior car is **21,964 triangles**, including
+one 128x128 wheel sheet. The complete opaque exterior car is **21,996 triangles**, including
 all four wheel instances and the steering wheel; six rain-glass panes add 12.
 The narrower crowned roof, thin gutters and headers form one closed shell.
 The Classic Santana reference guides a nearly flat trunk, longer rear-glass rake,
@@ -139,9 +168,14 @@ Finer arches, bevelled window seals and rounded mirrors improve exterior close-u
 Matching inner pillar linings follow the shared glass openings in both cabin variants.
 The moving wipers remain procedural.
 See [SANTANA_ASSET.md](SANTANA_ASSET.md).
-First-person shots select a separate **14,956-triangle** interior, including a
-more detailed steering wheel and 5,796 triangles of belt hardware, buckles,
+First-person shots select a separate **14,736-triangle** interior, including a
+more detailed steering wheel and 5,544 triangles of belt hardware, buckles,
 seat-back pockets/welts, seat controls, door fittings and dashboard details.
+Unused rear belts retract beside the C-pillars. Each front passenger has one belt
+fitted over the chest and lap in the actor mesh, with matching pillar hardware.
+Sloping carpet returns and front/rear bulkheads close both footwells, and the
+headliner/visors use a darker worn grey fabric. Floor ray checks include the side
+edges, from inside the car, with upward-facing geometry.
 It has two dedicated 256x256 sheets. Exterior shots retain the lighter cabin;
 both versions use the same window openings and actor placements. Inspect the
 [first-person Blender scene](art/temple/intro/santana_interior.blend) or run

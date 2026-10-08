@@ -2,7 +2,7 @@
 
 The rainy intro uses a charcoal civilian Santana based on `artdev/car_reference.png`,
 `artdev/car_reference_2.png` and `artdev/Classic Santana Vehicle Reference Sheet.png`.
-The **21,964-triangle exterior car** keeps nearest-filtered 256/128px textures
+The **21,996-triangle exterior car** keeps nearest-filtered 256/128px textures
 and the game's colour quantisation.
 The exterior allowance is 18,000–22,000 triangles. The latest fit pass adds 416
 triangles for continuous bumper returns, enclosed sills and glazing joins.
@@ -42,8 +42,13 @@ longitudinal height varies by only 3mm, plus a shallow transverse crown.
 Side-window openings are approximately 4–6% shorter than the preceding pass.
 Both bumpers are closed U-shaped skins with rolled corners and tapered returns
 toward the wheel arches; their texture bands follow the wrap continuously.
-The narrower carpet floor sits above a sealed pan and behind the sill returns,
-so neither cabin version exposes a carpet slab under the doors.
+The narrower carpet floor sits above a sealed pan and behind the sill returns.
+Sloping carpet returns now bridge the floor to the door cards, with front and
+rear bulkheads closing the footwells from inside as well as outside. The headliner
+and visors use worn charcoal-grey cloth. The unoccupied rear belts hang retracted
+beside their C-pillar guides. Front belts are authored once, with the actors,
+following the chest/pelvis surface and lap before meeting the buckles; the cabin
+supplies their matching pillar guides and retractors.
 
 The cabin has grey stitched cloth seats/headrests, seatbelt webbing and buckles,
 manual window cranks, grab handles, speaker grilles, stepped dashboard, analog
@@ -54,29 +59,29 @@ required to rebuild or run the game.
 | Part | Triangles in game |
 | --- | ---: |
 | Body and exterior trim | 13,540 |
-| Cabin used in exterior shots | 5,026 |
+| Cabin used in exterior shots | 5,058 |
 | Lamp lenses | 8 |
 | Four rounded tyres/domed wheel covers, 768 each | 3,072 |
 | Steering wheel | 318 |
-| Opaque car total | **21,964** |
+| Opaque car total | **21,996** |
 | Six wet glass panes | 12 |
 
-Characters, scenery, procedural moving wipers and headlight fog cones are outside
+Characters, scenery, procedural moving wipers and volumetric headlights are outside
 the opaque car count. The standalone Blender scene includes a held 48-triangle
-wiper pose for inspection, so its car collection has 22,024 triangles with glass.
+wiper pose for inspection, so its car collection has 22,056 triangles with glass.
 Its studio floor is separate from the asset collection.
 
-Interior shots use an independent **14,956-triangle** cabin, within the requested
+Interior shots use an independent **14,736-triangle** cabin, within the requested
 12,000–15,000 budget. It replaces the lighter cabin and steering wheel rather
 than rendering both versions together. Window openings, actor placements and
 rain/wiper anchors remain shared with the reference-proportioned exterior.
 
 | First-person part | Triangles |
 | --- | ---: |
-| Curved upholstery, dashboard, door cards and lining | 8,450 |
-| Belt guides/retractors/webbing, buckles, pockets and other fittings | 5,796 |
+| Curved upholstery, dashboard, door cards and lining | 8,482 |
+| Belt guides/retractors/webbing, buckles, pockets and other fittings | 5,544 |
 | Detailed steering wheel, column and stalk | 710 |
-| Opaque interior total | **14,956** |
+| Opaque interior total | **14,736** |
 
 The fittings include hollow shoulder-belt guides, pillar adjusters, retractor
 housings, thin textured webbing, metal tongues, red release buttons and flexible
@@ -86,7 +91,7 @@ cranks, lower pockets and grilles are modelled for close inspection. Dashboard
 details include vent slats, rotary controls, hazard switch, shifter bellows and
 rear ashtray. The lining has visor hinges, grab-handle mounts and a dome fitting.
 Opaque counts exclude actors and procedural wipers; six glass panes add 12.
-The interior Blender collection totals 15,016 with glass and held preview wipers.
+The interior Blender collection totals 14,796 with glass and held preview wipers.
 
 | Texture sheet | Size |
 | --- | --- |

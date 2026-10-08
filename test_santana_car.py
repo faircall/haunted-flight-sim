@@ -37,6 +37,28 @@ def intersections(points,origin,direction):
 
 
 class SantanaTests(unittest.TestCase):
+    def test_footwell_floors_and_sill_returns_are_opaque_from_inside(self):
+        for name in ('sedan','sedan_interior'):
+            d,b=glb(name);p=d['meshes'][0]['primitives'][0]
+            xyz=accessor(d,b,p['attributes']['POSITION']);tri=xyz[accessor(d,b,p['indices']).reshape(-1,3)]
+            normals=np.cross(tri[:,1]-tri[:,0],tri[:,2]-tri[:,0])
+            up=tri[normals[:,1]>1e-6]
+            for z in (-1.13,-.91,-.46,.20,.38,.90,1.18):
+                for x in (-.755,-.71,-.65,-.26,0,.26,.65,.71,.755):
+                    hits=intersections(up,np.array((x,.80,z)),np.array((0,-1,0)))
+                    self.assertTrue((hits<.60).any(),('Open footwell',name,x,z))
+
+    def test_front_belts_stay_in_front_of_the_torso_and_pelvis(self):
+        from g_santana_geometry import front_belt_path
+        for sign in (-1,1):
+            path=front_belt_path(sign)[1:-1]
+            for a,b in zip(path,path[1:]):
+                for t in np.linspace(0,1,11):
+                    x,y,z=np.array(a)*(1-t)+np.array(b)*t
+                    for cy,cz,rx,ry,rz in ((1.04,-.35,.225,.29,.145),(.76,-.39,.225,.15,.18)):
+                        q=1-((x-sign*.45)/rx)**2-((y-cy)/ry)**2
+                        if q>0:self.assertLess(z+.005,cz-rz*np.sqrt(q),('Belt inside body',sign,x,y,z))
+
     def assert_side_is_opaque(self,points,sign,y,z,label):
         hits=intersections(points,np.array((sign*1.12,y,z)),np.array((-sign,0,0)))
         self.assertTrue((hits<.48).any(),(label,sign,y,z))

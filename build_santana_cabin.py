@@ -58,6 +58,15 @@ def build_cabin(car,detailed=False):
     def fit(start,dash=False):
         car.v[start:]=[Vector(cabin_point(p,dash)) for p in car.v[start:]]
     car.box((0,.201,.03),(1.36,.026,2.40),'carpet')
+    # Sloped carpet returns close the footwells against the door cards. The
+    # narrow flat floor alone left daylight visible along both inner sills.
+    for sign in (-1,1):
+        p=[(sign*.675,.213,-1.169),(sign*.785,.402,-1.169),
+           (sign*.785,.402,1.229),(sign*.675,.213,1.229)]
+        car.face(p if sign==-1 else list(reversed(p)),'carpet')
+        car.box((sign*.774,.394,.03),(.035,.030,2.40),'rubber')
+    car.face([(-.675,.213,-1.169),(.675,.213,-1.169),(.780,.68,-1.170),(-.780,.68,-1.170)],'carpet')
+    car.face([(.675,.213,1.229),(-.675,.213,1.229),(-.780,1.0,1.229),(.780,1.0,1.229)],'carpet')
     rows=[]
     ceiling=10 if detailed else 8
     for j in range(ceiling+1):
@@ -140,5 +149,5 @@ def build_cabin(car,detailed=False):
         car.panel([(x-.147,1.351,1.358),(x+.147,1.351,1.358),
                    (x+.147,1.216,1.358),(x-.147,1.216,1.358)],'cloth')
     if not detailed:
-        for sign in (-1,1):car.beam((sign*.813,1.385,1.18),(sign*.49,.659,1.15),.031,.010,'rubber')
+        for sign in (-1,1):car.beam((sign*.795,1.355,1.18),(sign*.795,.62,1.18),.031,.010,'rubber')
     fit(start)

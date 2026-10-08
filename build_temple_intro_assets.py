@@ -91,7 +91,16 @@ class Mesh:
     def export(self):
         data=bpy.data.meshes.new(self.name)
         # Builder coordinates are the game's X/up/Z; Blender is X/Y/up.
-        data.from_pydata([(p[0],-p[2],p[1]) for p in self.v],[],self.f);data.update()
+        if getattr(self,'smooth',False):
+            vertices=[];lookup={};remap=[]
+            for p in self.v:
+                key=tuple(round(float(v),6) for v in p)
+                if key not in lookup:lookup[key]=len(vertices);vertices.append((p[0],-p[2],p[1]))
+                remap.append(lookup[key])
+            data.from_pydata(vertices,[],[[remap[i] for i in f] for f in self.f])
+            for polygon in data.polygons:polygon.use_smooth=True
+        else:data.from_pydata([(p[0],-p[2],p[1]) for p in self.v],[],self.f)
+        data.update()
         obj=bpy.data.objects.new(self.name,data);bpy.context.scene.collection.objects.link(obj);data.materials.append(mat)
         uv=data.uv_layers.new(name='Colour atlas')
         for polygon,coords in zip(data.polygons,self.uv):
@@ -121,7 +130,14 @@ for name,x,shirt in (('driver',-.45,'olive'),('colleague',.45,'brown')):
         hand=(x+sign*.19,1.025,-.95) if name=='driver' else (x+sign*.12,.77,-.69)
         person.beam(shoulder,elbow,.13,.14,shirt);person.beam(elbow,hand,.115,.12,shirt)
         person.ellipsoid(hand,(.052,.05,.078),'skin',8,3)
-    person.beam((x-.17,1.20,-.485),(x+.13,.78,-.525),.032,.014,'rubber')
+    from g_santana_geometry import front_belt_path,FRONT_ACTOR_POSITION,ACTOR_SCALE,CENTER_POST_Z
+    sign=-1 if x<0 else 1
+    path=front_belt_path(sign)
+    for a,b in zip(path,path[1:]):person.beam(a,b,.041,.009,'rubber')
+    def unfit(p):return tuple((v-d)/ACTOR_SCALE for v,d in zip(p,FRONT_ACTOR_POSITION))
+    lap=[path[-1],(x-sign*.10,.80,-.575),(x+sign*.09,.80,-.575),
+         (x+sign*.22,.75,-.48),unfit((sign*.706,.399,CENTER_POST_Z-.032))]
+    for a,b in zip(lap,lap[1:]):person.beam(a,b,.041,.009,'rubber')
     person.export()
     # Heads are separate rigid objects for subtle glances; intentionally blank.
     head=Mesh(name+'_head')

@@ -84,7 +84,7 @@ def buckle(mesh,x,y,z,front=False):
     mesh.rounded_box((x,y,z),(.069,.087,.070),'rubber',.013,1)
     mesh.box((x,y+.037,z-.011),(.047,.008,.048),'slot')
     mesh.rounded_box((x,y+.037,z+.015),(.050,.017,.025),'button',.006,1)
-    mesh.box((x,y+.048,z-.022),(.035,.017,.006),'chrome')
+    if front:mesh.box((x,y+.048,z-.022),(.035,.017,.006),'chrome')
     screw(mesh,(x,y-.075,z+.027),'z',.010)
 
 
@@ -120,19 +120,14 @@ def build_fittings(mesh):
         ribbon(mesh,[(sign*.709,.430,.071),(sign*.714,.85,.075),(sign*.710,1.212,.075)],normal=(-sign,0,0))
         mesh.v[hardware_start:]=[Vector((p[0]-sign*.018,p[1],p[2]+CENTER_POST_Z-.075))
                                 for p in mesh.v[hardware_start:]]
-        shoulder=actor_point((sign*(.45+.17),1.20,-.485))
-        hip=actor_point((sign*(.45-.13),.78,-.525))
-        shoulder=(shoulder[0],shoulder[1],shoulder[2]-.010)
-        hip=(hip[0],hip[1],hip[2]-.010)
-        ribbon(mesh,[(sign*.692,1.218,CENTER_POST_Z-.005),(sign*.600,1.065,-.265),shoulder,hip])
-        ribbon(mesh,[hip,(sign*.161,.585,-.326),(sign*.565,.604,-.412),(sign*.706,.399,CENTER_POST_Z-.032)])
+        # Occupied front webbing belongs to the actor mesh, fitted to its chest.
         # Rear outboard belts have their own guides on the C-pillar trim.
         mesh.rounded_box((sign*.705,1.213,.955),(.028,.120,.089),'plastic',.012,1)
         slot_frame(mesh,(sign*.685,1.206,.945),.080,.062,.012)
         screw(mesh,(sign*.686,1.250,.947))
-        ribbon(mesh,[(sign*.673,1.207,.942),(sign*.531,1.037,.789),
-                     (sign*.241,.653,.659),(sign*.236,.597,.574)],width=.041)
-        ribbon(mesh,[(sign*.236,.597,.574),(sign*.565,.589,.640),(sign*.687,.527,.820)])
+        ribbon(mesh,[(sign*.685,1.207,.942),(sign*.706,.98,.887),
+                     (sign*.710,.72,.850),(sign*.705,.48,.829)],width=.041)
+        slot_frame(mesh,(sign*.693,.795,.832),.054,.052,.009,axis='z')
     mark('belt_guides_retractors_and_webbing',start)
 
     start=len(mesh.f)
@@ -216,8 +211,8 @@ def build_fittings(mesh):
     mesh.rounded_box((0,.365,.137),(.127,.087,.049),'plastic',.013,1)
     mesh.box((0,.371,.165),(.090,.048,.012),'slot')
     for x in (-.396,.396):
-        for z,depth in ((-.42,.64),(.36,.31)):
-            mesh.rounded_box((x,.217,z),(.44,.007,depth),'boot',.002,1)
+        for z,depth in ((-.50,.74),(.31,.39)):
+            mesh.rounded_box((x,.219,z),(.49,.009,depth),'boot',.003,1)
     mark('dashboard_controls_vents_shifter_and_ashtray',start)
 
     start=len(mesh.f)

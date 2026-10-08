@@ -33,7 +33,7 @@ void main() {
     distance=min(distance,650.);
     float transmission=1.;vec3 scattering=vec3(0);
     // Quadratic steps retain resolution near the headlights while covering the lake.
-    const int STEPS=40;
+    const int STEPS=56;
     float jitter=hash(vec3(floor(gl_FragCoord.xy),0));
     for(int i=0;i<STEPS;i++) {
         float a=float(i)/float(STEPS),b=float(i+1)/float(STEPS);
@@ -46,10 +46,20 @@ void main() {
                         p.y,p.x*worldFrame.w+p.z*worldFrame.z-worldFrame.y);
         float n=noise(field*vec3(.052,.14,.044)+vec3(clock*.026,0,clock*.010));
         float low=exp(-max(0.,p.y+1.35)*.18);
-        float density=.0042+.033*low*(.28+1.4*smoothstep(.26,.77,n));
-        density+=.011*exp(-pow((p.y-9.-4.*sin(field.z*.008))/9.,2.))*n;
+        float density=.0024+.014*low*(.28+1.4*smoothstep(.26,.77,n));
+        density+=.008*exp(-pow((p.y-9.-4.*sin(field.z*.008))/9.,2.))*n;
+        float coast=22.*sin(-field.z/90.)+11.*sin(-field.z/43.+.5);
+        float lake=smoothstep(6.,21.,field.x-coast);
+        vec3 rolling=field*vec3(.044,.34,.035)+vec3(clock*.072,-clock*.06,clock*.039);
+        float billow=noise(rolling)+.32*noise(rolling*2.2+vec3(0,clock*.06,0));
+        float rollHeight=-.45+2.9*noise(vec3(field.x*.032+clock*.024,0,field.z*.038-clock*.018));
+        rollHeight+=.80*sin(field.z*.068+field.x*.043+clock*.23);
+        float bank=exp(-pow((p.y-rollHeight)/1.18,2.));
+        float lakeMist=lake*.26*bank*smoothstep(.60,.98,billow);
+        density+=lakeMist;
         float stepT=exp(-density*lengthStep);
         vec3 illumination=fogColour*(.84+.16*n);
+        illumination+=vec3(.075,.083,.070)*lake*(1.-dusk)*smoothstep(.1,2.5,p.y);
         // Stronger when looking toward the lamps; restrained backscatter from
         // the driver's seat keeps the road and temple visible through the glass.
         vec3 incoming=normalize(p-vec3(0,.701,-2.245));

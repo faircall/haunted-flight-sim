@@ -9,8 +9,9 @@ import g_narrative_text as text
 import g_audio
 from g_temple_intro import Intro,load_script,local_point,road_slope,scenery,wiper_angle,WIPER_PERIOD,smooth
 from g_temple_cinematics import sample_camera,default_camera
-from g_intro_landscape import LAKE_HEIGHT,ridges,road_yaw,last_electric_light
+from g_intro_landscape import LAKE_HEIGHT,ridges,road_yaw,last_electric_light,road_x,road_curve,bank_height,bridge_distance
 from temple_intro_fog import Mist,depth_target
+from temple_intro_terrain import Terrain
 from g_santana_geometry import (window_panes,wiper_pose,WIPER_PIVOTS,AXLES,WHEEL_X,WHEEL_Y,
                                 TYRE_RADIUS,STEERING,ACTOR_SCALE,actor_point,
                                 FRONT_ACTOR_POSITION,REAR_ACTOR_POSITION)
@@ -80,16 +81,18 @@ class Audio:
 class View:
     def __init__(self):
         self.models={};self.textures={};self.windows=[];self.fonts={};self.targets=[];self.shaders=[]
-        self.draw_calls=0;self.max_draw_calls=0;self.mist=None
+        self.draw_calls=0;self.max_draw_calls=0;self.mist=None;self.terrain=None
         try:
             self.scene_shader=shader('temple_intro.fs');self.shaders.append(self.scene_shader)
+            self.scene_shader.locs[pr.SHADER_LOC_MAP_METALNESS]=pr.get_shader_location(self.scene_shader,'reflectionMap')
             self.glass_shader=shader('temple_intro_glass.fs');self.shaders.append(self.glass_shader)
             self.locations={s.id:{n:pr.get_shader_location(s,n) for n in
-                ('eyePosition','fogColour','fogEnd','dusk','headlights','interior','travel','surface','time','windshield','wiperAngle')} for s in self.shaders}
+                ('eyePosition','fogColour','fogEnd','dusk','headlights','interior','travel','surface','time','windshield','wiperAngle','worldFrame','reflectionPass','reflectionMap','reflectionVP')} for s in self.shaders}
             self.world=depth_target(WIDTH,HEIGHT);self.targets.append(self.world)
             self.mist=Mist(WIDTH,HEIGHT)
             self.misty_world=pr.load_render_texture(WIDTH,HEIGHT);self.targets.append(self.misty_world)
             self.frame=pr.load_render_texture(WIDTH,HEIGHT);self.targets.append(self.frame)
+            self.reflection=pr.load_render_texture(WIDTH,HEIGHT);self.targets.append(self.reflection)
             self.echo=[pr.load_render_texture(WIDTH,HEIGHT) for _ in range(2)];self.targets.extend(self.echo)
             self.echo_index=0;self.echo_time=None
             for target in self.targets:pr.set_texture_filter(target.texture,pr.TEXTURE_FILTER_POINT)
@@ -104,9 +107,17 @@ class View:
                         # owned value: model unload frees the maps before we
                         # release these shared textures in close().
                         self.textures[texture.id]=pr.ffi.new('Texture2D *',texture)[0]
-                        pr.set_texture_filter(texture,pr.TEXTURE_FILTER_POINT)
-            for name,mesh in (('ground',pr.gen_mesh_plane(240,240,1,1)),('lake',pr.gen_mesh_plane(760,1700,1,1)),('road',pr.gen_mesh_plane(3.8,6.8,1,1)),('cube',pr.gen_mesh_cube(1,1,1))):
+                        if name.startswith('chinese_pine') or name in ('shrub','fern'):
+                            owned=pr.ffi.new('Texture2D *',texture);pr.gen_texture_mipmaps(owned)
+                            material.maps[pr.MATERIAL_MAP_DIFFUSE].texture=owned[0]
+                            self.textures[texture.id]=owned[0]
+                            pr.set_texture_filter(owned[0],pr.TEXTURE_FILTER_TRILINEAR)
+                        else:pr.set_texture_filter(texture,pr.TEXTURE_FILTER_POINT)
+            self.terrain=Terrain(self.models,self.scene_shader)
+            self.terrain.warm_route(Intro(load_script()).arrival_station)
+            for name,mesh in (('ground',pr.gen_mesh_plane(240,240,1,1)),('lake',pr.gen_mesh_plane(900,1800,1,1)),('road',pr.gen_mesh_plane(3.8,6.8,1,1)),('cube',pr.gen_mesh_cube(1,1,1))):
                 model=pr.load_model_from_mesh(mesh);model.materials[0].shader=self.scene_shader;self.models[name]=model
+            self.models['lake'].materials[0].maps[pr.MATERIAL_MAP_METALNESS].texture=self.reflection.texture
             for points,windshield in window_panes():
                 self.windows.append((pane(points,self.glass_shader,self.world.texture),windshield))
             self.sign=pr.load_render_texture(128,40);self.targets.append(self.sign)
@@ -126,7 +137,7 @@ class View:
         loc=self.locations[s.id][name]
         if loc<0:return
         if kind=='int':data=pr.ffi.new('int[]',[value]);type_=pr.SHADER_UNIFORM_INT
-        elif isinstance(value,(tuple,list)):data=pr.ffi.new('float[]',value);type_=pr.SHADER_UNIFORM_VEC3
+        elif isinstance(value,(tuple,list)):data=pr.ffi.new('float[]',value);type_={2:pr.SHADER_UNIFORM_VEC2,3:pr.SHADER_UNIFORM_VEC3,4:pr.SHADER_UNIFORM_VEC4}[len(value)]
         else:data=pr.ffi.new('float[]',[value]);type_=pr.SHADER_UNIFORM_FLOAT
         pr.set_shader_value(s,loc,data,type_)
 
@@ -153,42 +164,42 @@ class View:
             pr.draw_cylinder_ex(pivot,tip,.011,.010,5,colour_)
             pr.draw_cylinder_ex(pr.vector3_subtract(tip,perpendicular),pr.vector3_add(tip,perpendicular),.013,.013,5,colour_)
 
-    def countryside(self,intro):
+    def countryside(self,intro,reflection=False):
         s=self.scene_shader;d=intro.distance;t=intro.elapsed
-        self.uniform(s,'interior',0.);self.uniform(s,'fogEnd',0.);self.uniform(s,'surface',6,'int')
+        self.uniform(s,'interior',0.);self.uniform(s,'fogEnd',260. if reflection else 0.);self.uniform(s,'surface',6,'int')
         for item in ridges(d):
             self.draw(item['kind'],item['position'],item['scale'],item['yaw'],
                       pr.Color(*((115,134,122),(128,150,142),(150,164,159))[item['layer']],255))
-        self.uniform(s,'surface',4,'int')
-        self.draw('lake',(355,LAKE_HEIGHT,-90))
+        if not reflection:
+            self.uniform(s,'surface',4,'int')
+            self.draw('lake',(350,LAKE_HEIGHT,-90))
         self.uniform(s,'surface',5,'int')
-        base=math.floor((d-18)/6)
-        for i in range(base,base+19):
-            station=i*6;x,z=local_point(station,0,d)
-            angle=road_yaw(station,d)
-            self.draw('lakeside_bank',(x,0,z),yaw=angle)
+        self.draw_calls+=self.terrain.draw('bank',d)
         self.uniform(s,'surface',1,'int')
-        for i in range(base,base+19):
-            station=i*6;x,z=local_point(station,0,d);angle=road_yaw(station,d)
-            self.draw('road',(x,.006,z),yaw=angle,tint=pr.Color(84,93,91,255))
+        self.draw_calls+=self.terrain.draw('road',d)
+        self.uniform(s,'surface',7,'int');self.draw_calls+=self.terrain.draw('bridge',d)
         self.uniform(s,'surface',3,'int')
         pr.rl.rlDisableBackfaceCulling()
+        self.draw_calls+=self.terrain.draw('plants',d)
+        self.draw_calls+=self.terrain.draw('forest_wood',d)
+        self.draw_calls+=self.terrain.draw('forest_leaf',d)
         for item in scenery(d):
             # Thin the final approach so the gateway appears between the trees.
             if intro.arrival_station-11<item['station']<intro.arrival_station+16:continue
-            self.draw(item['kind'],(item['x'],item['y'],item['z']),(item['scale'],)*3,item['yaw'])
+            self.draw(item['kind'],(item['x'],item['y'],item['z']),(item['scale'],)*3,item['yaw']+math.degrees(math.atan(road_slope(d))))
         pr.rl.rlEnableBackfaceCulling();self.uniform(s,'surface',0,'int')
         # Irregular shore rocks break up the road/water edge without a solid rail.
         for i in range(math.floor((d-17)/11),math.floor((d+91)/11)):
             station=i*11+3;x,z=local_point(station,3.25,d)
+            if bridge_distance(station)<11:continue
             size=.32+(i*7%9)*.045
-            self.draw('rock',(x,-.32,z),(size*1.1,size,size*1.4),yaw=(i*37)%360)
+            self.draw('rock',(x,bank_height(station,3.25),z),(size*1.1,size,size*1.4),yaw=(i*37)%360+math.degrees(math.atan(road_slope(d))))
         # The last inhabited stretch gives way to an unlit, isolated approach.
         for i in range(math.floor((d-25)/110),math.floor((d+100)/110)+1):
             station=i*110-12;x,z=local_point(station,-3.9,d)
             if station>last_electric_light(intro.arrival_station):continue
             hx,hz=local_point(station+25,-8.5,d)
-            if -85<hz<20:self.draw('house',(hx,1.25,hz),(.72,)*3,yaw=20)
+            if -85<hz<20:self.draw('house',(hx,bank_height(station+25,-8.5),hz),(.72,)*3,yaw=20+math.degrees(math.atan(road_slope(d))))
             if -85<z<20:
                 self.draw('cube',(x,2.85,z),(.13,5.7,.13),tint=pr.Color(90,95,86,255))
                 self.draw('cube',(x,5.1,z),(1.05,.06,.06),tint=pr.Color(64,68,61,255))
@@ -205,6 +216,7 @@ class View:
         x,z=local_point(intro.arrival_station,0,d)
         if z>-150:
             self.draw('temple_facade',(x,0,z),yaw=road_yaw(intro.arrival_station,d))
+        if reflection:return
         # Exterior rain is rendered before the cabin, so it cannot fall indoors.
         for i in range(115):
             seed=(i*2654435761)&0xffffffff
@@ -239,7 +251,7 @@ class View:
         glance=18*smooth((intro.elapsed-line['start'])/.9)*smooth((line['end']-intro.elapsed)/.8) if talking else 0.
         self.draw('driver_head',actor_point((-.45,1.405+.002*math.sin(intro.elapsed*1.8),-.36)),size,yaw=2.5*math.sin(intro.elapsed*.42))
         self.draw('colleague_head',actor_point((.45,1.405+.002*math.sin(intro.elapsed*1.5),-.36)),size,yaw=-glance)
-        steering=math.degrees(math.atan(road_slope(intro.distance)))*1.3
+        steering=-math.degrees(math.atan(2.665*road_curve(intro.distance)/(1+road_slope(intro.distance)**2)**1.5))*12
         model=self.cabin_models[-1]
         pr.draw_model_ex(self.models[model],pr.Vector3(*STEERING),pr.Vector3(0,.673,.74),steering,pr.Vector3(1,1,1),pr.WHITE)
 
@@ -273,15 +285,31 @@ class View:
 
     def render(self,intro,help_visible=True,audio_error='',camera_override=None,scene_view=None,overlays=True,apply_fade=True,trails=True):
         self.draw_calls=0;camera=camera_override or self.camera(intro);s=self.scene_shader
-        fog=colour((141,156,143),(24,37,47),intro.dusk)
+        fog=colour((179,198,182),(24,37,47),intro.dusk)
         self.uniform(s,'eyePosition',(camera.position.x,camera.position.y,camera.position.z))
         self.uniform(s,'fogColour',(fog.r/255,fog.g/255,fog.b/255))
         self.uniform(s,'dusk',intro.dusk);self.uniform(s,'travel',intro.distance)
         self.uniform(s,'time',intro.elapsed)
         self.uniform(s,'headlights',intro.headlights)
+        heading=math.atan(road_slope(intro.distance))
+        self.uniform(s,'worldFrame',(road_x(intro.distance),intro.distance,math.cos(heading),math.sin(heading)))
+        self.terrain.update(intro.distance,intro.arrival_station)
+        # A real mirrored scene supplies mountains, shore plants and bridges.
+        mirror=pr.Camera3D(pr.Vector3(camera.position.x,2*LAKE_HEIGHT-camera.position.y,camera.position.z),
+                          pr.Vector3(camera.target.x,2*LAKE_HEIGHT-camera.target.y,camera.target.z),camera.up,camera.fovy,camera.projection)
+        self.uniform(s,'reflectionPass',1.)
+        self.uniform(s,'eyePosition',(mirror.position.x,mirror.position.y,mirror.position.z))
+        pr.begin_texture_mode(self.reflection);pr.clear_background(fog)
+        pr.draw_rectangle_gradient_v(0,0,WIDTH,HEIGHT,colour((145,170,161),(9,17,28),intro.dusk),fog)
+        pr.begin_mode_3d(mirror)
+        reflection_vp=pr.matrix_multiply(pr.rl.rlGetMatrixModelview(),pr.rl.rlGetMatrixProjection())
+        self.countryside(intro,reflection=True);pr.end_mode_3d();pr.end_texture_mode()
+        pr.set_shader_value_matrix(s,self.locations[s.id]['reflectionVP'],reflection_vp)
+        self.uniform(s,'reflectionPass',0.)
+        self.uniform(s,'eyePosition',(camera.position.x,camera.position.y,camera.position.z))
         pr.begin_texture_mode(self.world)
         pr.clear_background(fog)
-        pr.draw_rectangle_gradient_v(0,0,WIDTH,HEIGHT,colour((109,123,119),(9,17,28),intro.dusk),fog)
+        pr.draw_rectangle_gradient_v(0,0,WIDTH,HEIGHT,colour((145,170,161),(9,17,28),intro.dusk),fog)
         pr.begin_mode_3d(camera);self.countryside(intro);pr.end_mode_3d();pr.end_texture_mode()
         # Short exposure trails only in the held side-on shot. Scenery smears
         # past, while the car is drawn crisply over it; reset on cuts and seeks.
@@ -334,6 +362,7 @@ class View:
 
     def close(self):
         text.unload(self.fonts)
+        if self.terrain:self.terrain.close();self.terrain=None
         for model in self.models.values():pr.unload_model(model)
         self.models.clear()
         for model,_ in self.windows:pr.unload_model(model)
@@ -430,7 +459,7 @@ def run_intro(review=False,keep_window=False):
                 audio_output_gain=audio.engine.volume if audio else None,duration=intro.duration,
                 bounded_scenery=True,featureless_colleagues=True)
             report['animated_preview_frames']=len(frames)
-            assert len(view.windows)==6 and view.max_draw_calls<200
+            assert len(view.windows)==6 and view.max_draw_calls<320
             assert audio and not audio_error,audio_error
             if g_audio.audio_output_muted(automated=True):assert audio.engine.volume==0.0
             (folder/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')

@@ -83,7 +83,7 @@ class IntroTests(unittest.TestCase):
             x,z=local_point(distance+.001,0,distance)
             self.assertLess(abs(x),1e-7);self.assertLess(z,0)
             items=list(scenery(distance));self.assertLessEqual(len(items),76)
-            self.assertTrue(all(-93<t['z']<21 and math.isfinite(t['x']) for t in items))
+            self.assertTrue(all(-150<t['z']<25 and math.isfinite(t['x']) for t in items))
             self.assertEqual(items,list(scenery(distance)))
 
     def test_wipers_sweep_continuously_and_reverse_at_periodic_extremes(self):
