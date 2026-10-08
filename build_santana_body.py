@@ -153,13 +153,21 @@ def window_seal(mesh,points):
 
 def build_roof(shell):
     """One closed crown/header/gutter shell with shared edges at every join."""
-    n,m=20,24;top=[];bottom=[]
-    edge_x=[(-.737,.676),(CENTER_POST_Z-.058,.728),(CENTER_POST_Z+.056,.728),(.710,.686),(.866,.680)]
-    edge_y=[(-.737,1.411),(CENTER_POST_Z-.058,1.423),(CENTER_POST_Z+.056,1.423),(.710,1.403),(.866,1.403)]
+    n,m=18,24;top=[];bottom=[]
+    panes=window_panes();front=panes[3][0];rear=panes[4][0];back=panes[-1][0]
+    z_front=panes[0][0][2][2]-.007;z_back=back[3][2]+.008
+    # Derive the header from the actual glazing corners. Include every corner
+    # as a mesh station, so a coarse interpolation cannot bridge over the join.
+    # Recess the lower gutter behind the rubber bead. An outward overlap can
+    # close daylight but also swallow the seal along the bowed rear roof edge.
+    edge_x=[(z_front,front[3][0]-.008)]+[(p[2],p[0]-.008) for p in (front[3],front[2])]+\
+           [(p[2],p[0]-.024) for p in (rear[3],rear[2])]+[(z_back,abs(back[3][0])+.021)]
+    edge_y=[(z_front,1.407)]+[(p[2],p[1]-.011) for p in (front[3],front[2],rear[3],rear[2])]+[(z_back,back[3][1]-.011)]
+    stations=sorted(set([z_front+(z_back-z_front)*j/m for j in range(m+1)]+[p[2] for p in (front[3],front[2],rear[3],rear[2])]))
     # Lower edge is outside the upper rim: the frame slopes naturally into the
     # glass instead of leaving a projecting, thick roof slab above the pillars.
-    for j in range(m+1):
-        t=j/m;z0=-.737+1.603*t
+    for z0 in stations:
+        t=(z0-z_front)/(z_back-z_front)
         x0=lerp_keys(z0,edge_x);y0=lerp_keys(z0,edge_y)
         top.append([roof_rim(-1+2*i/n,t) for i in range(n+1)])
         header_blend=min(1.,t/.10,(1-t)/.10)
@@ -188,6 +196,76 @@ def build_roof(shell):
     center=Vector((0,roof_height(0,.08)-.014,.08))
     for i,p in enumerate(perimeter):
         shell.face([center,p,perimeter[(i+1)%len(perimeter)]],'paint',smooth=True)
+
+
+def wrapped_bumper(shell,rear=False):
+    """A continuous moulded fascia: front face, rounded corners and side returns."""
+    end=REAR_BODY_END if rear else -2.195;direction=1 if rear else -1
+    low,high=(.402,.637) if rear else (.374,.600)
+    radius=.115;width=.857 if rear else .849;corner=width-radius
+    corner_z=end-direction*.039
+    return_z=AXLES[1]+.411 if rear else AXLES[0]-.411
+    half=[]
+    for t in (0,.5,1):
+        z=return_z+(corner_z-return_z)*t
+        x=side_x((low+high)/2,z)+.010
+        half.append((-x,0,z))
+    # The final straight return and the circular corner share one station.
+    half[-1]=(-width,0,corner_z)
+    for i in range(1,7):
+        a=math.pi/2*i/6
+        half.append((-corner-radius*math.cos(a),0,corner_z+direction*radius*math.sin(a)))
+    for t in (.5,1):
+        half.append((-corner+2*corner*t,0,corner_z+direction*radius))
+    left=half[:9]
+    path=half+[(-x,y,z) for x,y,z in reversed(left[:-1])]
+    profile=((high,0),(high-.012,.014),(high-.043,.020),
+             (low+.043,.017),(low+.013,0),(low,-.025),
+             (low+.008,-.046),(high-.016,-.046))
+    rows=[]
+    for i,point in enumerate(path):
+        center=Vector(point)
+        tangent=Vector(path[min(i+1,len(path)-1)])-Vector(path[max(0,i-1)])
+        normal=Vector((0,1,0)).cross(tangent).normalized()*(-direction)
+        # Taper the last few centimetres into the painted quarter/fender.
+        taper=.2+.8*min(1.,i/2,(len(path)-1-i)/2)
+        row=[center+Vector((0,y,0))+normal*(offset*taper-.005*(1-taper)) for y,offset in profile]
+        rows.append(row+[row[0]])
+    # Run the atlas's horizontal trim bands continuously around the car;
+    # generic grid UVs would turn those bands into vertical corner seams.
+    distance=[0.]
+    for a,b in zip(path,path[1:]):distance.append(distance[-1]+(Vector(b)-Vector(a)).length)
+    v=[(high-y)/(high-low) for y,_ in profile]+[0.]
+    for i,(a,b) in enumerate(zip(rows,rows[1:])):
+        for j in range(len(profile)):
+            p=[a[j],b[j],b[j+1],a[j+1]]
+            u0,u1=distance[i]/distance[-1],distance[i+1]/distance[-1]
+            uv=[(u0,v[j]),(u1,v[j]),(u1,v[j+1]),(u0,v[j+1])]
+            if rear:p.reverse();uv.reverse()
+            shell.face(p,'bumper',uv,smooth=True)
+    for index in (0,-1):
+        p=rows[index][:-1]
+        outward=Vector(path[index])-Vector(path[1 if index==0 else -2])
+        if (p[1]-p[0]).cross(p[2]-p[0]).dot(outward)<0:p=list(reversed(p))
+        shell.face(p,'bumper')
+
+
+def enclosed_floorpan(shell):
+    """Recessed footwells sit behind the sill returns and above a sealed pan."""
+    shell.box((0,.182,-.20),(1.38,.012,2.86),'rubber')
+    za,zb=AXLES[0]+.407,AXLES[1]-.407
+    for sign in (-1,1):
+        rows=[]
+        for j in range(13):
+            z=za+(zb-za)*j/12
+            rows.append([(sign*side_x(.29,z),.29,z),(sign*.732,.236,z),
+                         (sign*.690,.188,z),(sign*.682,.184,z)])
+        shell.grid(rows,'paint',reverse=sign==-1)
+    # Close the pan's inboard sides, including the areas behind the wheel wells.
+    for sign in (-1,1):
+        p=[(sign*.690,.184,-1.63),(sign*.690,.184,1.23),
+           (sign*.715,.305,1.23),(sign*.715,.305,-1.63)]
+        shell.face(p if sign==-1 else list(reversed(p)),'rubber')
 
 
 def build_body(shell):
@@ -249,14 +327,14 @@ def build_body(shell):
         glass_pillar(shell,sign)
         center_pillar(shell,sign)
         glass_pillar(shell,sign,rear=True)
-        for za,zb in ((-1.183,CENTER_POST_Z-.053),(CENTER_POST_Z+.051,1.266)):
+        for za,zb in ((-1.153,CENTER_POST_Z-.065),(CENTER_POST_Z+.062,1.246)):
             rail(shell,(sign*.829,1.012,za),(sign*.829,1.012,zb),.025,.023,'chrome')
         # Narrow fixed quarter-light divider visible in the reference rear door.
         rear=window_panes()[2+(2 if sign==1 else 0)][0]
-        t=(.565-rear[3][2])/(rear[2][2]-rear[3][2])
+        t=(.540-rear[3][2])/(rear[2][2]-rear[3][2])
         upper=Vector(rear[3]).lerp(Vector(rear[2]),t)
         upper.x+=sign*.006
-        rail(shell,(sign*.825,1.010,.565),upper,.022,.022,'rubber')
+        rail(shell,(sign*.825,1.010,.540),upper,.022,.022,'rubber')
         rail(shell,(sign*.833,1.043,-1.103),(sign*.895,1.058,-1.101),.040,.030,'rubber')
         shell.rounded_box((sign*.910,1.070,-1.10),(.162,.109,.209),'paint',.040,3)
         shell.rounded_box((sign*.910,1.070,-.998),(.141,.088,.020),'rubber',.009,1)
@@ -293,22 +371,22 @@ def build_body(shell):
     for points,_ in window_panes():window_seal(shell,points)
     for z,y,w in ((-1.193,1.010,.800),(TRUNK_START+.002,1.027,.799)):
         rail(shell,(-w,y,z),(w,y,z),.035,.039,'paint')
-    shell.box((0,.236,-.20),(1.40,.095,2.86),'rubber')
-    # Wrapped fascia and bumper corners, instead of squared stacked blocks.
+    enclosed_floorpan(shell)
+    # Bumper skins continue around both corners toward the wheel arches.
     shell.rounded_box((0,.688,-2.192),(1.654,.322,.080),'paint',.031,3)
-    shell.rounded_box((0,.492,-2.214),(1.754,.200,.179),'bumper',.056,3)
+    wrapped_bumper(shell)
     shell.rounded_box((0,.795,rear_end+.001),(1.656,.357,.081),'trunk',.032,3)
-    shell.rounded_box((0,.523,rear_end+.011),(1.749,.210,.184),'bumper',.053,3)
+    wrapped_bumper(shell,rear=True)
     shell.rounded_box((0,.340,-2.180),(1.625,.130,.080),'paint',.025,2)
     shell.rounded_box((0,.377,rear_end-.025),(1.602,.104,.080),'paint',.025,2)
     shell.panel([(-.41,.789,-2.237),(.41,.789,-2.237),(.41,.603,-2.237),(-.41,.603,-2.237)],'grille')
-    shell.panel([(-.200,.562,-2.307),(.200,.562,-2.307),(.200,.448,-2.307),(-.200,.448,-2.307)],'plate')
+    shell.panel([(-.200,.562,-2.293),(.200,.562,-2.293),(.200,.448,-2.293),(-.200,.448,-2.293)],'plate')
     shell.panel([(.213,.865,rear_end+.050),(-.213,.865,rear_end+.050),
                  (-.213,.715,rear_end+.050),(.213,.715,rear_end+.050)],'plate')
     for sign in (-1,1):
         x=sign*.615
         shell.rounded_box((x,.701,-2.226),(.399,.210,.031),'rubber',.014,2)
-        shell.rounded_box((sign*.587,.495,-2.306),(.208,.060,.020),'amber',.008,2)
+        shell.rounded_box((sign*.587,.495,-2.291),(.208,.060,.020),'amber',.008,2)
         x=sign*.629
         shell.panel([(x+.189,.953,rear_end+.053),(x-.189,.953,rear_end+.053),
                      (x-.189,.749,rear_end+.053),(x+.189,.749,rear_end+.053)],'taillight')

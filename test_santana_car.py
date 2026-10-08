@@ -174,7 +174,7 @@ class SantanaTests(unittest.TestCase):
         width=float(np.ptp(body[body[:,1]<.99,0]))
         # The shorter rear deck follows the latest side-profile correction;
         # cabin height/width stay independent of this reduced overall length.
-        self.assertTrue(4.20<length<4.35,length)
+        self.assertTrue(4.10<length<4.20,length)
         self.assertAlmostEqual(height/length,REFERENCE_SIDE['car_height_px']/REFERENCE_SIDE['length_px'],delta=.018)
         self.assertTrue(1.70<width<1.80,width)
         self.assertAlmostEqual((AXLES[1]-AXLES[0])/length,
@@ -188,9 +188,9 @@ class SantanaTests(unittest.TestCase):
         # The broad cabin is no longer a roof-sized glass box.
         self.assertLess(float(np.ptp(front[:,1])),.425)
         rear_window_end=max(p[2] for p in window_panes()[2][0])
-        self.assertTrue(0<=AXLES[1]-rear_window_end<=.06,'Rear wheel sits behind the side window')
-        self.assertTrue(.86<float(body[:,2].max())-AXLES[1]<.94,'Rear overhang is too long')
-        self.assertTrue(.52<REAR_BODY_END-TRUNK_START<.58,'Trunk deck is too long')
+        self.assertTrue(0<=AXLES[1]-rear_window_end<=.09,'Rear wheel sits behind the side window')
+        self.assertTrue(.77<float(body[:,2].max())-AXLES[1]<.84,'Rear overhang is too long')
+        self.assertTrue(.45<REAR_BODY_END-TRUNK_START<.50,'Trunk deck is too long')
         self.assertAlmostEqual(float(np.ptp(tyre[:,1]))/height,
             REFERENCE_SIDE['wheel_diameter_px']/REFERENCE_SIDE['car_height_px'],delta=.020)
         post=(front[1,2]+window_panes()[2][0][0][2])/2
@@ -213,6 +213,106 @@ class SantanaTests(unittest.TestCase):
             heights.append(2-float(hits.min()))
         self.assertLess(max(heights)-min(heights),.006,'Trunk lid slopes down instead of remaining flat')
         self.assertTrue(1.015<min(heights)<1.030,heights)
+
+    def test_glazing_headers_have_no_daylight_from_oblique_exterior_angles(self):
+        doc,binary=glb('sedan_exterior');p=doc['meshes'][0]['primitives'][0]
+        xyz=accessor(doc,binary,p['attributes']['POSITION'])
+        triangles=xyz[accessor(doc,binary,p['indices']).reshape(-1,3)]
+        for pane,_ in window_panes():
+            pane=np.asarray(pane);middle=pane.mean(axis=0)
+            axis=0 if abs(middle[0])>.4 else 2
+            for fraction in np.linspace(.01,.99,9):
+                edge=pane[3]*(1-fraction)+pane[2]*fraction
+                for lift in (.002,.012):
+                    for elevation in (.2,1.1):
+                        for skew in (-.45,.45):
+                            outward=np.zeros(3);outward[axis]=np.sign(middle[axis])
+                            outward[2-axis]=skew;outward[1]=elevation;outward/=np.linalg.norm(outward)
+                            origin=edge+np.array((0,lift,0))+.3*outward
+                            hits=intersections(triangles,origin,-outward)
+                            self.assertTrue((hits<.315).any(),('Open glazing/header join',edge,lift,elevation,skew))
+
+    def test_cabin_floor_is_hidden_behind_sills_and_above_the_pan(self):
+        doc,binary=glb('sedan_exterior');p=doc['meshes'][0]['primitives'][0]
+        xyz=accessor(doc,binary,p['attributes']['POSITION'])
+        body=xyz[accessor(doc,binary,p['indices']).reshape(-1,3)]
+        for name in ('sedan','sedan_interior'):
+            d,b=glb(name);p=d['meshes'][0]['primitives'][0]
+            xyz=accessor(d,b,p['attributes']['POSITION']);floor=xyz[xyz[:,1]<.22]
+            self.assertGreater(len(floor),0)
+            # Check actual exported floor corners, just inside their boundary.
+            for x,y,z in np.unique(floor,axis=0):
+                z+=.001 if z<0 else -.001
+                for sign in (-1,1):
+                    hits=intersections(body,np.array((sign*1.1,y,z)),np.array((-sign,0,0)))
+                    self.assertTrue((hits<1.1-abs(x)).any(),('Floor visible beyond sill',name,x,y,z))
+                hits=intersections(body,np.array((x,-.1,z)),np.array((0,1,0)))
+                self.assertTrue((hits<y+.1).any(),('Floor visible beneath pan',name,x,y,z))
+
+    def test_rear_door_upper_rubber_border_stays_visible_below_the_roof(self):
+        doc,binary=glb('sedan_exterior');p=doc['meshes'][0]['primitives'][0]
+        xyz=accessor(doc,binary,p['attributes']['POSITION'])
+        uv=accessor(doc,binary,p['attributes']['TEXCOORD_0'])
+        indices=accessor(doc,binary,p['indices']).reshape(-1,3)
+        a,b,c=xyz[indices].transpose(1,0,2);ab=b-a;ac=c-a
+        face_uv=uv[indices].mean(axis=1)
+        for pane_index in (2,4):
+            pane=np.asarray(window_panes()[pane_index][0]);sign=np.sign(pane[0,0])
+            # The supplied screenshot camera and two nearby viewing angles.
+            for x,y,z in ((1.56,1.47,.21),(2.,1.58,.40),(2.,1.45,.10)):
+                origin=np.array((sign*x,y,z))
+                for fraction in np.linspace(.06,.94,15):
+                    edge=pane[3]*(1-fraction)+pane[2]*fraction
+                    for lift in (.002,.006,.010):
+                        direction=edge+np.array((0,lift,0))-origin
+                        distance=np.linalg.norm(direction);direction/=distance
+                        h=np.cross(direction,ac);det=np.einsum('ij,ij->i',ab,h)
+                        inv=np.divide(1.,det,out=np.zeros_like(det),where=det>1e-9)
+                        s=origin-a;u=np.einsum('ij,ij->i',s,h)*inv;q=np.cross(s,ab)
+                        v=np.einsum('j,ij->i',direction,q)*inv;t=np.einsum('ij,ij->i',ac,q)*inv
+                        hits=np.where((det>1e-9)&(u>=0)&(v>=0)&(u+v<=1)&(t>=0))[0]
+                        self.assertGreater(len(hits),0,'Missing upper window trim')
+                        first=hits[t[hits].argmin()];u,v=face_uv[first]
+                        # No-daylight tests also pass when paint covers the
+                        # gasket. The first visible face must use black rubber.
+                        self.assertTrue(u>224/256 and 160/256<v<192/256,
+                            ('Roof hides rear door trim',pane_index,fraction,lift,origin.tolist()))
+                        self.assertLess(abs(t[first]-distance),.025,'Ray passed through the near trim')
+
+    def test_bumpers_wrap_both_corners_with_closed_outward_surfaces(self):
+        doc,binary=glb('sedan_exterior');p=doc['meshes'][0]['primitives'][0]
+        xyz=accessor(doc,binary,p['attributes']['POSITION']);uv=accessor(doc,binary,p['attributes']['TEXCOORD_0'])
+        indices=accessor(doc,binary,p['indices']).reshape(-1,3)
+        patch=(uv[:,0]<96/256)&(uv[:,1]>160/256)&(uv[:,1]<192/256)
+        for rear in (False,True):
+            end_zone=xyz[:,2]>1.40 if rear else xyz[:,2]<-2.03
+            points=xyz[indices[(patch&end_zone)[indices].all(axis=1)]]
+            # The side rubbing strips also use this atlas region, but belong
+            # to separate connected surfaces. Start at the end-most face.
+            vertices,weld=np.unique(np.round(points.reshape(-1,3),6),axis=0,return_inverse=True)
+            faces=weld.reshape(-1,3);edges=defaultdict(list)
+            for i,tri in enumerate(faces):
+                for a,b in zip(tri,np.roll(tri,-1)):edges[tuple(sorted((int(a),int(b))))].append(i)
+            end=int(vertices[:,2].argmax() if rear else vertices[:,2].argmin())
+            seed=int(np.where(faces==end)[0][0]);connected={seed};todo=[seed]
+            while todo:
+                tri=faces[todo.pop()]
+                for a,b in zip(tri,np.roll(tri,-1)):
+                    for neighbour in edges[tuple(sorted((int(a),int(b))))]:
+                        if neighbour not in connected:connected.add(neighbour);todo.append(neighbour)
+            uses=Counter();winding=Counter()
+            for face in connected:
+                for a,b in zip(faces[face],np.roll(faces[face],-1)):
+                    key=tuple(sorted((int(a),int(b))));uses[key]+=1;winding[key]+=1 if a<b else -1
+            self.assertEqual(set(uses.values()),{2},'Open bumper skin')
+            self.assertEqual(set(winding.values()),{0},'Inverted bumper return')
+            bumper=vertices[faces[list(connected)]]
+            volume=np.einsum('ij,ij->i',bumper[:,0],np.cross(bumper[:,1],bumper[:,2])).sum()/6
+            self.assertGreater(volume,0.)
+            self.assertGreater(float(np.ptp(bumper[:,:,2])),.38 if rear else .24,'Bumper ends as a separate bar')
+            for sign in (-1,1):
+                side=bumper.reshape(-1,3);side=side[side[:,0]*sign>.83]
+                self.assertGreater(float(np.ptp(side[:,2])),.25 if rear else .13,'Missing side return')
 
     def test_uniformly_resized_seated_actors_fit_the_finished_car(self):
         for name,rear in (('player_seated',True),('driver',False),('colleague',False)):

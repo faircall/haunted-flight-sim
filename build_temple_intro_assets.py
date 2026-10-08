@@ -216,6 +216,9 @@ for x in (-1.9,1.9):
     gate.ellipsoid((x,2.36,0),(.22,.30,.22),'red',8,4)
 gate.box((0,2.65,.29),(1.85,.48,.065),'wood');gate.export()
 
+from build_intro_landscape import build as build_landscape
+landscape_report=build_landscape(OUT,models,Mesh)
+
 # Seamless, quiet placeholder beds and a separate wiper swish. Generated here
 # so this intro doesn't depend on the untracked development sound collection.
 def wav(name,samples,rate=22050):
@@ -242,6 +245,6 @@ for i in range(int(rate*.32)):
 wav('wiper',swish)
 bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'intro_kit.blend'))
 from g_santana_geometry import CABIN_EYE
-(OUT/'manifest.json').write_text(json.dumps(dict(models=models,car=car_report,reference='artdev/car_reference.png',
+(OUT/'manifest.json').write_text(json.dumps(dict(models=models,car=car_report,landscape=landscape_report,reference='artdev/car_reference.png',
     cabin_camera=list(CABIN_EYE),texture=[256,256],audio='Original synthesized placeholder rain, engine and wiper'),indent=2)+'\n',newline='\n')
 print('Intro assets exported to',OUT)

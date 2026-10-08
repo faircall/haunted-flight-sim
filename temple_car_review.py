@@ -63,6 +63,19 @@ def pillar_comparison():
     sheet.save(FOLDER/'pillar-comparison.png')
 
 
+def rear_door_trim_comparison():
+    screenshot=ROOT/'screenshot000.png'
+    if not screenshot.exists():return
+    w,h=788,443;sheet=Image.new('RGB',(w*2,h+32),(19,24,26));labels=ImageDraw.Draw(sheet)
+    with Image.open(screenshot) as source:
+        sheet.paste(source.convert('RGB').crop((282,110,1070,553)),(0,0))
+    with Image.open(FOLDER/'32-rear-door-trim-screenshot.png') as source:
+        sheet.paste(source.convert('RGB').resize((w,h),Image.Resampling.NEAREST),(w,0))
+    labels.text((10,h+8),'SCREENSHOT 000 / ROOF COVERS BLACK DOOR TRIM',fill=(212,222,212))
+    labels.text((w+10,h+8),'UPDATED / CONTINUOUS BLACK WINDOW SURROUND',fill=(212,222,212))
+    sheet.save(FOLDER/'rear-door-trim-comparison.png')
+
+
 def review():
     pr.set_config_flags(pr.FLAG_WINDOW_HIDDEN)
     pr.set_trace_log_level(pr.LOG_WARNING)
@@ -96,6 +109,12 @@ def review():
         ('25-center-door-joint',(2.0,1.2,.35),(.8,1.1,.075),35,'exterior',18.,True),
         ('26-rear-quarter-blend',(1.9,1.5,1.9),(.71,1.16,.96),38,'exterior',18.,True),
         ('27-left-center-door-joint',(-2.0,1.2,.35),(-.8,1.1,.075),35,'exterior',18.,True),
+        ('28-rear-bumper-return',(2.0,.95,2.8),(.55,.53,1.64),38,'exterior',18.,True),
+        ('29-front-bumper-return',(-2.0,.85,-2.9),(-.55,.48,-2.12),38,'exterior',18.,True),
+        ('30-lower-door-sill',(2.0,.30,.05),(.64,.23,-.25),46,'exterior',18.,True),
+        ('31-rear-window-header',(1.5,1.8,1.0),(.47,1.42,.65),42,'exterior',18.,True),
+        ('32-rear-door-trim-screenshot',(1.56,1.47,.21),(-.04,1.25,.23),48,'exterior',0.,False),
+        ('33-left-rear-door-trim',(-1.56,1.47,.21),(.04,1.25,.23),48,'exterior',0.,False),
     ]
     try:
         view=View();intro=Intro(load_script());draw=view.draw
@@ -105,7 +124,7 @@ def review():
             seen=set()
             def inspection_draw(model,*args,**kwargs):
                 if empty and model in ACTORS:return
-                if name=='09-side-profile' and model in {'pine','broadleaf','rock','house','cube','sign','gate'}:return
+                if name=='09-side-profile' and (model in {'pine','broadleaf','rock','house','cube','sign','gate','temple_facade'} or model.startswith('chinese_pine')):return
                 seen.add(model);return draw(model,*args,**kwargs)
             view.draw=inspection_draw
             intro.elapsed=timestamp
@@ -162,8 +181,16 @@ def review():
             with Image.open(FOLDER/(name+'.png')) as frame:sheet.paste(frame,(x,y))
             labels.text((x+10,y+HEIGHT+5),name[3:].replace('-',' ').upper(),fill=(212,222,212))
         sheet.save(FOLDER/'roof-quarter-review.png')
+        fit_views=(shots[27],shots[28],shots[29],shots[30],shots[25],shots[8])
+        sheet=Image.new('RGB',(WIDTH*3,(HEIGHT+24)*2),(19,24,26));labels=ImageDraw.Draw(sheet)
+        for i,(name,*_) in enumerate(fit_views):
+            x=(i%3)*WIDTH;y=(i//3)*(HEIGHT+24)
+            with Image.open(FOLDER/(name+'.png')) as frame:sheet.paste(frame,(x,y))
+            labels.text((x+10,y+HEIGHT+5),name[3:].replace('-',' ').upper(),fill=(212,222,212))
+        sheet.save(FOLDER/'body-fit-review.png')
         reference_comparison(side_bounds)
         pillar_comparison()
+        rear_door_trim_comparison()
         (FOLDER/'report.json').write_text(json.dumps(dict(samples=samples,glass_panes=len(view.windows),
             actual_game_renderer=True,resolution=[WIDTH,HEIGHT]),indent=2)+'\n',encoding='utf-8')
         assert len(view.windows)==6

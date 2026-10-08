@@ -2,16 +2,24 @@
 
 The rainy intro uses a charcoal civilian Santana based on `artdev/car_reference.png`,
 `artdev/car_reference_2.png` and `artdev/Classic Santana Vehicle Reference Sheet.png`.
-The **21,548-triangle exterior car** keeps nearest-filtered 256/128px textures
+The **21,964-triangle exterior car** keeps nearest-filtered 256/128px textures
 and the game's colour quantisation.
-The exterior allowance is 18,000–22,000 triangles. The Classic Santana shape pass
-adds 660 triangles for the shoulder crease, lower valances, quarter-light dividers
-and matching cabin cowl.
+The exterior allowance is 18,000–22,000 triangles. The latest fit pass adds 416
+triangles for continuous bumper returns, enclosed sills and glazing joins.
+The [supplied Santana video](https://www.youtube.com/watch?v=k1agHhirYR4) was inspected
+frame by frame, particularly the exterior details around 00:29–00:43, the rear
+quarter around 13:44–13:48 and the front bumper around 18:02. Silent reference
+frame sheets are retained locally in `artifacts/santana-video/`.
 Curved panels have smooth normals, with
 geometry concentrated on body creases, rolled wheel arches, crowned roof/bonnet,
-rounded bumpers, mirrors and padded upholstery. The roof is a single closed
+wrapped bumpers, mirrors and padded upholstery. The roof is a single closed
 shell: crown, thin gutters, front/rear headers and inner skin share their
-boundary vertices. Bevelled rubber surrounds overlap all six glazing edges.
+boundary vertices. Header stations follow the exact window corners, and the rear
+roof corners taper into the C-pillars. Bevelled rubber surrounds overlap all six
+glazing edges, including at oblique viewing angles.
+The lower roof gutter recesses behind the door-window rubber, with extra relief
+along the rear doors so their full upper black border stays visible. This fit
+correction does not add triangles or change the window openings.
 The front A-pillars follow the windshield and side-window edges. Broader rear
 C-pillar sections roll into the body shoulder and nearly level trunk deck. The
 rear glass has a longer rake into that deck; its side windows include the narrow
@@ -25,12 +33,17 @@ Finer wheel arches, more curved mirror housings, bumper corners
 and 32-sided tyres with rolled wheel-cover rims improve close exterior views.
 The body is proportioned from
 the empty side view in `Classic Santana Vehicle Reference Sheet.png`, independently
-of the occupants. Wheelbase is about 63% of overall length; side glass is
+of the occupants. Wheelbase is about 64% of overall length; side glass is
 approximately 0.42m high. The wheels are 0.63m in diameter, with wider pressed arch
 lips. Higher bumpers, rear lamps and lower valances follow the reference's panel
-divisions. The rear wheel center sits 0.05m behind the side window's lower end.
-The body is approximately 4.26m bumper to bumper, with a 0.55m trunk deck whose
+divisions. The rear wheel center sits 0.085m behind the side window's lower end.
+The body is approximately 4.15m bumper to bumper, with a 0.48m trunk deck whose
 longitudinal height varies by only 3mm, plus a shallow transverse crown.
+Side-window openings are approximately 4–6% shorter than the preceding pass.
+Both bumpers are closed U-shaped skins with rolled corners and tapered returns
+toward the wheel arches; their texture bands follow the wrap continuously.
+The narrower carpet floor sits above a sealed pan and behind the sill returns,
+so neither cabin version exposes a carpet slab under the doors.
 
 The cabin has grey stitched cloth seats/headrests, seatbelt webbing and buckles,
 manual window cranks, grab handles, speaker grilles, stepped dashboard, analog
@@ -40,17 +53,17 @@ required to rebuild or run the game.
 
 | Part | Triangles in game |
 | --- | ---: |
-| Body and exterior trim | 13,124 |
+| Body and exterior trim | 13,540 |
 | Cabin used in exterior shots | 5,026 |
 | Lamp lenses | 8 |
 | Four rounded tyres/domed wheel covers, 768 each | 3,072 |
 | Steering wheel | 318 |
-| Opaque car total | **21,548** |
+| Opaque car total | **21,964** |
 | Six wet glass panes | 12 |
 
 Characters, scenery, procedural moving wipers and headlight fog cones are outside
 the opaque car count. The standalone Blender scene includes a held 48-triangle
-wiper pose for inspection, so its car collection has 21,608 triangles with glass.
+wiper pose for inspection, so its car collection has 22,024 triangles with glass.
 Its studio floor is separate from the asset collection.
 
 Interior shots use an independent **14,956-triangle** cabin, within the requested
@@ -151,6 +164,15 @@ General inspection views hide actors; occupied and screenshot-matching views sho
 profile at the same camera and scale. Export checks verify rear axle/window
 alignment, overhang, wheel size, center-post placement, a nearly level trunk lid
 and the exported arch crown's alignment with the runtime wheel anchor.
+`body-fit-review.png` collects close-ups of both bumper returns, the lower sill,
+rear window header, rear quarter and side silhouette. The native review now
+captures 33 views. `rear-door-trim-comparison.png` matches the camera in the latest
+`screenshot000.png`; a mirrored camera checks the opposite rear door. Visibility
+rays check that the first surface along the upper rear-window border is black
+rubber, rather than painted roof, across the screenshot and nearby viewing angles.
+Export checks also verify that the bumper skins are closed
+and outward-facing, their returns extend around both corners, floor corners are
+occluded from outside, and angled rays cannot pass through the glazing/header join.
 It does not change cinematic or progress files. The
 intro review additionally checks every cinematic cut, rainy glass, audio and
 arrival. Export tests check complete assembled triangle counts, embedded texture

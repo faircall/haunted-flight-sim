@@ -2,8 +2,8 @@
 import math
 
 AXLES=(-1.625,1.040)
-REAR_BODY_END=1.840
-TRUNK_START=1.294
+REAR_BODY_END=1.755
+TRUNK_START=1.274
 CENTER_POST_Z=-.095
 DOOR_CENTERS=(-.595,.565)
 WHEEL_X=.764
@@ -47,12 +47,12 @@ def window_panes():
     """Six real openings. Both .blend glazing and game rain use these points."""
     panes=[([(-.744,1.009,-1.179),(.744,1.009,-1.179),(.626,1.417,-.730),(-.626,1.417,-.730)],True)]
     for sign in (-1,1):
-        front=[(sign*.819,1.010,-1.164),(sign*.819,1.010,CENTER_POST_Z-.060),
-               (sign*.722,1.429,CENTER_POST_Z-.058),(sign*.670,1.419,-.740)]
-        rear=[(sign*.819,1.010,CENTER_POST_Z+.051),(sign*.819,1.010,.990),
-              (sign*.680,1.409,.710),(sign*.722,1.429,CENTER_POST_Z+.056)]
+        front=[(sign*.819,1.010,-1.134),(sign*.819,1.010,CENTER_POST_Z-.072),
+               (sign*.722,1.429,CENTER_POST_Z-.070),(sign*.670,1.419,-.710)]
+        rear=[(sign*.819,1.010,CENTER_POST_Z+.062),(sign*.819,1.010,.955),
+              (sign*.680,1.409,.665),(sign*.722,1.429,CENTER_POST_Z+.067)]
         panes.extend(((front,False),(rear,False)))
-    panes.append(([(.750,1.023,1.284),(-.750,1.023,1.284),(-.625,1.409,.860),(.625,1.409,.860)],False))
+    panes.append(([(.750,1.023,1.264),(-.750,1.023,1.264),(-.625,1.409,.815),(.625,1.409,.815)],False))
     return panes
 
 
@@ -64,8 +64,8 @@ def roof_height(x,z):
 
 def roof_rim(u,t):
     """Roof edge follows the extended glass planes, with a small pressed gutter."""
-    width=.668+.016*t+.044*math.sin(math.pi*t)
-    z=(-.678-.025*u*u)*(1-t)+(.815+.015*u*u)*t
+    width=.668+.016*t+.044*math.sin(math.pi*t)-.032*t**8
+    z=(-.678-.025*u*u)*(1-t)+(.770+.015*u*u)*t
     x=width*u
     return x,roof_height(x,z),z
 
@@ -75,7 +75,7 @@ def inside_cabin(eye):
     x,y,z=eye
     width=.816-.097*max(0.,y-1.010)/.419
     front=-1.179+.449*max(0.,y-1.009)/.408
-    rear=1.284-.424*max(0.,y-1.023)/.386
+    rear=1.264-.449*max(0.,y-1.023)/.386
     return abs(x)<width and .215<y<roof_height(x,z)-.058 and front<z<rear
 
 

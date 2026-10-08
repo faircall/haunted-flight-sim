@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import math
 from g_temple_cinematics import default_camera,validate_camera
+from g_intro_landscape import road_x,road_slope,local_point,scenery
 
 ROOT=Path(__file__).resolve().parent
 SCRIPT=ROOT/'art'/'temple'/'intro'/'dialogue.json'
@@ -44,18 +45,6 @@ def validate_script(document):
 
 def smooth(value):
     value=max(0.,min(1.,value));return value*value*(3-2*value)
-
-
-def road_x(station):return 2.8*math.sin(station/78)+1.5*math.sin(station/39)
-
-
-def road_slope(station):return 2.8/78*math.cos(station/78)+1.5/39*math.cos(station/39)
-
-
-def local_point(station,side,distance):
-    """A road-fixed point in the stationary car's gently turning frame."""
-    yaw=-math.atan(road_slope(distance));dx=road_x(station)+side-road_x(distance);z=distance-station
-    return dx*math.cos(yaw)-z*math.sin(yaw),dx*math.sin(yaw)+z*math.cos(yaw)
 
 
 def wiper_angle(elapsed):
@@ -140,18 +129,3 @@ class Intro:
                 self.yaw=(self.yaw+mouse[0]*.14+180)%360-180
                 self.pitch=max(-65.,min(62.,self.pitch-mouse[1]*.12))
             self.elapsed=min(self.duration,self.elapsed+max(0.,min(.1,dt)))
-
-
-def scenery(distance):
-    """Bounded, deterministic roadside instances; no travel history accumulates."""
-    start=math.floor((distance-20)/6)
-    for i in range(start,start+19):
-        for side in (-1,1):
-            seed=(i*1836311903+side*2971215073)&0xffffffff
-            for row in range(2):
-                station=i*6+((seed>>(row*7))&15)/5
-                offset=side*(3.8+row*6+((seed>>(row*5+3))&15)/5)
-                x,z=local_point(station,offset,distance)
-                if -93<z<21:
-                    yield dict(x=x,z=z,scale=.82+((seed>>(row*6+9))&15)/25,
-                               kind='pine' if seed%4 else 'broadleaf',yaw=(seed+row*77)%360,seed=seed)

@@ -57,16 +57,16 @@ def backrest(car,x,width,low,high,z0,z1,n=10,m=5,detailed=False):
 def build_cabin(car,detailed=False):
     def fit(start,dash=False):
         car.v[start:]=[Vector(cabin_point(p,dash)) for p in car.v[start:]]
-    car.box((0,.190,.03),(1.55,.05,2.40),'carpet')
+    car.box((0,.201,.03),(1.36,.026,2.40),'carpet')
     rows=[]
     ceiling=10 if detailed else 8
     for j in range(ceiling+1):
-        z=-.70+1.51*j/ceiling;width=.671+.030*math.sin(math.pi*j/ceiling)
+        z=-.70+1.465*j/ceiling;width=.664+.030*math.sin(math.pi*j/ceiling)
         rows.append([(width*u,roof_height(width*u,z)-.052,z) for u in [-1+2*i/ceiling for i in range(ceiling+1)]])
     car.grid(rows,'liner',reverse=True)
     for sign in (-1,1):
         car.box((sign*.792,.691,.02),(.045,.610,2.42),'plastic')
-        rail(car,(sign*.804,.996,-1.185),(sign*.804,.996,1.265),.040,.040,'rubber')
+        rail(car,(sign*.804,.996,-1.155),(sign*.804,.996,1.245),.040,.040,'rubber')
         glass_pillar(car,sign,lining=True)
         center_pillar(car,sign,lining=True)
         glass_pillar(car,sign,rear=True,lining=True)
@@ -122,7 +122,7 @@ def build_cabin(car,detailed=False):
     car.panel([(-.105,1.319,-.585),(.105,1.319,-.585),(.105,1.367,-.585),(-.105,1.367,-.585)],'mirror')
     car.tube((0,1.384,-.612),(0,1.435,-.577),.008,'rubber',8)
     car.box((0,1.438,.36),(.14,.020,.069),'light')
-    car.box((0,.998,1.096),(1.47,.040,.335),'carpet')
+    car.box((0,.998,1.086),(1.47,.040,.315),'carpet')
     start=len(car.v)
     for x in (-.45,.45):
         cushion(car,(x,.503,-.40),.654,.70,.166,n=18 if detailed else 12,m=10 if detailed else 8,detailed=detailed)

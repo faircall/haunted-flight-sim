@@ -1,8 +1,8 @@
 {
   "models": {
     "sedan_exterior": {
-      "vertices": 7603,
-      "triangles": 13124,
+      "vertices": 7866,
+      "triangles": 13540,
       "atlas": "santana_exterior"
     },
     "sedan": {
@@ -88,10 +88,51 @@
     "gate": {
       "vertices": 552,
       "triangles": 276
+    },
+    "chinese_pine_a": {
+      "vertices": 1891,
+      "triangles": 1892,
+      "species": "Pinus tabuliformis / Chinese pine / \u6cb9\u677e",
+      "foliage_cards": 120,
+      "wind_uv": true
+    },
+    "chinese_pine_b": {
+      "vertices": 1891,
+      "triangles": 1892,
+      "species": "Pinus tabuliformis / Chinese pine / \u6cb9\u677e",
+      "foliage_cards": 120,
+      "wind_uv": true
+    },
+    "chinese_pine_c": {
+      "vertices": 1891,
+      "triangles": 1892,
+      "species": "Pinus tabuliformis / Chinese pine / \u6cb9\u677e",
+      "foliage_cards": 120,
+      "wind_uv": true
+    },
+    "ridge_a": {
+      "vertices": 864,
+      "triangles": 432
+    },
+    "ridge_b": {
+      "vertices": 864,
+      "triangles": 432
+    },
+    "ridge_c": {
+      "vertices": 864,
+      "triangles": 432
+    },
+    "lakeside_bank": {
+      "vertices": 176,
+      "triangles": 88
+    },
+    "temple_facade": {
+      "vertices": 4504,
+      "triangles": 2252
     }
   },
   "car": {
-    "triangles": 21548,
+    "triangles": 21964,
     "budget": [
       18000,
       22000
@@ -150,6 +191,28 @@
       "artdev/Classic Santana Vehicle Reference Sheet.png"
     ],
     "description": "Charcoal civilian Santana; shaped body, cloth seats, manual cranks, textured dashboard and steel wheel covers"
+  },
+  "landscape": {
+    "trees": [
+      "chinese_pine_a",
+      "chinese_pine_b",
+      "chinese_pine_c"
+    ],
+    "tree_species": "Pinus tabuliformis",
+    "foliage_texture": [
+      256,
+      256
+    ],
+    "bark_texture": [
+      32,
+      64
+    ],
+    "lake_height": -1.35,
+    "temple_stairs": 17,
+    "temple_rise": 3.06,
+    "temple_role": "Elevated main approach; water courtyard is separate",
+    "reference": "Fahai Temple atmosphere/entrance; Santana video lakeside drive",
+    "volumetric_fog": true
   },
   "reference": "artdev/car_reference.png",
   "cabin_camera": [
