@@ -5,6 +5,7 @@ import json
 import math
 from g_temple_cinematics import default_camera,validate_camera
 from g_intro_landscape import road_x,road_slope,local_point,scenery
+from g_santana_geometry import WIPER_PARK,WIPER_SWEEP
 
 ROOT=Path(__file__).resolve().parent
 SCRIPT=ROOT/'art'/'temple'/'intro'/'dialogue.json'
@@ -50,7 +51,20 @@ def smooth(value):
 def wiper_angle(elapsed):
     # Smooth at the reversals, without holding at either end of the sweep.
     phase=elapsed/WIPER_PERIOD
-    return math.radians(8+94*(.5-.5*math.cos(math.tau*phase)))
+    return WIPER_PARK+WIPER_SWEEP*(.5-.5*math.cos(math.tau*phase))
+
+
+def drive_motion(elapsed,duration):
+    """Analytic speed integral: brake for the turn, climb, then stop in the clearing."""
+    cruise=max(0.,duration-62)
+    segments=((cruise,10.5,10.5),(5.,10.5,3.),(26.,3.,3.),(6.,3.,8.),(10.,8.,8.),(11.,8.,0.))
+    distance=0.;remaining=max(0.,elapsed)
+    for length,a,b in segments:
+        t=min(remaining,length);u=t/length if length else 0.
+        distance+=a*t+(b-a)*length*(u**3-.5*u**4)
+        if remaining<length:return distance,a+(b-a)*smooth(u)
+        remaining-=length
+    return distance,0.
 
 
 @dataclass
@@ -99,18 +113,13 @@ class Intro:
 
     @property
     def distance(self):
-        # Cruise, then ease to a stop during the final eleven seconds. Integral
-        # of the speed curve, independent of render FPS and camera interaction.
-        cruise=self.duration-15
-        if self.elapsed<=cruise:return 10.5*self.elapsed
-        t=min(11.,self.elapsed-cruise);u=t/11
-        return 10.5*cruise+10.5*11*(u-u**3+.5*u**4)
+        return drive_motion(self.elapsed,self.duration)[0]
 
     @property
-    def speed(self):return 10.5*(1-smooth((self.elapsed-(self.duration-15))/11))
+    def speed(self):return drive_motion(self.elapsed,self.duration)[1]
 
     @property
-    def arrival_station(self):return 10.5*(self.duration-15)+10.5*11*.5+20
+    def arrival_station(self):return drive_motion(self.duration,self.duration)[0]+20
 
     @property
     def line(self):

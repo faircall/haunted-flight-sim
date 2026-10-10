@@ -148,6 +148,11 @@ def build_cabin(car,detailed=False):
         car.rounded_box((x,1.286,1.439),(.346,.178,.145),'seat_side',.045,2 if detailed else 1)
         car.panel([(x-.147,1.351,1.358),(x+.147,1.351,1.358),
                    (x+.147,1.216,1.358),(x-.147,1.216,1.358)],'cloth')
-    if not detailed:
-        for sign in (-1,1):car.beam((sign*.795,1.355,1.18),(sign*.795,.62,1.18),.031,.010,'rubber')
     fit(start)
+    if not detailed:
+        from g_santana_geometry import rear_belt_path
+        for sign in (-1,1):
+            path=rear_belt_path(sign)
+            for a,b in zip(path,path[1:]):
+                car.panel([(a[0]-.023,a[1],a[2]),(a[0]+.023,a[1],a[2]),
+                           (b[0]+.023,b[1],b[2]),(b[0]-.023,b[1],b[2])],'rubber')

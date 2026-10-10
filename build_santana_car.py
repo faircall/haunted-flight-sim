@@ -11,7 +11,7 @@ import random
 import bpy
 from mathutils import Vector
 from g_santana_geometry import (AXLES,WHEEL_X,WHEEL_Y,TYRE_RADIUS,STEERING,window_panes,
-                                roof_height,wiper_pose,WIPER_PIVOTS)
+                                roof_height,wiper_segments,WIPER_PIVOTS)
 
 
 class Atlas:
@@ -322,8 +322,7 @@ def save_car_blend(out,exterior,material,interior=False):
     # A held wiper pose helps inspection. Runtime sweeps remain procedural.
     wipers=Mesh('Preview wipers',exterior,material);angle=math.radians(35)
     for x in WIPER_PIVOTS:
-        pivot,tip,transverse=[Vector(p) for p in wiper_pose(x,angle)]
-        wipers.beam(pivot,tip,.022,.022,'rubber');wipers.beam(tip-transverse,tip+transverse,.026,.026,'rubber')
+        for a,b,width,depth,part in wiper_segments(x,angle):wipers.beam(a,b,width,depth,'rubber')
     data=bpy.data.meshes.new('Held wiper pose');data.from_pydata([(p[0],-p[2],p[1]) for p in wipers.v],[],wipers.f)
     obj=bpy.data.objects.new('Wipers / preview pose only',data);asset.objects.link(obj);data.materials.append(material)
     layer=data.uv_layers.new(name='PS1 atlas')
@@ -365,7 +364,7 @@ def save_car_blend(out,exterior,material,interior=False):
     scene.view_settings.view_transform='Standard';scene.render.image_settings.file_format='PNG'
     scene['Opaque cabin triangles' if interior else 'Opaque car triangles']=sum(sum(len(p.vertices)-2 for p in obj.data.polygons)
         for obj in asset.objects if obj.type=='MESH' and obj.get('Game export'))
-    scene['Glazing triangles']=12;scene['Preview wiper triangles']=48
+    scene['Glazing triangles']=12;scene['Preview wiper triangles']=sum(len(face)-2 for face in wipers.f)
     scene['Authoring']='build_santana_car.py; regenerate with build_temple_intro_assets.py. Textures packed; game cameras stay in dialogue.json.'
     # Write a normal .blend with its UI/camera, so opening it shows the assembled
     # car immediately. The other scene contains only the five export prototypes.

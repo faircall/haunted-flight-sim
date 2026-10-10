@@ -125,7 +125,8 @@ def review():
             def inspection_draw(model,*args,**kwargs):
                 if empty and model in ACTORS:return
                 if name=='09-side-profile' and (model in {'pine','broadleaf','rock','house','cube','sign','gate','temple_facade'} or model.startswith('chinese_pine')):return
-                seen.add(model);return draw(model,*args,**kwargs)
+                if not view.rendering_mirror:seen.add(model)
+                return draw(model,*args,**kwargs)
             view.draw=inspection_draw
             intro.elapsed=timestamp
             camera=camera_from_pose(dict(eye=eye,target=target,fov=fov))

@@ -375,6 +375,11 @@ def review_editor(intro,view,audio):
     # Exercise a reproducible timeline even after artists save different cuts.
     from test_cinematics_editor import fixture_document
     baseline=fixture_document();intro.document=deepcopy(intro.document)
+    # Keep the shipped route length and its later dialogue while exercising the
+    # reproducible seven-shot widget fixture.
+    baseline['duration']=intro.duration
+    baseline['shots'][-2]['end']=intro.duration-13
+    baseline['shots'][-1].update(start=intro.duration-13,end=intro.duration)
     intro.document['duration']=baseline['duration'];intro.document['shots']=baseline['shots']
     path.write_text(json.dumps(intro.document,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     editor=Editor(intro,view,audio,path,live_input=False);target=pr.load_render_texture(1440,810)

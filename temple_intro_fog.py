@@ -2,7 +2,7 @@
 import math
 from pathlib import Path
 import pyray as pr
-from g_intro_landscape import road_x,road_slope
+from g_intro_landscape import road_x,road_slope,car_pose,DEFAULT_ARRIVAL
 
 
 def depth_target(width,height):
@@ -27,7 +27,7 @@ class Mist:
         self.shader=pr.load_shader(pr.ffi.NULL,str(Path(__file__).parent/'shaders'/'temple_intro_fog.fs'))
         if self.shader.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Volumetric fog shader failed.')
         self.locations={name:pr.get_shader_location(self.shader,name) for name in
-                        ('depthMap','eye','forward','right','up','lens','clip','fogColour','dusk','headlights','clock','worldFrame','enabled')}
+                        ('depthMap','eye','forward','right','up','lens','clip','fogColour','dusk','headlights','clock','worldFrame','carFrame','enabled')}
         self.enabled=True
 
     def value(self,name,value):
@@ -48,8 +48,11 @@ class Mist:
         self.value('fogColour',(fog.r/255,fog.g/255,fog.b/255))
         self.value('dusk',intro.dusk);self.value('headlights',intro.headlights)
         self.value('clock',intro.elapsed);self.value('enabled',float(self.enabled))
-        angle=math.atan(road_slope(intro.distance))
-        self.value('worldFrame',(road_x(intro.distance),intro.distance,math.cos(angle),math.sin(angle)))
+        arrival=getattr(intro,'arrival_station',DEFAULT_ARRIVAL)
+        angle=math.atan(road_slope(intro.distance,arrival))
+        self.value('worldFrame',(road_x(intro.distance,arrival),intro.distance,math.cos(angle),math.sin(angle)))
+        height,pitch=car_pose(intro.distance,arrival)
+        self.value('carFrame',(height,math.cos(pitch),math.sin(pitch)))
         pr.begin_texture_mode(target);pr.clear_background(pr.BLACK)
         pr.begin_shader_mode(self.shader)
         pr.set_shader_value_texture(self.shader,self.locations['depthMap'],world.depth)

@@ -6,6 +6,7 @@ uniform sampler2D depthMap;
 uniform vec3 eye,forward,right,up,lens,fogColour;
 uniform vec2 clip;
 uniform vec4 worldFrame;
+uniform vec3 carFrame;
 uniform float dusk,headlights,clock,enabled;
 out vec4 finalColor;
 float hash(vec3 p) { return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453); }
@@ -40,13 +41,14 @@ void main() {
         float lengthStep=(b*b-a*a)*distance;
         float t=mix(a*a,b*b,.3+.4*jitter)*distance;
         vec3 p=origin+ray*t;
+        vec3 car=vec3(p.x,(p.y-carFrame.x)*carFrame.y+p.z*carFrame.z,-(p.y-carFrame.x)*carFrame.z+p.z*carFrame.y);
         // No weather inside the cabin; this also covers exterior close portraits.
-        if(abs(p.x)<.89 && p.y>.10 && p.y<1.56 && p.z>-1.35 && p.z<1.5)continue;
+        if(abs(car.x)<.89 && car.y>.10 && car.y<1.56 && car.z>-1.35 && car.z<1.5)continue;
         vec3 field=vec3(p.x*worldFrame.z-p.z*worldFrame.w+worldFrame.x,
                         p.y,p.x*worldFrame.w+p.z*worldFrame.z-worldFrame.y);
         float n=noise(field*vec3(.052,.14,.044)+vec3(clock*.026,0,clock*.010));
         float low=exp(-max(0.,p.y+1.35)*.18);
-        float density=.0024+.014*low*(.28+1.4*smoothstep(.26,.77,n));
+        float density=.0024*exp(-max(0.,p.y-18.)*.035)+.014*low*(.28+1.4*smoothstep(.26,.77,n));
         density+=.008*exp(-pow((p.y-9.-4.*sin(field.z*.008))/9.,2.))*n;
         float coast=22.*sin(-field.z/90.)+11.*sin(-field.z/43.+.5);
         float lake=smoothstep(6.,21.,field.x-coast);
@@ -62,9 +64,10 @@ void main() {
         illumination+=vec3(.075,.083,.070)*lake*(1.-dusk)*smoothstep(.1,2.5,p.y);
         // Stronger when looking toward the lamps; restrained backscatter from
         // the driver's seat keeps the road and temple visible through the glass.
-        vec3 incoming=normalize(p-vec3(0,.701,-2.245));
-        float phase=.18+.82*pow(.5+.5*dot(incoming,-ray),3.);
-        illumination+=vec3(1.,.86,.57)*(beam(p,-1.)+beam(p,1.))*headlights*1.8*phase;
+        vec3 incoming=normalize(car-vec3(0,.701,-2.245));
+        vec3 carRay=vec3(ray.x,ray.y*carFrame.y+ray.z*carFrame.z,-ray.y*carFrame.z+ray.z*carFrame.y);
+        float phase=.18+.82*pow(.5+.5*dot(incoming,-carRay),3.);
+        illumination+=vec3(1.,.86,.57)*(beam(car,-1.)+beam(car,1.))*headlights*1.8*phase;
         scattering+=transmission*(1.-stepT)*illumination;
         transmission*=stepT;
         if(transmission<.015)break;

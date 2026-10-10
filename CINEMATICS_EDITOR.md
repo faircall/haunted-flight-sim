@@ -29,6 +29,9 @@ Coordinates are in metres relative to the travelling car: X is sideways, Y is
 height, and negative Z points toward the front of the car. The camera stays with
 the car while the countryside passes. Numeric look-at values specify a point;
 the middle-mouse orbit turns around that point.
+Road height and uphill/downhill pitch are applied automatically to the preview
+and game. Camera coordinates remain relative to the car, including when scrubbing
+the final climb; existing shot keys do not need to be raised by hand.
 
 **Mouse look** controls whether the player can look around during that shot.
 **View: Interior/Exterior** controls first-person body visibility. Moving a camera
@@ -36,6 +39,11 @@ out of the cabin through flight or position fields selects the exterior view and
 a fixed camera automatically; these buttons remain available for explicit choices.
 
 ## Preview and edit the timeline
+
+The current 2:56 sequence includes **turn-off-the-main-road** (1:58-2:17),
+**climb-through-the-pines** (2:17-2:43) and **arrival** (2:43-2:56).
+These are ordinary editable shots. The arrival shot frames the clearing,
+54 entrance steps and upper temple roofs.
 
 **Space** plays or pauses the sequence. **Loop shot** repeats the selected shot.
 **Audio** enables the rain, engine and wipers while playing. The image can show

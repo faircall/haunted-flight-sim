@@ -10,7 +10,8 @@ from PIL import Image
 from test_temple_living import accessor
 from g_santana_geometry import (AXLES,WHEEL_Y,ACTOR_SCALE,actor_point,roof_height,roof_rim,
                                 window_panes,wiper_pose,WIPER_PIVOTS,inside_cabin,
-                                CABIN_EYE,REFERENCE_SIDE,REAR_BODY_END,TRUNK_START)
+                                CABIN_EYE,REFERENCE_SIDE,REAR_BODY_END,TRUNK_START,
+                                WIPER_PARK,WIPER_SWEEP,WIPER_UP,wiper_segments,rear_belt_path)
 
 KIT=Path(__file__).resolve().parent/'art'/'temple'/'intro'
 PARTS={'sedan_exterior':1,'sedan':1,'headlamps':1,'tyre':4,'steering':1}
@@ -27,16 +28,35 @@ def glb(name):
     return document,raw[offset+8:offset+8+count]
 
 
-def intersections(points,origin,direction):
+def intersections(points,origin,direction,tolerance=0.):
     a,b,c=points.transpose(1,0,2);ab=b-a;ac=c-a
     h=np.cross(direction,ac);det=np.einsum('ij,ij->i',ab,h)
     inv=np.divide(1.,det,out=np.zeros_like(det),where=np.abs(det)>1e-9)
     s=origin-a;u=np.einsum('ij,ij->i',s,h)*inv;q=np.cross(s,ab)
     v=np.einsum('j,ij->i',direction,q)*inv;t=np.einsum('ij,ij->i',ac,q)*inv
-    return t[(np.abs(det)>1e-9)&(u>=0)&(v>=0)&(u+v<=1)&(t>=0)]
+    return t[(np.abs(det)>1e-9)&(u>=-tolerance)&(v>=-tolerance)&(u+v<=1+tolerance)&(t>=0)]
 
 
 class SantanaTests(unittest.TestCase):
+    def test_retracted_rear_belts_are_in_front_of_the_seat_not_buried_inside(self):
+        d,b=glb('sedan_interior');p=d['meshes'][0]['primitives'][0]
+        xyz=accessor(d,b,p['attributes']['POSITION']);seat=xyz[accessor(d,b,p['indices']).reshape(-1,3)]
+        d,b=glb('cabin_fittings');p=d['meshes'][0]['primitives'][0]
+        xyz=accessor(d,b,p['attributes']['POSITION']);hardware=xyz[accessor(d,b,p['indices']).reshape(-1,3)]
+        for sign in (-1,1):
+            path=rear_belt_path(sign)
+            for a,b in zip(path[1:3],path[2:4]):
+                for t in (.1,.4,.7):
+                    point=np.asarray(a)*(1-t)+np.asarray(b)*t
+                    origin=np.asarray((0,1.20,.18));delta=point-origin;length=np.linalg.norm(delta);direction=delta/length
+                    occluders=intersections(seat,origin,direction)
+                    strap=intersections(hardware,origin,direction)
+                    self.assertTrue(len(strap)>0)
+                    # The free metal tongue sits slightly ahead of the webbing.
+                    self.assertLess(abs(strap.min()-length),.032)
+                    self.assertFalse(any(occluders<length-.004),('Hidden rear belt',point))
+            self.assertGreater(min(abs(p[0]) for p in path),.60,'Empty rear seat must remain unfastened')
+
     def test_footwell_floors_and_sill_returns_are_opaque_from_inside(self):
         for name in ('sedan','sedan_interior'):
             d,b=glb(name);p=d['meshes'][0]['primitives'][0]
@@ -357,10 +377,31 @@ class SantanaTests(unittest.TestCase):
         self.assertEqual(sum(flag for _,flag in panes),1)
         a,b,c=np.asarray(panes[0][0][:3]);normal=np.cross(b-a,c-a);normal/=np.linalg.norm(normal)
         for x in WIPER_PIVOTS:
-            for angle in np.linspace(np.radians(8),np.radians(102),31):
+            for angle in np.linspace(WIPER_PARK,WIPER_PARK+WIPER_SWEEP,101):
                 pivot,tip,offset=wiper_pose(x,angle)
                 for p in (pivot,tip,np.array(tip)+offset,np.array(tip)-offset):
                     self.assertLess(abs(float(np.dot(np.array(p)-a,normal))),.035)
+
+    def test_longitudinal_wiper_blades_clear_pillars_roof_and_each_other(self):
+        lower=np.asarray(window_panes()[0][0][0]);up=np.asarray(WIPER_UP)
+        for angle in np.linspace(WIPER_PARK,WIPER_PARK+WIPER_SWEEP,201):
+            blades=[]
+            for x in WIPER_PIVOTS:
+                segments=wiper_segments(x,angle)
+                blade=next(s for s in segments if s[4]=='rubber');a,b=np.asarray(blade[:2]);blades.append((a,b))
+                direction=b-a
+                self.assertGreater(np.linalg.norm(direction),.38)
+                for p in (a,b):
+                    v=float(np.dot(p-lower,up))/.607
+                    self.assertLess(v,1.)
+                    self.assertGreater(v,-.025) # parked in the bottom rubber reveal
+                    self.assertLess(abs(p[0])+.006,.744-.118*max(0,v))
+                for start,end,width,depth,_ in segments:
+                    self.assertLessEqual(width,.025);self.assertLessEqual(depth,.018)
+            # Parallel blades on the same plane must never cross, even at reversal.
+            a,b=blades[0];c,d=blades[1]
+            samples=np.linspace(a,b,41);other=np.linspace(c,d,41)
+            self.assertGreater(np.linalg.norm(samples[:,None,:]-other[None,:,:],axis=2).min(),.025)
 
     def test_editor_camera_classification_uses_sloping_glass_and_lower_roof(self):
         self.assertTrue(inside_cabin(CABIN_EYE))

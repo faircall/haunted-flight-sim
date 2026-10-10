@@ -39,6 +39,18 @@ class IntroTests(unittest.TestCase):
         self.assertAlmostEqual(states[0].arrival_station-states[0].distance,20.)
         self.assertEqual(states[0].fade,1.)
 
+    def test_car_brakes_at_the_junction_and_stops_below_the_temple(self):
+        from g_intro_landscape import junction_station
+        state=Intro(load_script());state.elapsed=state.duration-57
+        self.assertAlmostEqual(state.distance,junction_station(state.arrival_station))
+        for t in np.linspace(state.duration-57,state.duration-26,125):
+            state.elapsed=float(t)
+            actual=state.speed*math.sqrt(1+road_slope(state.distance,state.arrival_station)**2)
+            self.assertLess(actual,8.7)
+        state.elapsed=state.duration-4
+        self.assertEqual(state.speed,0)
+        self.assertAlmostEqual(state.arrival_station-state.distance,20.)
+
     def test_pause_freezes_camera_scrolling_weather_and_subtitle_clock(self):
         state=Intro(controller_fixture());state.elapsed=20.;frozen=state.elapsed,state.distance,state.yaw,state.pitch
         state.tick(.05,pause=True)
@@ -82,13 +94,13 @@ class IntroTests(unittest.TestCase):
             self.assertEqual(local_point(distance,0,distance),(0.,0.))
             x,z=local_point(distance+.001,0,distance)
             self.assertLess(abs(x),1e-7);self.assertLess(z,0)
-            items=list(scenery(distance));self.assertLessEqual(len(items),76)
-            self.assertTrue(all(-150<t['z']<25 and math.isfinite(t['x']) for t in items))
+            items=list(scenery(distance));self.assertLessEqual(len(items),300)
+            self.assertTrue(all(-348<t['z']<348 and math.isfinite(t['x']) for t in items))
             self.assertEqual(items,list(scenery(distance)))
 
     def test_wipers_sweep_continuously_and_reverse_at_periodic_extremes(self):
-        self.assertAlmostEqual(wiper_angle(0),math.radians(8))
-        self.assertAlmostEqual(wiper_angle(WIPER_PERIOD/2),math.radians(102))
+        self.assertAlmostEqual(wiper_angle(0),math.radians(5))
+        self.assertAlmostEqual(wiper_angle(WIPER_PERIOD/2),math.radians(98))
         self.assertAlmostEqual(wiper_angle(WIPER_PERIOD),wiper_angle(0))
         angles=[wiper_angle(i*WIPER_PERIOD/200) for i in range(101)]
         self.assertTrue(all(b>a for a,b in zip(angles,angles[1:])))

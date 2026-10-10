@@ -23,13 +23,17 @@ def pixels(target):
 def gpu_contracts(view,intro):
     """Exercise real depth sampling and UV wind, without rain/camera motion."""
     import numpy as np
-    camera=camera_from_pose(dict(eye=(0,1,0),target=(0,1,-5),fov=60))
+    from g_intro_landscape import car_pose,car_point
+    intro.elapsed=114.;height,pitch=car_pose(intro.distance,intro.arrival_station)
+    cp=lambda p:car_point(p,height,pitch)
+    camera=camera_from_pose(dict(eye=cp((0,1,0)),target=cp((0,1,-5)),fov=60))
+    camera.up=pr.Vector3(*car_point((0,1,0),height,pitch,True))
     camera.projection=pr.CAMERA_ORTHOGRAPHIC;camera.fovy=3
-    intro.elapsed=114.;fog=pr.Color(24,37,47,255);s=view.scene_shader
-    view.uniform(s,'eyePosition',(0,1,0));view.uniform(s,'dusk',1.)
+    fog=pr.Color(24,37,47,255);s=view.scene_shader
+    view.uniform(s,'eyePosition',cp((0,1,0)));view.uniform(s,'dusk',1.)
     view.uniform(s,'headlights',0.);view.uniform(s,'interior',0.)
     view.uniform(s,'surface',0,'int');view.uniform(s,'fogEnd',0.)
-    differences=[]
+    differences=[];view.car_height=height;view.car_pitch=pitch;view.car_space=True
     for depth in (3,32):
         pr.begin_texture_mode(view.world);pr.clear_background(pr.BLACK)
         pr.begin_mode_3d(camera)
@@ -41,6 +45,7 @@ def gpu_contracts(view,intro):
         differences.append(float(np.abs(before-after).mean()))
     # A near opaque wall cuts off the volume, a far wall admits the headlight mist.
     assert differences[1]>differences[0]+2,differences
+    view.car_space=False
     camera=camera_from_pose(dict(eye=(8,4,8),target=(0,3.2,0),fov=45))
     tree=view.models['chinese_pine_a'];mesh=tree.meshes[0]
     vertices=bytes(pr.ffi.buffer(mesh.vertices,mesh.vertexCount*12));frames=[]
@@ -103,7 +108,7 @@ def review():
             import numpy as np
             difference=float(np.abs(np.array(a,dtype=float)-np.array(b,dtype=float)).mean())
         assert difference>.3,difference
-        assert view.max_draw_calls<320
+        assert view.max_draw_calls<540
         contracts=gpu_contracts(view,intro)
         sheet=Image.new('RGB',(WIDTH*2,(HEIGHT+25)*3),(19,26,29));labels=ImageDraw.Draw(sheet)
         for i,name in enumerate([s[0] for s in shots]+['06-arrival-steps']):

@@ -2,7 +2,7 @@
 
 The rainy intro uses a charcoal civilian Santana based on `artdev/car_reference.png`,
 `artdev/car_reference_2.png` and `artdev/Classic Santana Vehicle Reference Sheet.png`.
-The **21,996-triangle exterior car** keeps nearest-filtered 256/128px textures
+The **21,988-triangle exterior car** keeps nearest-filtered 256/128px textures
 and the game's colour quantisation.
 The exterior allowance is 18,000–22,000 triangles. The latest fit pass adds 416
 triangles for continuous bumper returns, enclosed sills and glazing joins.
@@ -46,7 +46,9 @@ The narrower carpet floor sits above a sealed pan and behind the sill returns.
 Sloping carpet returns now bridge the floor to the door cards, with front and
 rear bulkheads closing the footwells from inside as well as outside. The headliner
 and visors use worn charcoal-grey cloth. The unoccupied rear belts hang retracted
-beside their C-pillar guides. Front belts are authored once, with the actors,
+on the visible faces of the outer rear bolsters, with free metal tongues and
+empty buckle sockets. Their previous paths were hidden behind the upholstery.
+Front belts are authored once, with the actors,
 following the chest/pelvis surface and lap before meeting the buckles; the cabin
 supplies their matching pillar guides and retractors.
 
@@ -59,19 +61,19 @@ required to rebuild or run the game.
 | Part | Triangles in game |
 | --- | ---: |
 | Body and exterior trim | 13,540 |
-| Cabin used in exterior shots | 5,058 |
+| Cabin used in exterior shots | 5,050 |
 | Lamp lenses | 8 |
 | Four rounded tyres/domed wheel covers, 768 each | 3,072 |
 | Steering wheel | 318 |
-| Opaque car total | **21,996** |
+| Opaque car total | **21,988** |
 | Six wet glass panes | 12 |
 
 Characters, scenery, procedural moving wipers and volumetric headlights are outside
-the opaque car count. The standalone Blender scene includes a held 48-triangle
-wiper pose for inspection, so its car collection has 22,056 triangles with glass.
+the opaque car count. The standalone Blender scene includes a held 168-triangle
+wiper pose for inspection, so its car collection has 22,168 triangles with glass.
 Its studio floor is separate from the asset collection.
 
-Interior shots use an independent **14,736-triangle** cabin, within the requested
+Interior shots use an independent **14,720-triangle** cabin, within the requested
 12,000–15,000 budget. It replaces the lighter cabin and steering wheel rather
 than rendering both versions together. Window openings, actor placements and
 rain/wiper anchors remain shared with the reference-proportioned exterior.
@@ -79,9 +81,9 @@ rain/wiper anchors remain shared with the reference-proportioned exterior.
 | First-person part | Triangles |
 | --- | ---: |
 | Curved upholstery, dashboard, door cards and lining | 8,482 |
-| Belt guides/retractors/webbing, buckles, pockets and other fittings | 5,544 |
+| Belt guides/retractors/webbing, buckles, pockets and other fittings | 5,528 |
 | Detailed steering wheel, column and stalk | 710 |
-| Opaque interior total | **14,736** |
+| Opaque interior total | **14,720** |
 
 The fittings include hollow shoulder-belt guides, pillar adjusters, retractor
 housings, thin textured webbing, metal tongues, red release buttons and flexible
@@ -91,7 +93,7 @@ cranks, lower pockets and grilles are modelled for close inspection. Dashboard
 details include vent slats, rotary controls, hazard switch, shifter bellows and
 rear ashtray. The lining has visor hinges, grab-handle mounts and a dome fitting.
 Opaque counts exclude actors and procedural wipers; six glass panes add 12.
-The interior Blender collection totals 14,796 with glass and held preview wipers.
+The interior Blender collection totals 14,900 with glass and held preview wipers.
 
 | Texture sheet | Size |
 | --- | --- |
@@ -105,6 +107,19 @@ All eight car GLBs embed their PNGs and have no external texture dependencies.
 The renderer retains the animated rain/refraction, wiper clearing arcs,
 wheel rotation, steering and headlight transition. Glass, wheels and wipers use
 the same anchors in Blender and the game, defined in `g_santana_geometry.py`.
+The wipers have narrow dogleg spring arms, raised articulated blade carriers and
+405mm longitudinal rubber blades. Both parallel sweeps run from 5 to 98 degrees,
+park low at the cowl, and remain within the sloping windshield opening. Rain
+clearing uses the physical blade radii and the same cycle clock, with gradual
+rewetting behind each pass. Cabin, glazing, wipers, wheels, lights and cameras
+share the road's elevation/pitch transform, including on the uphill approach.
+All three rear-view mirrors now reflect a small live rear view. The door mirrors
+share a 128x64 scenery capture; the interior mirror adds the rear cabin and seated
+player in a second target. Captures refresh at up to 10Hz, with no recursive
+reflections or extra volume pass. Their glass is drawn over the existing housings;
+first-person views reuse the exterior housing geometry without loading the whole
+body shell. The paint shader now uses a darker diffuse response and restrained
+broad highlights, removing the previous bright metallic hotspot.
 Seated actors use a uniform 0.88 scale and separate front/rear seat translations
 to fit the finished shell; their accepted source meshes and gameplay proportions
 are unchanged. The stock portrait and back-seat camera poses follow the smaller
@@ -138,6 +153,8 @@ the generated Blender files and exports. Copy a hand-edited scene before rebuild
 
 ```powershell
 python temple_car_review.py
+python temple_intro_route_review.py
+python temple_intro_atmosphere_review.py
 python moonlit_water_temple_3d.py --intro-review
 python moonlit_water_temple_3d.py --cinematics-editor-review
 python moonlit_water_temple_3d.py --intro-handoff-smoke

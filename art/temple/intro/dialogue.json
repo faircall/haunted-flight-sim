@@ -1,5 +1,5 @@
 {
-  "duration": 142,
+  "duration": 176,
   "place_name": "Water-Moon Temple",
   "sign": "水月寺",
   "notes": "First-pass fictional dialogue. Roles remain unnamed until character references/backstories arrive. Timings are seconds from departure; no voice recordings yet.",
@@ -193,7 +193,81 @@
       "id": "approaching-the-temple",
       "kind": "interior",
       "start": 114,
-      "end": 135,
+      "end": 118,
+      "camera": {
+        "mode": "interactive",
+        "view": "interior",
+        "ease": "smooth",
+        "start": {
+          "eye": [
+            0.02,
+            1.235,
+            0.53
+          ],
+          "target": [
+            0.02,
+            1.0958268990399347,
+            -0.46026806874157034
+          ],
+          "fov": 62.0
+        },
+        "end": {
+          "eye": [
+            0.02,
+            1.235,
+            0.53
+          ],
+          "target": [
+            0.02,
+            1.0958268990399347,
+            -0.46026806874157034
+          ],
+          "fov": 62.0
+        }
+      }
+    },
+    {
+      "id": "turn-off-the-main-road",
+      "kind": "exterior",
+      "start": 118,
+      "end": 137,
+      "camera": {
+        "mode": "fixed",
+        "view": "exterior",
+        "ease": "smooth",
+        "start": {
+          "eye": [
+            10,
+            10,
+            16
+          ],
+          "target": [
+            -2,
+            0,
+            -14
+          ],
+          "fov": 66.0
+        },
+        "end": {
+          "eye": [
+            10,
+            8,
+            15
+          ],
+          "target": [
+            4,
+            0,
+            -12
+          ],
+          "fov": 66.0
+        }
+      }
+    },
+    {
+      "id": "climb-through-the-pines",
+      "kind": "interior",
+      "start": 137,
+      "end": 163,
       "camera": {
         "mode": "interactive",
         "view": "interior",
@@ -229,37 +303,37 @@
     {
       "id": "arrival",
       "kind": "arrival",
-      "start": 135,
-      "end": 142,
+      "start": 163,
+      "end": 176,
       "camera": {
         "mode": "fixed",
         "view": "exterior",
         "ease": "smooth",
         "start": {
           "eye": [
-            0,
-            4.6,
-            8
+            5,
+            3.2,
+            9
           ],
           "target": [
             0,
-            1.1,
-            -10
+            12,
+            -35
           ],
-          "fov": 58.0
+          "fov": 64.0
         },
         "end": {
           "eye": [
-            0,
-            4.9,
-            7
+            6,
+            5.3,
+            12
           ],
           "target": [
             0,
-            1.1,
-            -10
+            17,
+            -44
           ],
-          "fov": 58.0
+          "fov": 64.0
         }
       }
     }
@@ -335,11 +409,11 @@
       "start": 117,
       "end": 123,
       "speaker": "FRONT PASSENGER",
-      "text": "The turn's just ahead. He's supposed to meet us by the bridge."
+      "text": "Left here. He said he'd wait in the clearing below the steps."
     },
     {
-      "start": 127,
-      "end": 134,
+      "start": 158,
+      "end": 165,
       "speaker": "FRONT PASSENGER",
       "text": "There it is. Let's find him first, then we go in together."
     }

@@ -6,8 +6,8 @@
       "atlas": "santana_exterior"
     },
     "sedan": {
-      "vertices": 2911,
-      "triangles": 5058,
+      "vertices": 2915,
+      "triangles": 5050,
       "atlas": "santana_interior"
     },
     "headlamps": {
@@ -31,8 +31,8 @@
       "atlas": "santana_cabin"
     },
     "cabin_fittings": {
-      "vertices": 3226,
-      "triangles": 5544,
+      "vertices": 3234,
+      "triangles": 5528,
       "atlas": "santana_cabin_details"
     },
     "steering_interior": {
@@ -139,12 +139,32 @@
       "triangles": 88
     },
     "temple_facade": {
-      "vertices": 4504,
-      "triangles": 2252
+      "vertices": 98372,
+      "triangles": 49096,
+      "texture": [
+        256,
+        256
+      ]
+    },
+    "temple_halls": {
+      "vertices": 126084,
+      "triangles": 62942,
+      "texture": [
+        256,
+        256
+      ]
+    },
+    "temple_lamps": {
+      "vertices": 96,
+      "triangles": 48,
+      "texture": [
+        256,
+        256
+      ]
     }
   },
   "car": {
-    "triangles": 21996,
+    "triangles": 21988,
     "budget": [
       18000,
       22000
@@ -153,7 +173,7 @@
     "wheel_instances": 4,
     "editable_source": "santana.blend",
     "interior": {
-      "triangles": 14736,
+      "triangles": 14720,
       "budget": [
         12000,
         15000
@@ -165,7 +185,7 @@
       ],
       "editable_source": "santana_interior.blend",
       "features": {
-        "belt_guides_retractors_and_webbing": 1368,
+        "belt_guides_retractors_and_webbing": 1352,
         "five_buckle_housings_buttons_and_stalks": 724,
         "seat_pockets_seams_rails_and_recline_hardware": 1380,
         "door_latches_locks_cranks_pockets_and_speakers": 944,
@@ -220,11 +240,19 @@
       64
     ],
     "lake_height": -1.35,
-    "temple_stairs": 17,
-    "temple_rise": 3.06,
-    "temple_role": "Elevated main approach; water courtyard is separate",
+    "temple_stairs": 54,
+    "temple_rise": 10.8,
+    "temple_role": "Terraced mountain complex above an arrival clearing; separate from playable water courtyard",
     "reference": "Fahai Temple atmosphere/entrance; Santana video lakeside drive",
-    "volumetric_fog": true
+    "volumetric_fog": true,
+    "temple_width": 72,
+    "temple_depth": 139,
+    "temple_texture": [
+      256,
+      256
+    ],
+    "temple_halls": 11,
+    "temple_reference": "Fahai atmosphere; fictional terraced composition"
   },
   "reference": "artdev/car_reference.png",
   "cabin_camera": [

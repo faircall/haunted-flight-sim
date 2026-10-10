@@ -123,50 +123,9 @@ def build(out,models,Mesh):
         for i in range(len(cross)-1):bank.face([a[i],b[i],b[i+1],a[i+1]],'stone' if i<4 or i>8 else 'olive')
     bank.export()
 
-    temple=Mesh('temple_facade');base=STAIR_COUNT*STAIR_RISE
-    # The arrival stops below the ascent. This is a façade blockout, independent
-    # of the water courtyard's playable layout, which awaits the user's sketch.
-    for step in range(STAIR_COUNT):
-        height=(step+1)*STAIR_RISE;z=8.2-step*.43
-        temple.box((0,height/2,z),(7.2,height,.45),'stone')
-    temple.box((0,base/2,-.2),(14,base,2.6),'stone')
-    for side in (-1,1):
-        # Broad stone stair cheeks and tall, weathered red flanking walls.
-        temple.beam((side*3.85,.18,8.5),(side*3.85,base+.35,.7),.55,.4,'stone')
-        temple.box((side*5.3,base+2.0,-.38),(4.6,4.,.7),'red')
-        temple.box((side*5.3,base+.46,.03),(4.6,.92,.9),'stone')
-        for x in (side*2.0,side*6.9):
-            temple.beam((x,base,0),(x,base+4.15,0),.30,.32,'red')
-        # Dark latticed side windows sit inside the façade, not emissive.
-        temple.box((side*4.5,base+2.3,.01),(1.45,1.7,.08),'rubber')
-        for k in range(6):
-            temple.beam((side*4.5-.70+k*.28,base+1.47,.07),(side*4.5-.70+k*.28,base+3.13,.07),.04,.04,'wood')
-        for y in (base+1.8,base+2.25,base+2.7):temple.box((side*4.5,y,.08),(1.45,.035,.04),'wood')
-    # Scalloped arch silhouette with a deep empty vestibule behind it.
-    arch=[(-2.,2.9),(-1.86,3.22),(-1.42,3.22),(-1.26,3.55),(-.67,3.70),(0,3.84),(.67,3.70),(1.26,3.55),(1.42,3.22),(1.86,3.22),(2.,2.9)]
-    for (xa,ya),(xb,yb) in zip(arch,arch[1:]):
-        temple.face([(xa,base+ya,.04),(xb,base+yb,.04),(xb,base+4.12,.04),(xa,base+4.12,.04)],'red')
-    temple.box((0,base+2,-1.65),(4.0,4.0,.15),'rubber')
-    for side in (-1,1):temple.box((side*2.04,base+1.7,-.75),(.15,3.4,1.6),'wood')
-    temple.box((0,base+4.17,0),(14.5,.25,2.1),'wood')
-    for sign in (-1,1):
-        rows=[]
-        for j in range(6):
-            t=j/5;z=sign*(1.62*(1-t));y=base+4.50+.88*t*t
-            rows.append([(x,y+.12*(abs(x)/7.6)**6,z) for x in [-7.6+15.2*i/24 for i in range(25)]])
-        for a,b in zip(rows,rows[1:]):
-            for i in range(24):
-                p=[a[i],b[i],b[i+1],a[i+1]];temple.face(p if sign==-1 else list(reversed(p)),'brown')
-        for i in range(39):
-            x=-7.5+15*i/38
-            temple.beam((x,base+4.51+.12*(abs(x)/7.6)**6,sign*1.62),(x,base+5.39,0),.065,.075,'brown')
-    temple.box((0,base+5.4,0),(14.9,.14,.20),'brown')
-    for x in (-6,-4,-2,0,2,4,6):
-        temple.box((x,base+4.23,.74),(.65,.18,.95),'olive')
-        temple.box((x,base+4.01,.54),(.27,.35,.55),'olive')
-    temple.box((0,base+3.77,.25),(2.8,.65,.15),'wood')
-    temple.export()
+    from build_intro_temple import build as build_temple
+    temple_report=build_temple(out,models)
     return dict(trees=['chinese_pine_a','chinese_pine_b','chinese_pine_c'],tree_species='Pinus tabuliformis',
                 foliage_texture=[256,256],bark_texture=[32,64],lake_height=-1.35,
-                temple_stairs=STAIR_COUNT,temple_rise=base,temple_role='Elevated main approach; water courtyard is separate',
+                **temple_report,
                 reference='Fahai Temple atmosphere/entrance; Santana video lakeside drive',volumetric_fog=True)

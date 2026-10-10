@@ -1,7 +1,7 @@
 """Close-view cabin hardware: real belt slots, webbing, buckles and upholstery."""
 import math
 from mathutils import Vector
-from g_santana_geometry import actor_point,cabin_point,CENTER_POST_Z,DOOR_CENTERS
+from g_santana_geometry import actor_point,cabin_point,CENTER_POST_Z,DOOR_CENTERS,rear_belt_path
 
 
 def fittings_atlas(Atlas):
@@ -122,12 +122,12 @@ def build_fittings(mesh):
                                 for p in mesh.v[hardware_start:]]
         # Occupied front webbing belongs to the actor mesh, fitted to its chest.
         # Rear outboard belts have their own guides on the C-pillar trim.
-        mesh.rounded_box((sign*.705,1.213,.955),(.028,.120,.089),'plastic',.012,1)
-        slot_frame(mesh,(sign*.685,1.206,.945),.080,.062,.012)
-        screw(mesh,(sign*.686,1.250,.947))
-        ribbon(mesh,[(sign*.685,1.207,.942),(sign*.706,.98,.887),
-                     (sign*.710,.72,.850),(sign*.705,.48,.829)],width=.041)
-        slot_frame(mesh,(sign*.693,.795,.832),.054,.052,.009,axis='z')
+        mesh.rounded_box((sign*.683,1.178,.876),(.050,.120,.089),'plastic',.012,1)
+        slot_frame(mesh,(sign*.664,1.170,.851),.065,.057,.012,axis='z')
+        screw(mesh,(sign*.674,1.212,.835),'z')
+        ribbon(mesh,rear_belt_path(sign),width=.046,steps=2)
+        # Sliding tongue remains free on the hanging belt, above an empty socket.
+        slot_frame(mesh,(sign*.629,.748,.699),.058,.058,.010,axis='z')
     mark('belt_guides_retractors_and_webbing',start)
 
     start=len(mesh.f)

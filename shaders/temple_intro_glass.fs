@@ -6,17 +6,25 @@ in vec4 fragColor;
 uniform sampler2D texture0;
 uniform float time;
 uniform float windshield;
-uniform float wiperAngle;
+uniform vec2 wiperClock;
+uniform vec2 wiperPivots;
+uniform vec4 wiperPlane; // pivot YZ and normalized up vector YZ
+uniform vec4 wiperRange; // blade inner/outer radius, parked angle, sweep
+uniform vec3 carFrame;
 uniform float dusk;
 out vec4 finalColor;
 float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
-float clean(vec2 uv,vec2 pivot) {
-    vec2 d=(uv-pivot)*vec2(1.370,.607);
+float clean(vec2 point,float pivot) {
+    vec2 d=point-vec2(pivot,0.);
     float r=length(d);float a=atan(d.y,d.x);
-    float sector=step(.13,a)*step(a,1.80)*smoothstep(.105,.19,r)*(1.-smoothstep(.49,.57,r));
-    float up=step(0.,sin(time*6.2831853/1.85));
-    float behind=mix(step(wiperAngle,a),step(a,wiperAngle),up);
-    return sector*behind;
+    float sector=step(wiperRange.z,a)*step(a,wiperRange.z+wiperRange.w);
+    sector*=smoothstep(wiperRange.x-.008,wiperRange.x+.003,r)*(1.-smoothstep(wiperRange.y-.003,wiperRange.y+.008,r));
+    // Time since the blade last crossed this point. Water gradually returns,
+    // instead of the whole wiped fan popping on/off at each reversal.
+    float phase=wiperClock.x;
+    float outward=acos(clamp(1.-2.*(a-wiperRange.z)/wiperRange.w,-1.,1.))/6.2831853;
+    float age=min(fract(phase-outward),fract(phase-(1.-outward)))*wiperClock.y;
+    return sector*exp(-age*1.15);
 }
 void main() {
     vec2 uv=fragTexCoord;
@@ -34,7 +42,12 @@ void main() {
     float rivulet=(1.-smoothstep(.012,.030,abs(rivuletX)))*step(.54,hash(vec2(column,4.)));
     rivulet*=smoothstep(.05,.14,flow)*(1.-smoothstep(.68,.81,flow));
     float wet=1.;
-    if(windshield>.5)wet=1.-.88*max(clean(uv,vec2(.184,.015)),clean(uv,vec2(.658,.015)));
+    if(windshield>.5) {
+        vec3 car=vec3(worldPosition.x,(worldPosition.y-carFrame.x)*carFrame.y+worldPosition.z*carFrame.z,
+                     -(worldPosition.y-carFrame.x)*carFrame.z+worldPosition.z*carFrame.y);
+        vec2 point=vec2(car.x,dot(car.yz-wiperPlane.xy,wiperPlane.zw));
+        wet=1.-.94*max(clean(point,wiperPivots.x),clean(point,wiperPivots.y));
+    }
     head*=wet;edge*=wet;tail*=wet;rivulet*=wet;
     vec2 screen=gl_FragCoord.xy/vec2(480.,270.);
     vec2 refract=vec2(q.x*.017,-.004)*head+vec2(rivulet*.0015,0.);

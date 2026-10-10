@@ -18,7 +18,7 @@ keys, lenses, cut timing, shot splitting, looping, save/reload and undo/redo.
 See [CINEMATICS_EDITOR.md](CINEMATICS_EDITOR.md) for the controls. Saved framing
 and camera moves are used by normal game playback.
 
-The game now opens with a **2 minute 22 second** rainy drive, then fades into the
+The game now opens with a **2 minute 56 second** rainy drive, then fades into the
 temple in the same native window. You are in the rear seat of a charcoal Santana;
 two anonymous colleagues sit up front in plain clothes. Their heads are deliberately
 featureless until the character references arrive. The player lap keeps the blue
@@ -36,8 +36,10 @@ dialogue. Travel, rain, wipers, audio and conversation continue across every cut
 | 0:44–0:56 | Overhead tracking view of the car and rural road |
 | 0:56–1:35 | Interactive interior: caretaker and temple stories |
 | 1:35–1:54 | Side-on tracking: afternoon becomes night, headlights switch on |
-| 1:54–2:15 | Interactive night interior: the approach |
-| 2:15–2:22 | Exterior arrival above the road, then fade to temple gameplay |
+| 1:54-1:58 | Interactive interior: the turn is called out |
+| 1:58-2:17 | Exterior view of the slow left turn off the continuing public road |
+| 2:17-2:43 | Interactive interior: the wooded climb and temple reveal |
+| 2:43-2:56 | Pull into the clearing; camera rises toward the terraced temple, then gameplay |
 
 The held side-on shot adds short exposure trails to the passing countryside,
 with the car drawn crisply over them. Its time-lapse lighting change reaches full
@@ -90,16 +92,52 @@ was generated with built-in image generation; its
 [exact prompt/provenance](art/temple/intro/pine_foliage_prompt.txt) are retained.
 
 The route now has pronounced linked bends, with the car aligned to the road's
-tangent and the steering wheel responding to curvature. Five continuous terrain
-chunks are visible at once; the complete short route is uploaded before playback
-to avoid mesh-generation hitches at boundaries. Three weathered stone bridges
-cross excavated tributaries at stations 315, 748 and 1120 metres. Their road decks
-meet the banks, and the streams share the lake's water level. The hillsides have
+tangent and the steering wheel responding to curvature. Rolling rises and dips
+lead into a sustained final climb to a 21m-high forecourt. Bridge decks stay
+level, with broad eased approaches. The car samples the road at its two axles;
+the body, occupants, glass, wipers, headlights and car-relative cameras all pitch
+together. The lake and its reflection plane stay horizontal at their original
+height. The gateway has a wider level landing supporting its stairs and walls.
+The large mountain ranges are world-aligned outside the entire winding road
+envelope, rather than offset from individual bends where their bases could
+cross the lane. A continuous three-conductor powerline runs 19m up the hillside,
+with sagging spans, crossarms and insulators; poles avoid the tributary channels.
+The powerline stays beside the public lakeside road. About 255 route metres before
+arrival, the car turns left onto a narrower dirt track. The main road visibly
+continues beside the lake. Muddy wheel ruts, a grassy centre, darker pines, crooked
+bare trunks, branches and exposed roots distinguish the private climb. Terrain
+cross-sections explicitly include both roads so the hillside cannot cover the
+continuing asphalt. The departure elevation matches both height and grade through
+the bend; the final landing remains level.
+
+Terrain and foliage extend 288 route metres both ahead and behind, with a distant
+fog fade. Near trees now share persistent terrain batches instead of disappearing
+at a separate short rear culling plane. The complete short route is preloaded to
+avoid mesh-generation hitches during playback. Three 24m weathered stone bridges
+cross visible meandering rivers at stations 315, 748 and 1120 metres. Road pavement
+stops at the bridge decks. Separate river ribbons descend from the gullies, with
+moving broken ripples and bank foam, then blend into the lake. Wider banks soften
+the river valleys. The lakeshore has variable-width grassy shelves, small bays,
+irregular ground contours and low, varied shrub thickets. The shoreline boulder scatter
+has been removed. Each river continues 520m upstream with supporting banks, beyond
+the 275m scene fade, and blends into the lake downstream. The hillsides have
 additional pine groves and batched shrubs/ferns, planted at the terrain height.
 Foliage uses mipmaps and trilinear filtering to reduce distant shimmer; car and
 cloth atlases retain their crisp filtering. Mountain silhouettes have smoother
 normals and denser contours. Daylight has a brighter overcast sky, directional
 shading, green bounce and wet highlights, while the night transition is retained.
+The sky is a cheap world-oriented procedural cloud layer: a dense grey ceiling,
+drifting low scud and a hazy horizon, also visible in reflections. High-altitude
+mist thins enough to retain cloud shapes. Car paint has a low, broad highlight
+and darker diffuse response; the previous hard metallic glint is removed.
+
+Rear-view mirrors use one 128x64 rear scenery capture shared by the two door
+mirrors, refreshed at most 10 times per cinematic second. A second small target
+adds the actual rear cabin and seated player for the interior mirror. Its narrow
+glass crops the image rather than stretching faces. Door-mirror housings are
+reused from the exterior mesh in first-person shots. This is an inexpensive shared
+view, not three independent physically accurate reflection cameras; there is no
+recursive rendering or additional volumetric pass for mirrors.
 
 The 256x256 undergrowth atlas was generated with built-in image generation:
 [runtime sheet](art/temple/intro/undergrowth.png),
@@ -119,25 +157,43 @@ distortion, shallow-water tint, highlights and expanding rain rings animate the
 surface. Headlight backscatter is restrained from inside the car; the volumes do
 not yet cast light-space tree shadows.
 
-The new arrival façade is inspired by
-[Fahai Temple's entrance](https://english.beijing.gov.cn/travellinginbeijing/citytours/202504/t20250425_4074848.html):
-17 broad stone steps rise 3.06m to a weathered red gate, dark scalloped opening,
-lattice windows and a tiled roof. It is a fictional atmosphere blockout, not a
-reconstruction of Fahai. It establishes the elevated main approach. The existing
-playable water courtyard is a separate part of the temple; its level and the full
-temple layout remain pending the proposed sketch. Gameplay still hands off to
-that existing playable section.
+The arrival is now a broad dirt clearing beneath a fictional terraced temple
+complex, retaining the [Fahai-inspired atmosphere](https://english.visitbeijing.com.cn/article/47ONhwzBFdS).
+Fifty-four entrance steps rise 10.8m in three flights with resting landings and
+stone balustrades. A red three-bay gateway, flanking towers, enclosing walls,
+latticework, bracket sets and curved tiled roofs lead into successive higher
+courtyards and halls. The complex spans about 72m across and 139m deep; its eleven
+halls/towers use a dedicated original 256x256 weathered-material atlas. Upper
+roof silhouettes rise above the gate from the arrival camera. Terrace pines,
+roofed steles and four restrained lanterns add scale and framing.
 
-Placement, bends and bridge stations live in `g_intro_landscape.py`; continuous
-terrain/bridge/vegetation batches live in `temple_intro_terrain.py`. Tree, ridge,
-undergrowth and façade prototypes are built by `build_intro_landscape.py` and
-`build_intro_undergrowth.py`, called by the regular intro Blender build.
-All new GLBs embed their textures. Existing shot keys and dialogue are preserved.
+The car brakes before the signed left turn, travels slowly through the bend,
+then accelerates up the wooded track and stops 20 route metres before the temple
+origin, about 12m short of the first stair. The public asphalt remains separate;
+the private track ends in a roughly 36m by 48m gravel-and-earth clearing. The new
+turning shot and longer climb are editable in the existing cinematics editor.
+The turn dialogue now refers to the clearing below the steps.
+
+This remains the cinematic approach. The existing playable water courtyard is a
+separate part of the temple, and gameplay still hands off there; the complete
+playable temple layout awaits the proposed sketch.
+
+Placement, bends, elevations and bridge stations live in `g_intro_landscape.py`;
+continuous terrain/bridge/vegetation/powerline batches live in
+`temple_intro_terrain.py`. Tree, ridge and undergrowth prototypes are built by
+`build_intro_landscape.py` and `build_intro_undergrowth.py`. The regular intro
+Blender build also calls `build_intro_temple.py`; that script can run independently
+to rebuild only the approach temple and its manifest entries, preserving the car
+assets. The editable source is `art/temple/intro/temple_approach.blend`. All GLBs
+embed their textures; the larger temple uses uint16-safe mesh batches for Raylib.
 
 ```powershell
 python -m unittest test_intro_landscape test_temple_intro test_cinematics_editor -q
 python temple_landscape_review.py
 python temple_intro_polish_review.py
+python temple_intro_route_review.py
+python temple_intro_atmosphere_review.py
+python temple_intro_arrival_review.py
 ```
 
 The muted native landscape review writes lake/mountain, pine, headlight and arrival
@@ -151,10 +207,30 @@ lake-mist animation under `artifacts/intro-polish/`. It also verifies that drivi
 across chunk boundaries reuses uploaded geometry. The normal cinematics editor
 previews exactly this landscape and volume pass.
 
+The muted route review renders 280 samples along the drive and a complete
+60-frame wiper cycle from inside and outside. It writes `route-review.png`,
+`full-route-contact-sheet.png`, `wiper-poses.png`, `wipers-inside-out.gif` and
+timing data under `artifacts/intro-route/`. Geometry tests check whole mountain
+footprints against the road envelope, tyre contact through crests, uninterrupted
+wire spans, the ascending approach and level forecourt, rear belt visibility,
+and wiper clearance from the pillars/roof and from each other.
+
+The atmosphere review adds mirror close-ups and refresh checks, a rear-window
+driving GIF, the main-road turnoff, daylight inspection of the dirt climb, rivers,
+clouds and subdued paint under `artifacts/intro-atmosphere/`. It ray-checks the
+uploaded terrain along both the driven route and continuing public road.
+The arrival review adds upstream river views, shoreline planting, daylight and
+night temple inspections, plus `turnoff.gif` and `temple-reveal.gif` under
+`artifacts/intro-arrival/`. Its latest run passed 467 road-clearance ray checks,
+with terrain at least 2cm below the sampled road centres. The reviewed frames
+peaked at 411 counted scene submissions, including reflections; full-route
+preload took about 17 seconds. These are review measurements, not a guarantee
+of total game frame rate.
+
 The car now follows the additional Santana exterior and interior references.
 Its curved body, cloth seat bolsters/headrests, moulded door cards, window cranks,
 analog dashboard, radio, vents and steel wheel covers use two 256x256 sheets and
-one 128x128 wheel sheet. The complete opaque exterior car is **21,996 triangles**, including
+one 128x128 wheel sheet. The complete opaque exterior car is **21,988 triangles**, including
 all four wheel instances and the steering wheel; six rain-glass panes add 12.
 The narrower crowned roof, thin gutters and headers form one closed shell.
 The Classic Santana reference guides a nearly flat trunk, longer rear-glass rake,
@@ -168,7 +244,7 @@ Finer arches, bevelled window seals and rounded mirrors improve exterior close-u
 Matching inner pillar linings follow the shared glass openings in both cabin variants.
 The moving wipers remain procedural.
 See [SANTANA_ASSET.md](SANTANA_ASSET.md).
-First-person shots select a separate **14,736-triangle** interior, including a
+First-person shots select a separate **14,720-triangle** interior, including a
 more detailed steering wheel and 5,544 triangles of belt hardware, buckles,
 seat-back pockets/welts, seat controls, door fittings and dashboard details.
 Unused rear belts retract beside the C-pillars. Each front passenger has one belt
