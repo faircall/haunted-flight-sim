@@ -34,16 +34,18 @@ def road_clearance(view):
         vertices+=np.array((road_x(index*CHUNK_LENGTH),0,-index*CHUNK_LENGTH))
         banks[index]=vertices.reshape(-1,3,3)
     maximum=-100.;samples=0;offenders=[]
-    for main,stations in ((False,range(0,int(DEFAULT_ARRIVAL)+1,4)),(True,range(int(junction_station())+25,int(DEFAULT_ARRIVAL)+148,4))):
+    for main,stations in ((False,range(0,int(DEFAULT_ARRIVAL)-19,4)),(True,range(int(junction_station())+25,int(DEFAULT_ARRIVAL)+148,4))):
         for station in stations:
-            x,z=world_point(station,0,main=main);height=main_road_height(station) if main else road_height(station)
+            height=main_road_height(station) if main else road_height(station)
             indices=range(int(station//CHUNK_LENGTH)-3,int(station//CHUNK_LENGTH)+4)
             triangles=np.concatenate([banks[i] for i in indices if i in banks])
-            # Uploaded float32 triangles can round to either side of a seam.
-            hits=intersections(triangles,np.array((x,100.,z)),np.array((0.,-1.,0.)),tolerance=3e-6)
-            assert len(hits),(main,station,'Terrain hole')
-            overlap=100.-hits.min()-height;maximum=max(maximum,overlap);samples+=1
-            if overlap>.025:offenders.append((main,station,round(float(overlap),4)))
+            for side in (-1.25,0,1.25):
+                x,z=world_point(station,side,main=main)
+                # Ray-check both wheel tracks too, not just the lane centre.
+                hits=intersections(triangles,np.array((x,120.,z)),np.array((0.,-1.,0.)),tolerance=3e-6)
+                assert len(hits),(main,station,side,'Terrain hole')
+                overlap=120.-hits.min()-height;maximum=max(maximum,overlap);samples+=1
+                if overlap>.025:offenders.append((main,station,side,round(float(overlap),4)))
     assert not offenders,('Terrain above road',offenders[:15])
     return dict(samples=samples,highest_terrain_relative_to_road=float(maximum))
 

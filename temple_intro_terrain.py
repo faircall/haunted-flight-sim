@@ -9,7 +9,7 @@ from g_intro_landscape import (CHUNK_LENGTH,BRIDGES,world_point,road_x,road_slop
                                main_bank_height,main_road_height,main_road_x,main_coordinates,
                                trail_fraction,junction_station,shore_distance,river_station,
                                river_height,river_half_width,BRIDGE_HALF,DRAW_BEHIND,DRAW_AHEAD,main_side_on_section,
-                               RIVER_UPSTREAM,RIVER_DOWNSTREAM,clearing_amount,temple_ground)
+                               RIVER_UPSTREAM,RIVER_DOWNSTREAM,clearing_amount,temple_ground,ground_height,MOUNTAIN_TREES)
 
 
 class Builder:
@@ -66,13 +66,20 @@ class Terrain:
     def __init__(self,models,shader):
         self.chunks={};self.shader=shader;self.active=set();self.preloaded=set()
         self.prototypes={name:prototype(models[name]) for name in ('shrub','fern')}
-        self.trees={name:[prototype(models[name],i) for i in range(models[name].meshCount)] for name in ('chinese_pine_a','chinese_pine_b','chinese_pine_c')}
+        self.trees={name:[prototype(models[name],i) for i in range(models[name].meshCount)] for name in ('chinese_pine_a','chinese_pine_b','chinese_pine_c')+MOUNTAIN_TREES}
         pine=models['chinese_pine_b'];self.forest=[]
         for i in range(pine.meshCount):
             data=prototype(pine,i);material=pine.materials[pine.meshMaterial[i]]
             texture=pr.ffi.new('Texture2D *',material.maps[pr.MATERIAL_MAP_DIFFUSE].texture)[0]
             name='forest_leaf' if data[3][:,0].max()>.1 else 'forest_wood'
             self.forest.append((name,data,texture))
+        self.mountain=[]
+        tree=models['temple_cypress_a']
+        for i in range(tree.meshCount):
+            data=prototype(tree,i);material=tree.materials[tree.meshMaterial[i]]
+            texture=pr.ffi.new('Texture2D *',material.maps[pr.MATERIAL_MAP_DIFFUSE].texture)[0]
+            name='mountain_leaf' if data[3][:,0].max()>.1 else 'mountain_wood'
+            self.mountain.append((name,data,texture))
         self.texture=pr.ffi.new('Texture2D *',models['shrub'].materials[0].maps[pr.MATERIAL_MAP_DIFFUSE].texture)[0]
         # The glTF loader may include a default material before the painted one.
         for i in range(models['shrub'].materialCount):
@@ -81,13 +88,16 @@ class Terrain:
 
     def build(self,index,arrival):
         start=index*CHUNK_LENGTH;origin=road_x(start,arrival);bank=Builder();road=Builder();dirt=Builder();plants=Builder();bridge=Builder();utilities=Builder();clearing=Builder();river=Builder();snags=Builder()
-        forest={name:Builder() for name,_,_ in self.forest}
+        forest={name:Builder() for name,_,_ in self.forest+self.mountain}
         def p(station,side,y):
             x,z=terrain_point(station,side,arrival);return (x-origin,y,z+start)
+        def route(station,side,y):
+            x,z=world_point(station,side,arrival);return (x-origin,y,z+start)
+        def soil(station,side):return ground_height(*world_point(station,side,arrival),arrival)
         def pm(station,side,y):
             x,z=world_point(station,side,main=True);return (x-origin,y,z+start)
-        cross=(-180,-140,-110,-84,-62,-48,-38,-28,-21,-16,-12,-9,-7,-5,-4,-2,2,3,4.5,6,8,10,13,16,20,24,30,40,54,70,90,115,140,180,220)
-        sections={s:sorted(list(cross)+[main_side_on_section(s,side,arrival) for side in (-8,-4,-2,0,2,4,8,shore_distance(s))])
+        cross=tuple(range(-180,181,3))+(200,220) if start>arrival-80 else (-180,-140,-110,-84,-62,-48,-38,-28,-21,-16,-12,-9,-7,-5,-4,-2,0,2,3,4.5,6,8,10,13,16,20,24,30,40,54,70,90,115,140,180,220)
+        sections={s:sorted(list(cross)+[offset*math.sqrt(1+road_slope(s,arrival)**2) for offset in (-3.3,-2.1,0,2.1,3.3)]+[main_side_on_section(s,side,arrival) for side in (-8,-4,-2,0,2,4,8,shore_distance(s))])
                   for s in range(start,start+CHUNK_LENGTH+1,2)}
         for station in range(start,start+CHUNK_LENGTH,2):
             end=station+2
@@ -100,14 +110,14 @@ class Terrain:
             if station<junction_station(arrival)+2:
                 ya=road_height(station,arrival)+.007;yb=road_height(end,arrival)+.007
                 if bridge_distance(station+1)>BRIDGE_HALF:
-                    road.face([p(station,-1.92,ya),p(station,1.92,ya),p(end,1.92,yb),p(end,-1.92,yb)],(79,86,78,255))
+                    road.face([route(station,-1.92,ya),route(station,1.92,ya),route(end,1.92,yb),route(end,-1.92,yb)],(79,86,78,255))
             else:
                 ya=road_height(station,arrival)+.012;yb=road_height(end,arrival)+.012
                 width=1.68+1.45*(1-trail_fraction(station,arrival))
                 # Several strips supply reliable along/across UVs for ruts and grass.
                 for a,b in zip((-width,-1.05,-.57,.57,1.05),(-1.05,-.57,.57,1.05,width)):
                     if station>=arrival-20:continue
-                    dirt.face([p(station,a,ya),p(station,b,ya),p(end,b,yb),p(end,a,yb)],(156,149,114,255))
+                    dirt.face([route(station,a,ya),route(station,b,ya),route(end,b,yb),route(end,a,yb)],(156,149,114,255))
                     dirt.uv[-1]=np.array(((a,station),(b,station),(b,end),(a,station),(b,end),(a,end)),dtype=np.float32)
                 # The public road keeps following the lake after our turnoff.
                 road.face([pm(station,-1.92,main_road_height(station)+.014),pm(station,1.92,main_road_height(station)+.014),
@@ -120,9 +130,17 @@ class Terrain:
                                    p(end,b,bank_height(end,b,arrival)+.028),p(end,a,bank_height(end,a,arrival)+.028)])
                     clearing.uv[-1]=np.array(((a,station-arrival+20),(b,station-arrival+20),(b,end-arrival+20),
                                              (a,station-arrival+20),(b,end-arrival+20),(a,end-arrival+20)),dtype=np.float32)
+        vertices,inverse=np.unique(np.concatenate(bank.vertices),axis=0,return_inverse=True)
+        normals=[]
+        for vx,vy,vz in vertices:
+            x=float(vx)+origin;z=float(vz)-start;e=.35
+            normal=np.array((ground_height(x-e,z,arrival)-ground_height(x+e,z,arrival),2*e,
+                             ground_height(x,z-e,arrival)-ground_height(x,z+e,arrival)))
+            normals.append(normal/np.linalg.norm(normal))
+        bank.normals=[np.asarray(normals,dtype=np.float32)[inverse]]
         def block(station,side,y,width,height,length,colour):
             a,b=station-length/2,station+length/2;l,r=side-width/2,side+width/2;lo,hi=y-height/2,y+height/2
-            vertices=[p(s,x,yy+road_height(s,arrival)) for s in (a,b) for x,yy in ((l,lo),(r,lo),(r,hi),(l,hi))]
+            vertices=[route(s,x,yy+road_height(s,arrival)) for s in (a,b) for x,yy in ((l,lo),(r,lo),(r,hi),(l,hi))]
             for face in ((0,1,2,3),(4,7,6,5),(0,4,5,1),(3,2,6,7),(1,5,6,2),(0,3,7,4)):
                 bridge.face([vertices[i] for i in face],colour)
         stone=(154,169,145,255);cap=(183,193,172,255)
@@ -135,8 +153,8 @@ class Terrain:
                     block(station,sign*2.13,.735,.25,.15,1.02,cap)
                     a=center+offset;b=a+1
                     ya=-.26-1.7*(abs(offset)/BRIDGE_HALF)**2;yb=-.26-1.7*(abs(offset+1)/BRIDGE_HALF)**2
-                    vertices=[p(a,sign*2.24,ya+road_height(a,arrival)),p(b,sign*2.24,yb+road_height(b,arrival)),
-                              p(b,sign*2.24,-.12+road_height(b,arrival)),p(a,sign*2.24,-.12+road_height(a,arrival))]
+                    vertices=[route(a,sign*2.24,ya+road_height(a,arrival)),route(b,sign*2.24,yb+road_height(b,arrival)),
+                              route(b,sign*2.24,-.12+road_height(b,arrival)),route(a,sign*2.24,-.12+road_height(a,arrival))]
                     bridge.face(vertices if sign==1 else vertices[::-1],stone)
                 if offset%2==0:
                     for side in (-2.13,2.13):block(station,side,.4,.23,.92,.25,cap)
@@ -166,27 +184,28 @@ class Terrain:
             trail=trail_fraction(station,arrival)>.5
             side=(-3.8-rng.random()**1.65*42) if (i%3 if trail else i%10) else (3.6+rng.random()*18 if trail else 4+rng.random()*12)
             if bridge_distance(station)<BRIDGE_HALF+5 or temple_ground(station,side,arrival):continue
-            y=bank_height(station,side,arrival)
+            y=soil(station,side)
             if y<-.45:continue
             species='fern' if i%3 else 'shrub';size=rng.uniform(.65,1.28) if species=='fern' else rng.uniform(1.0,2.1)
             if side>0:size*=.55
-            position=np.asarray(p(station,side,y-.035),dtype=np.float32)
+            position=np.asarray(route(station,side,y-.035),dtype=np.float32)
             green=rng.randrange(205,256)
             plants.instance(self.prototypes[species],position,size,rng.random()*math.tau,(green,255,green-15,255))
         # Near pines are part of persistent batches too: looking back never
         # crosses a separate 25m tree culling plane or hundreds of Python draws.
         for tree in trees_between(start,start+CHUNK_LENGTH,arrival):
-            station,side=tree['station'],tree['side'];position=np.asarray(p(station,side,tree['y']))
-            colour=(161,185,158,255) if trail_fraction(station,arrival)>.5 else (233,251,231,255)
+            station,side=tree['station'],tree['side'];position=np.asarray(route(station,side,tree['y']))
+            colour=(231,239,222,255) if trail_fraction(station,arrival)>.5 else (233,251,231,255)
             for data in self.trees[tree['kind']]:
-                name='forest_leaf' if data[3][:,0].max()>.1 else 'forest_wood'
+                prefix='mountain_' if tree['kind'] in MOUNTAIN_TREES else 'forest_'
+                name=prefix+('leaf' if data[3][:,0].max()>.1 else 'wood')
                 forest[name].instance(data,position,tree['scale'],math.radians(tree['yaw']),colour)
         for i in range(9):
             station=start+rng.random()*CHUNK_LENGTH;side=-34-rng.random()*29
             if bridge_distance(station)<BRIDGE_HALF+5 or temple_ground(station,side,arrival):continue
-            position=np.asarray(p(station,side,bank_height(station,side,arrival)),dtype=np.float32)
+            position=np.asarray(route(station,side,soil(station,side)),dtype=np.float32)
             scale=rng.uniform(1.1,1.7);yaw=rng.random()*math.tau
-            for name,data,_ in self.forest:forest[name].instance(data,position,scale,yaw,(227,250,225,255))
+            for name,data,_ in (self.mountain if station>junction_station(arrival)+15 else self.forest):forest[name].instance(data,position,scale*.7 if name.startswith('mountain') else scale,yaw,(227,250,225,255))
         # Irregular low thickets follow the public shoreline past the turnoff.
         for i in range(150):
             station=start+rng.random()*CHUNK_LENGTH
@@ -199,7 +218,7 @@ class Terrain:
         for i in range(6):
             station=start+rng.random()*CHUNK_LENGTH
             if station<junction_station(arrival)+25 or temple_ground(station,0,arrival):continue
-            side=(-1 if i%2 else 1)*rng.uniform(4.3,8.5);base=np.asarray(p(station,side,bank_height(station,side,arrival)))
+            side=(-1 if i%2 else 1)*rng.uniform(4.3,8.5);base=np.asarray(route(station,side,soil(station,side)))
             lean=-math.copysign(1,side);h=rng.uniform(5.3,8.1)
             points=[base+np.array((lean*(t*t*1.7+.24*math.sin(t*8)),h*t,.5*math.sin(t*5+i))) for t in (0,.22,.48,.72,1)]
             for k,(a,b) in enumerate(zip(points,points[1:])):snags.tube(a,b,.24-k*.043,(62,71,59,255),7,end_radius=.20-k*.043)
@@ -223,7 +242,7 @@ class Terrain:
                 for a,b in zip(wire,wire[1:]):utilities.tube(chunk_point(a),chunk_point(b),.017,(39,49,46,255),4)
         result=dict(bank=bank.model(self.shader),road=road.model(self.shader),dirt=dirt.model(self.shader),plants=plants.model(self.shader,self.texture),
                     bridge=bridge.model(self.shader),river=river.model(self.shader),clearing=clearing.model(self.shader),snags=snags.model(self.shader),utilities=utilities.model(self.shader))
-        result.update({name:forest[name].model(self.shader,texture) for name,_,texture in self.forest})
+        result.update({name:forest[name].model(self.shader,texture) for name,_,texture in self.forest+self.mountain})
         return result
 
     def warm_route(self,arrival):

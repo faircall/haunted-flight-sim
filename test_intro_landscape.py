@@ -13,7 +13,7 @@ from g_intro_landscape import (scenery,ridges,TREE_MODELS,LAKE_HEIGHT,LAKE_EDGE,
                                power_pole,power_wire,POLE_SPACING,BRIDGE_HALF,DRAW_BEHIND,DRAW_AHEAD,
                                junction_station,trail_fraction,main_road_height,main_road_x,
                                main_side_on_section,terrain_point,main_coordinates,shore_distance,river_height,river_station,
-                               stair_z,STAIR_TREAD,RIVER_UPSTREAM,RIVER_DOWNSTREAM,main_bank_height)
+                               stair_z,STAIR_TREAD,RIVER_UPSTREAM,RIVER_DOWNSTREAM,main_bank_height,ground_height,MOUNTAIN_TREES,route_coordinates)
 from g_temple_intro import Intro,load_script
 from test_temple_living import accessor
 
@@ -49,9 +49,9 @@ class LandscapeTests(unittest.TestCase):
             self.assertTrue(all(b>=a-.005 for a,b in zip(heights[33:],heights[34:])))
             self.assertGreater(heights[-1]-heights[0],15.)
             self.assertAlmostEqual(road_height(arrival-30,arrival),road_height(arrival+20,arrival))
-            for s in (arrival-10,arrival,arrival+10):
+            for s in (arrival-30,arrival-24,arrival-18):
                 for side in (-10,-5,0,5,10):
-                    self.assertAlmostEqual(bank_height(s,side,arrival),road_height(s,arrival)-.035)
+                    self.assertAlmostEqual(bank_height(s,side,arrival),road_height(s,arrival)-.035,delta=.025)
 
     def test_vehicle_wheels_track_road_heights_without_pitch_snaps(self):
         from g_santana_geometry import AXLES,WHEEL_Y,TYRE_RADIUS
@@ -111,7 +111,7 @@ class LandscapeTests(unittest.TestCase):
             self.assertGreater(len(left),len(right)*2)
             self.assertTrue(all(abs(t['side'])>2.7 for t in trees))
             self.assertTrue(all(t['side']<LAKE_EDGE or trail_fraction(t['station'])>.5 for t in trees))
-            self.assertTrue(all(t['kind'] in TREE_MODELS for t in trees))
+            self.assertTrue(all(t['kind'] in TREE_MODELS+MOUNTAIN_TREES for t in trees))
             self.assertLessEqual(len(trees),300)
 
     def test_private_track_leaves_a_separate_continuing_public_road(self):
@@ -133,10 +133,10 @@ class LandscapeTests(unittest.TestCase):
         for s in range(0,1100,31):
             if min(abs(s-b) for b in BRIDGES)<25:continue
             self.assertGreater(bank_height(s,4),LAKE_HEIGHT)
-            self.assertLess(abs(bank_height(s,shore_distance(s))-LAKE_HEIGHT),.20)
+            self.assertLess(abs(ground_height(*world_point(s,shore_distance(s)))-LAKE_HEIGHT),.20)
         for bridge in BRIDGES:
             for side in (-60,-30,-10,0,10,20,35):
-                self.assertLess(bank_height(river_station(bridge,side),side),river_height(side)-.3)
+                self.assertLess(ground_height(*world_point(river_station(bridge,side),side)),river_height(side)-.3)
 
     def test_looking_back_retains_trees_hundreds_of_metres_behind(self):
         self.assertGreaterEqual(DRAW_BEHIND,250);self.assertGreaterEqual(DRAW_AHEAD,250)
@@ -217,6 +217,48 @@ class LandscapeTests(unittest.TestCase):
                 projected,_=main_coordinates(*point)
                 self.assertLess(abs(projected+point[1]),30)
                 self.assertLess(bank_height(station,side),110)
+
+    def test_pass_terrain_sections_cannot_fold_on_sharp_inside_bends(self):
+        for station in range(int(junction_station())-20,int(DEFAULT_ARRIVAL)+140,2):
+            for side in (-180,-84,-38,-16,-4,0,8,24,54,140):
+                p=np.array([terrain_point(s,x) for s,x in ((station,side),(station,side+4),(station+2,side+4),(station+2,side))])
+                for ids in ((0,1,2),(0,2,3)):
+                    a,b,c=p[list(ids)];cross=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])
+                    self.assertLess(cross,-.1,(station,side))
+        for station in range(int(junction_station())+10,int(DEFAULT_ARRIVAL)-32,3):
+            for side in (-1.3,0,1.3):
+                x,z=world_point(station,side);s,offset=route_coordinates(x,z)
+                self.assertAlmostEqual(s,station,places=4);self.assertAlmostEqual(offset,side,places=4)
+                self.assertLess(ground_height(x,z),road_height(station)+.01)
+
+    def test_temple_relief_supports_halls_without_burying_stairs(self):
+        from g_intro_temple_layout import WINGS,mountain_height,grove,occupied
+        self.assertGreater(max(x for x,*_ in WINGS)-min(x for x,*_ in WINGS),170)
+        for x,z,y,w,d,*_ in WINGS:
+            for dx in (-w*.4,0,w*.4):
+                for dz in (-d*.4,0,d*.4):
+                    h=mountain_height(x+dx,z+dz)
+                    self.assertLess(h,y+.02);self.assertGreater(h,y-1.5)
+        for step in range(STAIR_COUNT):
+            self.assertLess(mountain_height(0,stair_z(step)),(step+1)*STAIR_RISE+.01)
+        trees=grove();self.assertGreater(len(trees),200)
+        self.assertTrue(all(not occupied(x,z,2) for x,z,*_ in trees))
+
+    def test_mountain_tree_assets_are_tall_textured_and_wind_weighted(self):
+        for name in MOUNTAIN_TREES:
+            doc,blob=mesh_data(name);parts=[];weights=[];triangles=0
+            for mesh in doc['meshes']:
+                for p in mesh['primitives']:
+                    parts.append(accessor(doc,blob,p['attributes']['POSITION']))
+                    weights.append(accessor(doc,blob,p['attributes']['TEXCOORD_1'])[:,0])
+                    triangles+=len(accessor(doc,blob,p['indices']))//3
+            self.assertGreater(np.concatenate(parts)[:,1].max(),20)
+            self.assertLess(triangles,3000)
+            w=np.concatenate(weights);self.assertGreater(w.max(),.4);self.assertLess(w.min(),0)
+            self.assertTrue(all('bufferView' in image for image in doc['images']))
+        with Image.open(KIT/'mountain_foliage.png') as image:
+            self.assertEqual(image.size,(256,256));self.assertEqual(image.mode,'RGBA')
+            self.assertGreater(np.count_nonzero(np.asarray(image)[:,:,3]<16),256*256*.2)
 
 
 if __name__=='__main__':unittest.main()

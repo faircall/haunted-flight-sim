@@ -74,6 +74,52 @@ sessions. In the standalone editor, use Save before exiting to keep changes.
 
 ## Verification
 
+### Mountainside arrival assets
+
+The arrival now spans 194 metres across 17 halls. Shallow court slabs and
+retaining bands sit in a continuous hillside; six asymmetric wings climb out
+to the sides. The 54 entrance steps and central sightline stay open, while
+385 trees and irregular undergrowth patches obscure the outer limits.
+
+The mountain forest uses mature **Chinese arborvitae / Platycladus orientalis**
+and **lacebark pine / Pinus bungeana**, with 21-metre and 27-metre prototypes.
+Each is 1,910 triangles with wind weights, a 256px foliage atlas and a shared
+64px bark atlas. The smaller lakeside Chinese pines remain along the public road.
+Fahai's actual ancient white-barked pines and cypresses informed the choice:
+[Beijing's Fahai account](https://www.beijing.gov.cn/renwen/sy/whkb/201912/t20191226_1867617.html).
+Mature arborvitae's irregular crown and flattened leaf sprays follow
+[Flora of China](https://www.iplant.cn/foc/pdf/Platycladus.pdf).
+
+Edit [g_intro_temple_layout.py](g_intro_temple_layout.py) for building pads,
+mountain contours, grove clearances and wing locations. The runtime terrain and
+Blender architecture share those coordinates. The terrain uses parallel
+world-space sections and smooth heightfield normals to avoid folded mountain
+passes. Roads keep their own constant-width geometry.
+
+Rebuild the assets independently of the car:
+
+```powershell
+& 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python build_intro_forest.py
+& 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python build_intro_temple.py
+python temple_intro_mountainside_review.py
+```
+
+Blender sources: [mountain_forest.blend](art/temple/intro/mountain_forest.blend)
+and [temple_approach.blend](art/temple/intro/temple_approach.blend).
+The new foliage was generated with built-in ImageGen and reduced with alpha
+preserved: [source](art/temple/intro/mountain_foliage_source.png),
+[256px runtime atlas](art/temple/intro/mountain_foliage.png),
+[exact generation prompt](art/temple/intro/mountain_foliage_prompt.txt).
+
+The muted mountainside review captures the pass, cabin, lateral wings, upper
+courts and night arrival, plus an animated approach. It checks uploaded terrain
+at 1,386 lane-centre and wheel-track positions. Latest local measurement: about
+25 seconds to preload, 11.5ms median frame including readback at 480x270 in the
+sampled approach; this excludes window presentation. Results are under
+`artifacts/intro-mountainside/`.
+
+### Editor and gameplay checks
+
 ```powershell
 python -m unittest test_cinematics_editor test_temple_intro -q
 python moonlit_water_temple_3d.py --cinematics-editor-review

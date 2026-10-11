@@ -139,16 +139,16 @@
       "triangles": 88
     },
     "temple_facade": {
-      "vertices": 98372,
-      "triangles": 49096,
+      "vertices": 95464,
+      "triangles": 47642,
       "texture": [
         256,
         256
       ]
     },
     "temple_halls": {
-      "vertices": 126084,
-      "triangles": 62942,
+      "vertices": 244684,
+      "triangles": 122122,
       "texture": [
         256,
         256
@@ -161,6 +161,39 @@
         256,
         256
       ]
+    },
+    "temple_cypress_a": {
+      "vertices": 2119,
+      "triangles": 1910,
+      "height": 21,
+      "species": "Platycladus orientalis",
+      "texture": [
+        256,
+        256
+      ],
+      "wind_uv": true
+    },
+    "temple_cypress_b": {
+      "vertices": 2119,
+      "triangles": 1910,
+      "height": 21,
+      "species": "Platycladus orientalis",
+      "texture": [
+        256,
+        256
+      ],
+      "wind_uv": true
+    },
+    "lacebark_pine": {
+      "vertices": 2119,
+      "triangles": 1910,
+      "height": 27,
+      "species": "Pinus bungeana",
+      "texture": [
+        256,
+        256
+      ],
+      "wind_uv": true
     }
   },
   "car": {
@@ -242,17 +275,30 @@
     "lake_height": -1.35,
     "temple_stairs": 54,
     "temple_rise": 10.8,
-    "temple_role": "Terraced mountain complex above an arrival clearing; separate from playable water courtyard",
+    "temple_role": "Wooded mountainside courts with asymmetric hillside wings; separate from playable water courtyard",
     "reference": "Fahai Temple atmosphere/entrance; Santana video lakeside drive",
     "volumetric_fog": true,
-    "temple_width": 72,
+    "temple_width": 194.2,
     "temple_depth": 139,
     "temple_texture": [
       256,
       256
     ],
-    "temple_halls": 11,
-    "temple_reference": "Fahai atmosphere; fictional terraced composition"
+    "temple_halls": 17,
+    "temple_reference": "Fahai atmosphere; fictional terraced composition",
+    "mountain_trees": [
+      "temple_cypress_a",
+      "temple_cypress_b",
+      "lacebark_pine"
+    ],
+    "mountain_species": [
+      "Platycladus orientalis",
+      "Pinus bungeana"
+    ],
+    "mountain_bark_texture": [
+      64,
+      64
+    ]
   },
   "reference": "artdev/car_reference.png",
   "cabin_camera": [

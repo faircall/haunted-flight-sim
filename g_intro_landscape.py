@@ -1,10 +1,12 @@
 """The fictional temple's lakeside approach; bounded, road-fixed placement."""
 import math
 from functools import lru_cache
+from g_intro_temple_layout import mountain_height,mountain_weight
 
 LAKE_HEIGHT=-1.35
 LAKE_EDGE=4.4
 TREE_MODELS=('chinese_pine_a','chinese_pine_b','chinese_pine_c')
+MOUNTAIN_TREES=('temple_cypress_a','temple_cypress_b','lacebark_pine')
 RIDGE_MODELS=('ridge_a','ridge_b','ridge_c')
 STAIR_COUNT=54
 STAIR_RISE=.20
@@ -37,8 +39,8 @@ def clearing_amount(station,side,arrival=DEFAULT_ARRIVAL):
 
 
 def temple_ground(station,side,arrival=DEFAULT_ARRIVAL):
-    x,z=local_world_point(*terrain_point(station,side,arrival),arrival,arrival)
-    return (-132<z<10 and abs(x)<39) or clearing_amount(station,side,arrival)>.02
+    x,z=local_world_point(*world_point(station,side,arrival),arrival,arrival)
+    return (-205<z<38 and abs(x)<142) or clearing_amount(station,side,arrival)>.02
 
 
 def trail_fraction(station,arrival=DEFAULT_ARRIVAL):return smooth((station-junction_station(arrival))/28)
@@ -130,12 +132,9 @@ def local_point(station,side,distance,arrival=DEFAULT_ARRIVAL):
 
 
 def terrain_point(station,side,arrival=DEFAULT_ARRIVAL):
-    x,z=world_point(station,side,arrival)
-    # Far hillside sections use the gentle valley orientation, avoiding folds
-    # where long offset normals would intersect across the tighter dirt turn.
-    amount=smooth((abs(side)-12)/28)
-    slope=main_road_slope(station);metric=math.sqrt(1+slope*slope)
-    return x*(1-amount)+(road_x(station,arrival)+side/metric)*amount,z*(1-amount)+(-station+side*slope/metric)*amount
+    # Parallel world-space sections cannot fold at an inside road bend. The road
+    # itself still uses normals for constant width; the ground is a heightfield.
+    return road_x(station,arrival)+side,-station
 
 
 def local_world_point(x,z,distance,arrival=DEFAULT_ARRIVAL):
@@ -165,10 +164,10 @@ def trees_between(start,end,arrival=DEFAULT_ARRIVAL):
             if row==3 and i%5 and not trail:continue
             side=(4.8+(seed%17)/6 if trail else 3.15) if row==3 else -(5.0+row*10+((seed>>7)&15)/5)
             if bridge_distance(station)<BRIDGE_HALF+5 or temple_ground(station,side,arrival):continue
-            yield dict(y=bank_height(station,side,arrival),
+            yield dict(y=ground_height(*world_point(station,side,arrival),arrival),
                            station=station,side=side,
                            scale=.88+((seed>>(row*6+9))&15)/30,
-                           kind=TREE_MODELS[(seed+row)%3],yaw=(seed+row*77)%360,seed=seed)
+                           kind=(MOUNTAIN_TREES if trail else TREE_MODELS)[(seed+row)%3],yaw=(seed+row*77)%360,seed=seed)
 
 
 def ridges(distance,arrival=DEFAULT_ARRIVAL):
@@ -240,22 +239,49 @@ def main_bank_height(station,side):
     return height
 
 
-def bank_height(station,side,arrival=DEFAULT_ARRIVAL):
-    if station<=junction_station(arrival):height=main_bank_height(station,side)
-    else:
-        main_s,main_side=main_coordinates(*terrain_point(station,side,arrival))
-        height=main_bank_height(main_s,main_side)
-        cut=1-smooth((abs(side)-2.1)/36)
-        cut*=smooth((abs(main_side)-1.92)/.38)
-        verge=max(0.,abs(side)-2.1)*(.24 if side<0 else -.12)
-        height=height*(1-cut)+(road_height(station,arrival)-.035+verge)*cut
-    # The raised gateway needs a small level landing, including the foundations
-    # beside its stairs; the lake-facing bank drops away beyond that landing.
-    tx,tz=local_world_point(*terrain_point(station,side,arrival),arrival,arrival)
-    landing=smooth((-tz+62)/18)*(1-smooth((-tz-130)/30))
-    landing*=1-smooth((abs(tx)-42)/36)
-    height=height*(1-landing)+(road_height(station,arrival)-.035)*landing
+def route_coordinates(x,z,arrival=DEFAULT_ARRIVAL):
+    station=-z
+    for _ in range(9):
+        slope=road_slope(station,arrival);dx=road_x(station,arrival)-x
+        step=(slope*dx+station+z)/max(.7,1+slope*slope+road_curve(station,arrival)*dx)
+        station-=max(-7.,min(7.,step))
+    slope=road_slope(station,arrival)
+    return station,((x-road_x(station,arrival))+slope*(z+station))/math.sqrt(1+slope*slope)
+
+
+@lru_cache(maxsize=240000)
+def ground_height(x,z,arrival=DEFAULT_ARRIVAL):
+    main_s,main_side=main_coordinates(x,z)
+    height=main_bank_height(main_s,main_side)
+    # The rivers are world-space ribbons. Far from the road the approximate
+    # valley projection must not shift their carved bed away from that ribbon.
+    for bridge in BRIDGES:
+        if abs(main_s-bridge)>80:continue
+        _,cz=world_point(river_station(bridge,main_side),main_side,main=True)
+        channel=1-smooth((abs(z-cz)-river_half_width(main_side))/(3.4+max(0.,-main_side-6)*.28))
+        if channel:height=min(height,height*(1-channel)+(river_height(main_side)-.65)*channel)
+    if -z>junction_station(arrival)-12:
+        tx,tz=local_world_point(x,z,arrival,arrival)
+        mountain=mountain_weight(tx,tz)*smooth((abs(main_side)-4)/25)
+        if mountain:height=height*(1-mountain)+(21+mountain_height(tx,tz))*mountain
+        # Broad, varying verges ease into rounded banks. Restrict projection to
+        # the road's vicinity; distant ground never projects onto another bend.
+        horizontal=abs(x-road_x(-z,arrival))
+        if horizontal<110 and -z<arrival+5:
+            station,side=route_coordinates(x,z,arrival)
+            width=(44 if side<0 else 80)+7*math.sin(station*.046)+4*math.cos(station*.091)
+            cut=1-smooth((abs(side)-3.2)/width)
+            cut*=smooth((abs(main_side)-2.2)/1.2)*(1-smooth((station-arrival+28)/28))
+            verge=max(0.,abs(side)-3.2)
+            contour=verge*(.12 if side<0 else -.045)+.55*math.sin(station*.12+side*.08)*smooth(verge/9)
+            height=height*(1-cut)+(road_height(station,arrival)-.09+contour)*cut
+        clearing=(1-smooth((abs(tx)-14)/12))*smooth((tz-8)/8)*(1-smooth((tz-43)/14))
+        height=height*(1-clearing)+(21-.035)*clearing
     return height
+
+
+def bank_height(station,side,arrival=DEFAULT_ARRIVAL):
+    return ground_height(*terrain_point(station,side,arrival),arrival)
 
 
 def main_side_on_section(station,side,arrival=DEFAULT_ARRIVAL):

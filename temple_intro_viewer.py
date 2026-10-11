@@ -11,7 +11,7 @@ from g_temple_intro import Intro,load_script,local_point,road_slope,scenery,wipe
 from g_temple_cinematics import sample_camera,default_camera
 from g_intro_landscape import (LAKE_HEIGHT,ridges,road_yaw,last_electric_light,road_x,road_curve,bank_height,
                                bridge_distance,road_height,car_pose,car_point,junction_station,
-                               DRAW_BEHIND,DRAW_AHEAD,terrain_point,local_world_point)
+                               DRAW_BEHIND,DRAW_AHEAD,terrain_point,local_world_point,world_point,ground_height)
 from temple_intro_fog import Mist,depth_target
 from temple_intro_terrain import Terrain,Builder,prototype
 from temple_intro_sky import Sky
@@ -118,7 +118,7 @@ class View:
                         # owned value: model unload frees the maps before we
                         # release these shared textures in close().
                         self.textures[texture.id]=pr.ffi.new('Texture2D *',texture)[0]
-                        if name.startswith('chinese_pine') or name in ('shrub','fern'):
+                        if name.startswith(('chinese_pine','temple_cypress','lacebark_pine')) or name in ('shrub','fern'):
                             owned=pr.ffi.new('Texture2D *',texture);pr.gen_texture_mipmaps(owned)
                             material.maps[pr.MATERIAL_MAP_DIFFUSE].texture=owned[0]
                             self.textures[texture.id]=owned[0]
@@ -126,15 +126,32 @@ class View:
                         else:pr.set_texture_filter(texture,pr.TEXTURE_FILTER_POINT)
             self.terrain=Terrain(self.models,self.scene_shader)
             self.terrain.warm_route(Intro(load_script()).arrival_station)
-            # Planted terrace pines break up the retaining walls and frame the
-            # stair axis; batched as two models rather than individual draws.
-            trees={name:Builder() for name,_,_ in self.terrain.forest}
-            positions=[(side*x,y,z,size) for side in (-1,1) for x,y,z,size in
-                       ((18,0,21,1.7),(22,6,-8,1.2),(19,8,-13.1,1.25),(22,10,-18.4,1.15))]
-            for i,(x,y,z,size) in enumerate(positions):
-                for name,data,_ in self.terrain.forest:
-                    trees[name].instance(data,(x,y,z),size,i*1.73,(173,195,170,255))
-            for name,_,texture in self.terrain.forest:self.models['temple_'+name]=trees[name].model(self.scene_shader,texture)
+            # Chinese temple groves grow from the same physical terrain as the
+            # building pads, with gaps for halls, galleries and the stair axis.
+            from g_intro_temple_layout import grove,occupied
+            from g_intro_landscape import ground_height,road_x,road_slope
+            trees={name:Builder() for name,_,_ in self.terrain.mountain}
+            arrival=Intro(load_script()).arrival_station
+            yaw=-math.atan(road_slope(arrival));c,ss=math.cos(yaw),math.sin(yaw)
+            for i,(x,z,kind,size,angle) in enumerate(grove()):
+                wx=x*c+z*ss+road_x(arrival);wz=-x*ss+z*c-arrival
+                y=ground_height(wx,wz,arrival)-21-.10
+                for data in self.terrain.trees[kind]:
+                    name='mountain_leaf' if data[3][:,0].max()>.1 else 'mountain_wood'
+                    trees[name].instance(data,(x,y,z),size,angle,(229,241,222,255))
+            for name,_,texture in self.terrain.mountain:self.models['temple_'+name]=trees[name].model(self.scene_shader,texture)
+            import random
+            rng=random.Random(716);thickets=Builder()
+            for i in range(1300):
+                x=rng.uniform(-136,136);z=rng.uniform(-182,32)
+                if occupied(x,z,1.8) or (z>8 and abs(x)<22):continue
+                # Group undergrowth into interrupted patches, leaving mossy earth.
+                if math.sin(x*.22+math.cos(z*.15))+math.sin(z*.25)<-.25:continue
+                wx=x*c+z*ss+road_x(arrival);wz=-x*ss+z*c-arrival
+                y=ground_height(wx,wz,arrival)-21-.03
+                kind='shrub' if i%3 else 'fern'
+                thickets.instance(self.terrain.prototypes[kind],(x,y,z),rng.uniform(.75,1.75),rng.random()*math.tau,(189,222,169,255))
+            self.models['temple_undergrowth']=thickets.model(self.scene_shader,self.terrain.texture)
             for name,mesh in (('ground',pr.gen_mesh_plane(240,240,1,1)),('lake',pr.gen_mesh_plane(1600,1800,1,1)),('road',pr.gen_mesh_plane(3.8,6.8,1,1)),('cube',pr.gen_mesh_cube(1,1,1))):
                 model=pr.load_model_from_mesh(mesh);model.materials[0].shader=self.scene_shader;self.models[name]=model
             self.models['lake'].materials[0].maps[pr.MATERIAL_MAP_METALNESS].texture=self.reflection.texture
@@ -248,6 +265,8 @@ class View:
         if not mirror_view:self.draw_calls+=self.terrain.draw('plants',d)
         self.draw_calls+=self.terrain.draw('forest_wood',d)
         self.draw_calls+=self.terrain.draw('forest_leaf',d)
+        self.draw_calls+=self.terrain.draw('mountain_wood',d)
+        self.draw_calls+=self.terrain.draw('mountain_leaf',d)
         pr.rl.rlEnableBackfaceCulling();self.uniform(s,'surface',0,'int')
         self.draw_calls+=self.terrain.draw('utilities',d)
         # The last inhabited stretch gives way to an unlit, isolated approach.
@@ -255,11 +274,11 @@ class View:
             station=i*110-12
             if station>last_electric_light(intro.arrival_station):continue
             hx,hz=local_point(station+25,-8.5,d,intro.arrival_station)
-            self.draw('house',(hx,bank_height(station+25,-8.5,intro.arrival_station),hz),(.72,)*3,yaw=20+math.degrees(math.atan(road_slope(d,intro.arrival_station))))
+            self.draw('house',(hx,ground_height(*world_point(station+25,-8.5,intro.arrival_station),intro.arrival_station),hz),(.72,)*3,yaw=20+math.degrees(math.atan(road_slope(d,intro.arrival_station))))
         sign_station=junction_station(intro.arrival_station)-3
         x,z=local_point(sign_station,-3.3,d,intro.arrival_station)
         if -260<z<260:
-            height=bank_height(sign_station,-3.3,intro.arrival_station)
+            height=ground_height(*world_point(sign_station,-3.3,intro.arrival_station),intro.arrival_station)
             self.draw('cube',(x,height+1.0,z),(.08,2.0,.08),tint=pr.Color(91,96,82,255))
             self.draw('sign',(x,height+1.77,z),yaw=road_yaw(sign_station,d,intro.arrival_station))
         x,z=local_point(intro.arrival_station,0,d,intro.arrival_station)
@@ -269,7 +288,7 @@ class View:
             for name in ('temple_facade','temple_halls'):self.draw(name,position,yaw=yaw)
             self.uniform(s,'surface',14,'int');self.draw('temple_lamps',position,yaw=yaw)
             self.uniform(s,'surface',3,'int');pr.rl.rlDisableBackfaceCulling()
-            for name in ('temple_forest_wood','temple_forest_leaf'):self.draw(name,position,yaw=yaw)
+            for name in ('temple_mountain_wood','temple_mountain_leaf','temple_undergrowth'):self.draw(name,position,yaw=yaw)
             pr.rl.rlEnableBackfaceCulling()
             self.uniform(s,'surface',0,'int')
         if reflection or mirror_view:return

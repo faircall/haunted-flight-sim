@@ -9,6 +9,8 @@ from g_intro_landscape import STAIR_COUNT,STAIR_RISE
 def build(out,models,Mesh):
     from build_intro_undergrowth import build as build_undergrowth
     build_undergrowth(out,models)
+    from build_intro_forest import build as build_forest
+    build_forest(out,models)
     leaf=bpy.data.materials.new('Chinese pine / painted needle cutouts');leaf.use_nodes=True
     image=bpy.data.images.load(str(out/'pine_foliage.png'));image.pack()
     node=leaf.node_tree.nodes.new('ShaderNodeTexImage');node.image=image;node.interpolation='Closest'

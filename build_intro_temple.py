@@ -13,6 +13,7 @@ from mathutils import Vector
 
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
+from g_intro_temple_layout import WINGS,GALLERIES
 from g_intro_landscape import STAIR_COUNT,STAIR_RISE,STAIR_TREAD,STAIR_FLIGHT,STAIR_LANDING,stair_z
 
 
@@ -189,17 +190,18 @@ def build(out,models):
             front.beam((x,a*STAIR_RISE+1.1,za),(x,(b+1)*STAIR_RISE+1.1,zb),.21,.22,'cap')
             for j in range(0,19,3):
                 t=j/18;front.box((x,a*STAIR_RISE+(b+1-a)*STAIR_RISE*t+.7,za+(zb-za)*t),(.3,1.1,.3),'cap')
-    # Broad stepped retaining terraces, with a lower wall framing the stairway.
+    # Shallow retaining bands emerge from earth. The mountain supplies the mass
+    # beneath every court, eliminating the freestanding fortress pedestal.
     for side in (-1,1):
-        for j in range(5):
-            y=(j+1)*2.0;z=5.5-j*5.3
-            front.box((side*16,y/2,z-2.7),(19.2,y,5.8),'stone')
-            front.box((side*16,y+.06,z),(19.5,.22,.64),'cap')
-        front.box((side*18,base/2,-26),(25,base,12),'stone')
-        front.box((side*19,base+1.4,-22),(22,2.8,.85),'red')
-        roof(front,side*19,base+2.8,-22,23,1.6,.65)
+        for j in range(3):
+            y=3.6*(j+1);z=1.0-j*10.0
+            front.box((side*10.3,y-.72,z),(8.8,1.44,.6),'stone')
+            front.box((side*10.3,y+.02,z),(9.1,.18,.76),'cap')
+        front.box((side*18,base-.38,-26),(25,.76,12),'stone')
+        front.box((side*18,base+.98,-22),(19,1.96,.65),'red')
+        roof(front,side*18,base+1.96,-22,20,1.5,.55)
         rail(front,side*6,-19.7,side*30,-19.7,base)
-    front.box((0,base/2,-27),(12,base,12),'stone')
+    front.box((0,base-.36,-27),(12,.72,12),'stone')
     hall(front,0,base,-26,19,8,5.1,3,open_gate=True)
     for side in (-1,1):
         hall(front,side*27,base,-30,10,9,5.6,3,double=True)
@@ -209,14 +211,11 @@ def build(out,models):
         roof(front,side*9,2.2,6,2.3,1.4,.6)
     # Successive courtyards ascend behind the entrance. Multiple roof silhouettes
     # are visible from the clearing instead of one enlarged facade rectangle.
-    rear.box((0,base/2,-46),(66,base,29),'stone')
+    rear.box((0,base-.30,-43),(66,.60,22),'stone')
     for side in (-1,1):
         hall(rear,side*26,base+.25,-44,12,20,4.5,3)
-        rear.box((side*35,base+1.5,-54),(.8,3.,66),'red')
-        rear.box((side*35,base+3.1,-54),(1.2,.26,67),'roof')
-        rear.box((side*35,base+3.27,-54),(.3,.15,67),'ridge')
     upper=base+10.8
-    rear.box((0,upper/2,-76),(64,upper,29),'stone')
+    rear.box((0,upper-.35,-76),(64,.70,29),'stone')
     for i in range(54):
         h=base+(i+1)*.2;rear.box((0,(h+base)/2,-44-i*.32),(12,h-base+.02,.34),'stone')
     hall(rear,0,upper,-73,33,15,7.0,7,double=True)
@@ -224,13 +223,27 @@ def build(out,models):
         rail(rear,side*7,-61.5,side*31,-61.5,upper)
         hall(rear,side*25,upper,-80,13,13,5.2,3)
     summit=upper+10.8
-    rear.box((0,summit/2,-117),(53,summit,26),'stone')
+    rear.box((0,summit-.35,-117),(53,.70,26),'stone')
     for i in range(54):
         h=upper+(i+1)*.2;rear.box((0,(h+upper)/2,-86.5-i*.32),(10,h-upper+.02,.34),'stone')
     hall(rear,0,summit,-117,28,15,7.2,5,double=True)
     for side in (-1,1):
         hall(rear,side*20,summit,-116,8,12,4.6,3)
         rail(rear,side*5.5,-104,side*25,-104,summit)
+    # Asymmetric subsidiary halls follow separate contours far beyond the gate.
+    # Open-sided galleries appear and disappear into the groves between them.
+    for x,z,y,w,d,h,bays,double in WINGS:
+        hall(rear,x,y,z,w,d,h,bays,double=double)
+        rear.box((x,y-.65,z+d/2+.8),(w+3,1.3,.7),'stone')
+        rail(rear,x-w/2,z+d/2+1.3,x+w/2,z+d/2+1.3,y)
+        for i in range(8):
+            step_y=y-.18*i;step_x=x-math.copysign(w/2+1+i*.38,x)
+            rear.box((step_x,step_y-.35,z+2),(.42,.70,2.8),'stone')
+    for x,z,y,length in GALLERIES:
+        rear.box((x,y-.24,z),(length,.48,3.2),'stone')
+        for xx in (x-length/2,x-length/4,x,x+length/4,x+length/2):
+            for zz in (z-1.2,z+1.2):rear.column(xx,y,zz,.14,3.2,'red')
+        roof(rear,x,y+3.3,z,length+1.4,4,1.1)
     # Two modest pools of warm light leave the temple mostly dark and empty.
     for x,z,y in ((-6.3,-20.7,base+3.6),(6.3,-20.7,base+3.6),(-14,-64.5,upper+4.8),(14,-64.5,upper+4.8)):
         front.beam((x,y+.6,z),(x,y+.25,z),.04,.04,'wood')
@@ -238,9 +251,12 @@ def build(out,models):
         front.box((x,y+.27,z),(.44,.08,.44),'wood');front.box((x,y-.27,z),(.40,.09,.40),'wood')
         for sign in (-1,1):front.box((x+sign*.16,y,z+.19),(.035,.49,.04),'wood')
     for mesh in (front,rear,lamps):mesh.export()
-    report=dict(temple_stairs=STAIR_COUNT,temple_rise=base,temple_width=72,temple_depth=139,
-                temple_role='Terraced mountain complex above an arrival clearing; separate from playable water courtyard',
-                temple_texture=[256,256],temple_halls=11,temple_reference='Fahai atmosphere; fictional terraced composition')
+    width=max(p[0] for p in front.v+rear.v)-min(p[0] for p in front.v+rear.v)
+    report=dict(temple_stairs=STAIR_COUNT,temple_rise=base,temple_width=round(width,1),temple_depth=139,
+                temple_role='Wooded mountainside courts with asymmetric hillside wings; separate from playable water courtyard',
+                temple_texture=[256,256],temple_halls=17,temple_reference='Fahai atmosphere; fictional terraced composition',
+                mountain_trees=['temple_cypress_a','temple_cypress_b','lacebark_pine'],
+                mountain_species=['Platycladus orientalis','Pinus bungeana'],mountain_bark_texture=[64,64])
     return report
 
 
