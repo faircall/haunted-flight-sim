@@ -94,7 +94,7 @@ class IntroTests(unittest.TestCase):
             self.assertEqual(local_point(distance,0,distance),(0.,0.))
             x,z=local_point(distance+.001,0,distance)
             self.assertLess(abs(x),1e-7);self.assertLess(z,0)
-            items=list(scenery(distance));self.assertLessEqual(len(items),300)
+            items=list(scenery(distance));self.assertLessEqual(len(items),500)
             self.assertTrue(all(-348<t['z']<348 and math.isfinite(t['x']) for t in items))
             self.assertEqual(items,list(scenery(distance)))
 

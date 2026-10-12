@@ -108,11 +108,26 @@ class LandscapeTests(unittest.TestCase):
     def test_trees_keep_water_open_and_clear_the_drivable_road(self):
         for distance in (0,173,850,1400,1e6):
             trees=list(scenery(distance));left=[t for t in trees if t['side']<0];right=[t for t in trees if t['side']>0]
-            self.assertGreater(len(left),len(right)*2)
+            lakeside=[t for t in trees if trail_fraction(t['station'])<.5]
+            if lakeside:self.assertGreater(sum(t['side']<0 for t in lakeside),sum(t['side']>0 for t in lakeside)*2)
             self.assertTrue(all(abs(t['side'])>2.7 for t in trees))
             self.assertTrue(all(t['side']<LAKE_EDGE or trail_fraction(t['station'])>.5 for t in trees))
             self.assertTrue(all(t['kind'] in TREE_MODELS+MOUNTAIN_TREES for t in trees))
-            self.assertLessEqual(len(trees),300)
+            self.assertLessEqual(len(trees),500)
+
+    def test_both_mountain_verges_and_the_road_not_taken_have_independent_forest(self):
+        from g_intro_landscape import trees_between,public_road_trees,route_coordinates
+        start=junction_station()+45;end=DEFAULT_ARRIVAL-70
+        trees=list(trees_between(start,end))
+        left=[t for t in trees if t['side']<0];right=[t for t in trees if t['side']>0]
+        self.assertGreater(len(right),25);self.assertLess(abs(len(left)-len(right)),10)
+        self.assertGreater(sum(t['side']>20 for t in right),8)
+        public=list(public_road_trees(junction_station()+35,DEFAULT_ARRIVAL+180))
+        self.assertGreater(len(public),100)
+        self.assertGreater(sum(t['station']>DEFAULT_ARRIVAL for t in public),35)
+        for tree in public:
+            self.assertGreater(abs(tree['side']),3.4)
+            self.assertGreater(abs(route_coordinates(tree['x'],tree['z'])[1]),4.9)
 
     def test_private_track_leaves_a_separate_continuing_public_road(self):
         for arrival in (DEFAULT_ARRIVAL,1750):

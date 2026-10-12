@@ -9,7 +9,7 @@ from g_intro_landscape import (CHUNK_LENGTH,BRIDGES,world_point,road_x,road_slop
                                main_bank_height,main_road_height,main_road_x,main_coordinates,
                                trail_fraction,junction_station,shore_distance,river_station,
                                river_height,river_half_width,BRIDGE_HALF,DRAW_BEHIND,DRAW_AHEAD,main_side_on_section,
-                               RIVER_UPSTREAM,RIVER_DOWNSTREAM,clearing_amount,temple_ground,ground_height,MOUNTAIN_TREES)
+                               RIVER_UPSTREAM,RIVER_DOWNSTREAM,clearing_amount,temple_ground,ground_height,MOUNTAIN_TREES,public_road_trees,route_coordinates)
 
 
 class Builder:
@@ -182,12 +182,12 @@ class Terrain:
         for i in range(190):
             station=start+rng.random()*CHUNK_LENGTH
             trail=trail_fraction(station,arrival)>.5
-            side=(-3.8-rng.random()**1.65*42) if (i%3 if trail else i%10) else (3.6+rng.random()*18 if trail else 4+rng.random()*12)
+            side=(-3.8-rng.random()**1.65*42) if (i%2 if trail else i%10) else (3.6+rng.random()*36 if trail else 4+rng.random()*12)
             if bridge_distance(station)<BRIDGE_HALF+5 or temple_ground(station,side,arrival):continue
             y=soil(station,side)
             if y<-.45:continue
             species='fern' if i%3 else 'shrub';size=rng.uniform(.65,1.28) if species=='fern' else rng.uniform(1.0,2.1)
-            if side>0:size*=.55
+            if side>0 and not trail:size*=.55
             position=np.asarray(route(station,side,y-.035),dtype=np.float32)
             green=rng.randrange(205,256)
             plants.instance(self.prototypes[species],position,size,rng.random()*math.tau,(green,255,green-15,255))
@@ -200,12 +200,30 @@ class Terrain:
                 prefix='mountain_' if tree['kind'] in MOUNTAIN_TREES else 'forest_'
                 name=prefix+('leaf' if data[3][:,0].max()>.1 else 'wood')
                 forest[name].instance(data,position,tree['scale'],math.radians(tree['yaw']),colour)
-        for i in range(9):
-            station=start+rng.random()*CHUNK_LENGTH;side=-34-rng.random()*29
+        for tree in public_road_trees(start,start+CHUNK_LENGTH,arrival):
+            position=np.asarray((tree['x']-origin,tree['y'],tree['z']+start))
+            for data in self.trees[tree['kind']]:
+                name='forest_leaf' if data[3][:,0].max()>.1 else 'forest_wood'
+                forest[name].instance(data,position,tree['scale'],math.radians(tree['yaw']),(227,246,217,255))
+        for i in range(18):
+            station=start+rng.random()*CHUNK_LENGTH;trail=station>junction_station(arrival)+20
+            if i>=9 and not trail:continue
+            side=(-1 if i%2 or not trail else 1)*(34+rng.random()*29)
             if bridge_distance(station)<BRIDGE_HALF+5 or temple_ground(station,side,arrival):continue
             position=np.asarray(route(station,side,soil(station,side)),dtype=np.float32)
             scale=rng.uniform(1.1,1.7);yaw=rng.random()*math.tau
             for name,data,_ in (self.mountain if station>junction_station(arrival)+15 else self.forest):forest[name].instance(data,position,scale*.7 if name.startswith('mountain') else scale,yaw,(227,250,225,255))
+        # Dense low scrub beneath the continuing road's independent pine groves.
+        if start+CHUNK_LENGTH>junction_station(arrival):
+            for i in range(90):
+                station=start+rng.random()*CHUNK_LENGTH
+                if station<junction_station(arrival)+8:continue
+                side=-3.9-rng.random()*28;x,z=world_point(station,side,main=True)
+                if abs(route_coordinates(x,z,arrival)[1])<3.8:continue
+                y=ground_height(x,z,arrival)
+                if y<-.6:continue
+                plants.instance(self.prototypes['shrub' if i%3 else 'fern'],np.asarray((x-origin,y-.03,z+start)),
+                                rng.uniform(.8,1.7),rng.random()*math.tau,(201,236,183,255))
         # Irregular low thickets follow the public shoreline past the turnoff.
         for i in range(150):
             station=start+rng.random()*CHUNK_LENGTH

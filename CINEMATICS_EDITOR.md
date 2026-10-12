@@ -83,6 +83,12 @@ to the sides. The 54 entrance steps and central sightline stay open, while
 
 The mountain forest uses mature **Chinese arborvitae / Platycladus orientalis**
 and **lacebark pine / Pinus bungeana**, with 21-metre and 27-metre prototypes.
+The private climb now has three irregular near-tree rows on each side, deeper
+forest behind both verges and balanced undergrowth. The continuing public road
+has its own planting and shrub batches in public-road coordinates, so those
+trees keep following the lakeside road after the car turns away. Planting clears
+both carriageways. `python temple_intro_forest_review.py` captures both routes
+and checks the uploaded road geometry with audio muted.
 Each is 1,910 triangles with wind weights, a 256px foliage atlas and a shared
 64px bark atlas. The smaller lakeside Chinese pines remain along the public road.
 Fahai's actual ancient white-barked pines and cypresses informed the choice:

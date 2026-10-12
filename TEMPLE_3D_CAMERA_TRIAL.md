@@ -10,6 +10,65 @@ Or double-click `play_temple_3d.cmd`. The launcher selects the local **Raylib
 reuses the already-installed Python game dependencies; the original global
 Raylib 5.0 installation and native C comparison are unchanged.
 
+## Separate painted temple interior
+
+Double-click [play_temple_interior.cmd](play_temple_interior.cmd), or run:
+
+```powershell
+python moonlit_water_temple_3d.py --interior
+```
+
+This is a separate, playable art study of a main hall, both mural aisles, the
+passage behind the shrine and a rainy porch. It uses the accepted player rig
+and tank controls, with automatic fixed-camera cuts. It does not connect to
+the intro's arrival or read/write the water-courtyard gameplay save.
+
+| Control | Action |
+| --- | --- |
+| W / S, A / D | Walk forward/back; turn left/right |
+| Shift | Run |
+| 1–7 / 0 | Select an inspection composition / restore automatic cameras |
+| F | Free camera; mouse to look, WASD to move, Q/E for height |
+| L | Toggle the daylight colour study |
+| Tab / H | Toggle player / controls overlay |
+| Home / F12 / Esc | Reset / capture / exit |
+
+The hall has three seated figures, layered lotus pedestals, offering vessels,
+incense, painted bracket sets, three recessed mandala ceilings and full roof
+undersides. Warm lamps contrast with cool lattice light and the rainy exterior.
+The original generated paintings draw on the procession murals and Water-Moon
+Guanyin shown in the [first reference clip](https://www.youtube.com/watch?v=W07UAbYXJuc)
+and the [Fahai walkthrough](https://www.youtube.com/watch?v=ZKio-KcdQKU).
+This is a fictional hall for the game, not a measured reconstruction.
+
+Asset source: [temple_interior.blend](art/temple/interior/temple_interior.blend).
+Geometry is authored by [build_temple_interior.py](build_temple_interior.py);
+collision, lighting positions and camera compositions live in
+[g_temple_interior.py](g_temple_interior.py). The scene is about 75,000 triangles,
+rendered at 640×360. Materials use 128px tiles with generous mip gutters in a
+1024px atlas; wall paintings use four 512px panels in a 1024px atlas.
+
+Built-in ImageGen produced the original
+[murals](art/temple/interior/murals_source.png) and
+[painted ornament](art/temple/interior/ornament_source.png).
+Exact prompts: [murals](art/temple/interior/murals_prompt.txt),
+[ornament](art/temple/interior/ornament_prompt.txt).
+The runtime sheets are [murals.png](art/temple/interior/murals.png),
+[ornament.png](art/temple/interior/ornament.png), and the packed
+[architecture.png](art/temple/interior/architecture.png).
+
+```powershell
+python prepare_temple_interior_textures.py
+& 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python build_temple_interior.py
+python moonlit_water_temple_3d.py --interior-review
+python -m unittest test_temple_interior test_intro_landscape
+```
+
+The native review opens no audio device. It captures twelve views and an animated
+walk, checks passage access and samples the actual game renderer. Geometry tests
+ray-check the floor, ceiling and roof undersides, including oblique views into
+the caissons. Previews and timing results are in `artifacts/temple-interior/`.
+
 ## Back-seat introduction
 
 Press **F2 during the drive** to open the camera/timeline editor, or double-click

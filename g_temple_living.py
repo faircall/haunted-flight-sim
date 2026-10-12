@@ -14,7 +14,7 @@ ANIMATION_SAMPLE_SECONDS = .017
 
 
 class LivingScene:
-    def __init__(self, include_willow=True, combat=False, actor='player'):
+    def __init__(self, include_willow=True, combat=False, actor='player',fragment_shader='temple_living.fs'):
         if not hasattr(pr, 'update_model_animation_bones'):
             raise RuntimeError('3D characters require Raylib 5.5. Run play_temple_3d.cmd.')
         self.shaders = []
@@ -30,6 +30,7 @@ class LivingScene:
         self.animation_frame = 0
         self.pose_blend = 1.
         self.actor=actor
+        self.fragment_shader=fragment_shader
         self.asset_root=ROOT/'art'/'temple'/'combat' if combat or actor=='redhead' else ASSETS/'models'
         self.pistol=None
         try:
@@ -60,7 +61,7 @@ class LivingScene:
             raise
 
     def load_shader(self, name):
-        shader = pr.load_shader(str(ROOT/'shaders'/(name+'.vs')),str(ROOT/'shaders'/'temple_living.fs'))
+        shader = pr.load_shader(str(ROOT/'shaders'/(name+'.vs')),str(ROOT/'shaders'/self.fragment_shader))
         if shader.id == pr.rl.rlGetShaderIdDefault():
             raise RuntimeError('Shader did not compile: '+name)
         self.shaders.append(shader)

@@ -77,6 +77,8 @@ def run(fixed_cameras=False,living_assets=False):
     parser.add_argument('--gameplay-smoke',action='store_true',help='Exercise exploration, progress saves and scene editing in a hidden native window')
     parser.add_argument('--combat-smoke',action='store_true',help='Exercise the full 3D encounter, combat animations and saved progress')
     parser.add_argument('--skip-intro',action='store_true',help='Go directly to the temple for gameplay/art iteration')
+    parser.add_argument('--interior',action='store_true',help='Explore the separate painted temple interior')
+    parser.add_argument('--interior-review',action='store_true',help='Capture and test the separate interior without audio')
     parser.add_argument('--intro-only',action='store_true',help='Preview the interactive back-seat drive, then exit')
     parser.add_argument('--intro-review',action='store_true',help='Capture the rainy car intro from several directions in a hidden native window')
     parser.add_argument('--intro-handoff-smoke',action='store_true',help='Review the intro and then run exploration checks in the same native window')
@@ -89,6 +91,9 @@ def run(fixed_cameras=False,living_assets=False):
     assets.add_argument('--classic-assets',dest='living_assets',action='store_false',help='Compare the capsule and tree billboards')
     parser.set_defaults(living_assets=living_assets)
     args=parser.parse_args();fixed_cameras=args.fixed_cameras
+    if args.interior or args.interior_review:
+        from temple_interior_viewer import run as run_interior
+        run_interior(review=args.interior_review);return
     if args.cinematics_editor or args.cinematics_editor_review:
         from temple_cinematics_editor import run
         run(review=args.cinematics_editor_review);return

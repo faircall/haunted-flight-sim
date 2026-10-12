@@ -1,0 +1,71 @@
+{
+  "scene": "temple_interior",
+  "units": "metres",
+  "separate_from_intro": true,
+  "models": {
+    "hall_shell": {
+      "triangles": 5808,
+      "vertices": 11616,
+      "primitives": 1
+    },
+    "hall_timber": {
+      "triangles": 23084,
+      "vertices": 46168,
+      "primitives": 2
+    },
+    "hall_ceiling": {
+      "triangles": 9140,
+      "vertices": 18196,
+      "primitives": 1
+    },
+    "hall_roof": {
+      "triangles": 4864,
+      "vertices": 9732,
+      "primitives": 1
+    },
+    "hall_altar": {
+      "triangles": 204,
+      "vertices": 408,
+      "primitives": 1
+    },
+    "hall_statues": {
+      "triangles": 22728,
+      "vertices": 45456,
+      "primitives": 2
+    },
+    "hall_props": {
+      "triangles": 6216,
+      "vertices": 12432,
+      "primitives": 1
+    },
+    "hall_courtyard": {
+      "triangles": 2046,
+      "vertices": 4092,
+      "primitives": 1
+    },
+    "hall_lamps": {
+      "triangles": 720,
+      "vertices": 1440,
+      "primitives": 1
+    },
+    "hall_murals": {
+      "triangles": 28,
+      "vertices": 56,
+      "primitives": 1
+    }
+  },
+  "mural_atlas": [
+    1024,
+    1024
+  ],
+  "architecture_atlas": [
+    1024,
+    1024
+  ],
+  "architecture_tile_size": 128,
+  "architecture_gutter": 64,
+  "references": [
+    "https://www.youtube.com/watch?v=W07UAbYXJuc",
+    "https://www.youtube.com/watch?v=ZKio-KcdQKU"
+  ]
+}

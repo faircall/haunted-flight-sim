@@ -156,18 +156,38 @@ def scenery(distance,arrival=DEFAULT_ARRIVAL):
 def trees_between(start,end,arrival=DEFAULT_ARRIVAL):
     for i in range(math.floor(start/8)-1,math.ceil(end/8)+1):
         seed=(i*1836311903+2971215073)&0xffffffff
-        for row in range(4):
+        for row in range(6):
             station=i*8+((seed>>(row*5))&15)/5
             if not start<=station<end:continue
             # Sparse lakeside trees frame water instead of making a green wall.
             trail=trail_fraction(station,arrival)>.5
+            if row>=4 and not trail:continue
             if row==3 and i%5 and not trail:continue
-            side=(4.8+(seed%17)/6 if trail else 3.15) if row==3 else -(5.0+row*10+((seed>>7)&15)/5)
+            side=(5.2+(row-3)*10+(seed%17)/6 if trail else 3.15) if row>=3 else -(5.0+row*10+((seed>>7)&15)/5)
             if bridge_distance(station)<BRIDGE_HALF+5 or temple_ground(station,side,arrival):continue
             yield dict(y=ground_height(*world_point(station,side,arrival),arrival),
                            station=station,side=side,
                            scale=.88+((seed>>(row*6+9))&15)/30,
                            kind=(MOUNTAIN_TREES if trail else TREE_MODELS)[(seed+row)%3],yaw=(seed+row*77)%360,seed=seed)
+
+
+def public_road_trees(start,end,arrival=DEFAULT_ARRIVAL):
+    """Independent planting follows the road we leave, not the car's branch."""
+    for i in range(math.floor(start/9),math.ceil(end/9)):
+        for row in range(4):
+            seed=(i*73856093+row*19349663)&0xffffffff
+            station=i*9+(seed%29)/10
+            if not max(start,junction_station(arrival)+10)<=station<end:continue
+            if bridge_distance(station)<BRIDGE_HALF+4:continue
+            side=3.6 if row==3 else -6-row*10-(seed%19)/7
+            if row==3 and i%3:continue
+            x,z=world_point(station,side,main=True)
+            private_s,private_side=route_coordinates(x,z,arrival)
+            if abs(private_side)<5:continue
+            y=ground_height(x,z,arrival)
+            if y<-.6:continue
+            yield dict(x=x,z=z,y=y,station=station,side=side,kind=TREE_MODELS[seed%3],
+                       scale=1.05+(seed%23)/24,yaw=seed%360)
 
 
 def ridges(distance,arrival=DEFAULT_ARRIVAL):
