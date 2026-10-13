@@ -81,6 +81,8 @@ def run(fixed_cameras=False,living_assets=False):
     parser.add_argument('--interior-review',action='store_true',help='Capture and test the separate interior without audio')
     parser.add_argument('--bamboo',action='store_true',help='Explore the separate bamboo grove and Chan room')
     parser.add_argument('--bamboo-review',action='store_true',help='Silently review the grove, fixed cameras and walkable route')
+    parser.add_argument('--rockery',action='store_true',help='Explore the separate Taihu-stone maze garden')
+    parser.add_argument('--rockery-review',action='store_true',help='Silently review rockery routes and upper/lower crossings')
     parser.add_argument('--intro-only',action='store_true',help='Preview the interactive back-seat drive, then exit')
     parser.add_argument('--intro-review',action='store_true',help='Capture the rainy car intro from several directions in a hidden native window')
     parser.add_argument('--intro-handoff-smoke',action='store_true',help='Review the intro and then run exploration checks in the same native window')
@@ -93,6 +95,9 @@ def run(fixed_cameras=False,living_assets=False):
     assets.add_argument('--classic-assets',dest='living_assets',action='store_false',help='Compare the capsule and tree billboards')
     parser.set_defaults(living_assets=living_assets)
     args=parser.parse_args();fixed_cameras=args.fixed_cameras
+    if args.rockery or args.rockery_review:
+        from rockery_viewer import run as run_rockery
+        run_rockery(review=args.rockery_review);return
     if args.bamboo or args.bamboo_review:
         from bamboo_grove_viewer import run as run_bamboo
         run_bamboo(review=args.bamboo_review);return

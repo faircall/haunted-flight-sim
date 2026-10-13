@@ -1,0 +1,94 @@
+{
+  "separate_scene": true,
+  "models": {
+    "garden_floor": {
+      "triangles": 1944,
+      "vertices": 3888,
+      "primitives": 1
+    },
+    "stone_paths": {
+      "triangles": 3794,
+      "vertices": 7504,
+      "primitives": 1
+    },
+    "high_walk": {
+      "triangles": 11824,
+      "vertices": 21932,
+      "primitives": 1
+    },
+    "garden_walls": {
+      "triangles": 288,
+      "vertices": 576,
+      "primitives": 1
+    },
+    "garden_roofs": {
+      "triangles": 6948,
+      "vertices": 13896,
+      "primitives": 1
+    },
+    "pavilion": {
+      "triangles": 948,
+      "vertices": 1896,
+      "primitives": 1
+    },
+    "garden_props": {
+      "triangles": 5600,
+      "vertices": 11200,
+      "primitives": 1
+    },
+    "garden_plants": {
+      "triangles": 38868,
+      "vertices": 77640,
+      "primitives": 2
+    },
+    "garden_lamps": {
+      "triangles": 576,
+      "vertices": 1152,
+      "primitives": 1
+    },
+    "garden_water": {
+      "triangles": 64,
+      "vertices": 192,
+      "primitives": 1
+    },
+    "garden_inscriptions": {
+      "triangles": 2,
+      "vertices": 4,
+      "primitives": 1
+    },
+    "taihu_rockery_0": {
+      "triangles": 112567,
+      "vertices": 337701,
+      "primitives": 8
+    },
+    "taihu_rockery_1": {
+      "triangles": 123761,
+      "vertices": 371283,
+      "primitives": 9
+    },
+    "taihu_rockery_2": {
+      "triangles": 201728,
+      "vertices": 605184,
+      "primitives": 14
+    },
+    "taihu_rockery_3": {
+      "triangles": 233912,
+      "vertices": 701736,
+      "primitives": 16
+    },
+    "taihu_rockery_4": {
+      "triangles": 175208,
+      "vertices": 525624,
+      "primitives": 12
+    },
+    "taihu_rockery_5": {
+      "triangles": 178058,
+      "vertices": 534174,
+      "primitives": 12
+    }
+  },
+  "total_triangles": 1096090,
+  "enemy_count": 0,
+  "encounter_areas": "encounters.json",
+  "rockery_layers": 2
+}

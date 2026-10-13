@@ -1,0 +1,109 @@
+{
+  "enabled": false,
+  "areas": [
+    {
+      "id": "echo_court",
+      "name": "Echo court",
+      "center": [
+        -0.8,
+        0.08,
+        3
+      ],
+      "radius": 2.5,
+      "spawns": [
+        [
+          -2,
+          0.08,
+          4
+        ],
+        [
+          1,
+          0.08,
+          0
+        ]
+      ],
+      "exits": [
+        "fork",
+        "turn",
+        "east",
+        "window_turn"
+      ],
+      "notes": "Four exits; perforated central stone breaks sightlines. Open maneuvering before the next constriction."
+    },
+    {
+      "id": "blind_grotto",
+      "name": "Blind grotto",
+      "center": [
+        -8,
+        0.08,
+        -11
+      ],
+      "radius": 1.9,
+      "spawns": [
+        [
+          -9.3,
+          0.08,
+          -11.5
+        ],
+        [
+          -7.4,
+          0.08,
+          -12
+        ]
+      ],
+      "exits": [
+        "blind",
+        "north"
+      ],
+      "notes": "Lower roof and two retreat routes; concealed approach around the west bend."
+    },
+    {
+      "id": "last_court",
+      "name": "Open court",
+      "center": [
+        1.7,
+        0.08,
+        -21.4
+      ],
+      "radius": 2.0,
+      "spawns": [
+        [
+          2,
+          0.08,
+          -21
+        ],
+        [
+          3,
+          0.08,
+          -23
+        ]
+      ],
+      "exits": [
+        "north"
+      ],
+      "notes": "Wider confrontation space; pond constrains the left flank, pavilion columns provide partial cover."
+    },
+    {
+      "id": "throat",
+      "name": "Single-file throat",
+      "center": [
+        -3.8,
+        0.08,
+        13.5
+      ],
+      "radius": 0.46,
+      "spawns": [
+        [
+          -3.8,
+          0.08,
+          13.5
+        ]
+      ],
+      "exits": [
+        "throat",
+        "fork"
+      ],
+      "notes": "About 1.6 m wide. Deliberate retreat pressure; no enemy is activated in this prototype."
+    }
+  ]
+}

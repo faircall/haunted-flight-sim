@@ -10,6 +10,99 @@ Or double-click `play_temple_3d.cmd`. The launcher selects the local **Raylib
 reuses the already-installed Python game dependencies; the original global
 Raylib 5.0 installation and native C comparison are unchanged.
 
+## Separate rockery maze / The Hollow Garden
+
+Double-click [play_rockery.cmd](play_rockery.cmd), or run:
+
+```powershell
+python moonlit_water_temple_3d.py --rockery
+```
+
+**The Hollow Garden / 叠石迷园** is an independent, empty survival-horror
+prototype inspired by the rockery of **狮子林**. Narrow, roofed limestone
+passages connect looping paths, a concealed grotto, a blind viewing aperture
+and broader courts. A staircase leads onto a second route that actually
+crosses above the lower passages. Beyond the last constriction, the space
+opens around a hexagonal pavilion, a dark lily pond and a covered garden
+gallery. It does not read or write gameplay saves or connect to the intro.
+
+The spatial rhythm follows **初极狭，才通人。复行数十步，豁然开朗。**:
+constriction, uncertain turns, glimpses of places that cannot be reached
+directly, then an unexpected opening. The porous Taihu limestone has real
+holes and cave roofs. Ferns, muted white blossoms, occluded warm lamps and
+cool drifting height fog keep the garden inhabited-looking but empty.
+The layout is an interpretation, not a reconstruction of Lion Grove.
+Reference: [Suzhou Gardens' account of the Lion Grove rockery](https://ylj.suzhou.gov.cn/szsylj/sjyc/201905/767dcf47765b40549969f1a6989c689c.shtml).
+
+| Control | Action |
+| --- | --- |
+| W / S, A / D | Walk forward/back; turn left/right |
+| Shift | Run |
+| 1–9 / [ / ] | Select the first nine cameras / cycle all 23 |
+| 0 | Restore automatic fixed camera selection |
+| F | Free camera: mouse, WASD, Q/E for height |
+| L | Toggle daylight |
+| M | Show the layout plan; jade lower paths, ochre upper route |
+| F3 | Show potential encounter areas and spawn markers |
+| Tab / H | Toggle player / controls overlay |
+| Home / F12 / Esc | Reset / capture / exit |
+
+There are **no enemies**. Four disabled encounter studies in
+[encounters.json](art/temple/rockery/encounters.json) describe possible spawn
+positions, exits and fighting space: the four-exit echo court, the two-exit
+grotto, the final pavilion court and a single-file throat. The narrowest
+passages are roughly 1.5–1.6 m across; the courts provide room to maneuver.
+The markers are design notes, not an active encounter system.
+
+The 640×360 rendering and 128px painted material tiles retain the established
+Dreamcast-inspired treatment. Roughly 1.1 million triangles across the whole
+garden preserve the folded silhouettes and genuine perforations; this is a
+modern density budget rather than a hardware-accurate console limit. Mirrored
+triplanar stone textures avoid UV seams. A baked distance field from the same
+carved geometry supplies lamp occlusion and visibility checks for 23 fixed
+camera positions. A camera can pan from its fixed position at a bend. The
+pond uses stylized ripples and reflected colour, not a second scene render.
+
+The stairs and upper path use hand-cut limestone treads with varied rises and
+runs, crooked noses, chipped corners and shallow worn hollows. Low rock
+shoulders replace the balusters. Their colour and texture scale match the
+rockery. The upper route curves through its joins, and the corridor walls
+flare and fold away from the floor instead of forming square vertical slots.
+Navigation, carved rock and exported floors share the same centerlines and
+stair profiles; the mild surface wear does not shake the player camera.
+Camera visibility also ray-tests the exported stair mesh and its rough edges.
+
+Source files:
+
+- [Packed Blender scene](art/temple/rockery/hollow_garden.blend)
+- [Blender geometry builder](build_rockery.py)
+- [Rock carving and texture packing](prepare_rockery.py)
+- [Navigation, layout, cameras and encounter notes](g_rockery.py)
+- [Camera visibility director](rockery_camera.py)
+- [Playable viewer](rockery_viewer.py)
+
+Built-in ImageGen supplied the original [limestone and pebble material sheet](art/temple/rockery/materials_source.png).
+Its [exact prompt](art/temple/rockery/materials_prompt.txt) is saved alongside
+the [runtime atlas](art/temple/rockery/materials.png). Timber, roof tile and
+plant colours reuse the bamboo scene's palette. Chinese inscriptions are
+rendered with a local Chinese font by the texture packer.
+
+```powershell
+python prepare_rockery.py
+& 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python build_rockery.py
+python moonlit_water_temple_3d.py --rockery-review
+python -m unittest test_rockery
+```
+
+The silent native review saves sixteen compositions, a six-view stair/corridor study,
+an encounter/layout study, an animated walkthrough and a timing report under
+`artifacts/rockery/`.
+It traverses all five route groups with the actual player controller. Tests
+also walk every route in reverse, check the baked cave clearance and camera
+sightlines, compare collision heights against the exported stair/floor
+triangles, verify the genuine over/under crossing and check that encounter
+spawns are clear. The scene opens no audio device, including during reviews.
+
 ## Separate bamboo grove and Chan room
 
 Double-click [play_bamboo_grove.cmd](play_bamboo_grove.cmd), or run:
