@@ -10,6 +10,73 @@ Or double-click `play_temple_3d.cmd`. The launcher selects the local **Raylib
 reuses the already-installed Python game dependencies; the original global
 Raylib 5.0 installation and native C comparison are unchanged.
 
+## Separate bamboo grove and Chan room
+
+Double-click [play_bamboo_grove.cmd](play_bamboo_grove.cmd), or run:
+
+```powershell
+python moonlit_water_temple_3d.py --bamboo
+```
+
+The **Bamboo Hermitage / 竹隐禅房** is a separate, playable art prototype. A
+winding stone path passes between tall bamboo, then opens onto a small Chan
+meditation room concealed among white camellias. The room includes a veranda,
+open wooden latticework, a round rear window, an ink scroll, tea table, books,
+incense and an empty meditation cushion. It has its own collision and camera
+layout and does not read or write the gameplay save or connect to the intro.
+
+The art direction follows Chang Jian's **曲径通幽处，禅房花木深**: reveal the
+destination gradually through the path and planting. Warm lamps in an empty
+room, slowly moving bamboo and drifting ground mist supply the unease.
+Reference notes: [the poem and commentary from Lingyin Temple](https://www.lingyinsi.org/detail_17990.html),
+and [moso bamboo at Kew](https://powo.science.kew.org/taxon/urn:lsid:ipni.org:names:415998-1)
+for the grove's tall, jointed culm silhouettes.
+
+| Control | Action |
+| --- | --- |
+| W / S, A / D | Walk forward/back; turn left/right |
+| Shift | Run |
+| 1–8 / 0 | Select a camera / restore automatic cameras |
+| F | Free camera: mouse, WASD, Q/E for height |
+| L | Toggle daylight |
+| Tab / H | Toggle player / controls overlay |
+| Home / F12 / Esc | Reset / capture / exit |
+
+The 640×360 renderer uses 128px material tiles with mip gutters, a separate
+scroll/poem atlas, batched bamboo meshes, GPU wind and six-sample height fog
+integrated along the view ray. The complete forest has 1,464 culms and roughly
+one million triangles, most belonging to the surrounding foliage. This keeps
+the old-console material and silhouette treatment while using modern hardware
+for the density. The scene opens no audio device, including during reviews.
+
+Source files:
+
+- [Blender scene](art/temple/bamboo/bamboo_grove.blend)
+- [Geometry builder](build_bamboo_grove.py)
+- [Layout, collision and cameras](g_bamboo_grove.py)
+- [Playable viewer](bamboo_grove_viewer.py)
+- [Texture packing](prepare_bamboo_textures.py)
+
+Built-in ImageGen supplied the original [painted material sheet](art/temple/bamboo/materials_source.png),
+including the ink painting. Its [exact prompt](art/temple/bamboo/materials_prompt.txt)
+is saved alongside the [material atlas](art/temple/bamboo/materials.png) and
+[scroll/poem atlas](art/temple/bamboo/scrolls.png). Chinese lettering is rendered
+from a local Chinese font by the texture packer. Other timber and tile colours
+reuse the previous hall's material palette.
+
+```powershell
+python prepare_bamboo_textures.py
+& 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python build_bamboo_grove.py
+python moonlit_water_temple_3d.py --bamboo-review
+python -m unittest test_bamboo_grove
+```
+
+The silent native review walks the actual controller from the starting path,
+around the bends, up the steps and into the room. It saves twelve compositions,
+an animated walkthrough and a timing report under `artifacts/bamboo-grove/`.
+Tests also check exported mesh indices, access around furniture, camera
+sightlines, step heights, the round window and the roof from below.
+
 ## Separate painted temple interior
 
 Double-click [play_temple_interior.cmd](play_temple_interior.cmd), or run:

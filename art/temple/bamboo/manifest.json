@@ -1,0 +1,121 @@
+{
+  "separate_scene": true,
+  "bamboo_count": 1464,
+  "models": {
+    "grove_ground": {
+      "triangles": 4500,
+      "vertices": 9000,
+      "primitives": 1
+    },
+    "grove_path": {
+      "triangles": 1412,
+      "vertices": 2824,
+      "primitives": 1
+    },
+    "chan_shell": {
+      "triangles": 1880,
+      "vertices": 3760,
+      "primitives": 1
+    },
+    "chan_timber": {
+      "triangles": 4752,
+      "vertices": 9504,
+      "primitives": 1
+    },
+    "chan_roof": {
+      "triangles": 16700,
+      "vertices": 33400,
+      "primitives": 1
+    },
+    "chan_props": {
+      "triangles": 2298,
+      "vertices": 4596,
+      "primitives": 1
+    },
+    "grove_flowers": {
+      "triangles": 8594,
+      "vertices": 15538,
+      "primitives": 1
+    },
+    "grove_understory": {
+      "triangles": 103992,
+      "vertices": 207984,
+      "primitives": 5
+    },
+    "grove_lamps": {
+      "triangles": 420,
+      "vertices": 840,
+      "primitives": 1
+    },
+    "chan_scrolls": {
+      "triangles": 8,
+      "vertices": 16,
+      "primitives": 1
+    },
+    "bamboo_culms_0": {
+      "triangles": 87420,
+      "vertices": 174840,
+      "primitives": 4
+    },
+    "bamboo_leaves_0": {
+      "triangles": 57760,
+      "vertices": 115520,
+      "primitives": 3
+    },
+    "bamboo_culms_1": {
+      "triangles": 85860,
+      "vertices": 171720,
+      "primitives": 4
+    },
+    "bamboo_leaves_1": {
+      "triangles": 55904,
+      "vertices": 111808,
+      "primitives": 3
+    },
+    "bamboo_culms_2": {
+      "triangles": 88200,
+      "vertices": 176400,
+      "primitives": 4
+    },
+    "bamboo_leaves_2": {
+      "triangles": 58688,
+      "vertices": 117376,
+      "primitives": 3
+    },
+    "bamboo_culms_3": {
+      "triangles": 87420,
+      "vertices": 174840,
+      "primitives": 4
+    },
+    "bamboo_leaves_3": {
+      "triangles": 57760,
+      "vertices": 115520,
+      "primitives": 3
+    },
+    "bamboo_culms_4": {
+      "triangles": 87030,
+      "vertices": 174060,
+      "primitives": 4
+    },
+    "bamboo_leaves_4": {
+      "triangles": 57296,
+      "vertices": 114592,
+      "primitives": 3
+    },
+    "bamboo_culms_5": {
+      "triangles": 88200,
+      "vertices": 176400,
+      "primitives": 4
+    },
+    "bamboo_leaves_5": {
+      "triangles": 58688,
+      "vertices": 117376,
+      "primitives": 3
+    }
+  },
+  "total_triangles": 1014782,
+  "textures": [
+    "materials.png",
+    "scrolls.png"
+  ]
+}
