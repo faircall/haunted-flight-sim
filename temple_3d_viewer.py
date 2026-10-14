@@ -83,6 +83,8 @@ def run(fixed_cameras=False,living_assets=False):
     parser.add_argument('--bamboo-review',action='store_true',help='Silently review the grove, fixed cameras and walkable route')
     parser.add_argument('--rockery',action='store_true',help='Explore the separate Taihu-stone maze garden')
     parser.add_argument('--rockery-review',action='store_true',help='Silently review rockery routes and upper/lower crossings')
+    parser.add_argument('--huxin',action='store_true',help='Explore the separate misty lake pavilion')
+    parser.add_argument('--huxin-review',action='store_true',help='Silently review the lake pavilion and causeway')
     parser.add_argument('--intro-only',action='store_true',help='Preview the interactive back-seat drive, then exit')
     parser.add_argument('--intro-review',action='store_true',help='Capture the rainy car intro from several directions in a hidden native window')
     parser.add_argument('--intro-handoff-smoke',action='store_true',help='Review the intro and then run exploration checks in the same native window')
@@ -95,6 +97,9 @@ def run(fixed_cameras=False,living_assets=False):
     assets.add_argument('--classic-assets',dest='living_assets',action='store_false',help='Compare the capsule and tree billboards')
     parser.set_defaults(living_assets=living_assets)
     args=parser.parse_args();fixed_cameras=args.fixed_cameras
+    if args.huxin or args.huxin_review:
+        from huxin_viewer import run as run_huxin
+        run_huxin(review=args.huxin_review);return
     if args.rockery or args.rockery_review:
         from rockery_viewer import run as run_rockery
         run_rockery(review=args.rockery_review);return

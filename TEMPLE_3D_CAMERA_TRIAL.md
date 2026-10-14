@@ -10,6 +10,75 @@ Or double-click `play_temple_3d.cmd`. The launcher selects the local **Raylib
 reuses the already-installed Python game dependencies; the original global
 Raylib 5.0 installation and native C comparison are unchanged.
 
+## Separate lake pavilion / The Still Lake
+
+Double-click [play_huxin.cmd](play_huxin.cmd), or run:
+
+```powershell
+python moonlit_water_temple_3d.py --huxin
+```
+
+This separate, enemy-free scene takes its mood from **湖心亭看雪** and the
+supplied pavilion photograph: an open, double-eaved pavilion reached by a
+narrow stone causeway. There is no snow. Evening cloud, low drifting lake mist,
+dark Chinese pines and layered distant mountains surround the small pools of
+lantern light. The temple is deliberately absent at this stage.
+
+The pavilion has six timber columns, curved grey tiled roofs, bracket sets,
+continuous wooden roof undersides, a painted ceiling and a **湖心亭** plaque.
+Two peripheral benches leave the middle open. The causeway bends gently over
+the water and continues directly into a gently rising shore path. A matching
+pair of stone lamps frames the entrance. Staggered, chipped paving settles
+into soil and moss, with reeds and low plants softening the bank. The deck
+sits 0.325m above the lake, with its stone foundation mostly submerged.
+
+**W/S** walk forwards/backwards, **A/D** turn, **Shift** runs. **1–9** select
+authored shots; **0** restores automatic fixed-camera selection. **F** toggles
+free camera (mouse + WASD, Q/E height). **L** toggles inspection daylight,
+**Tab** hides the player, **H** hides the HUD, **Home** resets, **F12** captures.
+
+**F3** displays the reserved assembly areas: a **4.5m diameter** clear floor
+for the future puzzle and an **18–52m radius** ring of open water for the
+surrounding structure. Only the approach crosses that ring. These dimensions
+are editable in [g_huxin.py](g_huxin.py); the machine-readable layout is
+[assembly_space.json](art/temple/huxin/assembly_space.json). Neither the puzzle
+nor surrounding structure has been implemented. There is no scene handoff yet.
+
+The live renderer uses 640×360 output, small painted material tiles, seven-sample
+height fog and a planar geometry reflection with gentle ripple distortion.
+Sky, vegetation, architecture and the moving player reflect in the lake.
+Foliage alpha thresholds compensate for distant mipmaps so the trees retain
+their silhouettes. Reflections, lighting and weather are runtime effects;
+the Blender file contains the editable environment geometry and packed textures.
+
+- [Packed Blender source](art/temple/huxin/huxin_pavilion.blend)
+- [Geometry builder](build_huxin.py), [texture packer](prepare_huxin.py)
+- [Playable scene](huxin_viewer.py), [layout and collision](g_huxin.py)
+- [Review contact sheet](artifacts/huxin/lake-review.png)
+- [Accelerated walkthrough](artifacts/huxin/lake-walkthrough.gif)
+
+Built-in ImageGen supplied the new [wood, roof, stone and paint source sheet](art/temple/huxin/materials_source.png).
+The [exact prompt](art/temple/huxin/materials_prompt.txt) and
+[runtime material atlas](art/temple/huxin/materials.png) are saved with the asset.
+Remaining material colours reuse the bamboo palette; the pine models reuse the
+intro's Chinese pines. Chinese lettering is rendered from a local font.
+
+```powershell
+python prepare_huxin.py
+& 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python build_huxin.py
+python moonlit_water_temple_3d.py --huxin-review
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin -v
+```
+
+The scene and review open no audio device. Nine tests cover bidirectional
+traversal, water and prop collision, actual exported floor support, roof
+undersides, terrain-aware camera sightlines, grounded paired lamps, reserved
+space and embedded asset portability.
+The native review captures all nine shots, the roof from above and below, an
+assembly overview, four close shore views and an 89-frame walkthrough through
+seven camera zones.
+Captures and measured timings are written under `artifacts/huxin/`.
+
 ## Separate rockery maze / The Hollow Garden
 
 Double-click [play_rockery.cmd](play_rockery.cmd), or run:

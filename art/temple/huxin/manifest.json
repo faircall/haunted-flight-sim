@@ -1,0 +1,75 @@
+{
+  "separate_scene": true,
+  "models": {
+    "lake_bank": {
+      "triangles": 25974,
+      "vertices": 51948,
+      "primitives": 2
+    },
+    "lake_mountains": {
+      "triangles": 1440,
+      "vertices": 2880,
+      "primitives": 1
+    },
+    "causeway": {
+      "triangles": 1626,
+      "vertices": 3156,
+      "primitives": 1
+    },
+    "pavilion_base": {
+      "triangles": 1336,
+      "vertices": 2670,
+      "primitives": 1
+    },
+    "pavilion_posts": {
+      "triangles": 1104,
+      "vertices": 2208,
+      "primitives": 1
+    },
+    "pavilion_brackets": {
+      "triangles": 1440,
+      "vertices": 2880,
+      "primitives": 1
+    },
+    "pavilion_roofs": {
+      "triangles": 30272,
+      "vertices": 60544,
+      "primitives": 2
+    },
+    "pavilion_ceiling": {
+      "triangles": 12796,
+      "vertices": 25590,
+      "primitives": 1
+    },
+    "pavilion_details": {
+      "triangles": 11776,
+      "vertices": 23552,
+      "primitives": 1
+    },
+    "lake_plants": {
+      "triangles": 22850,
+      "vertices": 45700,
+      "primitives": 2
+    },
+    "lake_lamps": {
+      "triangles": 328,
+      "vertices": 656,
+      "primitives": 1
+    },
+    "lake_surface": {
+      "triangles": 2,
+      "vertices": 4,
+      "primitives": 1
+    },
+    "pavilion_inscriptions": {
+      "triangles": 2,
+      "vertices": 4,
+      "primitives": 1
+    }
+  },
+  "total_triangles": 110946,
+  "enemy_count": 0,
+  "water_height": 0,
+  "assembly_space": "assembly_space.json",
+  "open_sided": true
+}

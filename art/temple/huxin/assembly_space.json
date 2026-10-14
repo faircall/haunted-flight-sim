@@ -1,0 +1,24 @@
+{
+  "puzzle": {
+    "center": [
+      0,
+      0.325,
+      0
+    ],
+    "clear_radius": 2.25,
+    "implemented": false
+  },
+  "surrounding_structure": {
+    "center": [
+      0,
+      0,
+      0
+    ],
+    "inner_radius": 18.0,
+    "outer_radius": 52.0,
+    "implemented": false,
+    "notes": "Open water reserved for a later surrounding structure. The south causeway crosses this envelope."
+  },
+  "enemies": 0,
+  "temple_backdrop": false
+}
