@@ -1,0 +1,181 @@
+{
+  "source": "canal_materials_source.png",
+  "source_sha256": "fbce6745a3427158f71b113987be644e4e0628d18976944c85645c1012f27a21",
+  "source_tool": "built-in image_gen",
+  "prompt": "canal_materials_prompt.txt",
+  "atlas": "canal_materials.png",
+  "atlas_sha256": "b651e9ff196da64158467dac72ce7f145efd82413fc49f132840fb1bc538b1d6",
+  "dimensions": [
+    1024,
+    1024
+  ],
+  "material_tiles": {
+    "wood": {
+      "index": 0,
+      "average_rgb": [
+        58.11,
+        54.38,
+        51.82
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "roof": {
+      "index": 1,
+      "average_rgb": [
+        68.74,
+        66.46,
+        63.92
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "stone": {
+      "index": 2,
+      "average_rgb": [
+        81.77,
+        76.56,
+        71.48
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "paint": {
+      "index": 3,
+      "average_rgb": [
+        44.23,
+        46.37,
+        44.93
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "earth": {
+      "index": 4,
+      "average_rgb": [
+        60.71,
+        60.71,
+        50.71
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "moss": {
+      "index": 5,
+      "average_rgb": [
+        52.35,
+        63.59,
+        43.56
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "leaf": {
+      "index": 6,
+      "average_rgb": [
+        36.34,
+        46.34,
+        35.34
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "leaflight": {
+      "index": 7,
+      "average_rgb": [
+        53.34,
+        65.34,
+        47.34
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "cap": {
+      "index": 8,
+      "average_rgb": [
+        55.81,
+        55.33,
+        52.73
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "bronze": {
+      "index": 9,
+      "average_rgb": [
+        63.67,
+        71.03,
+        57.94
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "paper": {
+      "index": 10,
+      "average_rgb": [
+        169.58,
+        165.58,
+        142.58
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "cloth": {
+      "index": 11,
+      "average_rgb": [
+        90.89,
+        90.89,
+        81.89
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "plaster": {
+      "index": 12,
+      "average_rgb": [
+        171.84,
+        160.65,
+        147.02
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "wetstone": {
+      "index": 13,
+      "average_rgb": [
+        51.85,
+        53.33,
+        46.67
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "bark": {
+      "index": 14,
+      "average_rgb": [
+        51.33,
+        50.89,
+        41.43
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    },
+    "water": {
+      "index": 15,
+      "average_rgb": [
+        31.35,
+        44.35,
+        44.35
+      ],
+      "center_pixels": 128,
+      "padding": 64
+    }
+  },
+  "generated_quadrants": [
+    "wood",
+    "roof",
+    "stone",
+    "plaster"
+  ],
+  "notes": "Original generated imagery; no book photographs are copied into the game. Auxiliary materials are derived tones and deterministic low-resolution synthesis."
+}

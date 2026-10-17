@@ -1,0 +1,82 @@
+{
+  "models": {
+    "moon_basin": {
+      "triangles": 1072,
+      "vertices": 2176,
+      "primitives": 1
+    },
+    "moon_mirror": {
+      "triangles": 684,
+      "vertices": 1464,
+      "primitives": 1
+    },
+    "tea_foundation": {
+      "triangles": 280,
+      "vertices": 576,
+      "primitives": 1
+    },
+    "tea_frame": {
+      "triangles": 5864,
+      "vertices": 11728,
+      "primitives": 1
+    },
+    "tea_walls": {
+      "triangles": 936,
+      "vertices": 1872,
+      "primitives": 1
+    },
+    "tea_lattice": {
+      "triangles": 43956,
+      "vertices": 87912,
+      "primitives": 2
+    },
+    "tea_floors": {
+      "triangles": 6572,
+      "vertices": 13140,
+      "primitives": 1
+    },
+    "tea_stairs": {
+      "triangles": 1116,
+      "vertices": 2232,
+      "primitives": 1
+    },
+    "tea_roofs": {
+      "triangles": 52960,
+      "vertices": 105920,
+      "primitives": 3
+    },
+    "tea_ceiling": {
+      "triangles": 22448,
+      "vertices": 44896,
+      "primitives": 1
+    },
+    "tea_furniture": {
+      "triangles": 4076,
+      "vertices": 8152,
+      "primitives": 1
+    },
+    "tea_lanterns": {
+      "triangles": 1152,
+      "vertices": 2304,
+      "primitives": 1
+    },
+    "tea_ground": {
+      "triangles": 4,
+      "vertices": 12,
+      "primitives": 1
+    },
+    "moon_fixture": {
+      "triangles": 224,
+      "vertices": 448,
+      "primitives": 1
+    }
+  },
+  "total_triangles": 141344,
+  "upper_floor": 4.125,
+  "stair_count": 22,
+  "item_location": [
+    5.3,
+    4.975,
+    -4.6
+  ]
+}

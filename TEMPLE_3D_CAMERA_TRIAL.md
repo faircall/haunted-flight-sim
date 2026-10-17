@@ -879,10 +879,164 @@ render heights used by the stairs.
 
 ## Verification
 
+The independent **The Moon in the Water** encounter is available through
+`play_huxin_moon.cmd` (or `python huxin_moon_viewer.py`). The original lake scene
+remains available through `play_huxin.cmd`; its 29 original files are recorded
+and checked against `art/temple/huxin_moon/origin_snapshot.json`.
+
+Walk along the causeway with W/S, turn with A/D, and hold Shift to run. At the
+basin, press E to examine the bronze mirror. Arrow keys rotate and tilt it;
+bring the pale moon image into the small worn circle in the water and hold it
+there briefly. E steps away. Mist accumulates throughout the approach, using
+projected distance along the curved causeway and quintic easing. It shares the
+existing scene fog's blue-green colour, with slowly evolving three-dimensional
+billows and restrained stepped lighting adapted from `illuminated_fog.fs`.
+Opacity remains continuous, preventing visible jumps between tonal bands.
+The first alignment plays one distant bell and adds a six-second crescendo
+to the already thick bank. The hidden swap happens at eight seconds, then the
+mist dissipates through the rest of a 24-second sequence. The basin, original
+columns and central floor remain visible as the larger room emerges. The basin
+shot tightens during the swap to keep the new overhead lantern out of frame;
+the later pullback reveals it with the room.
+
+Explore the tea room, timber stairs, upper chamber and balcony. On the return
+causeway, fog builds with outbound distance and reaches its peak halfway along
+the route. A denser bank around the pavilion conceals the one-time swap at that
+midpoint. Fog then eases away throughout the second half, revealing the original
+pavilion by the shore. Normal gameplay cameras remain in use throughout, with
+no transition close-up. Walking, running, turning and stopping remain available.
+Walking the causeway takes about 46 seconds; running reaches the same fog stages
+at the same places. Backtracking reverses the fog before the swap, and never
+reconstructs the house after it. Neither swap changes position or inventory.
+
+The water reflection has its own depth-aware pass through the same moving fog
+field. Its rays run from the water toward the reflected scenery; the main view
+then adds the camera-to-water fog. Both views conceal the building change, while
+colour grading and bloom are applied once to the assembled scene.
+
+The previous cinematic fog version is preserved in
+`artdev/scene_backups/huxin_moon_cinematic_fog_20261015.zip`, including its source,
+assets and preview GIFs. Its `BACKUP_MANIFEST.json` records hashes and restoration
+instructions. The current teahouse has paired supports beside the entrance and
+an overhead lintel, leaving the causeway clear underneath the balcony.
+
+The extended floor joins the
+original platform at its boundary, without overlapping floor caps underneath.
+At game resolution, the central paving uses filtered joints on its continuous
+surface instead of rendering the millimetre-high decorative slab edges.
+Home restarts the encounter. H hides the controls, 1–9 select inspection
+cameras, 0 restores automatic cameras, F enables free look, L toggles daylight,
+and F12 captures the view. In free look, mouse/WASD move and Q/E change height.
+
+This remains a separate art/gameplay prototype, with no new story item or
+dialogue. The empty tray upstairs is reserved for a future interaction. The
+encounter uses the existing inventory slot format and retains its contents
+through both swaps. A restart deliberately clears the prototype session.
+
+The editable Blender file is `art/temple/huxin_moon/moon_teahouse.blend`.
+Rebuild its GLBs with Blender's background Python runner and
+`build_huxin_teahouse.py`; the builder reuses the pavilion's 128px painted
+material tiles. Navigation, mirror optics and transition timing live in
+`g_huxin_moon_sequence.py`; interior camera stations are in
+`huxin_moon_camera.py`. The layered roof, lattice windows and waterside rooms
+take their architectural cues from the historical Huxinting Teahouse
+([Shanghai tourism reference](https://www.meet-in-shanghai.net/en/news/hai-streets-the-ancient-and-little-known-history-of-yuyuan-garden-575580/)).
+
+```powershell
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_moon test_huxin_moon_encounter test_huxin_moon_clearance -v
+python huxin_moon_viewer.py --review
+artifacts/temple3d-env/Scripts/python.exe huxin_moon_fog_review.py
+```
+
+The muted native review walks the approach, aligns the mirror through its
+adjustment controls, watches both complete fog transitions, visits both floors,
+and checks that no camera cut coincides with a swap, along with player continuity
+and inventory retention. Captures, a full
+walkthrough GIF and the JSON report are in `artifacts/huxin_moon/`. Unit checks
+also compare navigation against exported stair/floor surfaces and cast camera
+rays through the actual architectural meshes. No audio device opens for this
+review. The original bell cue is verified from its WAV samples.
+The dedicated fog review compares both architecture states at the same instant
+to check concealment while the central pocket remains visible. It also measures
+frame-to-frame fog changes, verifies player visibility through the volume and
+walks the entire return without interrupting movement, checking midpoint
+concealment from the normal gameplay camera. Its captures,
+`mist-roll-in.gif` and `mist-causeway-return.gif` are also written to
+`artifacts/huxin_moon/`. Pass `--quick` to skip encoding the two animated previews.
+The concealment checks include the worst changed pixel, separate reflection
+captures, and several cloud phases, so small lamp or reflection flashes cannot
+be hidden by a low whole-frame average.
+
 Automated unit tests, smoke tests and native review modes mute the audio engine's
 master output by default. Sound loading, voice timing, pause/resume and audio-event
 checks still run normally. Interactive gameplay and previews retain sound.
 Use `HAUNTED_MUTE_AUDIO=1` for ad-hoc automation launched via stdin or `runpy`.
+
+## Void Canals — 幽冥水乡
+
+Launch `play_huxin_canals.cmd` for the independent third pavilion scene. It starts
+on the same lake approach, with the established position-driven fog. The existing
+lake and Moon scenes remain unchanged; 89 source/asset hashes are recorded in
+`art/temple/huxin_canals/origin_snapshot.json` and checked by the new tests.
+
+The prototype begins with the previously collected stone annulus in inventory.
+At the bronze mirror, press **E** to place it on the basin. This consumes only
+the matching object, preserves other inventory and uses the familiar 24-second
+fog sequence. The camera stays exactly where it was before the interaction,
+through the gathering mist, the concealed world change and the clearing fog.
+It remains there until the player moves. The complete original pavilion is its
+own twin in the other world: deck, roof, posts, brackets, ceiling, inscriptions,
+basin and lamps remain in place. The water stays at the same height. Reflections
+pass through the same world-space fog as the direct view.
+
+The V2 district is rebuilt around the newer book references in
+`artdev/concepts/canalsv2`. An irregular network of waterside quays, two stone
+bridges, a small courtyard and covered passages replaces the first block layout.
+Two vacant shops can be entered through their actual doorways and explored.
+The nearby houses have hollow rooms, inset upper storeys, open windows, porous
+timber screens, folded or broken doors and deep awnings. Black interiors have
+actual floors, ceilings and back walls rather than flat dark panels pasted onto
+solid boxes. Hand-laid paving, water stairs, irregular tiled roofs and occasional
+laundry provide domestic scale. The desaturated material atlas remains deliberately
+low resolution. Current exported budgets and house metadata are recorded in
+`art/temple/huxin_canals/canals_manifest.json`.
+
+After entry, walking back never restores the lake. **Home** resets the standalone
+prototype for testing. `play_huxin_canals.cmd --canals` starts directly inside the
+new world. W/S move, A/D turn, Shift runs; 1–9 inspect camera stations, 0 restores
+automatic cameras, F enables free look, H hides controls and F12 captures an image.
+There are no inhabitants or combat encounters. Long silences are interrupted only
+by occasional quiet timber movement; the eventual exit remains open for design.
+
+Edit the district in `g_huxin_canals_layout.py` and `build_huxin_canals.py`, and
+the hollow house components in `canals_housekit.py`;
+`art/temple/huxin_canals/void_canals.blend` is the editable Blender scene.
+The layout is shared by geometry, collision and camera stations. Rebuild the GLBs
+with Blender's background runner and `build_huxin_canals.py`. Repack materials with
+`prepare_huxin_canals_materials.py`. The new sequence, renderer, cameras, sky, audio
+and shaders all have their own `huxin_canals` files.
+
+```powershell
+$env:HAUNTED_MUTE_AUDIO='1'
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin test_huxin_moon test_huxin_moon_encounter test_huxin_moon_clearance test_huxin_canals -q
+artifacts/temple3d-env/Scripts/python.exe huxin_canals_review.py
+```
+
+The muted native review walks the lake approach, places the object, checks the
+stationary camera and hidden swap in both the image and the water reflection,
+then walks the complete canal loop using the real controller.
+It verifies player visibility from every route camera and saves the reveal,
+a condensed walkthrough, a contact sheet and a JSON report under
+`artifacts/huxin_canals_v2/`. Earlier V1 review images remain under
+`artifacts/huxin_canals/`. `--quick` skips GIF encoding. CPU checks cover walking
+and running in both directions, exported walking surfaces, real opening depth,
+camera continuity, retained pavilion geometry, inventory continuity and preservation
+of both earlier scenes. Automated reviews never open an audio device.
+The V2 native check measured a maximum one-level RGB change at the concealed
+swap across the complete visible image, with no camera movement. Fog reduced
+the intermediate reflection difference by 83.9%. That intermediate buffer holds
+only the water-to-object optical path; the complete image adds the
+camera-to-water segment and is the decisive visible-reflection concealment check.
 Only for a deliberate listening check that cannot be verified from the WAV or
 runtime state, set `HAUNTED_TEST_AUDIO=1` for that test process; an explicit
 `HAUNTED_MUTE_AUDIO=1` takes precedence. No system volume settings are changed.
