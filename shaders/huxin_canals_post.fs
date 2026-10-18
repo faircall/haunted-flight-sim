@@ -2,7 +2,7 @@
 in vec2 fragTexCoord;
 uniform sampler2D texture0,depthMap;
 uniform vec2 resolution;
-uniform float veil,time,arrival,clearing,returning,crest,travelling,reflectedView,voidWorld,waterY;
+uniform float veil,time,arrival,clearing,retreatRadius,returning,crest,travelling,reflectedView,voidWorld,waterY;
 uniform vec3 eye,forward,right,up,playerCenter,fogColour;
 uniform vec2 lens,clip;
 out vec4 finalColor;
@@ -62,34 +62,35 @@ vec3 rollingMist(vec3 scene,vec2 uv){
         if(lo>=finish)break;
         float stepLength=hi-lo;vec3 p=origin+ray*(lo+hi)*.5;
         float r=length(p.xz),shore=shoreRadius(atan(p.z,p.x));
-        float frontRadius=mix(shore-6.,4.65,arrival);
+        float frontRadius=max(mix(shore-6.,4.65,arrival),retreatRadius);
         // At the crescendo the far bank fills outward as well. Reflected rays
         // can meet the water beyond the former shore; their remaining light
         // path still needs fog, including the distant replacement rooftops.
-        float outerReach=shore+20.+220.*crest;
+        float outerReach=shore+20.+390.*crest;
         if(voidWorld<.001&&(r<frontRadius-18.||r>outerReach))continue;
         float cloud=billow(p);
-        float lobes=(cloud-.5)*mix(15.,3.6,arrival);
+        float retreating=smoothstep(0.,.10,clearing);
+        float lobes=(cloud-.5)*mix(mix(15.,3.6,arrival),12.,retreating);
         frontRadius+=max(0.,p.y)*.8*(1.-smoothstep(.78,1.,arrival));
-        float edge=mix(12.,2.6,arrival);
+        float edge=mix(mix(12.,2.6,arrival),min(16.,4.+retreatRadius*.075),retreating);
         float front=smoothstep(-edge,edge,r-frontRadius+lobes);
         float pocket=smoothstep(3.95,4.5,r);
         float top=mix(2.5,11.,arrival)+(cloud-.5)*5.;
         float height=(1.-smoothstep(top-3.,top+2.,p.y))*exp(-max(0.,p.y)*.055);
         float outer=1.-smoothstep(outerReach-15.,outerReach,r);
-        // Clearing eats holes in the bank, rather than reversing its journey.
-        float erosion=smoothstep(clearing*.95-.08,clearing*.95+.20,cloud);
         float shape=smoothstep(.20,.72,cloud);
         // The same low, drifting field as the scene's everyday mist, enriched
         // with slowly turning 3D billows rather than a second bright cloud layer.
         float flow=.55+.22*sin(p.x*.065+p.z*.073-time*.07)+.17*sin(p.z*.16-p.x*.09+time*.035);
-        float density=front*pocket*height*outer*erosion*veil*mix(.24,1.,shape)*(.72+flow*.42);
+        // Keep the distant bank dense. Its irregular inner edge travels out
+        // through the streets; there is no screen-wide opacity/erosion fade.
+        float density=front*pocket*height*outer*veil*mix(.24,1.,shape)*(.72+flow*.42);
         // At the outbound midpoint the bank thickens around the building.
         // Foreground mist stays navigable from the ordinary fixed cameras.
         float pavilionBank=(1.-smoothstep(18.,34.,r))*pow(arrival,4.);
         density*=mix(.035+.26*pow(arrival,3.)+5.8*crest,.04+.16*pow(arrival,3.)+.85*pavilionBank,returning);
         // Low, persistent banks over the canals outlive the transition cloud.
-        density+=voidWorld*(1.-veil)*(.0018+.018*exp(-max(0.,p.y-waterY)*.9))*smoothstep(.28,.74,cloud);
+        density+=voidWorld*(1.-front*veil)*(.0018+.018*exp(-max(0.,p.y-waterY)*.9))*smoothstep(.28,.74,cloud);
         // Keep the immediate space around the walking actor readable.
         if(travelling>.5)density*=smoothstep(1.25,2.2,length((p-playerCenter)*vec3(1.,.8,1.)));
         if(density<.0001)continue;

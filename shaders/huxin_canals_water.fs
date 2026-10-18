@@ -8,10 +8,11 @@ uniform float inspection;
 uniform vec2 resolution;
 uniform float veil;
 uniform float voidWorld;
+uniform float waterY;
 out vec4 finalColor;
 float mist(vec3 p){
     float flow=.55+.22*sin(p.x*.065+p.z*.073-time*.07)+.17*sin(p.z*.16-p.x*.09+time*.035);
-    return mix(.0055+.052*exp(-max(0.,p.y)*.46)*max(.16,flow),.0095+.010*exp(-max(0.,p.y)*.5)*max(.16,flow),voidWorld);
+    return mix(.0055+.052*exp(-max(0.,p.y)*.46)*max(.16,flow),.0095+.010*exp(-max(0.,p.y-waterY)*.5)*max(.16,flow),voidWorld);
 }
 void main(){
     vec3 p=worldPosition;float distance=length(p-eyePosition);

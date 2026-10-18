@@ -2,7 +2,7 @@
 in vec2 fragTexCoord;
 in vec3 worldPosition;
 in vec3 worldNormal;
-uniform sampler2D texture0;
+uniform sampler2D texture0,otherStone;
 uniform vec4 colDiffuse;
 uniform vec3 eyePosition;
 uniform float time;
@@ -18,11 +18,11 @@ uniform float veil;
 uniform float enclosed;
 uniform float warmth;
 uniform float flatPaving;
-uniform float voidWorld,worldMaterial,waterY,preservePlatform,shadowAmount,twinPart;
+uniform float voidWorld,worldMaterial,waterY,preservePlatform,shadowAmount,twinPart,joiningStone;
 out vec4 finalColor;
 float mist(vec3 p){
     float flow=.55+.22*sin(p.x*.065+p.z*.073-time*.07)+.17*sin(p.z*.16-p.x*.09+time*.035);
-    return mix(.0055+.052*exp(-max(0.,p.y)*.46)*max(.16,flow),.0095+.012*exp(-max(0.,p.y)*.40)*max(.16,flow),voidWorld);
+    return mix(.0055+.052*exp(-max(0.,p.y)*.46)*max(.16,flow),.0095+.012*exp(-max(0.,p.y-waterY)*.40)*max(.16,flow),voidWorld);
 }
 vec3 fogColour(){return mix(mix(vec3(.175,.235,.248),vec3(.39,.455,.45),inspection),vec3(.165,.180,.180),voidWorld);}
 float fogAmount(vec3 a,vec3 b){
@@ -35,6 +35,14 @@ vec3 tile(vec2 uv,float index){
     // Stable mip selection across mirrored-repeat seams.
     return textureGrad(texture0,base+abs(fract(uv*.5)*2.-1.)*.121,dFdx(uv)*.121,dFdy(uv)*.121).rgb;
 }
+vec3 stoneTile(sampler2D atlas,vec2 uv,float index){
+    vec2 base=vec2(mod(index,4.)*.25+.0645,floor(index/4.)*.25+.0645);
+    return textureGrad(atlas,base+abs(fract(uv*.5)*2.-1.)*.121,dFdx(uv)*.121,dFdy(uv)*.121).rgb;
+}
+vec3 stoneSurface(sampler2D atlas,vec3 p,vec3 n,float index,float scale){
+    vec3 w=pow(abs(n),vec3(4.));w/=max(.001,w.x+w.y+w.z);
+    return stoneTile(atlas,p.zy*scale,index)*w.x+stoneTile(atlas,p.xz*scale,index)*w.y+stoneTile(atlas,p.xy*scale,index)*w.z;
+}
 void main(){
     vec4 tex=texture(texture0,fragTexCoord)*colDiffuse;
     float alphaCut=surfaceKind>2.5?mix(.32,.11,smoothstep(18.,90.,length(worldPosition-eyePosition))):.36;
@@ -44,6 +52,13 @@ void main(){
     // The pavilion, its lamps and first twelve metres of path are an exact
     // twin. The remote shore and the rest of the old causeway leave together.
     if(twinPart>.5&&enclosed>.5&&p.z>12.)discard;
+    if(twinPart>.5&&surfaceKind>.5&&surfaceKind<1.5){
+        // The original causeway slightly overlaps the pavilion's hexagon.
+        // Give the shared deck one owner instead of two coplanar surfaces.
+        float hex=-100.;
+        for(int i=0;i<6;i++){float a=(float(i)+.5)*1.04719755;hex=max(hex,dot(p.xz,vec2(cos(a),sin(a))));}
+        if(hex<6.2353829)discard;
+    }
     if(worldMaterial>.5){
         // Repeat the authored 128px material at a physical scale, independent
         // of how large a modular wall or pavement face happens to be.
@@ -54,12 +69,12 @@ void main(){
         tex.rgb=textureGrad(texture0,cell+.0645+a*.121,dFdx(p.zy)*scale*.121,dFdy(p.zy)*scale*.121).rgb*w.x+
                 textureGrad(texture0,cell+.0645+b*.121,dFdx(p.xz)*scale*.121,dFdy(p.xz)*scale*.121).rgb*w.y+
                 textureGrad(texture0,cell+.0645+c*.121,dFdx(p.xy)*scale*.121,dFdy(p.xy)*scale*.121).rgb*w.z;
-        float damp=1.-smoothstep(waterY-.1,1.5+.35*sin(p.x*.9+p.z*.5),p.y);
+        float damp=1.-smoothstep(waterY-.1,waterY+1.1+.24*sin(p.x*.9+p.z*.5),p.y);
         tex.rgb*=1.-damp*.48;
     }
     // Millimetre-high decorative slab lips become subpixel black/white dashes
     // at game resolution. Use the continuous floor beneath, with filtered joints.
-    if(flatPaving>.5&&p.y>deckHeight-.006&&(abs(p.y-deckHeight)>.001||abs(n.y)<.8))discard;
+    if(flatPaving>.5&&p.y>deckHeight+.00001)discard;
     if(surfaceKind>5.5&&surfaceKind<6.5&&p.z<10.&&p.y>deckHeight+3.55)discard;
     if(surfaceKind>.5&&surfaceKind<1.5){
         vec3 w=pow(abs(n),vec3(4.));w/=max(.001,w.x+w.y+w.z);
@@ -79,6 +94,21 @@ void main(){
         vec3 earth=tile(p.xz*.42,4.)*vec3(.69,.60,.49),moss=tile(p.xz*.36,5.)*vec3(.63,.78,.57);
         tex.rgb=mix(earth,moss,smoothstep(.25,.75,patch));
         tex.rgb*=mix(.58,1.,smoothstep(-.05,.42,p.y));
+    }
+    if(joiningStone>.5&&enclosed>.5&&p.z>7.5&&p.z<19.&&abs(p.x)<5.){
+        // One physical mapping on both sides of the mesh join. The pale lake
+        // stone gradually acquires the canal's worn joints and darker masonry.
+        vec3 oldStone=joiningStone>1.5?stoneSurface(texture0,p,n,2.,.7):stoneSurface(otherStone,p,n,2.,.7);
+        oldStone*=.82+.18*smoothstep(-.15,.75,p.y);
+        oldStone=mix(oldStone,oldStone*vec3(.56,.69,.54),(1.-smoothstep(-.03,.30,p.y))*.7);
+        float index=abs(n.y)>.7?2.:13.;
+        vec3 newStone=joiningStone>1.5?stoneSurface(otherStone,p,n,index,.68):stoneSurface(texture0,p,n,index,.68);
+        float damp=1.-smoothstep(waterY-.1,waterY+1.1+.24*sin(p.x*.9+p.z*.5),p.y);
+        newStone*=1.-damp*.48;
+        float wear=.24*sin(p.x*2.1+p.z*.65)+.16*sin(p.x*.7-p.z*1.8);
+        float blend=smoothstep(8.,17.,p.z+wear);
+        float boundary=(1.-smoothstep(3.5,5.,abs(p.x)))*smoothstep(7.5,8.,p.z)*(1.-smoothstep(18.,19.,p.z));
+        tex.rgb=mix(tex.rgb,mix(oldStone,newStone,blend),boundary);
     }
     float underRoof=(length(p.xz)<5.45&&p.y<deckHeight+4.85)? .2:1.;
     vec3 light=mix(vec3(.37,.41,.42),vec3(.70,.73,.66),inspection);

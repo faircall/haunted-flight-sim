@@ -54,12 +54,21 @@ class Lake(Hall):
                 if s.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Lake shader compilation failed')
                 s.locs[pr.SHADER_LOC_MATRIX_MODEL]=pr.get_shader_location(s,'matModel');s.locs[pr.SHADER_LOC_MATRIX_NORMAL]=pr.get_shader_location(s,'matNormal')
             self.player=LivingScene(include_willow=False,combat=True,fragment_shader='huxin_canals.fs')
-            names=('eyePosition','time','inspection','opacity','emission','surfaceKind','reflectionPass','lampCount','lamps','windStrength','deckHeight','veil','enclosed','warmth','flatPaving','voidWorld','worldMaterial','waterY','preservePlatform','shadowAmount','twinPart')
+            names=('eyePosition','time','inspection','opacity','emission','surfaceKind','reflectionPass','lampCount','lamps','windStrength','deckHeight','veil','enclosed','warmth','flatPaving','voidWorld','worldMaterial','waterY','preservePlatform','shadowAmount','twinPart','joiningStone')
             self.locations={s.id:{n:pr.get_shader_location(s,n) for n in names} for s in (self.shader,self.player.skin,self.water_shader)}
             for name in self.manifest['models']:self.load(name,KIT/(name+'.glb'))
             for name in ('moon_basin','moon_fixture','moon_mirror'):self.load(name,KIT/(name+'.glb'))
             self.canals_manifest=json.loads((KIT/'canals_manifest.json').read_text())
             for name in self.canals_manifest['models']:self.load(name,KIT/(name+'.glb'))
+            # Raylib binds this secondary atlas with each mesh material, so the
+            # two independently authored stone sets blend in world coordinates.
+            lake_model,canal_model=self.models['causeway'],self.models['canal_ground']
+            lake_stone=lake_model.materials[lake_model.meshMaterial[0]].maps[pr.MATERIAL_MAP_DIFFUSE].texture
+            canal_stone=canal_model.materials[canal_model.meshMaterial[0]].maps[pr.MATERIAL_MAP_DIFFUSE].texture
+            self.shader.locs[pr.SHADER_LOC_MAP_NORMAL]=pr.get_shader_location(self.shader,'otherStone')
+            for name in ('causeway','canal_ground','canal_masonry'):
+                model=self.models[name]
+                for i in range(model.materialCount):model.materials[i].maps[pr.MATERIAL_MAP_NORMAL].texture=canal_stone if name=='causeway' else lake_stone
             for n in ('chinese_pine_a','chinese_pine_b','chinese_pine_c'):self.load(n,ROOT/'art'/'temple'/'intro'/(n+'.glb'))
             self.raw=depth_target(WIDTH,HEIGHT);self.frame=pr.load_render_texture(WIDTH,HEIGHT);self.reflection=pr.load_render_texture(WIDTH,HEIGHT)
             self.reflection_raw=depth_target(WIDTH,HEIGHT)
@@ -84,11 +93,11 @@ class Lake(Hall):
             self.uniform(s,'warmth',self.sequence.warmth)
             self.uniform(s,'flatPaving',0.);self.uniform(s,'worldMaterial',0.);self.uniform(s,'voidWorld',self.sequence.void_tone)
             self.uniform(s,'waterY',self.water_y);self.uniform(s,'preservePlatform',float(self.hold_pavilion))
-            self.uniform(s,'shadowAmount',0.);self.uniform(s,'twinPart',0.)
+            self.uniform(s,'shadowAmount',0.);self.uniform(s,'twinPart',0.);self.uniform(s,'joiningStone',0.)
             if self.locations[s.id]['lamps']>=0:pr.set_shader_value_v(s,self.locations[s.id]['lamps'],pr.ffi.new('float[]',[v for p in lights for v in p]),pr.SHADER_UNIFORM_VEC3,len(lights))
 
     @property
-    def water_y(self):return 0.
+    def water_y(self):return WATER_Y if self.sequence.revealed else 0.
     @property
     def hold_pavilion(self):return True
 
@@ -102,12 +111,14 @@ class Lake(Hall):
             for name in self.canals_manifest['models']:
                 if name not in ('canal_water','canal_annulus'):
                     self.uniform(self.shader,'shadowAmount',1. if name=='canal_interiors' else .78 if name=='canal_shadow' else .50 if name=='canal_recess' else 0.)
+                    self.uniform(self.shader,'joiningStone',1. if name in ('canal_ground','canal_masonry') else 0.)
                     draw(name)
             self.uniform(self.shader,'shadowAmount',0.)
+            self.uniform(self.shader,'joiningStone',0.)
             self.uniform(self.shader,'worldMaterial',0.)
         if not q.revealed or self.hold_pavilion:
             for n in ('pavilion_posts','pavilion_brackets','pavilion_roofs','pavilion_ceiling','pavilion_details','pavilion_inscriptions'):draw(n)
-            self.uniform(self.shader,'surfaceKind',1.);self.uniform(self.shader,'twinPart',1.);draw('causeway');self.uniform(self.shader,'twinPart',0.)
+            self.uniform(self.shader,'surfaceKind',1.);self.uniform(self.shader,'twinPart',1.);self.uniform(self.shader,'joiningStone',2.);draw('causeway');self.uniform(self.shader,'twinPart',0.);self.uniform(self.shader,'joiningStone',0.)
             self.uniform(self.shader,'flatPaving',1.);draw('pavilion_base');self.uniform(self.shader,'flatPaving',0.)
             self.uniform(self.shader,'surfaceKind',0.)
         draw('moon_basin')
@@ -188,7 +199,7 @@ class Lake(Hall):
     def mist_pass(self,source,target,cam,e,clock,inspection,reflected=False):
         """One world-space fog field for direct sight and the reflected light path."""
         q=self.sequence
-        for name,value in (('veil',q.veil),('time',clock),('arrival',q.fog_arrival),('clearing',q.fog_clear),('returning',0.),
+        for name,value in (('veil',q.veil),('time',clock),('arrival',q.fog_arrival),('clearing',q.fog_clear),('retreatRadius',q.fog_retreat_radius),('returning',0.),
                            ('crest',ease(0.,6.,q.elapsed) if q.state=='entering' else 0.),('travelling',float(q.state in ('ordinary','leaving'))),
                            ('reflectedView',float(reflected)),('voidWorld',q.void_tone),('waterY',self.water_y)):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',[value]),pr.SHADER_UNIFORM_FLOAT)

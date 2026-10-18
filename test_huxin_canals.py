@@ -45,6 +45,33 @@ def geometry(name):
     return doc, np.concatenate(points)
 
 
+class TriangleIndex:
+    """Exact coarse AABBs keep dense exported-mesh ray tests proportional.
+
+    Buckets contain complete triangles, including those crossing a cell edge;
+    their bounds come from vertices, so no intersection can be discarded.
+    """
+    def __init__(self,triangles):
+        low,high=triangles.min(axis=1),triangles.max(axis=1)
+        cells=np.floor((low[:,(0,2)]+high[:,(0,2)])/8).astype(np.int64)
+        keys=cells[:,0]*10000+cells[:,1];order=np.argsort(keys)
+        cuts=np.flatnonzero(np.diff(keys[order]))+1
+        self.parts=[];bounds=[]
+        for indices in np.split(order,cuts):
+            self.parts.append((triangles[indices],low[indices],high[indices]))
+            bounds.append((low[indices].min(axis=0),high[indices].max(axis=0)))
+        self.low=np.array([b[0] for b in bounds]);self.high=np.array([b[1] for b in bounds])
+
+    def query(self,a,b,margin=.001):
+        low=np.minimum(a,b)-margin;high=np.maximum(a,b)+margin
+        ids=np.flatnonzero(np.all(self.high>=low,axis=1)&np.all(self.low<=high,axis=1))
+        matches=[]
+        for i in ids:
+            triangles,lo,hi=self.parts[i]
+            matches.append(triangles[np.all(hi>=low,axis=1)&np.all(lo<=high,axis=1)])
+        return np.concatenate(matches) if matches else np.empty((0,3,3),dtype=np.float32)
+
+
 def at_basin():
     q = CanalSequence()
     e = Explorer()
@@ -66,14 +93,24 @@ def enter(q, e):
     assert q.state == 'canals'
 
 
-@lru_cache(maxsize=12)
-def walk_tour(reverse=False, run=False, room=None):
+@lru_cache(maxsize=1)
+def entered_template():
+    """One real entry, reused as independent completed-state navigation fixtures."""
+    q,e=at_basin();enter(q,e)
+    return q,e
+
+
+def navigation_fixture():
+    return copy.deepcopy(entered_template())
+
+
+@lru_cache(maxsize=None)
+def walk_tour(reverse=False, run=False, room=None, washing=None):
     """Exercise the real tank controller over the entire interconnected route."""
-    from g_huxin_canals_layout import REVIEW_ROUTE, ROOM_ROUTES
-    points = REVIEW_ROUTE if room is None else ROOM_ROUTES[room]
+    from g_huxin_canals_layout import REVIEW_ROUTE, ROOM_ROUTES, WASHING_ROUTES
+    points = WASHING_ROUTES[washing] if washing is not None else REVIEW_ROUTE if room is None else ROOM_ROUTES[room]
     route = points[::-1] if reverse else points
-    q, e = at_basin()
-    enter(q, e)
+    q, e = navigation_fixture()
     e.x, e.z = route[0]
     e.height = DECK
     result = [(e.x, e.height, e.z)]
@@ -99,7 +136,71 @@ def walk_tour(reverse=False, run=False, room=None):
     return result
 
 
+@lru_cache(maxsize=1)
+def door_tours():
+    """Natural straight approaches to every advertised accessible ground bay.
+
+    These paths come from exported mesh apertures, not the hand-picked room
+    demonstration route. Lateral offsets catch the former central-only collider.
+    """
+    from g_huxin_canals_layout import support
+    manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+    tours=[]
+    for house in manifest['houses']:
+        if not house.get('enterable'):continue
+        assert house.get('door_portals'),('Missing accessible doors',house['seed'])
+        for bay,portal in enumerate(house['door_portals']):
+            if not portal.get('accessible'):continue
+            normal=np.asarray(portal['normal'],float)
+            tangent=np.asarray(portal['tangent'],float);tangent/=np.linalg.norm(tangent)
+            offset=min(.25,portal['clear_width']/2-.28)
+            assert offset>0,('Door too narrow for player',house['seed'],bay)
+            for side in (-offset,0.,offset):
+                start=np.asarray(portal['approach'],float)+tangent*side
+                finish=np.asarray(portal['inside'],float)+tangent*side
+                for run in (False,True):
+                    q,e=navigation_fixture()
+                    e.x,e.height,e.z=map(float,start)
+                    assert support(e.x,e.z,e.height) is not None,('No doorway approach',house['seed'],bay,side,start)
+                    samples=[(e.x,e.height,e.z)]
+                    for goal in (finish,start):
+                        for _ in range(1000):
+                            dx,dz=goal[0]-e.x,goal[2]-e.z
+                            if math.hypot(dx,dz)<.055:break
+                            e.yaw=math.atan2(dx,-dz)
+                            distance=e.tick(.02,1.,0.,run)
+                            assert distance>1e-6,('Natural doorway blocked',house['seed'],bay,side,run,(e.x,e.height,e.z),goal)
+                            samples.append((e.x,e.height,e.z))
+                        else:raise AssertionError(('Doorway timed out',house['seed'],bay))
+                    tours.append(dict(seed=house['seed'],bay=bay,offset=side,run=run,
+                                      portal=portal,samples=samples))
+    assert len({t['seed'] for t in tours})>=4,'Several houses must be genuinely accessible'
+    return tours
+
+
 class CanalSequenceTests(unittest.TestCase):
+    def test_fog_retreat_reveals_near_to_far_without_dissolving_everywhere(self):
+        from g_huxin_canals_sequence import ENTRY_CLEAR,FOG_STOP_RADIUS
+        q,e=at_basin();self.assertTrue(q.activate(e))
+        self.assertGreaterEqual(ENTRY_DURATION-ENTRY_CLEAR,30.)
+        samples=[]
+        for _ in range(int(ENTRY_DURATION/.05)+1):
+            q.tick(.05,e)
+            if not q.transitioning:break
+            if q.elapsed>=ENTRY_CLEAR:
+                samples.append((q.elapsed,q.fog_retreat_radius,q.veil))
+        radii=[p[1] for p in samples]
+        self.assertTrue(all(b>=a for a,b in zip(radii,radii[1:])))
+        self.assertLess(radii[0],FOG_STOP_RADIUS+.1)
+        self.assertGreater(radii[-1],240.)
+        # Nearby rooms emerge before the deep village, with time to notice
+        # each layer. The density itself stays present outside the moving edge.
+        crossings=[next(t for t,r,v in samples if r>=distance) for distance in (12.,30.,70.,140.,240.)]
+        self.assertTrue(all(b-a>2. for a,b in zip(crossings,crossings[1:])),crossings)
+        self.assertGreater(crossings[0]-ENTRY_CLEAR,3.)
+        self.assertTrue(all(v>.999 for t,r,v in samples))
+        self.assertEqual(q.state,'canals')
+
     def test_actual_renderer_keeps_the_preinteraction_camera_until_player_moves(self):
         from huxin_canals_viewer import Lake
         class CameraSelected(Exception):
@@ -128,7 +229,7 @@ class CanalSequenceTests(unittest.TestCase):
             self.assertEqual(camera_signature(lake.last_camera), before, (q.state, q.elapsed))
             self.assertEqual(lake.last_shot, shot, (q.state, q.elapsed))
 
-    def test_complete_original_pavilion_is_drawn_identically_in_both_worlds_and_reflections(self):
+    def test_original_pavilion_is_retained_and_reflects_about_each_worlds_water_level(self):
         from huxin_canals_viewer import Lake
         from temple_interior_viewer import camera
         import pyray as pr
@@ -158,12 +259,15 @@ class CanalSequenceTests(unittest.TestCase):
                 for state, shown, elapsed in (('ordinary', False, 0.), ('entering', True, ENTRY_SWAP),
                                                ('entering', True, 15.), ('canals', True, 0.)):
                     q.state, q.revealed, q.elapsed = state, shown, elapsed
-                    self.assertEqual(lake.water_y, 0., (state, reflected))
+                    self.assertEqual(lake.water_y, -1.55 if shown else 0., (state, reflected))
                     calls = []
                     lake.draw = lambda *args: calls.append(args)
                     lake.geometry(e, cam, 45., reflected, False)
                     retained = [call for call in calls if call[0] in shared]
                     self.assertEqual({call[0] for call in retained}, set(shared), (state, reflected))
+                    expected_offset=(0,2*lake.water_y,0) if reflected else (0,0,0)
+                    self.assertTrue(all(call[1]==expected_offset for call in retained))
+                    retained=[(call[0],(0,0,0),*call[2:]) for call in retained]
                     if baseline is None:
                         baseline = retained
                     self.assertEqual(retained, baseline, (state, reflected))
@@ -266,6 +370,18 @@ class CanalSequenceTests(unittest.TestCase):
         for name, expected in hashes.items():
             self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), expected, name)
 
+    def test_flooded_version_is_an_unchanged_independent_high_water_scene(self):
+        from huxin_canals_flooded_viewer import Lake
+        from g_huxin_canals_flooded_sequence import CanalSequence as FloodedSequence
+        frozen=json.loads((ROOT/'art/temple/huxin_canals_flooded/frozen_snapshot.json').read_text(encoding='utf-8'))
+        self.assertGreaterEqual(len(frozen['sha256']),80)
+        for name,expected in frozen['sha256'].items():
+            self.assertEqual(hashlib.sha256((ROOT/name).read_bytes()).hexdigest(),expected,name)
+        lake=Lake.__new__(Lake);lake.sequence=FloodedSequence()
+        self.assertEqual(lake.water_y,0.)
+        lake.sequence.revealed=True;lake.sequence.state='canals'
+        self.assertEqual(lake.water_y,0.)
+
     def test_automated_scene_checks_open_no_audio_device(self):
         from huxin_canals_audio import EncounterAudio
         audio = EncounterAudio(automated=True)
@@ -282,11 +398,247 @@ class CanalSequenceTests(unittest.TestCase):
 
 
 class CanalArchitectureTests(unittest.TestCase):
+    def test_accessible_room_floors_meet_the_inner_walls_without_light_slits(self):
+        from g_huxin_canals_layout import transform
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        spatial=TriangleIndex(np.concatenate([geometry(n)[1] for n in ('canal_interiors','canal_shadow')]))
+        for house in manifest['houses']:
+            if not house.get('enterable'):continue
+            plan=house['ground_plan'];w=house['width']/2;back=house['depth']/2
+            # Probe 2mm inside each actual wall face. The former 1cm slab
+            # inset gap was far from the walking centerline but leaked light.
+            inset=plan['wall_thickness']+.002
+            middle=(plan['frontwall']+back)/2
+            spec=dict(cx=house['center'][0],cz=house['center'][2],width=house['width'],depth=house['depth'],yaw=house['yaw'])
+            for u,v in ((-w+inset,middle),(w-inset,middle),(-w*.55,back-inset),(w*.55,back-inset)):
+                x,z=transform(spec,u,v);y=plan['ground_y']
+                origin=np.array((x,y+.10,z));end=origin-np.array((0.,.2,0.))
+                hits=intersections(spatial.query(origin,end),origin,np.array((0.,-1.,0.)),tolerance=1e-6)
+                self.assertTrue(any(abs(hits-.10)<.005),('Room floor light slit',house['id'],u,v,hits.tolist()))
+
+    def test_most_washing_flights_are_behind_houses_with_real_rear_doorways(self):
+        from g_huxin_canals_layout import local_point
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        houses={h['seed']:h for h in manifest['houses']}
+        stairs=manifest['washing_steps'];rear=[s for s in stairs if s.get('side')=='rear']
+        self.assertGreater(len(rear),len(stairs)/2)
+        for stair in rear:
+            h=houses[stair['house_seed']]
+            self.assertTrue(h['ground_plan']['rear_access'],h['id'])
+            portals=[p for p in h['door_portals'] if p.get('side')=='rear']
+            self.assertTrue(portals,('Rear stairs have no doorway',h['id']))
+            spec=dict(cx=h['center'][0],cz=h['center'][2],width=h['width'],depth=h['depth'],yaw=h['yaw'])
+            for tread in stair['treads']:
+                x,y,z=tread['center'];u,v=local_point(spec,x,z)
+                self.assertGreater(v,h['depth']/2+.05,('Stair runs beneath house',h['id'],stair['id'],v))
+            for portal in portals:
+                normal=np.asarray(portal['normal']);approach=np.asarray(portal['approach']);inside=np.asarray(portal['inside'])
+                self.assertGreater(np.dot(approach-inside,normal),1.,('Reversed rear portal',h['id']))
+                self.assertGreaterEqual(portal['clear_width'],1.35)
+
+    def test_rear_landings_are_reached_through_the_house_and_walked_back(self):
+        from g_huxin_canals_layout import THROUGH_HOUSE_ROUTES,WASHING_STAIRS,HOUSE_SPECS,local_point,WATER_Y
+        houses={h['seed']:h for h in HOUSE_SPECS}
+        exported={h['seed']:h for h in json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))['houses']}
+        expected={s['id'] for s in WASHING_STAIRS if s.get('side')=='rear' and s['walkable']}
+        self.assertTrue(expected)
+        self.assertEqual({r['stair_id'] for r in THROUGH_HOUSE_ROUTES},expected)
+        for record in THROUGH_HOUSE_ROUTES:
+            house=houses[record['seed']]
+            x0,z0,x1,z1=exported[record['seed']]['rooms'][0]['local']
+            for run in (False,True):
+                samples=walk_tour(run=run,washing=record['washing_index'])
+                local=[(*local_point(house,x,z),y) for x,y,z in samples]
+                interior=next((i for i,(u,v,y) in enumerate(local) if x0+.1<u<x1-.1 and z0+.1<v<z1-.1),None)
+                self.assertIsNotNone(interior,('Rear flight bypasses house',record['seed']))
+                outside=next((i for i,(u,v,y) in enumerate(local) if v>house['depth']/2+.5),None)
+                self.assertIsNotNone(outside)
+                self.assertLess(interior,outside)
+                low=next(i for i,(x,y,z) in enumerate(samples) if y<WATER_Y+.65)
+                self.assertLess(outside,low)
+                self.assertLess(math.dist(samples[0],samples[-1]),.1)
+
+    def test_causeway_join_has_real_continuous_floor_across_its_usable_width(self):
+        from g_huxin_canals import PATH
+        from g_huxin_canals_layout import support
+        source=geometry('causeway')[1];new=geometry('canal_ground')[1]
+        indices=(TriangleIndex(np.concatenate((source,new))),TriangleIndex(new))
+        for z in (11.45,11.85,11.99,12.01,12.15,12.55):
+            a,b=next((a,b) for a,b in zip(PATH,PATH[1:]) if min(a[1],b[1])<=z<=max(a[1],b[1]))
+            t=(z-a[1])/(b[1]-a[1]);center=a[0]+t*(b[0]-a[0])
+            # Beyond z12 the old mesh is clipped by the actual renderer;
+            # it must not conceal a missing new quay floor in the ray check.
+            spatial=indices[int(z>=12.)]
+            for side in (-.55,0.,.55):
+                x=center+side
+                self.assertIsNotNone(support(x,z,DECK),('Unsupported causeway seam',x,z))
+                origin=np.array((x,DECK+.10,z));end=origin-np.array((0.,.2,0.))
+                hits=intersections(spatial.query(origin,end),origin,np.array((0.,-1.,0.)),tolerance=1e-5)
+                self.assertTrue(any(abs(hits-.10)<.025),('Missing causeway seam floor',x,z))
+
+    def test_blocked_quay_ends_have_a_visible_physical_break(self):
+        from g_huxin_canals_layout import support
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        self.assertGreaterEqual(len(manifest['blocked_ends']),2)
+        triangles=np.concatenate([geometry(name)[1] for name in ('canal_ground','canal_masonry','canal_details','canal_distant')])
+        low,high=triangles.min(axis=1),triangles.max(axis=1)
+        for end in manifest['blocked_ends']:
+            a=np.array(end['approach']);b=np.array(end['beyond']);direction=b-a;direction/=np.linalg.norm(direction)
+            self.assertIsNotNone(support(*a,DECK),end['name'])
+            self.assertIsNone(support(*b,DECK),end['name'])
+            q,e=at_basin();enter(q,e);e.x,e.z=a;e.height=DECK;e.yaw=math.atan2(direction[0],-direction[1])
+            for _ in range(90):e.tick(.05,1.,0.,True)
+            self.assertGreater(math.dist((e.x,e.z),b),.6,end['name'])
+            # The stopped player sees an actual exposed bank edge and open
+            # water beyond it, rather than a continuous floor behind a wall.
+            midpoint=np.asarray(end['edge']).mean(axis=0)
+            origin=np.array((midpoint[0]+direction[0]*.6,DECK-.45,midpoint[1]+direction[1]*.6))
+            nearby=triangles[(high[:,0]>=midpoint[0]-1.5)&(low[:,0]<=midpoint[0]+1.5)&
+                             (high[:,2]>=midpoint[1]-1.5)&(low[:,2]<=midpoint[1]+1.5)]
+            hits=intersections(nearby,origin,np.array((-direction[0],0.,-direction[1])),tolerance=1e-5)
+            self.assertTrue(any((hits>.001)&(hits<1.2)),('Invisible quay limit',end['name']))
+            nearby=triangles[(low[:,0]<=b[0]+.001)&(high[:,0]>=b[0]-.001)&(low[:,2]<=b[1]+.001)&(high[:,2]>=b[1]-.001)]
+            hits=intersections(nearby,np.array((b[0],DECK+.10,b[1])),np.array((0.,-1.,0.)),tolerance=1e-5)
+            self.assertFalse(any(hits<.25),('Intact floor beyond invisible boundary',end['name']))
+
+    def test_every_house_has_a_real_frontage_walkway_and_exposed_water_bank(self):
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        solid=[name for name in manifest['models'] if name not in ('canal_water','canal_annulus')]
+        triangles=np.concatenate([geometry(name)[1] for name in solid])
+        low,high=triangles.min(axis=1),triangles.max(axis=1)
+        self.assertEqual(len(manifest['houses']),manifest['building_count'])
+        holes=[]
+        for h in manifest['houses']:
+            frontage=h['frontage'];polygon=np.asarray(frontage['polygon'],float)
+            self.assertGreaterEqual(len(polygon),4,h['id'])
+            self.assertEqual(frontage['walk_y'],DECK,h['id'])
+            self.assertLess(frontage['bank_bottom'],manifest['water']-.4,h['id'])
+            center=polygon.mean(axis=0)
+            # The metadata must correspond to actual exported horizontal stone
+            # or timber, including houses well beyond the playable district.
+            near=triangles[(low[:,0]<=center[0]+.001)&(high[:,0]>=center[0]-.001)&
+                           (low[:,2]<=center[1]+.001)&(high[:,2]>=center[1]-.001)]
+            hits=intersections(near,np.array((center[0],DECK+.4,center[1])),np.array((0.,-1.,0.)),tolerance=1e-5)
+            self.assertTrue(any(abs(hits-.4)<.06),('House has no frontage floor',h['id']))
+            edge=np.asarray(frontage['water_edge'],float);middle=edge.mean(axis=0)
+            outward=middle-np.array((h['center'][0],h['center'][2]));outward/=np.linalg.norm(outward)
+            near=triangles[(high[:,0]>=middle[0]-1.2)&(low[:,0]<=middle[0]+1.2)&
+                           (high[:,2]>=middle[1]-1.2)&(low[:,2]<=middle[1]+1.2)]
+            for y in (manifest['water']+.12,DECK-.20):
+                origin=np.array((middle[0]+outward[0]*.45,y,middle[1]+outward[1]*.45))
+                direction=np.array((-outward[0],0.,-outward[1]))
+                hits=intersections(near,origin,direction,tolerance=1e-5)
+                if not any((hits>.001)&(hits<1.)):holes.append((h['id'],y))
+        self.assertFalse(holes,('Frontage banks have holes',holes))
+
+    def test_washing_stairs_reach_the_lower_water_and_return_to_the_quay(self):
+        from g_huxin_canals_layout import WASHING_ROUTES,WATER_Y
+        self.assertGreaterEqual(len(WASHING_ROUTES),3)
+        for stair in range(len(WASHING_ROUTES)):
+            for run in (False,True):
+                samples=walk_tour(run=run,washing=stair)
+                heights=[p[1] for p in samples]
+                self.assertLess(min(heights),WATER_Y+.65)
+                self.assertGreater(min(heights),WATER_Y)
+                self.assertAlmostEqual(heights[-1],DECK)
+                self.assertLess(math.dist(samples[0],samples[-1]),.10)
+
+    def test_exported_washing_flights_continue_below_water_with_supported_landings(self):
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        stairs=manifest['washing_steps'];self.assertGreaterEqual(len(stairs),6)
+        triangles=geometry('canal_masonry')[1]
+        low,high=triangles.min(axis=1),triangles.max(axis=1)
+        for stair in stairs:
+            treads=stair['treads'];heights=[t['center'][1] for t in treads]
+            self.assertGreaterEqual(len(treads),12)
+            self.assertAlmostEqual(heights[0],DECK)
+            self.assertLess(heights[-1],manifest['water'])
+            self.assertTrue(all(.08<a-b<.22 for a,b in zip(heights,heights[1:])),stair['id'])
+            surfaces=treads+[stair['landing_geometry']] if stair['landing_geometry'] else treads
+            for tread in surfaces:
+                x,y,z=tread['center']
+                nearby=triangles[(low[:,0]<=x+.001)&(high[:,0]>=x-.001)&(low[:,2]<=z+.001)&(high[:,2]>=z-.001)]
+                hits=intersections(nearby,np.array((x,y+.10,z)),np.array((0.,-1.,0.)),tolerance=1e-5)
+                self.assertTrue(any(abs(hits-.10)<.025),('Missing washing tread',stair['id'],tread['center']))
+            # Both sides of each riser must remain stone. The previous worn
+            # contours separated neighbouring treads by a few millimetres,
+            # which center-of-tread probes could not see.
+            for a,b in zip(treads,treads[1:]):
+                pa,pb=np.asarray(a['center']),np.asarray(b['center'])
+                direction=pb-pa;direction[1]=0.;direction/=np.linalg.norm(direction)
+                for side,y in ((-.001,pa[1]),(.001,pb[1])):
+                    x,_,z=(pa+pb)*.5+direction*side
+                    nearby=triangles[(low[:,0]<=x+1e-5)&(high[:,0]>=x-1e-5)&(low[:,2]<=z+1e-5)&(high[:,2]>=z-1e-5)]
+                    hits=intersections(nearby,np.array((x,y+.10,z)),np.array((0.,-1.,0.)),tolerance=1e-6)
+                    self.assertTrue(any(abs(hits-.10)<.005),('Gap beside washing riser',stair['id'],x,y,z,hits.tolist()))
+
+    def test_lower_water_exposes_complete_house_foundations(self):
+        from g_huxin_canals_layout import WATER_Y,transform
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        self.assertEqual(DECK,.325)
+        self.assertEqual(WATER_Y,-1.55)
+        self.assertEqual(manifest['water'],WATER_Y)
+        water=geometry('canal_water')[1]
+        self.assertTrue(np.all(abs(water[:,:,1]-WATER_Y)<1e-5))
+        self.assertGreater(DECK-WATER_Y,1.8)
+        solid=[name for name in manifest['models'] if name not in ('canal_water','canal_annulus')]
+        triangles=np.concatenate([geometry(name)[1] for name in solid])
+        low,high=triangles.min(axis=1),triangles.max(axis=1)
+        for h in manifest['houses']:
+            self.assertLessEqual(h['foundation_bottom'],WATER_Y-.5,h['id'])
+            self.assertEqual(h['water_y'],WATER_Y,h['id'])
+            s=dict(cx=h['center'][0],cz=h['center'][2],width=h['width'],depth=h['depth'],yaw=h['yaw'])
+            w,d=h['width']/2,h['depth']/2
+            corners=np.array([transform(s,x,z) for x,z in ((-w,-d),(w,-d),(w,d),(-w,d))])
+            near=triangles[(high[:,0]>=corners[:,0].min()-.8)&(low[:,0]<=corners[:,0].max()+.8)&
+                           (high[:,2]>=corners[:,1].min()-.8)&(low[:,2]<=corners[:,1].max()+.8)&(low[:,1]<DECK+.1)]
+            for a,b in zip(corners,np.roll(corners,-1,axis=0)):
+                middle=(a+b)*.5;edge=b-a
+                outward=np.array((edge[1],0.,-edge[0]));outward/=np.linalg.norm(outward)
+                for y in (WATER_Y+.1,(WATER_Y+DECK)*.5,DECK-.16):
+                    origin=np.array((middle[0],y,middle[1]))+outward*.5
+                    hits=intersections(near,origin,-outward,tolerance=1e-5)
+                    self.assertTrue(any((hits>.001)&(hits<1.1)),('Exposed foundation hole',h['id'],middle,y))
+
+    def test_every_advertised_door_bay_accepts_natural_straight_capsule_entry(self):
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        solid=[name for name in manifest['models'] if name not in ('canal_water','canal_annulus','canal_distant')]
+        triangles=np.concatenate([geometry(name)[1] for name in solid])
+        spatial=TriangleIndex(triangles)
+        # Controller crossings are exercised by the route/camera/floor checks.
+        # Keep this independent mesh check cheap enough to rerun after a prop
+        # move without replaying every traversal a second time.
+        tours=[]
+        for house in manifest['houses']:
+            for bay,portal in enumerate(house.get('door_portals',())):
+                if not portal.get('accessible'):continue
+                offset=min(.25,portal['clear_width']/2-.28)
+                for side in (-offset,0.,offset):
+                    tours.append(dict(seed=house['seed'],bay=bay,offset=side,portal=portal))
+        self.assertGreaterEqual(len(tours),90)
+        for tour in tours:
+            portal=tour['portal'];normal=np.asarray(portal['normal'],float)
+            tangent=np.asarray(portal['tangent'],float);tangent/=np.linalg.norm(tangent)
+            # Check actual exported geometry at both sides of the capsule,
+            # across the whole porch-to-room crossing, not just its center ray.
+            for side in (-.18,.18):
+                a=np.asarray(portal['approach'],float)+tangent*(tour['offset']+side)
+                b=np.asarray(portal['inside'],float)+tangent*(tour['offset']+side)
+                for height in (.35,.95,1.65):
+                    origin=a+np.array((0,height,0));end=b+np.array((0,height,0))
+                    direction=end-origin;distance=np.linalg.norm(direction)
+                    nearby=spatial.query(origin,end)
+                    hits=intersections(nearby,origin,direction/distance,tolerance=1e-5)
+                    self.assertFalse(any((hits>.001)&(hits<distance-.001)),
+                                     ('Visible doorway blocks capsule',tour['seed'],tour['bay'],tour['offset'],side,height,hits.tolist()))
+
     def test_vacant_houses_can_be_entered_and_left_through_their_real_doorways(self):
-        from g_huxin_canals_layout import ROOM_ROUTES, HOUSE_SPECS, in_house
-        houses = [house for house in HOUSE_SPECS if house.get('enterable')]
-        self.assertEqual(len(ROOM_ROUTES), len(houses))
-        for room, house in enumerate(houses):
+        from g_huxin_canals_layout import ROOM_ROUTES, DOOR_ROUTES, HOUSE_SPECS, in_house
+        houses = {house['seed']:house for house in HOUSE_SPECS if house.get('enterable')}
+        self.assertEqual(len(ROOM_ROUTES), len(DOOR_ROUTES))
+        self.assertEqual({route['seed'] for route in DOOR_ROUTES},set(houses))
+        for room, route in enumerate(DOOR_ROUTES):
+            house=houses[route['seed']]
             for run in (False, True):
                 samples = walk_tour(run=run, room=room)
                 self.assertTrue(any(in_house(house,x,z,-.5) for x,y,z in samples), house['seed'])
@@ -373,10 +725,13 @@ class CanalArchitectureTests(unittest.TestCase):
         solid += ['pavilion_posts', 'pavilion_brackets', 'pavilion_roofs',
                   'pavilion_ceiling', 'pavilion_details', 'moon_basin', 'moon_fixture']
         triangles = np.concatenate([geometry(name)[1] for name in solid])
-        low, high = triangles.min(axis=1), triangles.max(axis=1)
-        from g_huxin_canals_layout import ROOM_ROUTES
+        spatial=TriangleIndex(triangles)
+        from g_huxin_canals_layout import ROOM_ROUTES,WASHING_ROUTES
         from g_huxin_canals_sequence import support
         samples = walk_tour()[::12] + [p for room in range(len(ROOM_ROUTES)) for p in walk_tour(room=room)[::3]]
+        samples += [p for tour in door_tours() if not tour['run'] and tour['offset']==0.
+                    for p in tour['samples'][::8]]
+        samples += [p for stair in range(len(WASHING_ROUTES)) for p in walk_tour(washing=stair)[::3]]
         samples += [(x,DECK,z) for x in (-4.,-2.,0.,2.,4.) for z in (-4.,-2.,0.,2.,4.,6.)
                     if support(x,z,DECK,True) is not None]
         for x, y, z in samples:
@@ -393,8 +748,7 @@ class CanalArchitectureTests(unittest.TestCase):
                     body = np.array((x, y + height, z)) + right * side
                     direction = body - eye
                     distance = np.linalg.norm(direction)
-                    nearby = triangles[np.all(high >= np.minimum(eye, body), axis=1) &
-                                       np.all(low <= np.maximum(eye, body), axis=1)]
+                    nearby = spatial.query(eye,body)
                     hits = intersections(nearby, eye, direction / distance, tolerance=1e-5)
                     clear |= not any((hits > .1) & (hits < distance - .12))
             self.assertTrue(clear, ('Player hidden behind geometry', shot, x, y, z))
@@ -450,18 +804,27 @@ class CanalArchitectureTests(unittest.TestCase):
 
     def test_exported_floors_and_stair_treads_match_every_walked_surface(self):
         manifest = json.loads((KIT / 'canals_manifest.json').read_text(encoding='utf-8'))
-        names = manifest['walkable_models'] + ['pavilion_base', 'causeway', 'canal_interiors', 'canal_shadow']
-        triangles = np.concatenate([geometry(name)[1] for name in names])
+        names = list(dict.fromkeys(manifest['walkable_models'] +
+                     ['pavilion_base', 'causeway', 'canal_interiors', 'canal_shadow']))
+        pieces=[geometry(name)[1] for name in names]
+        clipped_causeway=np.concatenate([np.full(len(piece),name=='causeway') for name,piece in zip(names,pieces)])
+        triangles = np.concatenate(pieces)
         normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
-        triangles = triangles[normals[:, 1] > 1e-7]
+        upwards=normals[:,1]>1e-7
+        triangles = triangles[upwards];clipped_causeway=clipped_causeway[upwards]
         low, high = triangles.min(axis=1), triangles.max(axis=1)
-        from g_huxin_canals_layout import ROOM_ROUTES
+        from g_huxin_canals_layout import ROOM_ROUTES,WASHING_ROUTES
         samples = walk_tour() + [p for room in range(len(ROOM_ROUTES)) for p in walk_tour(room=room)]
+        samples += [p for tour in door_tours() for p in tour['samples'][::4]]
+        samples += [p for stair in range(len(WASHING_ROUTES)) for p in walk_tour(washing=stair)]
+        missing=[]
         for x, y, z in samples:
-            nearby = triangles[(low[:, 0] <= x + .001) & (high[:, 0] >= x - .001) &
-                               (low[:, 2] <= z + .001) & (high[:, 2] >= z - .001)]
+            eligible=(low[:,0]<=x+.001)&(high[:,0]>=x-.001)&(low[:,2]<=z+.001)&(high[:,2]>=z-.001)
+            if z>12.:eligible&=~clipped_causeway
+            nearby=triangles[eligible]
             hits = intersections(nearby, np.array((x, y + .22, z)), np.array((0., -1., 0.)), tolerance=1e-5)
-            self.assertTrue(any(abs(hits - .22) < .045), ('Missing floor', x, y, z, hits.tolist()))
+            if not any(abs(hits-.22)<.045):missing.append((x,y,z,hits.tolist()))
+        self.assertFalse(missing,('Missing floors',len(missing),missing[:30]))
 
 
 if __name__ == '__main__':

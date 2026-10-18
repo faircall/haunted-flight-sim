@@ -1,12 +1,18 @@
-"""Independent, one-way Void Canals encounter; reuses the cloned moon fog timing."""
+"""One-way Void Canals encounter with a slowly retreating world-space fog bank."""
 import math
 from g_interaction_data import SLOT_COUNT
 from g_huxin_canals import DECK, can_walk, walk_height, COLUMNS, BENCHES, smooth, shore_radius, PATH
 
 ENTRY_SWAP=8.
 ENTRY_CLEAR=10.
-ENTRY_DURATION=24.
+ENTRY_DURATION=48.
 FOG_STOP_RADIUS=4.65 # At the six original columns; the centre stays open.
+FOG_RETREAT_DISTANCE=290. # Beyond the 240m integration horizon, including the rolling edge.
+
+def retreat_radius(progress):
+    """A bank moving away, lingering over near houses before receding into depth."""
+    t=max(0.,min(1.,progress))
+    return FOG_STOP_RADIUS+FOG_RETREAT_DISTANCE*t**2.35
 
 def ease(a,b,x):
     """Quintic easing: velocity and acceleration meet without a visible corner."""
@@ -82,7 +88,7 @@ class CanalSequence:
     @property
     def veil(self):
         if self.state=='ordinary':return .72*ease(0.,1.,self.approach)
-        if self.state=='entering':return (self.entry_veil+(1.-self.entry_veil)*ease(0.,6.,self.elapsed))*(1.-self.fog_clear)
+        if self.state=='entering':return self.entry_veil+(1.-self.entry_veil)*ease(0.,6.,self.elapsed)
         return 0.
     @property
     def fog_arrival(self):
@@ -90,13 +96,15 @@ class CanalSequence:
         if self.state=='entering':return self.entry_arrival+(1.-self.entry_arrival)*ease(0.,6.,self.elapsed)
         return 0.
     @property
-    def fog_clear(self):return ease(ENTRY_CLEAR,ENTRY_DURATION,self.elapsed) if self.transitioning else 0.
+    def fog_clear(self):return max(0.,min(1.,(self.elapsed-ENTRY_CLEAR)/(ENTRY_DURATION-ENTRY_CLEAR))) if self.transitioning else 0.
+    @property
+    def fog_retreat_radius(self):return retreat_radius(self.fog_clear)
     @property
     def camera_stage(self):return 'continuous' if self.transitioning else None
     @property
     def warmth(self):return 0.
     @property
-    def void_tone(self):return ease(ENTRY_CLEAR,ENTRY_DURATION,self.elapsed) if self.transitioning else float(self.revealed)
+    def void_tone(self):return ease(ENTRY_SWAP,ENTRY_CLEAR,self.elapsed) if self.transitioning else float(self.revealed)
     @property
     def normal(self):return (math.sin(self.yaw)*math.cos(self.pitch),math.sin(self.pitch),math.cos(self.yaw)*math.cos(self.pitch))
 

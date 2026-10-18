@@ -978,26 +978,45 @@ Launch `play_huxin_canals.cmd` for the independent third pavilion scene. It star
 on the same lake approach, with the established position-driven fog. The existing
 lake and Moon scenes remain unchanged; 89 source/asset hashes are recorded in
 `art/temple/huxin_canals/origin_snapshot.json` and checked by the new tests.
+The previous high-water version is a separate frozen scene, launched with
+`play_huxin_canals_flooded.cmd`. Its 81 source and asset hashes are recorded in
+`art/temple/huxin_canals_flooded/frozen_snapshot.json`; rebuilding the current
+district does not overwrite that version.
 
 The prototype begins with the previously collected stone annulus in inventory.
 At the bronze mirror, press **E** to place it on the basin. This consumes only
-the matching object, preserves other inventory and uses the familiar 24-second
-fog sequence. The camera stays exactly where it was before the interaction,
+the matching object, preserves other inventory and starts a 48-second
+fog sequence. After the concealed change, the dense bank retreats outward for
+38 seconds: nearby houses emerge first, then successive layers of the village,
+while the distant canals remain obscured. The camera stays exactly where it was before the interaction,
 through the gathering mist, the concealed world change and the clearing fog.
 It remains there until the player moves. The complete original pavilion is its
 own twin in the other world: deck, roof, posts, brackets, ceiling, inscriptions,
-basin and lamps remain in place. The water stays at the same height. Reflections
-pass through the same world-space fog as the direct view.
+basin and lamps remain in place. The ordinary lake remains at y=0; under the
+concealing fog the canal water drops to y=-1.55, while the pavilion and quays
+stay at y=.325. Exposed foundations, bank walls and washing stairs establish
+that difference in height. Reflections use the current water plane and pass
+through the same world-space fog as the direct view.
 
-The V2 district is rebuilt around the newer book references in
+The district is built around the newer book references in
 `artdev/concepts/canalsv2`. An irregular network of waterside quays, two stone
 bridges, a small courtyard and covered passages replaces the first block layout.
-Two vacant shops can be entered through their actual doorways and explored.
+Vacant homes along the playable quays can be entered through their actual
+ground-floor door bays and explored. Door apertures, porch posts and navigation
+share `canals_house_plan.py`, including the outer bays of wide shopfronts.
+The current district contains 142 houses and sixteen accessible homes. Thirty
+front door bays lead into real rooms, and nine homes also have open rear doors
+leading to back quays and washing stairs. Twenty-four washing flights are
+distributed around the village, fifteen behind houses; twelve have playable
+landings just above the lower water. Reaching the rear landings requires walking
+through the rooms and returning through them. Continuous bank paths also connect the distant houses; the
+playable northern quays end at visible breaks with submerged fragments.
 The nearby houses have hollow rooms, inset upper storeys, open windows, porous
 timber screens, folded or broken doors and deep awnings. Black interiors have
 actual floors, ceilings and back walls rather than flat dark panels pasted onto
 solid boxes. Hand-laid paving, water stairs, irregular tiled roofs and occasional
-laundry provide domestic scale. The desaturated material atlas remains deliberately
+laundry provide domestic scale. The original causeway blends into the new paving
+over a shared strip, with continuous stone beneath the join. The desaturated material atlas remains deliberately
 low resolution. Current exported budgets and house metadata are recorded in
 `art/temple/huxin_canals/canals_manifest.json`.
 
@@ -1020,6 +1039,7 @@ and shaders all have their own `huxin_canals` files.
 $env:HAUNTED_MUTE_AUDIO='1'
 artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin test_huxin_moon test_huxin_moon_encounter test_huxin_moon_clearance test_huxin_canals -q
 artifacts/temple3d-env/Scripts/python.exe huxin_canals_review.py
+artifacts/temple3d-env/Scripts/python.exe huxin_canals_review.py --flooded-smoke
 ```
 
 The muted native review walks the lake approach, places the object, checks the
@@ -1027,16 +1047,51 @@ stationary camera and hidden swap in both the image and the water reflection,
 then walks the complete canal loop using the real controller.
 It verifies player visibility from every route camera and saves the reveal,
 a condensed walkthrough, a contact sheet and a JSON report under
-`artifacts/huxin_canals_v2/`. Earlier V1 review images remain under
-`artifacts/huxin_canals/`. `--quick` skips GIF encoding. CPU checks cover walking
+`artifacts/huxin_canals_v4/`. Earlier review images remain under
+`artifacts/huxin_canals_v3/`, `artifacts/huxin_canals_v2/` and
+`artifacts/huxin_canals/`. `--quick` skips GIF
+encoding. The flooded smoke loads the preserved scene independently, checks
+its stationary reveal and high water, then walks its own quay route without
+writing any frozen files. CPU checks cover walking
 and running in both directions, exported walking surfaces, real opening depth,
 camera continuity, retained pavilion geometry, inventory continuity and preservation
-of both earlier scenes. Automated reviews never open an audio device.
-The V2 native check measured a maximum one-level RGB change at the concealed
-swap across the complete visible image, with no camera movement. Fog reduced
-the intermediate reflection difference by 83.9%. That intermediate buffer holds
-only the water-to-object optical path; the complete image adds the
-camera-to-water segment and is the decisive visible-reflection concealment check.
+of the earlier scenes and the flooded backup. Natural doorway tests use the
+exported apertures to drive straight approaches at the center and both sides
+of every accessible bay, walking and running, and check actual geometry at
+both sides of the player's capsule. Rear routes are checked against the actual
+exported room boundaries before reaching their stairs; the causeway join is
+checked across its usable width against the exported floor meshes. The native
+review also compares the last clearing frame with the completed state to catch
+a final fog pop. Rays immediately inside the room walls check that their floors
+meet the plaster without thin light leaks. Automated reviews never open an audio device.
+All 64 CPU checks pass across the original scene suites, the canal suite and the
+15-check final geometry recheck. The checks found a narrow gap between a porch
+and its quay; the porch now meets the exact cut edge. Adjacent washing treads
+also share their riser boundaries, verified with 624 exported-mesh rays placed
+1mm to either side of those boundaries. The final floor scan uses all real
+controller trajectories and excludes the hidden original causeway beyond z12.
+The V4 native review completed 12,356 controller steps and all 42 excursions,
+including nine routes through houses to their rear water stairs. All 580 player
+visibility checks passed. The 48-second reveal kept the camera stationary,
+measured at most one RGB level of change at the concealed swap, and zero change
+at the end of the radial clearing. With the reflection plane held fixed, fog
+reduced the hidden-world image difference by 77.3%. The final assets contain
+1,311,004 exported triangles. The frozen flooded scene also passed its independent
+muted launch, reveal and movement smoke check.
+The preceding V3 release passed all 59 CPU checks across the existing scene suites and the final focused
+recheck. The mesh checks caught low laundry and a jar intersecting doorway
+approaches; both were moved before the final export, with all aperture and
+capsule checks passing afterward.
+The V3 native check walked 9,330 controller steps and measured a maximum
+one-level RGB change at the concealed swap across the complete visible image,
+with no camera movement. All 344 player-visibility samples passed. A focused
+recheck after the northern camera adjustment passed all 165 doorway/stair
+stations and 68 route stations. The assets contain 1,312,013 exported triangles.
+The water-plane change legitimately alters the intermediate reflection's
+projection. A separate comparison holding the reflection plane fixed measured
+76.0% attenuation from fog. That buffer holds only the water-to-object optical
+path; the complete image adds the camera-to-water segment and is the decisive
+visible-reflection concealment check.
 Only for a deliberate listening check that cannot be verified from the WAV or
 runtime state, set `HAUNTED_TEST_AUDIO=1` for that test process; an explicit
 `HAUNTED_MUTE_AUDIO=1` takes precedence. No system volume settings are changed.
