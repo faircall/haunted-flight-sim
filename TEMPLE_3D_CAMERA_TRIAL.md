@@ -988,12 +988,20 @@ At the bronze mirror, press **E** to place it on the basin. This consumes only
 the matching object, preserves other inventory and starts a 48-second
 fog sequence. After the concealed change, the dense bank retreats outward for
 38 seconds: nearby houses emerge first, then successive layers of the village,
-while the distant canals remain obscured. The camera stays exactly where it was before the interaction,
+while the distant canals remain obscured. Coarse, softly posterized fog banks
+gather around the actual house footprints. Nearby water and paving receive
+lighter, broken wisps, while denser layers cover the changing streets farther
+out. The two environments blend gradually from seconds 5 to 12, each with its
+own depth-aware fog and correct water reflection. The shared pavilion and player
+stay aligned throughout. Three-dimensional noise bends the broad billows and
+branching wisps; the player and basin remain readable during the crescendo.
+Uneven layers release different parts of the village at different
+moments. The camera stays exactly where it was before the interaction,
 through the gathering mist, the concealed world change and the clearing fog.
 It remains there until the player moves. The complete original pavilion is its
 own twin in the other world: deck, roof, posts, brackets, ceiling, inscriptions,
-basin and lamps remain in place. The ordinary lake remains at y=0; under the
-concealing fog the canal water drops to y=-1.55, while the pavilion and quays
+basin and lamps remain in place. The ordinary lake remains at y=0; the blend
+reveals canal water at y=-1.55, while the pavilion and quays
 stay at y=.325. Exposed foundations, bank walls and washing stairs establish
 that difference in height. Reflections use the current water plane and pass
 through the same world-space fog as the direct view.
@@ -1006,10 +1014,11 @@ ground-floor door bays and explored. Door apertures, porch posts and navigation
 share `canals_house_plan.py`, including the outer bays of wide shopfronts.
 The current district contains 142 houses and sixteen accessible homes. Thirty
 front door bays lead into real rooms, and nine homes also have open rear doors
-leading to back quays and washing stairs. Twenty-four washing flights are
-distributed around the village, fifteen behind houses; twelve have playable
+leading to back quays and washing stairs. Thirty-six washing flights are
+distributed around the village, twenty-seven behind houses; twelve have playable
 landings just above the lower water. Reaching the rear landings requires walking
-through the rooms and returning through them. Continuous bank paths also connect the distant houses; the
+through the rooms and returning through them. Twelve additional rear flights
+belong to the scenery houses opposite the pavilion. Continuous bank paths also connect the distant houses; the
 playable northern quays end at visible breaks with submerged fragments.
 The nearby houses have hollow rooms, inset upper storeys, open windows, porous
 timber screens, folded or broken doors and deep awnings. Black interiors have
@@ -1047,8 +1056,8 @@ stationary camera and hidden swap in both the image and the water reflection,
 then walks the complete canal loop using the real controller.
 It verifies player visibility from every route camera and saves the reveal,
 a condensed walkthrough, a contact sheet and a JSON report under
-`artifacts/huxin_canals_v4/`. Earlier review images remain under
-`artifacts/huxin_canals_v3/`, `artifacts/huxin_canals_v2/` and
+`artifacts/huxin_canals_v5/`. Earlier review images remain under
+`artifacts/huxin_canals_v4/`, `artifacts/huxin_canals_v3/`, `artifacts/huxin_canals_v2/` and
 `artifacts/huxin_canals/`. `--quick` skips GIF
 encoding. The flooded smoke loads the preserved scene independently, checks
 its stationary reveal and high water, then walks its own quay route without
@@ -1064,7 +1073,96 @@ checked across its usable width against the exported floor meshes. The native
 review also compares the last clearing frame with the completed state to catch
 a final fog pop. Rays immediately inside the room walls check that their floors
 meet the plaster without thin light leaks. Automated reviews never open an audio device.
-All 64 CPU checks pass across the original scene suites, the canal suite and the
+V5 adds front-facing rays for bank walls, house foundations, washing risers,
+stair flanks and caps; ordinary two-sided floor intersections cannot detect a
+face that disappears under back-face culling. The tread shoulders now close
+the full-width quay cuts while retaining worn edges. The separate V5 curtain
+probe checks both held cameras, centre actor/basin contrast during the crescendo,
+the distance-driven approach, reflected world change and final clearing.
+The optional V5 CPU runner caches controller trajectories using fingerprints of
+the controller/navigation sources and exported doorway data, allowing geometry
+repairs to reuse verified routes without concealing a changed movement model.
+
+The final V5 export passed 21 focused CPU checks in 232.94 seconds, covering
+outward-facing bank walls and undersides, closed tread mouths, all 39 accessible
+front/rear doorway bays, actual walked floors, sequence behavior and protected
+scene hashes. All 936 probes placed 1mm on either side of tread boundaries
+passed. The district contains 142 houses and 1,322,743 exported triangles, with
+36 washing flights: 27 behind houses, including 12 on the opposite scenery banks.
+The architecture review captured 37 native views of the corrected shells and
+opposite stairs. The original 89 files and flooded backup's 81 files remain unchanged.
+
+The final V5 curtain review held both pavilion cameras throughout the 48-second
+sequence. Eight same-clock world/water swaps changed the final image by at most
+three RGB levels out of 255; both final clearing transitions changed no pixels.
+The actor and puzzle basin retained essentially all direct image contrast at
+2, 4, 6 and 10 seconds, while the perimeter fog concealed the surroundings.
+The distance-driven approach and both full retreat animations are saved as
+`approach-sheet.jpg`, `curtain-retreat-5.gif` and `curtain-retreat-6.gif` under
+`artifacts/huxin_canals_v5/`. A separate 100-frame sample at 640x360, including
+GPU completion/readback, measured 8.19ms median and 17.69ms p95 on the review
+machine; the thick-curtain phase measured 4.68ms median. All automated windows
+were hidden and no audio device opened. `validation-summary.json` records the
+exact scope: these are focused V5 checks, with the prior complete V4 traversal
+retained below rather than repeated for shell winding and scenery changes.
+
+The V6 fog revision replaces the sharp pavilion-shaped curtain and stretched
+wisps with soft, asymmetric banks, warped three-dimensional billows and branching
+filaments. Translucent foreground curls overlap a denser bank farther out;
+uneven low mist conceals the changing water edge without covering the actor.
+Direct and reflected views sample the same world-space cloud. Its illumination
+has gentle tonal steps, while transparency changes continuously.
+
+The muted V6 native review captured the complete 48-second sequence from both
+pavilion views and two exterior diagnostic views. Sixteen same-clock swaps
+(four views at four different clocks) changed the final image by at most one
+RGB level out of 255, including the separate reflection-only comparisons.
+All four clearing endpoints matched exactly. The player retained at least
+75.8% of unfogged contrast and the puzzle basin at least 96.2% in the two
+pavilion views. Frozen-clock camera sweeps check depth and parallax; isolated
+60Hz fog-motion samples at four phases changed by at most one RGB level per
+frame. Across the 170-frame capture in each pavilion view, render and readback
+times were 12.23/12.35ms median and 16.62/15.21ms p95 at 640x360 on the review
+machine. These are diagnostic timings, not a full gameplay benchmark.
+The three reflection/uniform tests and ten sequence tests pass; all 170
+protected original and flooded-backup files remain unchanged. Captures, GIFs,
+source hashes and reports are under `artifacts/huxin-canals-fog-v6/after/` and
+`artifacts/huxin-canals-fog-v6/after-motion/`.
+
+V7 moves the heavy fog away from the pavilion and into the village. A 128x128
+world-space coverage field is generated once from the exported house footprints,
+with a four-metre feather and three-dimensional warping in the fog shader.
+Open water receives only a lighter background haze and porous foreground wisps.
+Broader noise octaves and five softly blended illumination bands give the banks
+a coarser texture; opacity remains continuous. The logical encounter commits
+once at eight seconds, while a separate quintic visual blend runs from five to
+twelve seconds. Both endpoint worlds render their own depth, water plane and
+fogged reflection before composition. Only those seven seconds require two
+complete renders; the common player pose and held camera are evaluated once.
+
+The V7 native review compares the two fog fields with identical world weights,
+lighting and cameras. Mean retained outer-paving contrast rises from 5.7% to
+83.6%; player and basin contrast remains above 99% in both pavilion views.
+Four views at four clocks show no more than one RGB level of change across
+the blend start, logical commit, blend end and final clearing boundaries.
+The actual composite agrees with its weighted endpoint images to within one
+RGB level. The prior V6 images, shader, viewer and sequence are preserved under
+`artifacts/huxin-canals-fog-v7/before/`; V7 captures and reports are stored beside
+that backup. All native reviews are hidden and muted.
+
+The final V7 field uses 96 fixed ray intervals, with 30cm foreground steps;
+the softer distant banks no longer require the former 128-sample curtain.
+In warmed 90-frame samples with synchronized readback at 640x360, the two
+pavilion views measured 24.7/25.6ms median during the seven-second blend,
+with 27.5/30.6ms p95. Rendering returns to one endpoint afterward. The 19
+focused CPU tests cover fog uniforms, sequence behavior and selection during
+the blend; coverage-map invariants also pass. Final native captures are in
+`artifacts/huxin-canals-fog-v7/final96/` and `final96-motion/`.
+Both complete 48-second captures and the frozen-volume motion/parallax checks
+pass with the production shader. All 89 original and 81 flooded-backup file
+hashes remain unchanged.
+
+The preceding V4 release passed all 64 CPU checks across the original scene suites, the canal suite and the
 15-check final geometry recheck. The checks found a narrow gap between a porch
 and its quay; the porch now meets the exact cut edge. Adjacent washing treads
 also share their riser boundaries, verified with 624 exported-mesh rays placed

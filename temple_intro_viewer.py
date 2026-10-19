@@ -88,6 +88,7 @@ class View:
         self.draw_calls=0;self.max_draw_calls=0;self.mist=None;self.terrain=None;self.sky=None
         self.car_space=False;self.car_height=0.;self.car_pitch=0.
         self.rendering_mirror=False;self.mirror_clock=None;self.mirror_updates=0
+        self.codex_selection=None;self._codex_capture=False
         try:
             self.scene_shader=shader('temple_intro.fs');self.shaders.append(self.scene_shader)
             self.scene_shader.locs[pr.SHADER_LOC_MAP_METALNESS]=pr.get_shader_location(self.scene_shader,'reflectionMap')
@@ -193,9 +194,13 @@ class View:
         pr.set_shader_value(s,loc,data,type_)
 
     def draw(self,name,position=(0,0,0),scale=(1,1,1),yaw=0,tint=None):
-        self.draw_model(self.models[name],position,scale,(0,1,0),yaw,tint)
+        self.draw_model(self.models[name],position,scale,(0,1,0),yaw,tint,name=name)
 
-    def draw_model(self,model,position=(0,0,0),scale=(1,1,1),axis=(0,1,0),angle=0,tint=None):
+    def draw_model(self,model,position=(0,0,0),scale=(1,1,1),axis=(0,1,0),angle=0,tint=None,name=None):
+        selection=self.codex_selection
+        capture=selection is not None and selection.enabled and self._codex_capture and not self.rendering_mirror
+        if capture and name is None:
+            name=next((key for key,value in self.models.items() if value.meshes==model.meshes),None)
         if self.car_space:
             original=pr.ffi.new('Matrix *',model.transform)[0]
             matrix=pr.matrix_multiply(original,pr.matrix_scale(*scale))
@@ -203,9 +208,23 @@ class View:
             matrix=pr.matrix_multiply(matrix,pr.matrix_translate(*position))
             model.transform=pr.matrix_multiply(matrix,pr.matrix_rotate_x(self.car_pitch))
             pr.draw_model(model,pr.Vector3(0,self.car_height,0),1.,tint or pr.WHITE)
+            if capture and name:
+                self.record_selection(model,name,(0,self.car_height,0),(1,1,1),(0,1,0),0)
             model.transform=original
-        else:pr.draw_model_ex(model,pr.Vector3(*position),pr.Vector3(*axis),angle,pr.Vector3(*scale),tint or pr.WHITE)
+        else:
+            pr.draw_model_ex(model,pr.Vector3(*position),pr.Vector3(*axis),angle,pr.Vector3(*scale),tint or pr.WHITE)
+            if capture and name:self.record_selection(model,name,position,scale,axis,angle)
         self.draw_calls+=1
+
+    def record_selection(self,model,name,position,scale,axis,angle):
+        asset=KIT/(name+'.glb')
+        metadata={'kind':'vehicle_part' if self.car_space else 'scenery',
+                  'source_file':__file__,'coordinate_space':'car-relative world',
+                  'car_height':self.car_height,'car_pitch_radians':self.car_pitch}
+        if name=='cube' and self.car_space:
+            metadata.update(label='windscreen wiper segment',builder='g_santana_geometry.py:wiper_segments')
+        self.codex_selection.register_model(model,name,asset if asset.exists() else None,
+            position,scale,angle,axis,metadata=metadata)
 
     def camera(self,intro):
         frame=sample_camera(intro.shot,intro.elapsed);eye=frame['eye'];target=frame['target']
@@ -386,6 +405,10 @@ class View:
             pr.draw_text('Q: quit   |   Home: look forward',142,151,10,pr.Color(167,183,167,255))
 
     def render(self,intro,help_visible=True,audio_error='',camera_override=None,scene_view=None,overlays=True,apply_fade=True,trails=True):
+        self._codex_capture=False
+        self.terrain.codex_capture=False
+        self.terrain.codex_selection=self.codex_selection
+        if self.codex_selection is not None:self.codex_selection.begin_frame()
         self.draw_calls=0;camera=camera_override or self.camera(intro);s=self.scene_shader
         self.car_height,self.car_pitch=car_pose(intro.distance,intro.arrival_station)
         # Authored/editor poses stay car-local. Elevation and pitch are applied
@@ -421,7 +444,9 @@ class View:
         pr.begin_texture_mode(self.world)
         pr.clear_background(fog)
         self.sky.draw(camera,intro,fog,WIDTH,HEIGHT)
+        self._codex_capture=True;self.terrain.codex_capture=True
         pr.begin_mode_3d(camera);self.countryside(intro);pr.end_mode_3d();pr.end_texture_mode()
+        self.terrain.codex_capture=False
         # Short exposure trails only in the held side-on shot. Scenery smears
         # past, while the car is drawn crisply over it; reset on cuts and seeks.
         self.mist.draw(self.misty_world,self.world,camera,intro,fog,self.copy)
@@ -461,6 +486,8 @@ class View:
         self.uniform(self.glass_shader,'wiperPlane',(WIPER_Y,WIPER_Z,WIPER_UP[1],WIPER_UP[2]))
         self.uniform(self.glass_shader,'wiperRange',(WIPER_INNER,WIPER_OUTER,WIPER_PARK,WIPER_SWEEP))
         # Opaque cabin depth rejects glass behind seats, pillars and colleagues.
+        # Transparent glazing lets selection rays reach the cabin/scenery.
+        self._codex_capture=False
         pr.rl.rlDisableBackfaceCulling();pr.rl.rlDisableDepthMask()
         self.car_space=True
         for window,windshield in self.windows:
@@ -511,6 +538,8 @@ def run_intro(review=False,keep_window=False):
     pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1440,810,'Moonlit water temple / the road');pr.set_target_fps(60)
     pr.set_exit_key(pr.KEY_NULL)
     intro=Intro(load_script());view=None;audio=None;audio_error='';outcome='quit';help_visible=True
+    from codex_selection import SelectionSession
+    selection=SelectionSession('temple_intro',__file__) if not review else None
     folder=ROOT/'artifacts'/'temple-intro';samples=[]
     shots=[(3.7,0,-8,'01-rear-window-portrait'),(6.9,0,-8,'01b-portrait-before-cut'),
            (7.,0,-8,'02-first-interior-cut'),(17.1,0,-8,'02-front-wipers'),(17.8,0,-8,'03-front-wiper-return'),
@@ -522,7 +551,7 @@ def run_intro(review=False,keep_window=False):
            (115.,0,-62,'09b-player-lap'),(125.,0,-8,'09c-left-turn'),
            (intro.duration-19,0,-8,'09d-temple-through-windshield'),(intro.duration-7,0,-8,'10-temple-arrival')]
     try:
-        view=View()
+        view=View();view.codex_selection=selection
         # Preload all subtitle glyphs once; later lines reuse the same font atlas.
         text.font(view.fonts,''.join(line['text'] for line in intro.document['lines']))
         try:audio=Audio(automated=review)
@@ -585,29 +614,43 @@ def run_intro(review=False,keep_window=False):
         else:
             pr.disable_cursor();mouse_ready=False
             while not pr.window_should_close():
-                if pr.is_key_pressed(pr.KEY_F2):
+                was_selecting=selection.enabled
+                selection.handle_keys()
+                selecting=was_selecting or selection.enabled
+                if selecting:mouse_ready=False
+                if not selecting and pr.is_key_pressed(pr.KEY_F2):
                     from temple_cinematics_editor import edit_intro
                     edit_intro(intro,view,audio)
                     pr.disable_cursor() if not intro.paused else pr.enable_cursor()
                     mouse_ready=False
-                pause=pr.is_key_pressed(pr.KEY_ESCAPE);skip=pr.is_key_pressed(pr.KEY_ENTER)
-                if intro.paused and pr.is_key_pressed(pr.KEY_Q):break
+                pause=not selecting and pr.is_key_pressed(pr.KEY_ESCAPE);skip=not selecting and pr.is_key_pressed(pr.KEY_ENTER)
+                if not selecting and intro.paused and pr.is_key_pressed(pr.KEY_Q):break
                 mouse=pr.get_mouse_delta()
                 delta=(mouse.x,mouse.y) if mouse_ready and not pause else (0,0)
-                intro.tick(pr.get_frame_time(),delta,pause,skip,pr.is_key_pressed(pr.KEY_HOME))
-                mouse_ready=not pause
+                if not selecting:intro.tick(pr.get_frame_time(),delta,pause,skip,pr.is_key_pressed(pr.KEY_HOME))
+                mouse_ready=not (pause or selecting)
                 if pause:
                     if intro.paused:pr.enable_cursor()
                     else:pr.disable_cursor()
                 if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
-                if audio:audio.update(intro)
+                if audio:
+                    paused=intro.paused
+                    try:
+                        if selection.enabled:intro.paused=True
+                        audio.update(intro)
+                    finally:intro.paused=paused
                 if intro.finished:outcome='arrived';break
-                view.render(intro,help_visible,audio_error)
+                camera=view.render(intro,help_visible,audio_error,trails=not selection.enabled)
                 pr.begin_drawing();pr.clear_background(pr.BLACK)
-                pr.draw_texture_pro(view.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,1440,810),pr.Vector2(0,0),0,pr.WHITE);pr.end_drawing()
+                pr.draw_texture_pro(view.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,1440,810),pr.Vector2(0,0),0,pr.WHITE)
+                selection.present(camera,(0,0,1440,810),{'elapsed':intro.elapsed,'distance':intro.distance,
+                    'shot':intro.shot['id'],'view':(intro.shot.get('camera') or default_camera(intro.shot['kind']))['view'],
+                    'car_height':view.car_height,'car_pitch_radians':view.car_pitch})
+                pr.end_drawing()
                 if pr.is_key_pressed(pr.KEY_F12):
                     folder.mkdir(parents=True,exist_ok=True);capture(view.frame,folder/'user-view.png')
     finally:
+        if selection:selection.close()
         pr.enable_cursor()
         if outcome=='arrived' and keep_window:
             pr.begin_drawing();pr.clear_background(pr.BLACK);pr.end_drawing()

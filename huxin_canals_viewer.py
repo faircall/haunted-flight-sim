@@ -46,6 +46,8 @@ def auto_camera(e):
 class Lake(Hall):
     def __init__(self):
         self.models={};self.textures={};self.shader=None;self.player=None;self.sky=None;self.post=None;self.raw=None;self.frame=None;self.smoke=None;self.reflection=None;self.reflection_raw=None;self.water_shader=None;self.last_shot=0;self.sequence=CanalSequence();self.last_camera=None
+        self.blend_shader=None;self.blend_old_frame=None;self.blend_new_frame=None;self.building_coverage=None
+        self._world_override=None;self.last_world_weights={'lake':1.,'canals':0.}
         try:
             self.manifest=json.loads((KIT/'manifest.json').read_text())
             self.shader=pr.load_shader(str(ROOT/'shaders'/'huxin_canals.vs'),str(ROOT/'shaders'/'huxin_canals.fs'))
@@ -82,14 +84,18 @@ class Lake(Hall):
             self.post=pr.load_shader(pr.ffi.NULL,str(ROOT/'shaders'/'huxin_canals_post.fs'))
             if self.post.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Lake post shader compilation failed')
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,'resolution'),pr.ffi.new('float[]',[WIDTH,HEIGHT]),pr.SHADER_UNIFORM_VEC2)
+            self.blend_shader=pr.load_shader(pr.ffi.NULL,str(ROOT/'shaders'/'huxin_canals_blend.fs'))
+            if self.blend_shader.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Lake world blend shader compilation failed')
+            from huxin_canals_fog import create_coverage_texture,COVERAGE_BOUNDS
+            self.building_coverage=create_coverage_texture();self.coverage_bounds=COVERAGE_BOUNDS
             self.sky=MoonSky();im=pr.gen_image_gradient_radial(32,32,0.,pr.WHITE,pr.BLANK);self.smoke=pr.load_texture_from_image(im);pr.unload_image(im)
         except Exception:self.close();raise
 
     def environment(self,cam,clock,inspection,reflection):
-        lights=LIGHTS[:3] if self.sequence.revealed else LIGHTS
+        lights=LIGHTS[:3] if self.render_revealed else LIGHTS
         for s in (self.shader,self.player.skin,self.water_shader):
             for name,value in (('eyePosition',(cam.position.x,cam.position.y,cam.position.z)),('time',clock),('inspection',float(inspection)),('opacity',1.),('emission',0.),('surfaceKind',0.),('reflectionPass',float(reflection)),('windStrength',0.)):self.uniform(s,name,value)
-            self.uniform(s,'deckHeight',DECK);self.uniform(s,'lampCount',len(lights),'int');self.uniform(s,'veil',self.sequence.veil);self.uniform(s,'enclosed',float(self.sequence.revealed))
+            self.uniform(s,'deckHeight',DECK);self.uniform(s,'lampCount',len(lights),'int');self.uniform(s,'veil',self.sequence.veil);self.uniform(s,'enclosed',float(self.render_revealed))
             self.uniform(s,'warmth',self.sequence.warmth)
             self.uniform(s,'flatPaving',0.);self.uniform(s,'worldMaterial',0.);self.uniform(s,'voidWorld',self.sequence.void_tone)
             self.uniform(s,'waterY',self.water_y);self.uniform(s,'preservePlatform',float(self.hold_pavilion))
@@ -97,16 +103,34 @@ class Lake(Hall):
             if self.locations[s.id]['lamps']>=0:pr.set_shader_value_v(s,self.locations[s.id]['lamps'],pr.ffi.new('float[]',[v for p in lights for v in p]),pr.SHADER_UNIFORM_VEC3,len(lights))
 
     @property
-    def water_y(self):return WATER_Y if self.sequence.revealed else 0.
+    def render_revealed(self):
+        override=getattr(self,'_world_override',None)
+        return self.sequence.revealed if override is None else override
+    @property
+    def water_y(self):return WATER_Y if self.render_revealed else 0.
     @property
     def hold_pavilion(self):return True
+
+    def selection_metadata(self,name):
+        # Match the shader's ownership cuts: hidden lips and the old distant
+        # causeway are still present in the GLB but must never win a click.
+        revealed=self.render_revealed
+        if name=='causeway':
+            def rejected(point):
+                x,_,z=point
+                inside=max(x*math.cos((i+.5)*1.04719755)+z*math.sin((i+.5)*1.04719755) for i in range(6))<6.2353829
+                return inside or (revealed and z>12.)
+            return {'_reject_hit':rejected}
+        if name=='lake_lamps' and revealed:return {'_reject_hit':lambda point:point[2]>12.}
+        if name=='pavilion_base':return {'_reject_hit':lambda point:point[1]>DECK+.00001}
+        return None
 
     def geometry(self,e,cam,clock,reflection,show_player):
         scale=(1,-1,1) if reflection else 1
         offset=(0,2*self.water_y,0) if reflection else (0,0,0)
         def draw(name):self.draw(name,offset,scale)
-        q=self.sequence
-        if q.revealed:
+        q=self.sequence;revealed=self.render_revealed
+        if revealed:
             self.uniform(self.shader,'worldMaterial',1.)
             for name in self.canals_manifest['models']:
                 if name not in ('canal_water','canal_annulus'):
@@ -116,7 +140,7 @@ class Lake(Hall):
             self.uniform(self.shader,'shadowAmount',0.)
             self.uniform(self.shader,'joiningStone',0.)
             self.uniform(self.shader,'worldMaterial',0.)
-        if not q.revealed or self.hold_pavilion:
+        if not revealed or self.hold_pavilion:
             for n in ('pavilion_posts','pavilion_brackets','pavilion_roofs','pavilion_ceiling','pavilion_details','pavilion_inscriptions'):draw(n)
             self.uniform(self.shader,'surfaceKind',1.);self.uniform(self.shader,'twinPart',1.);self.uniform(self.shader,'joiningStone',2.);draw('causeway');self.uniform(self.shader,'twinPart',0.);self.uniform(self.shader,'joiningStone',0.)
             self.uniform(self.shader,'flatPaving',1.);draw('pavilion_base');self.uniform(self.shader,'flatPaving',0.)
@@ -129,7 +153,7 @@ class Lake(Hall):
         self.draw('moon_mirror',(MIRROR[0],2*self.water_y-MIRROR[1] if reflection else MIRROR[1],MIRROR[2]),scale)
         self.uniform(self.shader,'surfaceKind',0.)
         if q.disc_placed:draw('canal_annulus')
-        if not q.revealed:
+        if not revealed:
             self.uniform(self.shader,'surfaceKind',4.);draw('lake_bank')
             self.uniform(self.shader,'surfaceKind',2.);draw('lake_mountains')
             self.uniform(self.shader,'surfaceKind',3.);self.uniform(self.shader,'windStrength',1.)
@@ -140,18 +164,25 @@ class Lake(Hall):
                 self.draw(('chinese_pine_a','chinese_pine_b','chinese_pine_c')[variant],(x,-y if reflection else y,z),(size,-size if reflection else size,size),yaw)
             if not reflection:pr.rl.rlEnableBackfaceCulling()
             self.uniform(self.shader,'surfaceKind',0.);self.uniform(self.shader,'windStrength',0.)
-        if not q.revealed or self.hold_pavilion:
+        if not revealed or self.hold_pavilion:
             self.uniform(self.shader,'twinPart',1.);self.uniform(self.shader,'emission',1.);draw('lake_lamps');self.uniform(self.shader,'emission',0.);self.uniform(self.shader,'twinPart',0.)
         if show_player:
             if not reflection:pr.draw_cylinder_ex(pr.Vector3(e.x,e.height+.012,e.z),pr.Vector3(e.x,e.height+.014,e.z),.24,.24,24,pr.Color(3,9,10,95))
             pr.draw_model_ex(self.player.player,pr.Vector3(e.x,2*self.water_y-e.height-.01 if reflection else e.height+.01,e.z),pr.Vector3(0,1,0),180-math.degrees(e.yaw),pr.Vector3(PLAYER_SCALE,-PLAYER_SCALE if reflection else PLAYER_SCALE,PLAYER_SCALE),pr.WHITE)
+            if not reflection:self.register_player_selection((e.x,e.height+.01,e.z),PLAYER_SCALE,180-math.degrees(e.yaw))
 
     def render(self,e,clock,inspection=False,override=None,show_player=True,assembly=False):
         q=self.sequence
         pose=(e.x,e.height,e.z,e.yaw)
-        if q.locked_camera is not None and not q.transitioning and q.locked_pose!=pose:q.locked_camera=None
-        if override is not None and not q.transitioning:q.locked_camera=None
-        if q.transitioning:
+        selection_paused=getattr(self,'_codex_frame_paused',False) or getattr(getattr(self,'codex_selection',None),'enabled',False)
+        if not selection_paused:
+            if q.locked_camera is not None and not q.transitioning and q.locked_pose!=pose:q.locked_camera=None
+            if override is not None and not q.transitioning:q.locked_camera=None
+        if selection_paused and override is not None:
+            # Inspect the displayed frame without dismissing a retained reveal
+            # camera. The encounter resumes with its original camera state.
+            shot,cam=self.last_shot,override
+        elif q.transitioning:
             # Capture the actual preceding frame, including an inspection view.
             # Nothing reframes during the fog: near pavilion geometry is the
             # exact same twin in both worlds. Only the hidden surroundings swap.
@@ -167,7 +198,43 @@ class Lake(Hall):
         else:shot,cam=auto_camera(e)
         self.last_shot=shot;self.last_camera=cam
         clip=e.clip if e.clip in self.player.clips else 'idle';phase=e.phase if clip in ('walk','run','walk_back') else clock if clip.startswith('turn') else clock/2
-        self.player.pose(clip,phase,1/60)
+        self.player.pose(clip,phase,self.player_pose_dt())
+        blend=q.world_blend
+        self.last_world_weights={'lake':1.-blend,'canals':blend}
+        if 0.<blend<1.:
+            if self.blend_old_frame is None:
+                self.blend_old_frame=pr.load_render_texture(WIDTH,HEIGHT)
+                self.blend_new_frame=pr.load_render_texture(WIDTH,HEIGHT)
+            # Both images use the same pose, time and camera. Opaque common
+            # objects retain unit coverage; only their surroundings dissolve.
+            self._render_world(e,cam,clock,inspection,show_player,assembly,False,self.blend_old_frame,blend<.5)
+            self._render_world(e,cam,clock,inspection,show_player,assembly,True,self.blend_new_frame,blend>=.5)
+            pr.begin_texture_mode(self.frame);pr.clear_background(pr.BLACK);pr.begin_shader_mode(self.blend_shader)
+            pr.set_shader_value(self.blend_shader,pr.get_shader_location(self.blend_shader,'worldBlend'),pr.ffi.new('float[]',[blend]),pr.SHADER_UNIFORM_FLOAT)
+            pr.set_shader_value_texture(self.blend_shader,pr.get_shader_location(self.blend_shader,'previousFrame'),self.blend_old_frame.texture)
+            pr.draw_texture_pro(self.blend_new_frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,WIDTH,HEIGHT),pr.Vector2(0,0),0,pr.WHITE)
+            pr.end_shader_mode();pr.end_texture_mode()
+        else:
+            self._render_world(e,cam,clock,inspection,show_player,assembly,blend>=1.,self.frame,True)
+        return cam
+
+    def _render_world(self,e,cam,clock,inspection,show_player,assembly,revealed,target,capture=True):
+        """Render one complete endpoint without altering the encounter state.
+
+        During a dissolve raw/reflection buffers contain the final endpoint
+        rendered, while frame contains the actual composited player view.
+        Selection records the dominant visible world once, including twins.
+        """
+        previous=self._world_override;selection=getattr(self,'codex_selection',None)
+        self._world_override=bool(revealed)
+        if not capture:self.codex_selection=None
+        try:self._render_world_frame(e,cam,clock,inspection,show_player,assembly,target)
+        finally:
+            self._world_override=previous
+            if not capture:self.codex_selection=selection
+
+    def _render_world_frame(self,e,cam,clock,inspection,show_player,assembly,target):
+        q=self.sequence
         base=(99,116,115) if inspection else (45,60,63)
         fog=pr.Color(*(int(a+(b-a)*q.void_tone) for a,b in zip(base,(42,46,46))),255)
         weather=SimpleNamespace(distance=0,arrival_station=1485.75,elapsed=clock,dusk=.24 if inspection else .70,void_world=q.void_tone)
@@ -182,25 +249,24 @@ class Lake(Hall):
         self.environment(cam,clock,inspection,False)
         pr.begin_texture_mode(self.raw);pr.clear_background(fog)
         self.sky.draw(cam,weather,fog,WIDTH,HEIGHT);pr.draw_rectangle(0,0,WIDTH,HEIGHT,pr.Color(fog.r,fog.g,fog.b,56))
-        pr.begin_mode_3d(cam);self.geometry(e,cam,clock,False,show_player);self.draw('canal_water' if q.revealed else 'lake_surface')
+        pr.begin_mode_3d(cam);self.geometry(e,cam,clock,False,show_player);self.draw('canal_water' if self.render_revealed else 'lake_surface')
         # Raylib batches billboards. Flush on both sides of the depth-mask
         # change, otherwise their transparent rectangles acquire near depth
         # when the batch is eventually submitted, leaking the hidden scene.
         pr.rl.rlDrawRenderBatchActive();pr.rl.rlDisableDepthMask()
-        for x,y,z in (LIGHTS[:3] if q.revealed else LIGHTS):pr.draw_billboard(cam,self.smoke,pr.Vector3(x,y,z),.85,pr.Color(232,176,91,22))
+        for x,y,z in (LIGHTS[:3] if self.render_revealed else LIGHTS):pr.draw_billboard(cam,self.smoke,pr.Vector3(x,y,z),.85,pr.Color(232,176,91,22))
         pr.rl.rlDrawRenderBatchActive();pr.rl.rlEnableDepthMask()
         if assembly:
             for radius in FUTURE_RING:pr.draw_cylinder_wires(pr.Vector3(0,.08,0),radius,radius,.03,120,pr.Color(119,183,177,255))
             pr.draw_cylinder_wires(pr.Vector3(0,DECK+.035,0),PUZZLE_RADIUS,PUZZLE_RADIUS,.03,64,pr.Color(233,174,91,255))
         pr.end_mode_3d();pr.end_texture_mode()
-        self.mist_pass(self.raw,self.frame,cam,e,clock,inspection)
-        return cam
+        self.mist_pass(self.raw,target,cam,e,clock,inspection)
 
     def mist_pass(self,source,target,cam,e,clock,inspection,reflected=False):
         """One world-space fog field for direct sight and the reflected light path."""
         q=self.sequence
         for name,value in (('veil',q.veil),('time',clock),('arrival',q.fog_arrival),('clearing',q.fog_clear),('retreatRadius',q.fog_retreat_radius),('returning',0.),
-                           ('crest',ease(0.,6.,q.elapsed) if q.state=='entering' else 0.),('travelling',float(q.state in ('ordinary','leaving'))),
+                           ('crest',ease(0.,6.,q.elapsed) if q.state=='entering' else 0.),
                            ('reflectedView',float(reflected)),('voidWorld',q.void_tone),('waterY',self.water_y)):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',[value]),pr.SHADER_UNIFORM_FLOAT)
         fog_colour=tuple(a+(b-a)*q.void_tone for a,b in zip((.39,.455,.45) if inspection else (.175,.235,.248),(.165,.180,.180)))
@@ -213,18 +279,26 @@ class Lake(Hall):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',value),pr.SHADER_UNIFORM_VEC2)
         pr.begin_texture_mode(target);pr.clear_background(pr.BLACK);pr.begin_shader_mode(self.post)
         pr.set_shader_value_texture(self.post,pr.get_shader_location(self.post,'depthMap'),source.depth)
+        location=pr.get_shader_location(self.post,'buildingCoverage')
+        if location>=0 and self.building_coverage is not None:pr.set_shader_value_texture(self.post,location,self.building_coverage)
+        location=pr.get_shader_location(self.post,'coverageBounds')
+        if location>=0:pr.set_shader_value(self.post,location,pr.ffi.new('float[]',self.coverage_bounds),pr.SHADER_UNIFORM_VEC4)
         pr.draw_texture_pro(source.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,WIDTH,HEIGHT),pr.Vector2(0,0),0,pr.WHITE)
         pr.end_shader_mode();pr.end_texture_mode()
 
     def close(self):
         super().close()
+        if self.blend_old_frame:pr.unload_render_texture(self.blend_old_frame);self.blend_old_frame=None
+        if self.blend_new_frame:pr.unload_render_texture(self.blend_new_frame);self.blend_new_frame=None
+        if self.blend_shader:pr.unload_shader(self.blend_shader);self.blend_shader=None
+        if self.building_coverage:pr.unload_texture(self.building_coverage);self.building_coverage=None
         if self.reflection:pr.unload_render_texture(self.reflection);self.reflection=None
         if self.reflection_raw:pr.unload_render_texture(self.reflection_raw);self.reflection_raw=None
         if self.water_shader:pr.unload_shader(self.water_shader);self.water_shader=None
 
 def run(review=False,direct=False):
     if review:pr.set_config_flags(pr.FLAG_WINDOW_HIDDEN)
-    pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1280,720,'Temple / The Void Canals');pr.set_target_fps(0 if review else 60);scene=None;audio=None
+    pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1280,720,'Temple / The Void Canals');pr.set_target_fps(0 if review else 60);scene=None;audio=None;selection=None
     try:
         start=time.perf_counter();scene=Lake();startup=time.perf_counter()-start;e=Explorer();e.encounter=scene.sequence;audio=EncounterAudio(review)
         if review:
@@ -233,51 +307,73 @@ def run(review=False,direct=False):
         if direct:
             e.x,e.height,e.z=START;scene.sequence.revealed=True;scene.sequence.state='canals';scene.sequence.disc_placed=True;e.encounter=scene.sequence
             scene.sequence.inventory[:]=[s if s is None or s.get('group')!='void_disc' else None for s in scene.sequence.inventory]
+        from codex_selection import SelectionSession
+        selection=SelectionSession('huxin_canals',__file__);scene.codex_selection=selection
+        pr.set_exit_key(pr.KEY_NULL);selected_camera=None
+        paused_sounds=[]
         clock=0.;inspection=False;manual=None;free=False;eye=None;yaw=0.;pitch=0.;help_visible=True;show_player=True;assembly=False
         while not pr.window_should_close():
-            dt=min(pr.get_frame_time(),.05);clock+=dt
-            if pr.is_key_pressed(pr.KEY_L):inspection=not inspection
-            if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
-            if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
-            if pr.is_key_pressed(pr.KEY_F3):assembly=not assembly
-            if pr.is_key_pressed(pr.KEY_HOME):e=Explorer();scene.sequence=CanalSequence();e.encounter=scene.sequence;manual=None;free=False;pr.enable_cursor()
-            if pr.is_key_pressed(pr.KEY_ZERO):manual=None;free=False;pr.enable_cursor()
-            for i in range(9):
-                if pr.is_key_pressed(pr.KEY_ONE+i):manual=i;free=False;pr.enable_cursor()
-            if pr.is_key_pressed(pr.KEY_F):
-                free=not free
-                if free:
-                    e.clip='idle';scene.sequence.focus=False
-                    current=scene.last_camera or auto_camera(e)[1]
-                    eye=[current.position.x,current.position.y,current.position.z];v=[current.target.x-eye[0],current.target.y-eye[1],current.target.z-eye[2]]
-                    yaw=math.atan2(v[0],-v[2]);pitch=math.atan2(v[1],math.hypot(v[0],v[2]));pr.disable_cursor()
-                else:pr.enable_cursor()
-            forward=int(pr.is_key_down(pr.KEY_W))-int(pr.is_key_down(pr.KEY_S));turn=int(pr.is_key_down(pr.KEY_D))-int(pr.is_key_down(pr.KEY_A));override=None
-            q=scene.sequence
-            if not free and not q.transitioning and pr.is_key_pressed(pr.KEY_E):
-                if q.activate(e):manual=None;e.clip='idle'
-            if free:
-                mouse=pr.get_mouse_delta();yaw+=mouse.x*.002;pitch=max(-1.45,min(1.45,pitch-mouse.y*.002));speed=10 if pr.is_key_down(pr.KEY_LEFT_SHIFT) else 3.5
-                eye[0]+=(math.sin(yaw)*forward+math.cos(yaw)*turn)*speed*dt;eye[2]+=(-math.cos(yaw)*forward+math.sin(yaw)*turn)*speed*dt
-                eye[1]+=(int(pr.is_key_down(pr.KEY_E))-int(pr.is_key_down(pr.KEY_Q)))*speed*dt
-                override=camera(eye,(eye[0]+math.sin(yaw)*math.cos(pitch),eye[1]+math.sin(pitch),eye[2]-math.cos(yaw)*math.cos(pitch)),70)
+            was_selecting=selection.enabled
+            if selection.handle_keys():break
+            blocked=was_selecting or selection.enabled
+            scene._codex_frame_paused=blocked
+            dt=min(pr.get_frame_time(),.05)
+            if selection.enabled and not was_selecting:
+                paused_sounds=[sound for sound in audio.sounds.values() if pr.is_sound_playing(sound)]
+                for sound in paused_sounds:pr.pause_sound(sound)
+            elif was_selecting and not selection.enabled:
+                for sound in paused_sounds:pr.resume_sound(sound)
+                paused_sounds=[]
+            if blocked:
+                override=selected_camera
             else:
-                if not q.movement_locked:e.tick(dt,forward,turn,pr.is_key_down(pr.KEY_LEFT_SHIFT))
-                else:e.clip='idle'
-                if manual is not None:s=(CAMERA_SHOTS if q.revealed else SHOTS)[manual];override=camera(s['eye'],s['target'],s['fov'])
-            q.tick(dt,e);audio.drain(q)
-            scene.render(e,clock,inspection,override,show_player,assembly)
+                clock+=dt
+                if pr.is_key_pressed(pr.KEY_L):inspection=not inspection
+                if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
+                if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
+                if pr.is_key_pressed(pr.KEY_F3):assembly=not assembly
+                if pr.is_key_pressed(pr.KEY_HOME):e=Explorer();scene.sequence=CanalSequence();e.encounter=scene.sequence;manual=None;free=False;pr.enable_cursor()
+                if pr.is_key_pressed(pr.KEY_ZERO):manual=None;free=False;pr.enable_cursor()
+                for i in range(9):
+                    if pr.is_key_pressed(pr.KEY_ONE+i):manual=i;free=False;pr.enable_cursor()
+                if pr.is_key_pressed(pr.KEY_F):
+                    free=not free
+                    if free:
+                        e.clip='idle';scene.sequence.focus=False
+                        current=scene.last_camera or auto_camera(e)[1]
+                        eye=[current.position.x,current.position.y,current.position.z];v=[current.target.x-eye[0],current.target.y-eye[1],current.target.z-eye[2]]
+                        yaw=math.atan2(v[0],-v[2]);pitch=math.atan2(v[1],math.hypot(v[0],v[2]));pr.disable_cursor()
+                    else:pr.enable_cursor()
+                forward=int(pr.is_key_down(pr.KEY_W))-int(pr.is_key_down(pr.KEY_S));turn=int(pr.is_key_down(pr.KEY_D))-int(pr.is_key_down(pr.KEY_A));override=None
+                q=scene.sequence
+                if not free and not q.transitioning and pr.is_key_pressed(pr.KEY_E):
+                    if q.activate(e):manual=None;e.clip='idle'
+                if free:
+                    mouse=pr.get_mouse_delta();yaw+=mouse.x*.002;pitch=max(-1.45,min(1.45,pitch-mouse.y*.002));speed=10 if pr.is_key_down(pr.KEY_LEFT_SHIFT) else 3.5
+                    eye[0]+=(math.sin(yaw)*forward+math.cos(yaw)*turn)*speed*dt;eye[2]+=(-math.cos(yaw)*forward+math.sin(yaw)*turn)*speed*dt
+                    eye[1]+=(int(pr.is_key_down(pr.KEY_E))-int(pr.is_key_down(pr.KEY_Q)))*speed*dt
+                    override=camera(eye,(eye[0]+math.sin(yaw)*math.cos(pitch),eye[1]+math.sin(pitch),eye[2]-math.cos(yaw)*math.cos(pitch)),70)
+                else:
+                    if not q.movement_locked:e.tick(dt,forward,turn,pr.is_key_down(pr.KEY_LEFT_SHIFT))
+                    else:e.clip='idle'
+                    if manual is not None:s=(CAMERA_SHOTS if q.revealed else SHOTS)[manual];override=camera(s['eye'],s['target'],s['fov'])
+                q.tick(dt,e);audio.drain(q)
+            q=scene.sequence
+            selection.begin_frame()
+            selected_camera=scene.render(e,clock,inspection,override,show_player,assembly)
             pr.begin_drawing();pr.clear_background(pr.BLACK);w,h=pr.get_screen_width(),pr.get_screen_height()
             pr.draw_texture_pro(scene.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,w,h),pr.Vector2(0,0),0,pr.WHITE)
             if help_visible and not q.movement_locked:
                 pr.draw_rectangle(0,h-52,w,52,pr.Color(10,20,22,226))
                 pr.draw_text(q.prompt(e) or 'W/S move   A/D turn   Shift run   E place object   1-9 cameras   0 auto   F free look',18,h-42,16,pr.Color(206,213,198,255))
-                pr.draw_text('L daylight | Tab player | H help | Home restart encounter | F12 capture | Esc exit',18,h-21,14,pr.Color(147,178,175,255))
+                pr.draw_text('L daylight | Tab player | H help | Home restart encounter | F8 select | F12 capture | Esc exit',18,h-21,14,pr.Color(147,178,175,255))
                 if free:pr.draw_text('Free camera',19,18,18,pr.Color(206,213,198,255))
+            selection.present(selected_camera,(0,0,w,h),{'world':'canals' if q.revealed else 'lake','world_blend':q.world_blend,'selection_world':'canals' if q.world_blend>=.5 else 'lake','phase':q.state,'clock':clock,'player':{'position':[e.x,e.height,e.z],'yaw':e.yaw,'clip':e.clip},'shot':scene.last_shot,'free_camera':free})
             pr.end_drawing()
             if pr.is_key_pressed(pr.KEY_F12):
                 out=ROOT/'artifacts'/'huxin_canals';out.mkdir(parents=True,exist_ok=True);snapshot(scene.frame,out/('capture-'+time.strftime('%Y%m%d-%H%M%S')+'.png'))
     finally:
+        if selection:selection.close()
         pr.enable_cursor()
         if scene:scene.close()
         if audio:audio.close()

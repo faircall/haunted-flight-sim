@@ -43,6 +43,9 @@ class Hall:
         except Exception:self.close();raise
 
     def load(self,name,path):
+        # Subclasses use their own constructors, so keep source tracking lazy.
+        if not hasattr(self,'_model_paths'):self._model_paths={}
+        self._model_paths[name]=Path(path)
         model=pr.load_model(str(path));self.models[name]=model
         if not model.meshCount:raise RuntimeError('Empty hall model: '+name)
         for i in range(model.materialCount):
@@ -70,7 +73,28 @@ class Hall:
 
     def draw(self,name,position=(0,0,0),scale=1.,yaw=0.):
         scales=(scale,)*3 if isinstance(scale,(float,int)) else scale
+        selection=getattr(self,'codex_selection',None)
+        # The lake renderers draw reflected instances with negative Y scale.
+        # Only the direct scene belongs in the selection ray's world.
+        if selection is not None and selection.enabled and scales[1]>0:
+            selection.register_model(self.models[name],name,getattr(self,'_model_paths',{}).get(name),
+                position,scales,yaw,metadata=self.selection_metadata(name))
         pr.draw_model_ex(self.models[name],pr.Vector3(*position),pr.Vector3(0,1,0),yaw,pr.Vector3(*scales),pr.WHITE)
+
+    def selection_metadata(self,name):
+        return None
+
+    def register_player_selection(self,position,scale,yaw):
+        selection=getattr(self,'codex_selection',None)
+        if selection is not None and selection.enabled:
+            x,y,z=position
+            selection.register_model(self.player.player,'player',self.player.asset_root/'player.glb',
+                position,scale,yaw,identity='player',metadata={'kind':'actor','animated':True,
+                    'world_bounds':{'min':[x-.35,y,z-.35],'max':[x+.35,y+1.85,z+.35]}})
+
+    def player_pose_dt(self):
+        paused=getattr(self,'_codex_frame_paused',False) or getattr(getattr(self,'codex_selection',None),'enabled',False)
+        return 0. if paused else 1/60
 
     def render(self,explorer,clock,inspection=False,override=None,show_player=True):
         shot=SHOTS[explorer.shot];cam=override or camera(shot['eye'],shot['target'],shot['fov'])
@@ -90,8 +114,9 @@ class Hall:
             pr.draw_cylinder_ex(pr.Vector3(explorer.x,.015,explorer.z),pr.Vector3(explorer.x,.018,explorer.z),.25,.25,24,pr.Color(6,10,11,75))
             clip=explorer.clip if explorer.clip in self.player.clips else 'idle'
             phase=explorer.phase if clip in ('walk','run','walk_back') else clock if clip.startswith('turn') else clock/2
-            self.player.pose(clip,phase,1/60)
+            self.player.pose(clip,phase,self.player_pose_dt())
             pr.draw_model_ex(self.player.player,pr.Vector3(explorer.x,.035,explorer.z),pr.Vector3(0,1,0),180-math.degrees(explorer.yaw),pr.Vector3(PLAYER_SCALE,PLAYER_SCALE,PLAYER_SCALE),pr.WHITE)
+            self.register_player_selection((explorer.x,.035,explorer.z),PLAYER_SCALE,180-math.degrees(explorer.yaw))
         # Small incense wisps and motes hold depth against the complete interior.
         pr.rl.rlDisableDepthMask()
         for base in ((0,1.92,-2.95),(-8.9,1.74,-7.5),(8.9,1.74,-7.5)):
@@ -131,52 +156,66 @@ def snapshot(target,path):
 def run(review=False):
     if review:pr.set_config_flags(pr.FLAG_WINDOW_HIDDEN)
     pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1280,720,'Temple / Hall of Returning Rain');pr.set_target_fps(0 if review else 60)
-    hall=None
+    hall=None;selection=None
     try:
         start=time.perf_counter();hall=Hall();startup=time.perf_counter()-start;explorer=Explorer()
         if review:return review_hall(hall,explorer,startup)
+        from codex_selection import SelectionSession
+        selection=SelectionSession('temple_interior',__file__);hall.codex_selection=selection
+        pr.set_exit_key(pr.KEY_NULL);selected_camera=None
         clock=0.;inspection=False;manual=None;free=False;eye=None;yaw=0.;pitch=0.;help_visible=True;show_player=True
         while not pr.window_should_close():
-            dt=min(pr.get_frame_time(),.05);clock+=dt
-            if pr.is_key_pressed(pr.KEY_L):inspection=not inspection
-            if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
-            if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
-            if pr.is_key_pressed(pr.KEY_HOME):explorer=Explorer();manual=None;free=False;pr.enable_cursor()
-            if pr.is_key_pressed(pr.KEY_ZERO):manual=None;free=False;pr.enable_cursor()
-            for i in range(len(SHOTS)):
-                if pr.is_key_pressed(pr.KEY_ONE+i):manual=i;free=False;pr.enable_cursor()
-            if pr.is_key_pressed(pr.KEY_F):
-                free=not free
-                if free:
-                    explorer.clip='idle'
-                    sh=SHOTS[manual if manual is not None else explorer.shot];eye=list(sh['eye']);v=[sh['target'][i]-eye[i] for i in range(3)]
-                    yaw=math.atan2(v[0],-v[2]);pitch=math.atan2(v[1],math.hypot(v[0],v[2]));pr.disable_cursor()
-                else:pr.enable_cursor()
-            forward=int(pr.is_key_down(pr.KEY_W))-int(pr.is_key_down(pr.KEY_S));turn=int(pr.is_key_down(pr.KEY_D))-int(pr.is_key_down(pr.KEY_A))
-            override=None
-            if free:
-                mouse=pr.get_mouse_delta();yaw+=mouse.x*.002;pitch=max(-1.45,min(1.45,pitch-mouse.y*.002))
-                speed=5 if pr.is_key_down(pr.KEY_LEFT_SHIFT) else 2.4
-                eye[0]+=(math.sin(yaw)*forward+math.cos(yaw)*turn)*speed*dt;eye[2]+=(-math.cos(yaw)*forward+math.sin(yaw)*turn)*speed*dt
-                eye[1]+=(int(pr.is_key_down(pr.KEY_E))-int(pr.is_key_down(pr.KEY_Q)))*speed*dt
-                target=(eye[0]+math.sin(yaw)*math.cos(pitch),eye[1]+math.sin(pitch),eye[2]-math.cos(yaw)*math.cos(pitch))
-                override=camera(eye,target,70)
+            was_selecting=selection.enabled
+            if selection.handle_keys():break
+            blocked=was_selecting or selection.enabled
+            hall._codex_frame_paused=blocked
+            dt=min(pr.get_frame_time(),.05)
+            if blocked:
+                override=selected_camera
             else:
-                explorer.tick(dt,forward,turn,pr.is_key_down(pr.KEY_LEFT_SHIFT))
-                if manual is not None:
-                    sh=SHOTS[manual];override=camera(sh['eye'],sh['target'],sh['fov'])
-            hall.render(explorer,clock,inspection,override,show_player)
+                clock+=dt
+                if pr.is_key_pressed(pr.KEY_L):inspection=not inspection
+                if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
+                if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
+                if pr.is_key_pressed(pr.KEY_HOME):explorer=Explorer();manual=None;free=False;pr.enable_cursor()
+                if pr.is_key_pressed(pr.KEY_ZERO):manual=None;free=False;pr.enable_cursor()
+                for i in range(len(SHOTS)):
+                    if pr.is_key_pressed(pr.KEY_ONE+i):manual=i;free=False;pr.enable_cursor()
+                if pr.is_key_pressed(pr.KEY_F):
+                    free=not free
+                    if free:
+                        explorer.clip='idle'
+                        sh=SHOTS[manual if manual is not None else explorer.shot];eye=list(sh['eye']);v=[sh['target'][i]-eye[i] for i in range(3)]
+                        yaw=math.atan2(v[0],-v[2]);pitch=math.atan2(v[1],math.hypot(v[0],v[2]));pr.disable_cursor()
+                    else:pr.enable_cursor()
+                forward=int(pr.is_key_down(pr.KEY_W))-int(pr.is_key_down(pr.KEY_S));turn=int(pr.is_key_down(pr.KEY_D))-int(pr.is_key_down(pr.KEY_A))
+                override=None
+                if free:
+                    mouse=pr.get_mouse_delta();yaw+=mouse.x*.002;pitch=max(-1.45,min(1.45,pitch-mouse.y*.002))
+                    speed=5 if pr.is_key_down(pr.KEY_LEFT_SHIFT) else 2.4
+                    eye[0]+=(math.sin(yaw)*forward+math.cos(yaw)*turn)*speed*dt;eye[2]+=(-math.cos(yaw)*forward+math.sin(yaw)*turn)*speed*dt
+                    eye[1]+=(int(pr.is_key_down(pr.KEY_E))-int(pr.is_key_down(pr.KEY_Q)))*speed*dt
+                    target=(eye[0]+math.sin(yaw)*math.cos(pitch),eye[1]+math.sin(pitch),eye[2]-math.cos(yaw)*math.cos(pitch))
+                    override=camera(eye,target,70)
+                else:
+                    explorer.tick(dt,forward,turn,pr.is_key_down(pr.KEY_LEFT_SHIFT))
+                    if manual is not None:
+                        sh=SHOTS[manual];override=camera(sh['eye'],sh['target'],sh['fov'])
+            selection.begin_frame()
+            selected_camera=hall.render(explorer,clock,inspection,override,show_player)
             pr.begin_drawing();pr.clear_background(pr.BLACK)
             w,h=pr.get_screen_width(),pr.get_screen_height()
             pr.draw_texture_pro(hall.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,w,h),pr.Vector2(0,0),0,pr.WHITE)
             if help_visible:
                 pr.draw_rectangle(0,h-52,w,52,pr.Color(9,13,15,215))
                 pr.draw_text('W/S move   A/D turn   Shift run   1-7 cameras   0 auto   F free look   L lighting   H hide help',18,h-42,16,pr.Color(210,209,187,255))
-                pr.draw_text('Free look: mouse + WASD, Q/E height   |   Home reset   Tab player   F12 capture   Esc exit',18,h-21,14,pr.Color(139,160,158,255))
+                pr.draw_text('Free look: mouse + WASD, Q/E height   |   Home reset   Tab player   F8 select | F12 capture   Esc exit',18,h-21,14,pr.Color(139,160,158,255))
+            selection.present(selected_camera,(0,0,w,h),{'world':'temple_interior','phase':'exploration','clock':clock,'player':{'position':[explorer.x,0.,explorer.z],'yaw':explorer.yaw,'clip':explorer.clip},'shot':explorer.shot,'free_camera':free})
             pr.end_drawing()
             if pr.is_key_pressed(pr.KEY_F12):
                 folder=ROOT/'artifacts'/'temple-interior';folder.mkdir(parents=True,exist_ok=True);snapshot(hall.frame,folder/('capture-'+time.strftime('%Y%m%d-%H%M%S')+'.png'))
     finally:
+        if selection:selection.close()
         pr.enable_cursor()
         if hall:hall.close()
         pr.close_window()

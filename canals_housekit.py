@@ -89,7 +89,10 @@ def build_house(meshes,spec):
     perimeter=((-w/2,front),(w/2,front),(w/2,back),(-w/2,back))
     for a,b in zip(perimeter,perimeter[1:]+perimeter[:1]):
         bottom=foundation_bottom-base
-        stone.face(((a[0],bottom,a[1]),(b[0],bottom,b[1]),(b[0],.025,b[1]),(a[0],.025,a[1])),'wetstone')
+        # X/Z perimeter is counter-clockwise: its exterior lies to the right
+        # of each edge. Top-first winding points the backing out towards the
+        # water; bottom-first faces were culled between the individual stones.
+        stone.face(((a[0],.025,a[1]),(b[0],.025,b[1]),(b[0],bottom,b[1]),(a[0],bottom,a[1])),'wetstone')
         if detail<1:continue
         dx,dz=b[0]-a[0],b[1]-a[1];length=math.hypot(dx,dz);dx/=length;dz/=length
         # Wet, broad lowest courses transition into smaller hand-laid dry

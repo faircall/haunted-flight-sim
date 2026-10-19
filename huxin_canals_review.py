@@ -7,10 +7,10 @@ import pyray as pr
 from PIL import Image,ImageDraw
 from g_huxin_canals import PATH,SPAWN,DECK
 from g_huxin_canals_layout import REVIEW_ROUTE,ROOM_ROUTES,WASHING_ROUTES,THROUGH_HOUSE_ROUTES,UPPER,CAMERA_SHOTS
-from g_huxin_canals_sequence import ENTRY_SWAP,ENTRY_DURATION
+from g_huxin_canals_sequence import ENTRY_SWAP,ENTRY_DURATION,ENTRY_BLEND_START,ENTRY_BLEND_END
 from temple_interior_viewer import camera,snapshot
 
-ROOT=Path(__file__).parent;OUT=ROOT/'artifacts'/'huxin_canals_v4';WIDTH,HEIGHT=640,360
+ROOT=Path(__file__).parent;OUT=ROOT/'artifacts'/'huxin-canals-fog-v7'/'walkthrough';WIDTH,HEIGHT=640,360
 
 def protected_hashes():
     original=json.loads((ROOT/'art/temple/huxin_canals/origin_snapshot.json').read_text())['original_sha256']
@@ -84,7 +84,7 @@ def review_scene(scene,e,audio,startup,quick=False):
     assert q.activate(e);audio.drain(q)
     render('02-the-stone-annulus')
     assert camera_signature(scene.last_camera)==stationary_camera
-    swap_delta=None;reflection_delta=None;reflection_raw_delta=None;fixed_reflection=None;clear_end_delta=None;saved_times=set();retreat_samples=[]
+    swap_delta=None;reflection_delta=None;reflection_raw_delta=None;blend_checks=[];clear_end_delta=None;saved_times=set();retreat_samples=[]
     for i in range(int((ENTRY_DURATION+1.)*30)+1):
         if q.transitioning:
             q.tick(1/30,e);audio.drain(q)
@@ -98,20 +98,28 @@ def review_scene(scene,e,audio,startup,quick=False):
                 saved_times.add(t);render('03-stationary-mist-%02d'%round(t))
                 retreat_samples.append({'elapsed':q.elapsed,'radius':q.fog_retreat_radius,'veil':q.veil})
         if q.revealed and swap_delta is None:
-            saved=q.elapsed;q.elapsed=ENTRY_SWAP;q.revealed=False;a=render();ra=texture_pixels(scene.reflection.texture);raw_a=texture_pixels(scene.reflection_raw.texture)
-            q.revealed=True;b=render();rb=texture_pixels(scene.reflection.texture);raw_b=texture_pixels(scene.reflection_raw.texture)
+            saved=q.elapsed;q.elapsed=ENTRY_SWAP-.001;q.revealed=False;a=render();ra=texture_pixels(scene.reflection.texture);raw_a=texture_pixels(scene.reflection_raw.texture)
+            q.elapsed=ENTRY_SWAP+.001;q.revealed=True;b=render();rb=texture_pixels(scene.reflection.texture);raw_b=texture_pixels(scene.reflection_raw.texture)
             swap_delta,delta=delta_report(a,b);reflection_delta,reflected=delta_report(ra,rb)
             reflection_raw_delta,_=delta_report(raw_a,raw_b)
             Image.fromarray(np.minimum(255,delta*8).astype('uint8')).save(OUT/'swap-difference-x8.png')
             Image.fromarray(np.minimum(255,reflected*8).astype('uint8')).save(OUT/'reflection-swap-difference-x8.png')
-            # A changed mirror height changes the projection of every reflected
-            # object. Isolate the fog regression at one fixed water datum;
-            # the actual moving-plane complete image is checked independently.
-            with patch.object(type(scene),'water_y',new=property(lambda _: -1.55)):
-                q.revealed=False;render();fa=texture_pixels(scene.reflection.texture);fraw_a=texture_pixels(scene.reflection_raw.texture)
-                q.revealed=True;render();fb=texture_pixels(scene.reflection.texture);fraw_b=texture_pixels(scene.reflection_raw.texture)
-            fogged,_=delta_report(fa,fb);raw,_=delta_report(fraw_a,fraw_b)
-            fixed_reflection={'water_y':-1.55,'fogged':fogged,'raw':raw,'ratio':fogged['mean']/max(.000001,raw['mean'])}
+            # Each endpoint already contains its own correctly fogged water
+            # reflection. Check the actual composite, not an artificial hard
+            # toggle that would force the foreground fog to become opaque.
+            q.elapsed=ENTRY_SWAP;frame=render();weight=q.world_blend
+            old=texture_pixels(scene.blend_old_frame.texture).astype(float)
+            new=texture_pixels(scene.blend_new_frame.texture).astype(float)
+            composition,_=delta_report(frame,old*(1.-weight)+new*weight)
+            assert composition['peak']<=2,composition
+            for boundary in (ENTRY_BLEND_START,ENTRY_SWAP,ENTRY_BLEND_END):
+                q.elapsed=boundary-.001;q.revealed=q.elapsed>=ENTRY_SWAP;a=render()
+                q.elapsed=boundary+.001;q.revealed=q.elapsed>=ENTRY_SWAP;b=render()
+                metric,_=delta_report(a,b)
+                blend_checks.append({'elapsed':boundary,'continuity':metric})
+                assert metric['peak']<8,blend_checks[-1]
+            blend_checks.append({'elapsed':ENTRY_SWAP,'weight':weight,'endpoint_composition':composition})
+            q.revealed=True
             q.elapsed=saved
         if not q.transitioning and clear_end_delta is None:
             q.state='entering';q.elapsed=ENTRY_DURATION-.001;a=render()
@@ -127,7 +135,7 @@ def review_scene(scene,e,audio,startup,quick=False):
     (OUT/'reveal-report.json').write_text(json.dumps({
         'entry_duration':ENTRY_DURATION,'swap_difference':swap_delta,
         'clearing_end_difference':clear_end_delta,'retreat_samples':retreat_samples,
-        'stationary_camera_changes':camera_changes,'fixed_datum_reflection_fog_check':fixed_reflection,
+        'stationary_camera_changes':camera_changes,'world_blend_checks':blend_checks,
         'audio_muted':audio.muted,'audio_device_opened':audio.opened},indent=2))
     # Actual controls follow the complete, interconnected district.
     rooms_visited=set();visits=room_visit_schedule()
@@ -164,8 +172,8 @@ def review_scene(scene,e,audio,startup,quick=False):
             'protected_scenes':protection,'water_y':scene.water_y,'deck_y':DECK,
             'swap_difference':swap_delta,'reflection_swap_difference':reflection_delta,
             'reflection_raw_swap_difference':reflection_raw_delta,
-            'reflected_difference_ratio':reflection_delta['mean']/max(.000001,reflection_raw_delta['mean']),
-            'fixed_datum_reflection_fog_check':fixed_reflection,
+            'reflection_note':'Raw/reflection targets hold the last rendered endpoint during blending; complete-frame continuity and weighted endpoint composition are authoritative.',
+            'world_blend_checks':blend_checks,
             'clearing_end_difference':clear_end_delta,'retreat_samples':retreat_samples,'entry_duration':ENTRY_DURATION,
             'stationary_camera_changes':camera_changes,'stationary_camera':stationary_camera,
             'player_visibility':visibility,'audio_muted':audio.muted,'audio_device_opened':audio.opened,
@@ -178,13 +186,7 @@ def review_scene(scene,e,audio,startup,quick=False):
     assert preserved and not audio.opened
     assert swap_delta['mean']<1.5 and swap_delta['p99']<8 and swap_delta['peak']<8,swap_delta
     assert clear_end_delta['mean']<1.5 and clear_end_delta['p99']<8 and clear_end_delta['peak']<8,clear_end_delta
-    # This RT contains only the surface-to-reflected-object leg. The final
-    # composite above also fogs the camera-to-water leg and is the authoritative
-    # all-visible-pixels concealment check. RT-only pixels can include quays
-    # close to the water or texels never sampled by any visible water fragment.
-    # Require a large reduction to catch a lost reflection-fog pass, without
-    # fitting a fragile percentage to this one composition's visible quays.
-    assert fixed_reflection['fogged']['mean'] < max(.01,fixed_reflection['raw']['mean']*.25),fixed_reflection
+    assert len(blend_checks)==4,blend_checks
     assert all(n>25 for label,n,shot in visibility),visibility
 
 def flooded_smoke():

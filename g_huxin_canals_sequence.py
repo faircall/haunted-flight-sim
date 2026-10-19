@@ -4,10 +4,12 @@ from g_interaction_data import SLOT_COUNT
 from g_huxin_canals import DECK, can_walk, walk_height, COLUMNS, BENCHES, smooth, shore_radius, PATH
 
 ENTRY_SWAP=8.
+ENTRY_BLEND_START=5.
+ENTRY_BLEND_END=12.
 ENTRY_CLEAR=10.
 ENTRY_DURATION=48.
-FOG_STOP_RADIUS=4.65 # At the six original columns; the centre stays open.
-FOG_RETREAT_DISTANCE=290. # Beyond the 240m integration horizon, including the rolling edge.
+FOG_STOP_RADIUS=6.30 # Outside the columns, at the original platform's edge.
+FOG_RETREAT_DISTANCE=450. # Beyond the warped field's 240m visible horizon.
 
 def retreat_radius(progress):
     """A bank moving away, lingering over near houses before receding into depth."""
@@ -85,6 +87,10 @@ class CanalSequence:
     def transitioning(self):return self.state=='entering'
     @property
     def movement_locked(self):return self.transitioning
+    @property
+    def world_blend(self):
+        """Visual change is gradual; the logical encounter still commits once."""
+        return ease(ENTRY_BLEND_START,ENTRY_BLEND_END,self.elapsed) if self.transitioning else float(self.revealed)
     @property
     def veil(self):
         if self.state=='ordinary':return .72*ease(0.,1.,self.approach)

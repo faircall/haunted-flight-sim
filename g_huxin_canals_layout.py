@@ -27,6 +27,11 @@ FRONT_WASHING_STAIRS=tuple(dict(id='washing-'+str(i),top=(x,z),angle=a,width=w,s
 REAR_FLIGHTS={110:(math.pi+.50,.29),133:(-1.62,.24),157:(math.pi+.40,.29),168:(math.pi-.35,.29),
  211:(.38,.29),224:(-.48,.29),237:(-.50,.29),261:(.30,.29),273:(-.30,.29),
  410:(-2.10,.29),437:(math.pi-.50,.29),449:(-.45,.29),473:(.45,.29),487:(math.pi+.40,.29),499:(-.40,.29)}
+# Opposite domestic rear walls face the playable backwaters. Their washing
+# stairs belong to the far houses rather than appearing as detached canal props.
+SCENIC_REAR_FLIGHTS={1901:-.25,1935:.40,1969:-.45,2003:1.15,2037:.75,2071:.25,
+ 2326:math.pi+.35,2360:math.pi-.40,2394:math.pi-.80,
+ 2462:math.pi-.40,2496:math.pi+.45,2530:math.pi-.30}
 def step_point(s,t,u=0.):
  dx,dz=math.cos(s['angle']),math.sin(s['angle']);x,z=s['top']
  return x+dx*t-dz*u,z+dz*t+dx*u

@@ -9,6 +9,7 @@ from g_cinematics_editor import Cinematics
 from g_temple_intro import Intro,SCRIPT,load_script
 from g_temple_cinematics import fly_pose,orbit_pose,inside_cabin,sample_camera
 from temple_intro_viewer import View,Audio,camera_from_pose,capture,WIDTH,HEIGHT
+from codex_selection import SelectionSession,relative_path
 
 ROOT=Path(__file__).resolve().parent
 BG=pr.Color(15,20,25,255);PANEL=pr.Color(22,29,36,255);FIELD=pr.Color(30,40,49,255)
@@ -48,7 +49,7 @@ class Input:
     @classmethod
     def read(cls):
         point=pr.get_mouse_position();delta=pr.get_mouse_delta()
-        keys=('ESCAPE','F2','SPACE','HOME','LEFT','RIGHT','S','O','Z','Y','W','A','D','Q','E','ENTER','BACKSPACE','TAB','DELETE','LEFT_CONTROL','RIGHT_CONTROL','LEFT_SHIFT','RIGHT_SHIFT')
+        keys=('ESCAPE','F2','F8','SPACE','HOME','LEFT','RIGHT','S','O','Z','Y','W','A','D','Q','E','ENTER','BACKSPACE','TAB','DELETE','LEFT_CONTROL','RIGHT_CONTROL','LEFT_SHIFT','RIGHT_SHIFT')
         chars=[];code=pr.get_char_pressed()
         while code:
             chars.append(chr(code));code=pr.get_char_pressed()
@@ -62,12 +63,33 @@ class Input:
 
 
 class Editor:
-    def __init__(self,intro,view,audio=None,path=SCRIPT,live_input=True):
+    def __init__(self,intro,view,audio=None,path=SCRIPT,live_input=True,selection_output_path=None):
         self.state=Cinematics(intro.document,path);self.state.seek(intro.elapsed)
         self.intro=intro;self.view=view;self.audio=audio;self.live_input=live_input
         self.events=Input();self.drag=None;self.entry=None;self.guides=True;self.subtitles=True;self.audio_enabled=False
         self.speed=2.;self.scroll=0;self.status='Select a shot, then frame its START or END camera.';self.closed=False
+        self.selection=SelectionSession('temple_cinematics',__file__,selection_output_path)
+        self.selection_camera=None;self._selection_playing=False;self._selection_closed=False
+        self._previous_selection=getattr(view,'codex_selection',None)
         self.sync()
+
+    def set_selection_enabled(self,enabled):
+        if enabled==self.selection.enabled:return
+        if enabled:
+            # Finish a camera gesture as one undo step; an unfinished typed
+            # number stays unapplied when changing into this read-only mode.
+            self.finish_drag();self.finish_entry(cancel=True)
+            self._selection_playing=self.state.playing;self.state.playing=False
+        self.selection.set_enabled(enabled)
+        if not enabled:self.state.playing=self._selection_playing
+        self.sync()
+
+    def close(self):
+        if self._selection_closed:return
+        self.finish_drag();self.finish_entry()
+        if self.selection.enabled:self.set_selection_enabled(False)
+        self.selection.close();self.view.codex_selection=self._previous_selection
+        self._selection_closed=True;self.sync()
 
     def layout(self):
         w,h=pr.get_screen_width(),pr.get_screen_height();left=222;right=w-310;bottom=h-152
@@ -173,7 +195,14 @@ class Editor:
         self.entry=None;return True
 
     def update(self,dt,events=None):
-        self.events=events or Input.read();event=self.events;layout=self.layout();buttons,fields=self.controls()
+        self.events=events or Input.read();event=self.events
+        if 'F8' in event.pressed:
+            self.set_selection_enabled(not self.selection.enabled);return
+        if self.selection.enabled:
+            if 'ESCAPE' in event.pressed:self.set_selection_enabled(False)
+            elif 'BACKSPACE' in event.pressed:self.selection.clear()
+            return
+        layout=self.layout();buttons,fields=self.controls()
         control=bool(event.down&{'LEFT_CONTROL','RIGHT_CONTROL'});shift=bool(event.down&{'LEFT_SHIFT','RIGHT_SHIFT'})
         if self.entry:
             for char in event.chars:
@@ -260,10 +289,11 @@ class Editor:
         # The editor shows the authored pose directly, without mouse-look offsets
         # or suspension bob; playback still uses the same shot interpolation.
         camera=camera_from_pose(sample_camera(self.intro.shot,self.intro.elapsed))
-        self.view.render(self.intro,False,camera_override=camera,overlays=self.subtitles,apply_fade=False,trails=self.state.playing)
+        self.view.codex_selection=self.selection
+        self.selection_camera=self.view.render(self.intro,False,camera_override=camera,overlays=self.subtitles,apply_fade=False,trails=self.state.playing)
         if self.audio:
             self.intro.paused=not (self.state.playing and self.audio_enabled);self.audio.update(self.intro);self.intro.paused=False
-        return camera
+        return self.selection_camera
 
     def draw(self):
         layout=self.layout();w,h,b=layout['w'],layout['h'],layout['bottom'];x=layout['right']+16
@@ -332,6 +362,11 @@ class Editor:
         pr.draw_line_ex(pr.Vector2(cursor,timeline[1]-21),pr.Vector2(cursor,timeline[1]+63),2,ACCENT)
         pr.draw_text('CUTS: drag a boundary  /  SCRUB: drag the cursor  /  grey bars: dialogue',16,h-20,12,MUTED)
         pr.draw_text('Unsaved changes' if self.state.dirty else 'Saved',w-159,h-20,12,ACCENT if self.state.dirty else MUTED)
+        if self.selection_camera is not None:
+            self.selection.present(self.selection_camera,viewrect,{
+                'world':'intro','phase':self.state.shot['kind'],'script':relative_path(self.state.path),
+                'shot':self.state.shot['id'],'shot_index':self.state.selected,'key':self.state.key,
+                'time':self.state.elapsed,'playing_before_selection':self._selection_playing})
 
 
 def edit_intro(intro,view,audio=None):
@@ -345,7 +380,7 @@ def edit_intro(intro,view,audio=None):
             editor.update(pr.get_frame_time());editor.render_scene()
             pr.begin_drawing();editor.draw();pr.end_drawing()
     finally:
-        editor.finish_drag();editor.finish_entry();editor.sync()
+        editor.close()
         intro.paused=old_pause;intro.yaw,intro.pitch=old_look
         if audio:audio.update(intro)
         pr.enable_cursor()
@@ -382,7 +417,7 @@ def review_editor(intro,view,audio):
     baseline['shots'][-1].update(start=intro.duration-13,end=intro.duration)
     intro.document['duration']=baseline['duration'];intro.document['shots']=baseline['shots']
     path.write_text(json.dumps(intro.document,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    editor=Editor(intro,view,audio,path,live_input=False);target=pr.load_render_texture(1440,810)
+    editor=Editor(intro,view,audio,path,live_input=False,selection_output_path=folder/'review-selection.json');target=pr.load_render_texture(1440,810)
     def snapshot(name):
         editor.render_scene();pr.begin_texture_mode(target);editor.draw();pr.end_texture_mode();capture(target,folder/(name+'.png'))
     def click(name):
@@ -481,7 +516,7 @@ def review_editor(intro,view,audio):
                     audio_output_gain=audio.engine.volume if audio else None,shots=len(reloaded['shots']))
         (folder/'report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
         print('Cinematics editor native review passed: camera controls, timeline, undo/redo, save/reload and game playback.',flush=True)
-    finally:pr.unload_render_texture(target)
+    finally:editor.close();pr.unload_render_texture(target)
 
 
 if __name__=='__main__':

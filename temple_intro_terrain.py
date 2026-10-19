@@ -291,6 +291,13 @@ class Terrain:
             if model is None:continue
             x,z=local_point(index*CHUNK_LENGTH,0,distance,self.route_arrival)
             pr.draw_model_ex(model,pr.Vector3(x,0,z),pr.Vector3(0,1,0),yaw,pr.Vector3(1,1,1),pr.WHITE);count+=1
+            selection=getattr(self,'codex_selection',None)
+            if selection is not None and selection.enabled and getattr(self,'codex_capture',False):
+                selection.register_model(model,'terrain:'+kind+':'+str(index),position=(x,0,z),yaw=yaw,
+                    metadata={'kind':'terrain','source_file':'temple_intro_terrain.py','builder':'Terrain.build',
+                              'chunk_index':index,'station_start':index*CHUNK_LENGTH,
+                              'station_end':(index+1)*CHUNK_LENGTH,'travel_distance':distance,
+                              'arrival_station':self.route_arrival,'surface':kind})
         return count
 
     def close(self):

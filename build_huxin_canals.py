@@ -19,6 +19,15 @@ def up(mesh,points,tile):
  # triangulator introducing alternate diagonals across nearly collinear cuts.
  for i in range(1,len(p)-1):mesh.face((p[0],p[i],p[i+1]),tile)
 
+def down(mesh,points,tile):
+ p=list(points);n=(Vector(p[1])-Vector(p[0])).cross(Vector(p[2])-Vector(p[0]))
+ if n.y>0:p.reverse()
+ for i in range(1,len(p)-1):mesh.face((p[0],p[i],p[i+1]),tile)
+
+def outward_side(mesh,a,b,bottom,top,tile='wetstone'):
+ # CCW X/Z perimeter: the exterior is to the RIGHT of a→b.
+ mesh.face(((b[0],bottom,b[1]),(a[0],bottom,a[1]),(a[0],top,a[1]),(b[0],top,b[1])),tile)
+
 def build():
  OUT.mkdir(parents=True,exist_ok=True)
  bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete(use_global=False)
@@ -31,27 +40,36 @@ def build():
  ground,masonry,plaster,timber,windows,roof,bridges,details,interiors,shadow,distant,water,annulus=[meshes[n] for n in names[:13]]
  rr=random.Random(28118)
 
- def pave(poly,mesh=ground,y=DECK,tile='stone',sides=True):
+ def pave(poly,mesh=ground,y=DECK,tile='stone',sides=True,bottom=BANK_BOTTOM):
   p=ccw(poly);up(mesh,[(x,y,z) for x,z in p],tile)
+  down(mesh,[(x,bottom,z) for x,z in p],'wetstone')
   if sides:
    for a,b in zip(p,p[1:]+p[:1]):
-    mesh.face(((a[0],BANK_BOTTOM,a[1]),(b[0],BANK_BOTTOM,b[1]),(b[0],y,b[1]),(a[0],y,a[1])),'wetstone')
+    outward_side(mesh,a,b,bottom,y)
 
+ timber_polygons=[]
  for p in floor_polygons():
   cx=sum(v[0] for v in p)/len(p);cz=sum(v[1] for v in p)/len(p)
   footbridge=(-16.5<cx<-11.5 and 35.5<cz<38.6) or (12.2<cx<14.2 and (33.6<cz<35.6 or 42.7<cz<45.1))
-  pave(p,tile='wood' if footbridge else 'stone',sides=False)
-  if footbridge:
-   # Only outside timber edges are visible; partition boundaries need no beam.
-   for a,b in boundary_segments((p,),tuple(q for q in floor_polygons() if q is not p)):
-    timber.beam((a[0],DECK-.12,a[1]),(b[0],DECK-.12,b[1]),.22,.16,'wood')
+  pave(p,tile='wood' if footbridge else 'stone',sides=False,bottom=DECK-.22 if footbridge else BANK_BOTTOM)
+  if footbridge:timber_polygons.append(p)
  # Extruding every clipped floor partition used to duplicate coplanar internal
  # walls. Build only the exposed boundary of the complete paved union instead.
  ground_edges=boundary_segments(floor_polygons(),[house_polygon(s) for s in HOUSE_SPECS]+list(source_causeway_polygons()))
+ near_masonry_edges=[];timber_bank_edges=[]
  for a,b in ground_edges:
   cx,cz=(a[0]+b[0])/2,(a[1]+b[1])/2
-  if (-16.5<cx<-11.5 and 35.5<cz<38.6) or (12.2<cx<14.2 and (33.6<cz<35.6 or 42.7<cz<45.1)):continue
-  ground.face(((a[0],BANK_BOTTOM,a[1]),(b[0],BANK_BOTTOM,b[1]),(b[0],DECK,b[1]),(a[0],DECK,a[1])),'wetstone')
+  dx,dz=b[0]-a[0],b[1]-a[1];length=math.hypot(dx,dz)
+  # Use the owner of the deck, not a second bounding-box approximation. Small
+  # clipped timber corners otherwise acquired deep, uncapped masonry walls.
+  ix,iz=cx-dz/length*.002,cz+dx/length*.002
+  if any(point_in_poly(p,ix,iz) for p in timber_polygons):
+   timber_bank_edges.append((a,b))
+   outward_side(ground,a,b,DECK-.22,DECK,'wood')
+   timber.beam((a[0],DECK-.12,a[1]),(b[0],DECK-.12,b[1]),.22,.16,'wood')
+   continue
+  near_masonry_edges.append((a,b))
+  outward_side(ground,a,b,BANK_BOTTOM,DECK)
 
  # Extend only BELOW the unchanged pavilion/causeway foundation. Their original
  # deck and upper masonry remain byte-identical; the new water is much lower.
@@ -71,7 +89,9 @@ def build():
     t=(12.-pb[1])/(pa[1]-pb[1]);pa=(pb[0]+(pa[0]-pb[0])*t,12.)
    if pb[1]>12.:
     t=(12.-pa[1])/(pb[1]-pa[1]);pb=(pa[0]+(pb[0]-pa[0])*t,12.)
-   masonry.face(((pa[0],BANK_BOTTOM,pa[1]),(pb[0],BANK_BOTTOM,pb[1]),(pb[0],DECK-1.30,pb[1]),(pa[0],DECK-1.30,pa[1])),'wetstone')
+   # Source path runs toward the pavilion; its two sides have opposite normals.
+   if side==0:outward_side(masonry,pb,pa,BANK_BOTTOM,DECK-1.30)
+   else:outward_side(masonry,pa,pb,BANK_BOTTOM,DECK-1.30)
 
  def quay_edges(points,side,offset=.95):
   for a,b in zip(points,points[1:]):
@@ -106,15 +126,19 @@ def build():
    up(mesh,((xa,y,z-width/2),(xb,y,z-width/2),(xb,y,z+width/2),(xa,y,z+width/2)),'stone')
    for side in (-1,1):
     zz=z+side*width/2
-    mesh.face(((xa,ya,zz),(xb,yb,zz),(xb,y,zz),(xa,y,zz)),'wetstone')
+    side_points=((xa,ya,zz),(xb,yb,zz),(xb,y,zz),(xa,y,zz))
+    mesh.face(side_points if side==1 else side_points[::-1],'wetstone')
     mesh.beam((xa,ya+.08,zz),(xb,yb+.08,zz),.19,.20,'stone')
     # Low, weathered parapets; modest posts instead of monumental stone rails.
     mesh.box(((xa+xb)/2,y+.32,zz),(xb-xa+.012,.64,.16),'stone')
     mesh.box(((xa+xb)/2,y+.66,zz),(xb-xa+.018,.075,.21),'cap')
-   mesh.face(((xa,ya,z-width/2),(xa,ya,z+width/2),(xb,yb,z+width/2),(xb,yb,z-width/2)),'wetstone')
+   mesh.face(((xb,yb,z-width/2),(xb,yb,z+width/2),(xa,ya,z+width/2),(xa,ya,z-width/2)),'wetstone')
    if i<n-1:
     yy=bridge_height(xb+.0001,b);mesh.face(((xb,y,z-width/2),(xb,y,z+width/2),(xb,yy,z+width/2),(xb,yy,z-width/2)),'stone')
   for x in (x0,x1):
+   y=bridge_height(x+(.0001 if x==x0 else -.0001),b);bottom=min(y-.22,underside(x))
+   cap=((x,bottom,z-width/2),(x,bottom,z+width/2),(x,y,z+width/2),(x,y,z-width/2))
+   mesh.face(cap if x==x0 else cap[::-1],'wetstone')
    for side in (-1,1):mesh.box((x,DECK+.44,z+side*width/2),(.24,.88,.24),'stone')
  for b in BRIDGES:arch_bridge(b)
 
@@ -127,8 +151,8 @@ def build():
 
  # Substantial worn washing flights expose the tall quay masonry. Several
  # descend obliquely along the water rather than projecting straight across it.
- step_data=[]
- for st in WASHING_STAIRS:
+ step_data=[];all_steps=list(WASHING_STAIRS)
+ def washing_flight(st,house_spec=None):
   treads=[];w=st['width']
   phase=sum(map(ord,st['id']))*.013
   def tread_sides(edge):
@@ -138,10 +162,22 @@ def build():
    la,ra=tread_sides(i);lb,rb=tread_sides(i+1)
    # Adjacent treads share one exact riser contour. Vary the worn side edges,
    # never move front/back edges apart and expose a slit through the stair.
-   poly=ccw([step_point(st,t,u) for t,u in ((ta,la),(tb,lb),(tb,w*.08),(tb,rb),(ta,ra))])
-   pave(poly,masonry,yy,'stone')
+   inner=ccw([step_point(st,t,u) for t,u in ((ta,la),(tb,lb),(tb,w*.08),(tb,rb),(ta,ra))])
+   poly=ccw(step_polygon(st,ta,tb,-w/2,w/2));bevel=.012
+   up(masonry,[(x,yy,z) for x,z in inner],'stone')
+   def p(t,u,y):
+    x,z=step_point(st,t,u);return(x,y,z)
+   # Close the narrow bands between the worn top and the full-width bank cut.
+   # The bevel keeps the hand-worn silhouette without exposing the void below.
+   up(masonry,(p(ta,-w/2,yy-bevel),p(tb,-w/2,yy-bevel),p(tb,lb,yy),p(ta,la,yy)),'stone')
+   up(masonry,(p(ta,ra,yy),p(tb,rb,yy),p(tb,w/2,yy-bevel),p(ta,w/2,yy-bevel)),'stone')
+   ring=[p(t,u,y) for t,u,y in ((ta,-w/2,yy-bevel),(tb,-w/2,yy-bevel),(tb,lb,yy),
+    (tb,w*.08,yy),(tb,rb,yy),(tb,w/2,yy-bevel),(ta,w/2,yy-bevel),(ta,ra,yy),(ta,la,yy))]
+   for a,b in zip(ring,ring[1:]+ring[:1]):
+    masonry.face(((b[0],BANK_BOTTOM,b[2]),(a[0],BANK_BOTTOM,a[2]),a,b),'wetstone')
+   down(masonry,[(x,BANK_BOTTOM,z) for x,z in poly],'wetstone')
    x,z=step_point(st,(ta+tb)/2)
-   treads.append(dict(center=[x,yy,z],width=w,depth=st['tread'],polygon=poly))
+   treads.append(dict(center=[x,yy,z],width=w,depth=st['tread'],polygon=poly,inner_polygon=inner,edge_bevel=bevel))
   landing=None
   if st['landing']:
    ta,tb,ua,ub=landing_rect(st);poly=ccw(step_polygon(st,ta,tb,ua,ub));yy=DECK-STEP_DROPS[9]
@@ -149,9 +185,11 @@ def build():
    landing=dict(center=[x,yy,z],polygon=poly,walkable=True)
   rear_apron=None
   if st.get('side')=='rear':
-   house_spec=next(s for s in HOUSE_SPECS if s['seed']==st['house_seed']);plan=house_ground_plan(house_spec)
+   if house_spec is None:house_spec=next(s for s in HOUSE_SPECS if s['seed']==st['house_seed'])
+   plan=house_ground_plan(house_spec)
    a,b,c,d=plan['rear_landing_bounds'];rear_apron=[transform(house_spec,u,v) for u,v in ((a,plan['rearwall']+.04),(c,plan['rearwall']+.04),(c,d),(a,d))]
   step_data.append({**st,'top':[st['top'][0],DECK,st['top'][1]],'treads':treads,'landing_geometry':landing,'rear_apron':rear_apron,'bank_bottom':BANK_BOTTOM})
+ for st in WASHING_STAIRS:washing_flight(st)
  # Everyday remnants, sparse enough for the spaces between them to dominate.
  # The first home's jar sits alongside its solid outer corner, clear of every
  # door approach and the capsule-width space on either side of those approaches.
@@ -194,8 +232,23 @@ def build():
  for i,s in enumerate(far_specs):
   s.update(water_y=WATER_Y,foundation_bottom=BANK_BOTTOM,decay=('intact','neglected','ruin','neglected')[i%4])
   if s['floors']>1:s.update(upper_left=.35+.19*(i%4),upper_right=.30+.23*((i+1)%4),upper_front=.65+.23*(i%4),upper_back=.35+.18*((i+2)%3))
+  if s['seed'] in SCENIC_REAR_FLIGHTS:
+   s.update(rear_access=True,rear_landing_depth=1.10,rear_landing_width=2.30,rear_door_width=1.65)
   metadata.append(build_house(meshes,s))
+  if s.get('rear_access'):
+   plan=house_ground_plan(s);lo,hi=plan['rear_door_ranges'][0];u=(lo+hi)/2
+   st=dict(id='opposite-rear-washing-'+str(s['seed']),house_seed=s['seed'],side='rear',opposite_bank=True,
+    top=transform(s,u,plan['rearwall']+s['rear_landing_depth']-.08),angle=SCENIC_REAR_FLIGHTS[s['seed']],
+    width=1.30,steps=len(STEP_DROPS),tread=.29,walkable=False,landing=False)
+   all_steps.append(st);washing_flight(st,s)
+   a,b,c,d=plan['rear_landing_bounds'];b=plan['rearwall']+.04
+   scenery_raw.append(ccw([transform(s,x,z) for x,z in ((a,b),(c,b),(c,d),(a,d))]))
   if i%12==0:print('DISTANT HOUSE',i,'/',len(far_specs),flush=True)
+ # The opposing back doors share real narrow waterside walks. Include closed
+ # intermediate homes in the contour so these walks follow their rear walls.
+ for group in ('channel--34.0-5.0-1','channel-34.0--2.0--1'):
+  neighbours=sorted([s for s in far_specs if s['frontage_group']==group and -5.<s['cz']<80.],key=lambda s:s['cz'])
+  scenery_raw.extend(ribbon([transform(s,0.,s['depth']/2+.65) for s in neighbours],.68))
  # Every farther frontage belongs to a continuous bank. A varied apron follows
  # each skewed facade, then a narrow causeway connects its neighbours. This is
  # actual geometry beneath the fog, rather than isolated ledges beside houses.
@@ -223,7 +276,7 @@ def build():
   scenery_raw.extend(ribbon((transform(a,0.,-a['depth']/2-.80),transform(b,0.,-b['depth']/2-.80)),.84))
  scenery_polygons=[]
  cuts=[list(house_polygon(s,.025)) for s in all_specs]
- cuts += [ccw(step_polygon(st,0.,st['steps']*st['tread'],-st['width']/2,st['width']/2)) for st in WASHING_STAIRS]
+ cuts += [ccw(step_polygon(st,0.,st['steps']*st['tread'],-st['width']/2,st['width']/2)) for st in all_steps]
  for i,p in enumerate(scenery_raw):
   pieces=[p]
   for clip in scenery_raw[:i]+cuts:pieces=[q for piece in pieces for q in subtract(piece,clip)]
@@ -232,7 +285,7 @@ def build():
     scenery_polygons.append(piece);pave(piece,distant,sides=False)
  scenery_edges=boundary_segments(scenery_polygons,[house_polygon(s) for s in all_specs])
  for a,b in scenery_edges:
-  distant.face(((a[0],BANK_BOTTOM,a[1]),(b[0],BANK_BOTTOM,b[1]),(b[0],DECK,b[1]),(a[0],DECK,a[1])),'wetstone')
+  outward_side(distant,a,b,BANK_BOTTOM,DECK)
  print('CONTINUOUS BANKS',len(scenery_polygons),flush=True)
  # Repeated silhouettes are glimpsed at different scales, never standing alone.
  for z in (87.,126.,165.,-56.,-94.,-131.):
@@ -260,9 +313,7 @@ def build():
   a=i*math.tau/16;annulus.beam((math.cos(a)*.50,1.278,math.sin(a)*.50),(math.cos(a)*.56,1.278,math.sin(a)*.56),.008,.006,'cap')
  all_ground=list(floor_polygons())+scenery_polygons
  footprint_polys=[ccw(house_polygon(s)) for s in all_specs]
- masonry_bank_edges=[(a,b) for a,b in ground_edges if not
-  (-16.5<(a[0]+b[0])/2<-11.5 and 35.5<(a[1]+b[1])/2<38.6) and not
-  (12.2<(a[0]+b[0])/2<14.2 and (33.6<(a[1]+b[1])/2<35.6 or 42.7<(a[1]+b[1])/2<45.1))]+list(scenery_edges)
+ masonry_bank_edges=near_masonry_edges+list(scenery_edges)
  def has_ground(x,z):return any(point_in_poly(p,x,z) for p in all_ground) or any(point_in_poly(p,x,z) for p in footprint_polys)
  for s,record in zip(all_specs,metadata):
   f=-s['depth']/2;w=s['width']/2;polygon=ccw([transform(s,x,z) for x,z in ((-w,f-1.65),(w,f-1.65),(w,f),(-w,f))])
@@ -306,15 +357,17 @@ def build():
    details.box((x,DECK-.19-i*.025,z-.08),(.26+.07*(i%2),.32,.30),'wetstone')
    masonry.box((x+dx*.65,WATER_Y-.08+(i%2)*.10,z+dz*.65),(.38,.42,.48),'wetstone')
   timber.beam((b[0],DECK-.25,b[1]-.10),(b[0]+dx*.70,DECK-.55,b[1]+dz*.70),.13,.11,'wood')
- manifest=dict(version=4,models={},houses=metadata,building_count=len(metadata),near_houses=len(HOUSE_SPECS),
+ manifest=dict(version=5,models={},houses=metadata,building_count=len(metadata),near_houses=len(HOUSE_SPECS),
    water=WATER_Y,deck=DECK,upper=UPPER,playable_bounds=[-20.,-7.2,21.,64.5],world_bounds=[-224.,-224.,224.,288.],
    floor_polygons=floor_polygons(),scenery_floor_polygons=scenery_polygons,ground_patches=[],washing_steps=step_data,blocked_ends=blocked_ends,
    door_routes=DOOR_ROUTES,washing_routes=WASHING_ROUTES,through_house_routes=THROUGH_HOUSE_ROUTES,
    bank_edges=ground_edges,scenery_bank_edges=scenery_edges,source_join_span=source_join_span(),
+   solid_bank_edges=masonry_bank_edges,bank_bottom=BANK_BOTTOM,
+   timber_bank_edges=timber_bank_edges,timber_bottom=DECK-.22,
    walkable_models=['canal_ground','canal_bridges','canal_interiors','canal_shadow','canal_masonry'],
    camera_views=REVIEW_VIEWS,notes=['Original pavilion retained completely; no new floor within its hexagon.',
    'Canal water is 1.875 metres below the original deck; all banks and pavilion foundations reach below it.','Individually authored hollow homes: real apertures, deep porches, varied heights and reduced upper floors.',
-   'Sixteen enterable houses; nine lead through real rear doors to private washing flights. Fifteen of twenty-four flights are behind homes.',
+   'Sixteen enterable houses; nine lead through real rear doors to private washing flights. Twenty-seven of thirty-six flights are behind homes, including twelve opposite-bank rear facades.',
    'Paving walls follow the exposed polygon-union boundary, with the original causeway cross-section matched exactly at z12.'])
  for name,mesh in meshes.items():
   if not mesh.faces:continue
@@ -325,6 +378,6 @@ def build():
  manifest['total_triangles']=sum(m['triangles'] for m in manifest['models'].values())
  (OUT/'canals_manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8',newline='\n')
  bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'void_canals.blend'))
- print('VOID CANALS V4 COMPLETE',len(metadata),'houses',manifest['total_triangles'],'triangles',flush=True)
+ print('VOID CANALS V5 COMPLETE',len(metadata),'houses',manifest['total_triangles'],'triangles',flush=True)
 if __name__=='__main__':build()
 

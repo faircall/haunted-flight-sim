@@ -4,6 +4,7 @@ from functools import lru_cache
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import struct
 from types import SimpleNamespace
@@ -72,6 +73,49 @@ class TriangleIndex:
         return np.concatenate(matches) if matches else np.empty((0,3,3),dtype=np.float32)
 
 
+def front_intersections(triangles,origin,direction,tolerance=1e-6):
+    """Raylib culls back faces, so an inward backing cannot close a hole."""
+    normals=np.cross(triangles[:,1]-triangles[:,0],triangles[:,2]-triangles[:,0])
+    return intersections(triangles[normals@direction < -1e-9],origin,direction,tolerance)
+
+
+@lru_cache(maxsize=1)
+def path_cache():
+    """Optional on-disk trajectories for repeated mesh-only rebuild checks.
+
+    Actual controller/navigation/test sources and exported accessible portals
+    are fingerprinted; any relevant change forces real controls to run again.
+    Normal test invocations remain uncached unless the runner opts in.
+    """
+    destination=os.environ.get('HAUNTED_TEST_PATH_CACHE')
+    if not destination:return None,None
+    digest=hashlib.sha256()
+    for name in ('test_huxin_canals.py','g_huxin_canals.py','g_huxin_canals_layout.py',
+                 'g_huxin_canals_sequence.py','canals_house_plan.py','g_inventory.py',
+                 'g_interaction_data.py','photo_asset_pipeline/temple3d/living/gait.py'):
+        digest.update((ROOT/name).read_bytes())
+    houses=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))['houses']
+    portals=[(h['seed'],h.get('door_portals',())) for h in houses if h.get('enterable')]
+    digest.update(json.dumps(portals,sort_keys=True).encode())
+    digest.update((str(tuple(os.sys.version_info))+np.__version__).encode())
+    path=Path(destination);key=digest.hexdigest()
+    if path.exists():
+        record=json.loads(path.read_text(encoding='utf-8'))
+        if record.get('fingerprint')==key:return path,record
+    return path,dict(fingerprint=key,paths={})
+
+
+def cached_path(key,value=None):
+    path,record=path_cache()
+    if path is None:return None
+    key=json.dumps(key)
+    if value is None:return record['paths'].get(key)
+    record['paths'][key]=value;path.parent.mkdir(parents=True,exist_ok=True)
+    temporary=path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(record),encoding='utf-8',newline='\n')
+    temporary.replace(path)
+
+
 def at_basin():
     q = CanalSequence()
     e = Explorer()
@@ -108,6 +152,8 @@ def navigation_fixture():
 def walk_tour(reverse=False, run=False, room=None, washing=None):
     """Exercise the real tank controller over the entire interconnected route."""
     from g_huxin_canals_layout import REVIEW_ROUTE, ROOM_ROUTES, WASHING_ROUTES
+    key=('walk_tour',reverse,run,room,washing);stored=cached_path(key)
+    if stored is not None:return [tuple(p) for p in stored]
     points = WASHING_ROUTES[washing] if washing is not None else REVIEW_ROUTE if room is None else ROOM_ROUTES[room]
     route = points[::-1] if reverse else points
     q, e = navigation_fixture()
@@ -133,6 +179,7 @@ def walk_tour(reverse=False, run=False, room=None, washing=None):
         else:
             raise AssertionError(('Unreachable route', reverse, run, (x, z), (e.x, e.height, e.z)))
     result.append((e.x, e.height, e.z))
+    cached_path(key,result)
     return result
 
 
@@ -144,6 +191,8 @@ def door_tours():
     demonstration route. Lateral offsets catch the former central-only collider.
     """
     from g_huxin_canals_layout import support
+    stored=cached_path(('door_tours',))
+    if stored is not None:return stored
     manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
     tours=[]
     for house in manifest['houses']:
@@ -175,6 +224,7 @@ def door_tours():
                     tours.append(dict(seed=house['seed'],bay=bay,offset=side,run=run,
                                       portal=portal,samples=samples))
     assert len({t['seed'] for t in tours})>=4,'Several houses must be genuinely accessible'
+    cached_path(('door_tours',),tours)
     return tours
 
 
@@ -214,7 +264,12 @@ class CanalSequenceTests(unittest.TestCase):
         lake.last_shot = 0
         lake.last_pose = None
         lake.player = SimpleNamespace(clips={'idle', 'walk'}, pose=lambda *args: None)
-        lake.environment = stop_before_drawing
+        lake.frame = object()
+        lake.blend_old_frame = object()
+        lake.blend_new_frame = object()
+        # Stop at the endpoint renderer, after real camera/transition selection
+        # but before either world's GPU calls or the frame compositor.
+        lake._render_world = stop_before_drawing
         with self.assertRaises(CameraSelected):
             lake.render(e, 30.)
         before = camera_signature(lake.last_camera)
@@ -398,6 +453,63 @@ class CanalSequenceTests(unittest.TestCase):
 
 
 class CanalArchitectureTests(unittest.TestCase):
+    def test_exposed_bank_sides_and_bottom_caps_face_the_water(self):
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        edges=manifest['solid_bank_edges'];self.assertGreater(len(edges),30)
+        spatial=TriangleIndex(np.concatenate([geometry(n)[1] for n in ('canal_ground','canal_masonry','canal_timber','canal_distant')]))
+        missing=[]
+        surfaces=[('stone',i,a,b,manifest['bank_bottom'],(DECK-.015,DECK-.16,manifest['water']+.12))
+                  for i,(a,b) in enumerate(edges)]
+        timber_bottom=manifest['timber_bottom']
+        surfaces.extend(('timber',i,a,b,timber_bottom,(DECK-.015,(DECK+timber_bottom)/2,timber_bottom+.015))
+                        for i,(a,b) in enumerate(manifest['timber_bank_edges']))
+        for material,edge_index,a,b,bottom,levels in surfaces:
+            a,b=np.asarray(a,float),np.asarray(b,float);delta=b-a;length=np.linalg.norm(delta)
+            if length<.035:continue
+            outward=np.array((delta[1],0.,-delta[0]))/length
+            for t in (.2,.5,.8):
+                x,z=a+(b-a)*t
+                for y in levels:
+                    surface=np.array((x,y,z));origin=surface+outward*.12;end=surface-outward*.06
+                    hits=front_intersections(spatial.query(origin,end),origin,-outward)
+                    if not any((hits>.001)&(hits<.18)):missing.append(('bank_side',material,edge_index,t,y))
+                # A downward-facing cap must close the underside too, rather
+                # than merely hiding a reversed wall behind two-sided shading.
+                origin=np.array((x,bottom-.12,z))-outward*.015;end=origin+np.array((0.,.20,0.))
+                hits=front_intersections(spatial.query(origin,end),origin,np.array((0.,1.,0.)))
+                if not any(abs(hits-.12)<.025):missing.append(('bank_bottom',material,edge_index,t))
+        self.assertFalse(missing,('Open or inward bank shell',len(missing),missing[:30]))
+
+    def test_washing_flanks_risers_and_mouth_caps_are_front_facing_and_closed(self):
+        from g_huxin_canals_layout import step_point
+        manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
+        spatial=TriangleIndex(geometry('canal_masonry')[1]);missing=[]
+        for stair in manifest['washing_steps']:
+            direction=np.array((math.cos(stair['angle']),0.,math.sin(stair['angle'])))
+            for index,tread in enumerate(stair['treads']):
+                polygon=np.asarray(tread['polygon']);y=tread['center'][1]
+                for a,b in zip(polygon,np.roll(polygon,-1,axis=0)):
+                    edge=b-a;length=np.linalg.norm(edge)
+                    if length<.025:continue
+                    outward=np.array((edge[1],0.,-edge[0]))/length
+                    if np.dot(outward,direction)<-.5:continue # Hidden inside uphill neighbour.
+                    x,z=(a+b)*.5;surface=np.array((x,y-.04,z))
+                    origin=surface+outward*.10;end=surface-outward*.05
+                    hits=front_intersections(spatial.query(origin,end),origin,-outward)
+                    if not any((hits>.001)&(hits<.15)):missing.append(('side_or_riser',stair['id'],index,x,z))
+                x,_,z=tread['center'];origin=np.array((x,stair['bank_bottom']-.1,z));end=origin+np.array((0.,.15,0.))
+                hits=front_intersections(spatial.query(origin,end),origin,np.array((0.,1.,0.)))
+                if not any(abs(hits-.1)<.02):missing.append(('bottom',stair['id'],index))
+            # The full-width quay cut must meet real stone at both shoulders;
+            # a narrower worn tread contour must not leave an open vertical slit.
+            spec={**stair,'top':(stair['top'][0],stair['top'][2])}
+            for side in (-1,1):
+                x,z=step_point(spec,.08,side*(stair['width']/2-.005))
+                origin=np.array((x,DECK+.1,z));end=origin-np.array((0.,.20,0.))
+                hits=front_intersections(spatial.query(origin,end),origin,np.array((0.,-1.,0.)))
+                if not any(abs(hits-.1)<.025):missing.append(('mouth_cap',stair['id'],side))
+        self.assertFalse(missing,('Open or inward washing shell',len(missing),missing[:30]))
+
     def test_accessible_room_floors_meet_the_inner_walls_without_light_slits(self):
         from g_huxin_canals_layout import transform
         manifest=json.loads((KIT/'canals_manifest.json').read_text(encoding='utf-8'))
@@ -413,7 +525,7 @@ class CanalArchitectureTests(unittest.TestCase):
             for u,v in ((-w+inset,middle),(w-inset,middle),(-w*.55,back-inset),(w*.55,back-inset)):
                 x,z=transform(spec,u,v);y=plan['ground_y']
                 origin=np.array((x,y+.10,z));end=origin-np.array((0.,.2,0.))
-                hits=intersections(spatial.query(origin,end),origin,np.array((0.,-1.,0.)),tolerance=1e-6)
+                hits=front_intersections(spatial.query(origin,end),origin,np.array((0.,-1.,0.)),tolerance=1e-6)
                 self.assertTrue(any(abs(hits-.10)<.005),('Room floor light slit',house['id'],u,v,hits.tolist()))
 
     def test_most_washing_flights_are_behind_houses_with_real_rear_doorways(self):
@@ -422,6 +534,9 @@ class CanalArchitectureTests(unittest.TestCase):
         houses={h['seed']:h for h in manifest['houses']}
         stairs=manifest['washing_steps'];rear=[s for s in stairs if s.get('side')=='rear']
         self.assertGreater(len(rear),len(stairs)/2)
+        opposite=[s for s in rear if s.get('opposite_bank')]
+        self.assertGreaterEqual(len(opposite),2,'The visible opposite houses need real rear washing flights')
+        self.assertTrue(all(not s['walkable'] for s in opposite))
         for stair in rear:
             h=houses[stair['house_seed']]
             self.assertTrue(h['ground_plan']['rear_access'],h['id'])
@@ -473,7 +588,7 @@ class CanalArchitectureTests(unittest.TestCase):
                 x=center+side
                 self.assertIsNotNone(support(x,z,DECK),('Unsupported causeway seam',x,z))
                 origin=np.array((x,DECK+.10,z));end=origin-np.array((0.,.2,0.))
-                hits=intersections(spatial.query(origin,end),origin,np.array((0.,-1.,0.)),tolerance=1e-5)
+                hits=front_intersections(spatial.query(origin,end),origin,np.array((0.,-1.,0.)),tolerance=1e-5)
                 self.assertTrue(any(abs(hits-.10)<.025),('Missing causeway seam floor',x,z))
 
     def test_blocked_quay_ends_have_a_visible_physical_break(self):
@@ -558,7 +673,7 @@ class CanalArchitectureTests(unittest.TestCase):
             for tread in surfaces:
                 x,y,z=tread['center']
                 nearby=triangles[(low[:,0]<=x+.001)&(high[:,0]>=x-.001)&(low[:,2]<=z+.001)&(high[:,2]>=z-.001)]
-                hits=intersections(nearby,np.array((x,y+.10,z)),np.array((0.,-1.,0.)),tolerance=1e-5)
+                hits=front_intersections(nearby,np.array((x,y+.10,z)),np.array((0.,-1.,0.)),tolerance=1e-5)
                 self.assertTrue(any(abs(hits-.10)<.025),('Missing washing tread',stair['id'],tread['center']))
             # Both sides of each riser must remain stone. The previous worn
             # contours separated neighbouring treads by a few millimetres,
@@ -569,7 +684,7 @@ class CanalArchitectureTests(unittest.TestCase):
                 for side,y in ((-.001,pa[1]),(.001,pb[1])):
                     x,_,z=(pa+pb)*.5+direction*side
                     nearby=triangles[(low[:,0]<=x+1e-5)&(high[:,0]>=x-1e-5)&(low[:,2]<=z+1e-5)&(high[:,2]>=z-1e-5)]
-                    hits=intersections(nearby,np.array((x,y+.10,z)),np.array((0.,-1.,0.)),tolerance=1e-6)
+                    hits=front_intersections(nearby,np.array((x,y+.10,z)),np.array((0.,-1.,0.)),tolerance=1e-6)
                     self.assertTrue(any(abs(hits-.10)<.005),('Gap beside washing riser',stair['id'],x,y,z,hits.tolist()))
 
     def test_lower_water_exposes_complete_house_foundations(self):
@@ -597,7 +712,7 @@ class CanalArchitectureTests(unittest.TestCase):
                 outward=np.array((edge[1],0.,-edge[0]));outward/=np.linalg.norm(outward)
                 for y in (WATER_Y+.1,(WATER_Y+DECK)*.5,DECK-.16):
                     origin=np.array((middle[0],y,middle[1]))+outward*.5
-                    hits=intersections(near,origin,-outward,tolerance=1e-5)
+                    hits=front_intersections(near,origin,-outward,tolerance=1e-5)
                     self.assertTrue(any((hits>.001)&(hits<1.1)),('Exposed foundation hole',h['id'],middle,y))
 
     def test_every_advertised_door_bay_accepts_natural_straight_capsule_entry(self):

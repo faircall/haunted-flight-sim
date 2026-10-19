@@ -6,6 +6,8 @@ art/blue_oxford_sheet.png
 art/redhead_sheet.png
 /sound_dev
 /artifacts
+/codex_selection.json
+/codex_selection.json.*.tmp
 ANIMATION_SYSTEM_PROPOSAL.md
 ANIMATION_EDITOR.md
 /fonts

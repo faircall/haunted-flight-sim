@@ -66,8 +66,9 @@ class Grove(Hall):
             pr.draw_cylinder_ex(pr.Vector3(explorer.x,explorer.height+.013,explorer.z),pr.Vector3(explorer.x,explorer.height+.016,explorer.z),.24,.24,24,pr.Color(4,12,9,95))
             clip=explorer.clip if explorer.clip in self.player.clips else 'idle'
             phase=explorer.phase if clip in ('walk','run','walk_back') else clock if clip.startswith('turn') else clock/2
-            self.player.pose(clip,phase,1/60)
+            self.player.pose(clip,phase,self.player_pose_dt())
             pr.draw_model_ex(self.player.player,pr.Vector3(explorer.x,explorer.height+.01,explorer.z),pr.Vector3(0,1,0),180-math.degrees(explorer.yaw),pr.Vector3(PLAYER_SCALE,PLAYER_SCALE,PLAYER_SCALE),pr.WHITE)
+            self.register_player_selection((explorer.x,explorer.height+.01,explorer.z),PLAYER_SCALE,180-math.degrees(explorer.yaw))
         # Transparent wisps and restrained lantern halos; no sound device is opened.
         pr.rl.rlDisableDepthMask()
         for i in range(18):
@@ -93,48 +94,62 @@ class Grove(Hall):
 def run(review=False):
     if review:pr.set_config_flags(pr.FLAG_WINDOW_HIDDEN)
     pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1280,720,'Temple / Bamboo Hermitage');pr.set_target_fps(0 if review else 60)
-    grove=None
+    grove=None;selection=None
     try:
         start=time.perf_counter();grove=Grove();startup=time.perf_counter()-start;e=Explorer()
         if review:return review_grove(grove,e,startup)
+        from codex_selection import SelectionSession
+        selection=SelectionSession('bamboo_grove',__file__);grove.codex_selection=selection
+        pr.set_exit_key(pr.KEY_NULL);selected_camera=None
         clock=0.;inspection=False;manual=None;free=False;eye=None;yaw=0.;pitch=0.;help_visible=True;show_player=True
         while not pr.window_should_close():
-            dt=min(pr.get_frame_time(),.05);clock+=dt
-            if pr.is_key_pressed(pr.KEY_L):inspection=not inspection
-            if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
-            if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
-            if pr.is_key_pressed(pr.KEY_HOME):e=Explorer();manual=None;free=False;pr.enable_cursor()
-            if pr.is_key_pressed(pr.KEY_ZERO):manual=None;free=False;pr.enable_cursor()
-            for i in range(len(SHOTS)):
-                if pr.is_key_pressed(pr.KEY_ONE+i):manual=i;free=False;pr.enable_cursor()
-            if pr.is_key_pressed(pr.KEY_F):
-                free=not free
-                if free:
-                    e.clip='idle';sh=SHOTS[manual if manual is not None else e.shot];eye=list(sh['eye']);v=[sh['target'][i]-eye[i] for i in range(3)]
-                    yaw=math.atan2(v[0],-v[2]);pitch=math.atan2(v[1],math.hypot(v[0],v[2]));pr.disable_cursor()
-                else:pr.enable_cursor()
-            forward=int(pr.is_key_down(pr.KEY_W))-int(pr.is_key_down(pr.KEY_S));turn=int(pr.is_key_down(pr.KEY_D))-int(pr.is_key_down(pr.KEY_A));override=None
-            if free:
-                mouse=pr.get_mouse_delta();yaw+=mouse.x*.002;pitch=max(-1.45,min(1.45,pitch-mouse.y*.002));speed=5 if pr.is_key_down(pr.KEY_LEFT_SHIFT) else 2.4
-                eye[0]+=(math.sin(yaw)*forward+math.cos(yaw)*turn)*speed*dt;eye[2]+=(-math.cos(yaw)*forward+math.sin(yaw)*turn)*speed*dt
-                eye[1]+=(int(pr.is_key_down(pr.KEY_E))-int(pr.is_key_down(pr.KEY_Q)))*speed*dt
-                override=camera(eye,(eye[0]+math.sin(yaw)*math.cos(pitch),eye[1]+math.sin(pitch),eye[2]-math.cos(yaw)*math.cos(pitch)),70)
+            was_selecting=selection.enabled
+            if selection.handle_keys():break
+            blocked=was_selecting or selection.enabled
+            grove._codex_frame_paused=blocked
+            dt=min(pr.get_frame_time(),.05)
+            if blocked:
+                override=selected_camera
             else:
-                e.tick(dt,forward,turn,pr.is_key_down(pr.KEY_LEFT_SHIFT))
-                if manual is not None:sh=SHOTS[manual];override=camera(sh['eye'],sh['target'],sh['fov'])
-            grove.render(e,clock,inspection,override,show_player)
+                clock+=dt
+                if pr.is_key_pressed(pr.KEY_L):inspection=not inspection
+                if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
+                if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
+                if pr.is_key_pressed(pr.KEY_HOME):e=Explorer();manual=None;free=False;pr.enable_cursor()
+                if pr.is_key_pressed(pr.KEY_ZERO):manual=None;free=False;pr.enable_cursor()
+                for i in range(len(SHOTS)):
+                    if pr.is_key_pressed(pr.KEY_ONE+i):manual=i;free=False;pr.enable_cursor()
+                if pr.is_key_pressed(pr.KEY_F):
+                    free=not free
+                    if free:
+                        e.clip='idle';sh=SHOTS[manual if manual is not None else e.shot];eye=list(sh['eye']);v=[sh['target'][i]-eye[i] for i in range(3)]
+                        yaw=math.atan2(v[0],-v[2]);pitch=math.atan2(v[1],math.hypot(v[0],v[2]));pr.disable_cursor()
+                    else:pr.enable_cursor()
+                forward=int(pr.is_key_down(pr.KEY_W))-int(pr.is_key_down(pr.KEY_S));turn=int(pr.is_key_down(pr.KEY_D))-int(pr.is_key_down(pr.KEY_A));override=None
+                if free:
+                    mouse=pr.get_mouse_delta();yaw+=mouse.x*.002;pitch=max(-1.45,min(1.45,pitch-mouse.y*.002));speed=5 if pr.is_key_down(pr.KEY_LEFT_SHIFT) else 2.4
+                    eye[0]+=(math.sin(yaw)*forward+math.cos(yaw)*turn)*speed*dt;eye[2]+=(-math.cos(yaw)*forward+math.sin(yaw)*turn)*speed*dt
+                    eye[1]+=(int(pr.is_key_down(pr.KEY_E))-int(pr.is_key_down(pr.KEY_Q)))*speed*dt
+                    override=camera(eye,(eye[0]+math.sin(yaw)*math.cos(pitch),eye[1]+math.sin(pitch),eye[2]-math.cos(yaw)*math.cos(pitch)),70)
+                else:
+                    e.tick(dt,forward,turn,pr.is_key_down(pr.KEY_LEFT_SHIFT))
+                    if manual is not None:sh=SHOTS[manual];override=camera(sh['eye'],sh['target'],sh['fov'])
+            selection.begin_frame()
+            selected_camera=grove.render(e,clock,inspection,override,show_player)
             pr.begin_drawing();pr.clear_background(pr.BLACK);w,h=pr.get_screen_width(),pr.get_screen_height()
             pr.draw_texture_pro(grove.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,w,h),pr.Vector2(0,0),0,pr.WHITE)
             if help_visible:
                 pr.draw_rectangle(0,h-51,w,51,pr.Color(9,17,14,219))
                 pr.draw_text('W/S move   A/D turn   Shift run   1-8 cameras   0 auto   F free look   L daylight   H hide help',18,h-42,16,pr.Color(207,213,179,255))
-                pr.draw_text('Free look: mouse + WASD, Q/E height   |   Home reset   Tab player   F12 capture   Esc exit',18,h-21,14,pr.Color(139,169,148,255))
+                pr.draw_text('Free look: mouse + WASD, Q/E height   |   Home reset   Tab player   F8 select | F12 capture   Esc exit',18,h-21,14,pr.Color(139,169,148,255))
                 name='Free camera' if free else SHOTS[manual if manual is not None else e.shot]['name']
                 pr.draw_text(name,19,18,18,pr.Color(207,213,179,255))
+            selection.present(selected_camera,(0,0,w,h),{'world':'bamboo_grove','phase':'exploration','clock':clock,'player':{'position':[e.x,e.height,e.z],'yaw':e.yaw,'clip':e.clip},'shot':e.shot,'free_camera':free})
             pr.end_drawing()
             if pr.is_key_pressed(pr.KEY_F12):
                 folder=ROOT/'artifacts'/'bamboo-grove';folder.mkdir(parents=True,exist_ok=True);snapshot(grove.frame,folder/('capture-'+time.strftime('%Y%m%d-%H%M%S')+'.png'))
     finally:
+        if selection:selection.close()
         pr.enable_cursor()
         if grove:grove.close()
         pr.close_window()

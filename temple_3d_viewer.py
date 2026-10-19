@@ -6,6 +6,9 @@ Use --fixed-cameras (or moonlit_water_temple_3d.py) for the authored walkthrough
 """
 from pathlib import Path
 import argparse,math,json
+from copy import deepcopy
+from types import SimpleNamespace
+import hashlib
 import pyray as pr
 from pyrsistent import pmap
 from PIL import Image
@@ -20,6 +23,100 @@ from moonlit_water_temple_blender import review_arena
 
 ROOT=Path(__file__).resolve().parent
 ART=g_baked_assets.ROOT
+
+
+def selection_input(session, gameplay=None, editor=None):
+    """Consume selection transitions before either gameplay or editor input."""
+    was_enabled=session.enabled
+    exit_requested=session.handle_keys()
+    blocked=was_enabled or session.enabled
+    if session.enabled and not was_enabled and editor:
+        editor.suspend_input()
+    # Escape still belongs to an existing inventory/text/editor modal when
+    # selection was already disabled. Closing selection never reaches it.
+    modal=gameplay and (gameplay.modal or (editor and editor.active))
+    return blocked,bool(exit_requested and not modal)
+
+
+def selection_viewport(editor=None):
+    if editor and editor.active:
+        from g_temple_editor import VIEW_SCALE,VIEW_TOP
+        return (0,VIEW_TOP,1140,270*VIEW_SCALE)
+    return (0,0,1440,810)
+
+
+def selection_audio(audio,paused,was_paused):
+    """Pause the asynchronous engine as well as its gameplay event producer."""
+    if audio and paused!=was_paused:
+        audio.engine.stop() if paused else audio.engine.start()
+    return paused
+
+
+class TempleSelection:
+    """Attach live rendered instances to the existing authored scene IDs."""
+    def __init__(self,session):
+        self.session=session
+        self.gameplay=None
+
+    def metadata(self,identity,data=None):
+        scene=self.gameplay.scene if self.gameplay else None
+        authored=scene.get(identity) if scene else None
+        source=authored if authored else data
+        result=dict(source_document=str(scene.path) if scene else None,
+                    authored_object_id=identity if authored else None,
+                    object_data=deepcopy(source))
+        for key in ('kind','label','animated','world_bounds','deformation'):
+            if source and key in source:result[key]=deepcopy(source[key])
+        # A live actor keeps its authored spawn record, while picking uses the
+        # explicitly labelled standing bounds of its GPU-deformed display.
+        for key in ('animated','world_bounds','deformation'):
+            if data and key in data:result[key]=deepcopy(data[key])
+        return result
+
+    def actor_data(self,living,x,floor,z,kind='player'):
+        bounds=pr.get_model_bounding_box(living.player)
+        return dict(kind=kind,clip=living.clip,animation_frame=living.animation_frame,
+            animated=True,deformation='GPU skinning; approximate standing actor bounds',
+            world_bounds=dict(min=[x-5.,floor+min(0.,bounds.min.y),z-5.],
+                              max=[x+5.,floor+bounds.max.y,z+5.]))
+
+    def record(self,model,name,path=None,position=(0,0,0),scale=1.,yaw=0.,identity=None,data=None):
+        if not self.session.enabled:return
+        position=(position.x,position.y,position.z) if hasattr(position,'x') else position
+        self.session.register_model(model,name,asset_path=path,position=position,
+            scale=scale,yaw=yaw,identity=identity,metadata=self.metadata(identity,data))
+
+    def draw_props(self,props,gameplay,editor_active):
+        if not self.session.enabled:
+            props.draw(gameplay,editor_active)
+            return
+        # Draw the existing implementation once per authored object. Capturing
+        # its part callback retains exact collected/open-state visibility and
+        # transforms without duplicating the procedural gate/key geometry.
+        original=props.part
+        try:
+            for obj in gameplay.scene.document['objects']:
+                def part(name,position,size,color,yaw=0):
+                    original(name,position,size,color,yaw)
+                    self.record(props.models[name],'exploration_'+name,
+                        ROOT/'g_temple_exploration_view.py',position,size,yaw,obj['id'])
+                props.part=part
+                proxy=SimpleNamespace(arena=gameplay.arena,collected=gameplay.collected,
+                    scene=SimpleNamespace(document={'objects':[obj]}))
+                props.draw(proxy,editor_active)
+        finally:
+            props.part=original
+
+    def context(self,editor,player,camera):
+        scene=self.gameplay.scene if self.gameplay else None
+        document=scene.document if scene else None
+        values=lambda v:[v.x,v.y,v.z]
+        return dict(source_document=str(scene.path) if scene else None,
+            source_document_revision=hashlib.sha256(json.dumps(document,sort_keys=True,ensure_ascii=False).encode('utf-8')).hexdigest() if document else None,
+            geometry_revision=self.gameplay.geometry_revision if self.gameplay else None,
+            editor_active=bool(editor and editor.active),render_size=[480,270],
+            player_position=list(player),camera=dict(position=values(camera.position),
+                target=values(camera.target),up=values(camera.up),fovy=camera.fovy,projection=camera.projection))
 
 
 def build_terrain(tm,folder=None):
@@ -137,7 +234,10 @@ def run(fixed_cameras=False,living_assets=False):
     if pr.is_window_ready():pr.set_window_title(title)
     else:pr.init_window(1440,810,title)
     pr.set_target_fps(60)
-    if gameplay_enabled:pr.set_exit_key(pr.KEY_NULL)
+    pr.set_exit_key(pr.KEY_NULL)
+    from codex_selection import SelectionSession
+    selection=SelectionSession('moonlit-temple',__file__)
+    selection_view=TempleSelection(selection)
     if args.gameplay_smoke:pr.set_target_fps(0)
     if args.smoke:print('VIEWER window ready',flush=True)
     arena=review_arena(game,pmap(dict(entities={},tile_map=game.make_tile_map(1,1,16,16),player_info=game.make_default_player(0,0,0))))
@@ -151,14 +251,16 @@ def run(fixed_cameras=False,living_assets=False):
     locations={n:pr.get_shader_location(shader,n) for n in ('moonDirection','inspection','opacity','time','waterPass','lampCount','lamps')}
     def scalar(name,value):pr.set_shader_value(shader,locations[name],pr.ffi.new('float[]',[value]),pr.SHADER_UNIFORM_FLOAT)
     def integer(name,value):pr.set_shader_value(shader,locations[name],pr.ffi.new('int[]',[value]),pr.SHADER_UNIFORM_INT)
-    models={};loaded_textures={}
+    models={};loaded_textures={};model_paths={}
     def load(name,path):
         if args.smoke:print('VIEWER loading '+name,flush=True)
         models[name]=temple_mesh_loader.load(path,shader,loaded_textures)
+        model_paths[name]=str(path)
         if not models[name]:raise RuntimeError('Empty live mesh: '+name)
-    def draw(name,position,angle=0.,scale=(1,1,1)):
+    def draw(name,position,angle=0.,scale=(1,1,1),identity=None,data=None):
         for model in models[name]:
             pr.draw_model_ex(model,position,pr.Vector3(0,1,0),angle,pr.Vector3(*scale),pr.WHITE)
+            selection_view.record(model,name,model_paths.get(name),position,scale,angle,identity,data)
     for name in records:load(name,ART/'models'/(name+'.obj'))
     load('terrain',build_terrain(tm,ROOT/'artifacts'/'temple-camera-trial'/'cache'))
     load('deck',g_temple_deck.write(tm,ROOT/'artifacts'/'temple-camera-trial'/'cache',ART))
@@ -169,13 +271,14 @@ def run(fixed_cameras=False,living_assets=False):
     walk=cameras.Walkthrough();help_visible=True;living=None
     gameplay=None;editor=None;exploration_props=None;audio=None;smoke=None;status='';status_time=0.;rendered_revision=0;combat_view=None
     willow_fades={138:1.,686:1.}
-    arrival_fade=1. if played_intro else 0.
+    arrival_fade=1. if played_intro else 0.;scene_time=0.;selection_audio_paused=False
     def rebuild_layout(new_map):
         cache=ROOT/'artifacts'/'temple-camera-trial'/'cache'
         replacement={}
         try:
             for name,path in (('terrain',build_terrain(new_map,cache)),('deck',g_temple_deck.write(new_map,cache,ART))):
                 replacement[name]=temple_mesh_loader.load(path,shader,loaded_textures)
+                model_paths[name]=str(path)
         except Exception:
             for group in replacement.values():
                 for model in group:pr.unload_model(model)
@@ -192,6 +295,7 @@ def run(fixed_cameras=False,living_assets=False):
             from g_temple_exploration_view import Props,Audio,draw_ui
             scene=Scene.load(args.scene or SCENE_FILE)
             gameplay=Exploration(arena,scene);walk=gameplay.walk;arena=gameplay.arena
+            selection_view.gameplay=gameplay
             import g_temple_layout
             if not g_temple_layout.authored(scene.document['layout']):rendered_revision=gameplay.geometry_revision
             editor=Editor(scene);exploration_props=Props(shader)
@@ -213,6 +317,14 @@ def run(fixed_cameras=False,living_assets=False):
             living=LivingScene(combat=bool(gameplay))
         while not pr.window_should_close():
             dt=min(.05,pr.get_frame_time());now=pr.get_time()
+            selection_paused,exit_requested=selection_input(selection,gameplay,editor)
+            if exit_requested:break
+            selection_audio_paused=selection_audio(audio,selection_paused,selection_audio_paused)
+            selection.begin_frame()
+            if selection_paused:
+                dt=0.;now=scene_time
+                if editor and editor.edit_text is not None:
+                    while pr.get_char_pressed():pass
             if args.smoke and not args.gameplay_smoke:
                 dt=.016;now=.5
                 route_frame=frame%len(cameras.REVIEW_ROUTE)
@@ -221,22 +333,22 @@ def run(fixed_cameras=False,living_assets=False):
                     inspection=review_pass==2
                     if route_frame==0:walk=cameras.Walkthrough()
                 if not fixed_cameras:azimuth=0 if frame==0 else 25 if frame==1 else -30;inspection=frame==2
-            if pr.is_key_pressed(pr.KEY_HOME) and not gameplay:
+            if not selection_paused and pr.is_key_pressed(pr.KEY_HOME) and not gameplay:
                 azimuth=0.;elevation=30.;span=330.
                 player_floor=None
                 if fixed_cameras:walk=cameras.Walkthrough();roof_override=False
                 else:player_x,player_y=232.,334.
                 if living:living.yaw=90.;living.phase=0.;living.pose('idle',0.)
-            if gameplay and not gameplay.combat.dead and not gameplay.modal and not editor.active and pr.is_key_pressed(pr.KEY_HOME):
+            if not selection_paused and gameplay and not gameplay.combat.dead and not gameplay.modal and not editor.active and pr.is_key_pressed(pr.KEY_HOME):
                 gameplay.set_position(*gameplay.scene.document['spawn']);gameplay.ensure_clear_position();player_floor=None
                 if living:living.phase=0.;living.pose('idle',0.)
             if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
-            view_keys_enabled=not gameplay or (not gameplay.modal and not editor.active)
+            view_keys_enabled=not selection_paused and (not gameplay or (not gameplay.modal and not editor.active))
             if view_keys_enabled and pr.is_key_pressed(pr.KEY_L):inspection=not inspection
             if view_keys_enabled and pr.is_key_pressed(pr.KEY_R):roof_override=not roof_override
             running=pr.is_key_down(pr.KEY_LEFT_SHIFT) or pr.is_key_down(pr.KEY_RIGHT_SHIFT)
             old_position=(walk.x,walk.y) if fixed_cameras else (player_x,player_y)
-            if fixed_cameras:
+            if fixed_cameras and not selection_paused:
                 keys={letter for letter,key in (('w',pr.KEY_W),('a',pr.KEY_A),('s',pr.KEY_S),('d',pr.KEY_D)) if pr.is_key_down(key)}
                 if gameplay:
                     pressed={name for name in ('E','TAB','ENTER','ESCAPE','LEFT','RIGHT','UP','DOWN','R') if pr.is_key_pressed(getattr(pr,'KEY_'+name))}
@@ -274,7 +386,7 @@ def run(fixed_cameras=False,living_assets=False):
                 else:
                     walk.step(keys,dt,lambda x,y:can_walk(tm,x,y),speed=GAIT_SETTINGS['run' if running else 'walk']['speed'] if living else (100. if running else 65.))
                 player_x,player_y=walk.x,walk.y
-            else:
+            elif not fixed_cameras and not selection_paused:
                 azimuth+=(int(pr.is_key_down(pr.KEY_E))-int(pr.is_key_down(pr.KEY_Q)))*45*dt
                 elevation=max(15.,min(75.,elevation+(int(pr.is_key_down(pr.KEY_UP))-int(pr.is_key_down(pr.KEY_DOWN)))*35*dt))
                 span=max(150.,min(560.,span-pr.get_mouse_wheel_move()*16))
@@ -294,7 +406,7 @@ def run(fixed_cameras=False,living_assets=False):
                 camera=pr.Camera3D(pr.Vector3(*shot['eye']),pr.Vector3(*shot['target']),pr.Vector3(0,1,0),shot['span'],pr.CAMERA_ORTHOGRAPHIC)
                 if args.smoke:roof_alpha=0. if inside else 1.
             if editor and editor.active:
-                editor.update(gameplay,camera,dt)
+                if not selection_paused:editor.update(gameplay,camera,dt)
                 arena=gameplay.arena;tm=arena['tile_map']
                 props=arena['entities']['lake_props']
                 camera=editor.camera(camera)
@@ -313,6 +425,7 @@ def run(fixed_cameras=False,living_assets=False):
                                   ((90,46,278),(162,7,334),66))[frame]
                 camera=pr.Camera3D(pr.Vector3(*eye),pr.Vector3(*focus),pr.Vector3(0,1,0),extent,pr.CAMERA_ORTHOGRAPHIC)
                 inspection=True
+            scene_time=now
             scalar('inspection',float(inspection));scalar('time',now);scalar('opacity',1.);integer('waterPass',0)
             pr.set_shader_value(shader,locations['moonDirection'],pr.ffi.new('float[]',[-.45,.75,-.52]),pr.SHADER_UNIFORM_VEC3)
             lamps=[e for e in arena['entities']['emitters'].values() if e.get('type')=='fire']
@@ -322,7 +435,8 @@ def run(fixed_cameras=False,living_assets=False):
             integer('lampCount',len(lamps));pr.set_shader_value_v(shader,locations['lamps'],pr.ffi.new('float[]',positions),pr.SHADER_UNIFORM_VEC3,len(lamps))
             if living:
                 living.environment(now,inspection,positions)
-                if args.smoke and not args.gameplay_smoke:
+                if selection_paused:pass
+                elif args.smoke and not args.gameplay_smoke:
                     if fixed_cameras:
                         previous=cameras.REVIEW_ROUTE[max(0,route_frame-1)]
                         dx,dz=player_x-previous[0],player_y-previous[1]
@@ -340,22 +454,23 @@ def run(fixed_cameras=False,living_assets=False):
                     travel_x,travel_y=player_x-old_position[0],player_y-old_position[1]
                     travel=math.hypot(travel_x,travel_y)
                     living.update(dt,travel>1e-6,(travel_x,travel_y),travel,running)
-            if combat_view:combat_view.update(gameplay,living,dt,inspection,positions)
+            if combat_view and not selection_paused:combat_view.update(gameplay,living,dt,inspection,positions)
             if smoke and hasattr(smoke,'observe_visual'):smoke.observe_visual(living,combat_view)
             pr.begin_texture_mode(target);pr.clear_background(pr.Color(3,7,12,255));pr.begin_mode_3d(camera)
             integer('waterPass',1);pr.draw_model(water,pr.Vector3(448,-.2,320),1.,pr.WHITE);integer('waterPass',0)
+            selection_view.record(water,'water',position=(448,-.2,320),data={'kind':'water'})
             draw('terrain',pr.Vector3(0,0,0))
             draw('deck',pr.Vector3(0,0,0))
             for identity,prop in props.items():
                 if prop['kind']=='roof':continue
                 if prop['kind']=='pile' and not identity.startswith('lantern-post:'):continue
                 name=prop['asset'][6:]
-                draw(name,pr.Vector3(*prop_origin(identity,prop,records)),prop.get('rotation_y',0.),prop.get('scale',(1,1,1)))
-            for obj in arena['entities']['facades'].values():
+                draw(name,pr.Vector3(*prop_origin(identity,prop,records)),prop.get('rotation_y',0.),prop.get('scale',(1,1,1)),identity,prop)
+            for facade_id,obj in arena['entities']['facades'].items():
                 if fixed_cameras and shot.get('hide_front_facade',False):continue
                 name=g_night.baked_facade_name(obj,obj.get('open',False));p=obj['position']
-                draw(name,pr.Vector3(p['x'],obj.get('base_height',16.),p['y']))
-            if exploration_props:exploration_props.draw(gameplay,editor.active)
+                draw(name,pr.Vector3(p['x'],obj.get('base_height',16.),p['y']),identity='temple-entrance' if facade_id=='door' else 'facade:'+str(facade_id),data=obj)
+            if exploration_props:selection_view.draw_props(exploration_props,gameplay,editor.active)
             for e in lamps:
                 p=e['position'];pr.draw_sphere(pr.Vector3(p['x'],e.get('base_height',16.)+19,p['y']),2.,pr.Color(255,150,50,255))
             for x in (138,686):
@@ -363,6 +478,7 @@ def run(fixed_cameras=False,living_assets=False):
                     fade=.12 if gameplay and walk.director.override and math.hypot(player_x-x,player_y-376)<85 else 1.
                     willow_fades[x]+=(fade-willow_fades[x])*min(1.,dt*10)
                     living.draw_willow(x,376,0. if x==138 else 83.,willow_fades[x])
+                    selection_view.record(living.willow,'willow',ROOT/'photo_asset_pipeline'/'temple3d'/'living'/'models'/'willow.glb',(x,0,376),yaw=0. if x==138 else 83.,identity='willow:'+str(x),data={'kind':'tree','deformation':'GPU wind; rest-mesh triangles'})
                 else:pr.draw_billboard(camera,tree,pr.Vector3(x,58,376),116,pr.Color(90,115,145,255) if not inspection else pr.WHITE)
             floor=structure.floor_height(tm,player_x,player_y)
             # Follow each low riser smoothly instead of teleporting up a whole
@@ -372,11 +488,24 @@ def run(fixed_cameras=False,living_assets=False):
                 for height in (floor+1,floor+29):
                     screen=pr.get_world_to_screen_ex(pr.Vector3(player_x,height,player_y),camera,480,270)
                     assert 8<screen.x<472 and 8<screen.y<262,('Player outside frame',frame,screen.x,screen.y)
-            if living:living.draw_player(player_x,player_floor,player_y)
+            if living:
+                living.draw_player(player_x,player_floor,player_y)
+                if selection.enabled:
+                    selection_view.record(living.player,'player',living.asset_root/'player.glb',(player_x,player_floor,player_y),yaw=living.yaw,identity='player',data=selection_view.actor_data(living,player_x,player_floor,player_y))
             else:pr.draw_capsule(pr.Vector3(player_x,player_floor+4,player_y),pr.Vector3(player_x,player_floor+24,player_y),3.,4,4,pr.Color(156,146,118,255))
-            if combat_view:combat_view.draw(gameplay,living,player_floor)
+            if combat_view:
+                combat_view.draw(gameplay,living,player_floor)
+                if selection.enabled:
+                    from g_temple_combat import world
+                    for enemy_id,actor_model in combat_view.enemies.items():
+                        actor=gameplay.combat.actors[enemy_id];x,z=world(actor,tm)
+                        selection_view.record(actor_model.player,'redhead',actor_model.asset_root/'redhead.glb',
+                            (x,structure.floor_height(tm,x,z),z),yaw=actor_model.yaw,identity=enemy_id,
+                            data=selection_view.actor_data(actor_model,x,structure.floor_height(tm,x,z),z,'enemy'))
+                    if living and living.pistol and not gameplay.combat.dead and (gameplay.combat.aiming or gameplay.combat.reload):
+                        selection_view.record(living.pistol,'pistol',living.asset_root/'pistol.glb',(player_x,player_floor,player_y),yaw=living.yaw,identity='player',data=selection_view.actor_data(living,player_x,player_floor,player_y))
             if roof_alpha>.001:
-                scalar('opacity',roof_alpha);draw('roof',pr.Vector3(480,structure.TEMPLE_HEIGHT+64,208));scalar('opacity',1.)
+                scalar('opacity',roof_alpha);draw('roof',pr.Vector3(480,structure.TEMPLE_HEIGHT+64,208),identity='temple-roof',data={'kind':'roof'});scalar('opacity',1.)
             if editor and editor.active:editor.draw_world(tm)
             pr.end_mode_3d()
             status_time=max(0.,status_time-dt)
@@ -384,10 +513,7 @@ def run(fixed_cameras=False,living_assets=False):
             if combat_view and not editor.active:combat_view.draw_ui(gameplay)
             pr.end_texture_mode()
             pr.begin_drawing();pr.clear_background(pr.BLACK)
-            destination=pr.Rectangle(0,0,1440,810)
-            if editor and editor.active:
-                from g_temple_editor import VIEW_SCALE,VIEW_TOP
-                destination=pr.Rectangle(0,VIEW_TOP,1140,270*VIEW_SCALE)
+            destination=pr.Rectangle(*selection_viewport(editor))
             pr.draw_texture_pro(target.texture,pr.Rectangle(0,0,480,-270),destination,pr.Vector2(0,0),0,pr.WHITE)
             if editor and editor.active:
                 editor.draw_overlay(camera,tm,gameplay.assets)
@@ -403,6 +529,7 @@ def run(fixed_cameras=False,living_assets=False):
             if arrival_fade:
                 pr.draw_rectangle(0,0,1440,810,pr.Color(0,0,0,int(arrival_fade*255)))
                 arrival_fade=max(0.,arrival_fade-dt/2.)
+            selection.present(camera,destination,context=selection_view.context(editor,(player_x,player_floor,player_y),camera) if selection.enabled else None)
             if smoke and editor.active and smoke.capture:smoke.capture_ui()
             pr.end_drawing()
             if pr.is_key_pressed(pr.KEY_F12):
@@ -421,6 +548,7 @@ def run(fixed_cameras=False,living_assets=False):
                 frame+=1
                 if frame==(3 if args.structure_review else len(cameras.REVIEW_ROUTE)*(3 if args.player_review else 1) if fixed_cameras else 3):break
     finally:
+        selection.close()
         if smoke:smoke.close()
         if audio:audio.close()
         if exploration_props:exploration_props.close()

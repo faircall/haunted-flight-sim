@@ -91,6 +91,17 @@ class Editor:
         return pr.Camera3D(pr.Vector3(x, 400, z), pr.Vector3(x, 0, z),
                            pr.Vector3(0, 0, -1), self.span, pr.CAMERA_ORTHOGRAPHIC)
 
+    def suspend_input(self):
+        """Finish a live object drag before an external selection tool owns LMB.
+
+        Preserve the already-visible edit as one undoable action. A pending
+        floor rectangle has not changed the document and can be discarded.
+        """
+        if self.drag:
+            self.scene.commit(self.drag['before'])
+            self.drag=None
+        self.floor_drag=None
+
     def snapped(self, position):
         step = 4 if self.snap and not pr.is_key_down(pr.KEY_LEFT_SHIFT) else 1
         return [max(0., min(limit-1., round(v/step)*step)) for v, limit in zip(position, (896, 640))]
