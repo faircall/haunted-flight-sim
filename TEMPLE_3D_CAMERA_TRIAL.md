@@ -976,8 +976,10 @@ Use `HAUNTED_MUTE_AUDIO=1` for ad-hoc automation launched via stdin or `runpy`.
 
 Launch `play_huxin_canals.cmd` for the independent third pavilion scene. It starts
 on the same lake approach, with the established position-driven fog. The existing
-lake and Moon scenes remain unchanged; 89 source/asset hashes are recorded in
-`art/temple/huxin_canals/origin_snapshot.json` and checked by the new tests.
+original lake remains unchanged. The Moon encounter has been restored to its
+original 24-second sequence; Canals uses the slower arrival and exploration-driven
+clearing below. Source and asset integrity is recorded in
+`art/temple/huxin_canals/origin_snapshot.json`.
 The previous high-water version is a separate frozen scene, launched with
 `play_huxin_canals_flooded.cmd`. Its 81 source and asset hashes are recorded in
 `art/temple/huxin_canals_flooded/frozen_snapshot.json`; rebuilding the current
@@ -985,20 +987,28 @@ district does not overwrite that version.
 
 The prototype begins with the previously collected stone annulus in inventory.
 At the bronze mirror, press **E** to place it on the basin. This consumes only
-the matching object, preserves other inventory and starts a 48-second
-fog sequence. After the concealed change, the dense bank retreats outward for
-38 seconds: nearby houses emerge first, then successive layers of the village,
-while the distant canals remain obscured. Coarse, softly posterized fog banks
+the matching object, preserves other inventory and pauses control for five
+seconds within a thirty-second fog arrival. The same mist keeps moving inward
+after control returns. Neither that release nor waiting at the basin reveals
+buildings or changes the scene's lighting. Exploration clears a persistent
+world-space grid along the places actually visited: entering a house or moving
+sideways along a quay clears that area even without moving farther from the
+puzzle. Unvisited streets and distant canals remain obscured.
+Coarse, softly posterized fog banks
 gather around the actual house footprints. Nearby water and paving receive
 lighter, broken wisps, while denser layers cover the changing streets farther
-out. The two environments blend gradually from seconds 5 to 12, each with its
+out. The two environments blend with outward movement across the pavilion's
+edge, each with its
 own depth-aware fog and correct water reflection. The shared pavilion and player
 stay aligned throughout. Three-dimensional noise bends the broad billows and
 branching wisps; the player and basin remain readable during the crescendo.
-Uneven layers release different parts of the village at different
-moments. The camera stays exactly where it was before the interaction,
-through the gathering mist, the concealed world change and the clearing fog.
-It remains there until the player moves. The complete original pavilion is its
+The grid also varies local arrival and release rates, with soft, irregular
+boundaries and lingering wisps between cleared and covered cells. Visited cells
+stay clear on backtracking; waiting does not clear more cells. The camera stays
+exactly where it was before the interaction,
+through the five-second pause and afterward until the player moves.
+Normal gameplay cameras then follow
+exploration. The complete original pavilion is its
 own twin in the other world: deck, roof, posts, brackets, ceiling, inscriptions,
 basin and lamps remain in place. The ordinary lake remains at y=0; the blend
 reveals canal water at y=-1.55, while the pavilion and quays
@@ -1056,7 +1066,8 @@ stationary camera and hidden swap in both the image and the water reflection,
 then walks the complete canal loop using the real controller.
 It verifies player visibility from every route camera and saves the reveal,
 a condensed walkthrough, a contact sheet and a JSON report under
-`artifacts/huxin_canals_v5/`. Earlier review images remain under
+`artifacts/huxin-canals-grid-v10/walkthrough/`. Earlier review images remain under
+`artifacts/huxin_canals_v5/`,
 `artifacts/huxin_canals_v4/`, `artifacts/huxin_canals_v3/`, `artifacts/huxin_canals_v2/` and
 `artifacts/huxin_canals/`. `--quick` skips GIF
 encoding. The flooded smoke loads the preserved scene independently, checks
@@ -1070,9 +1081,75 @@ of every accessible bay, walking and running, and check actual geometry at
 both sides of the player's capsule. Rear routes are checked against the actual
 exported room boundaries before reaching their stairs; the causeway join is
 checked across its usable width against the exported floor meshes. The native
-review also compares the last clearing frame with the completed state to catch
-a final fog pop. Rays immediately inside the room walls check that their floors
+review also checks the control-release frame and spatial blend endpoints for
+discontinuities. Rays immediately inside the room walls check that their floors
 meet the plaster without thin light leaks. Automated reviews never open an audio device.
+
+V10 replaces the single retreat radius with a 192x192 persistent discovery grid
+of one-metre cells. Seven-metre clear cores feather into
+uneven 17–23 metre reaches; adjacent visits merge into a trail. Deterministic
+spatial fields vary arrival lag and clearing response, while three-dimensional
+billows and edge tendrils soften the grid. Cleared interiors lose the dense
+transition fog, retaining only the scene's low ambient mist. Main and reflected
+views sample the same texture. The short departure gate still hides the
+lake-to-canals geometry handoff, but never controls the extent of fog clearing.
+`huxin_canals_grid_review.py` checks local discovery through actual house entry,
+stationary waiting, reflection consistency and the retained unseen district.
+Its outputs and the previous source snapshot live in
+`artifacts/huxin-canals-grid-v10/`.
+
+```powershell
+$env:HAUNTED_MUTE_AUDIO='1'
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_canals_fog_grid test_huxin_canals_fog test_huxin_canals.CanalSequenceTests test_huxin_canals_selection test_huxin_moon_encounter -q
+artifacts/temple3d-env/Scripts/python.exe huxin_canals_grid_review.py
+```
+
+The focused grid revision passes 59 CPU checks. Its native review walks 965
+controller steps through the quay, house and rear stairs, including backtracking.
+The lateral target clears from 0.726 to 1.0 while maximum distance from the puzzle
+stays unchanged, and the unvisited opposite district stays covered. GPU texture
+readback matches the CPU map; 133 pass audits verify shared discovery in direct
+views, reflections and both world endpoints. Tests run hidden and muted.
+
+V9 separated the five-second control pause from the thirty-second arrival.
+The leading mist retains its activation transparency. A denser trailing bank
+continues approaching after movement becomes available. No timer blends in
+the village or changes the colour grade. The world blend instead follows
+outward discovery from 4.5 to 9.5 metres, finishing before the old causeway
+and new quay diverge. An additional cloud over the unseen house footprints
+keeps nearby facades veiled during that blend; it then recedes through the
+warped volume as the player explores. Both endpoint reflections receive
+their corresponding fog. Discovery also controls the slower colour shift.
+
+The V9 review checks both pavilion views, sixty seconds of stationary waiting,
+immediate walking and running after unlock, and real backtracking. No canal
+geometry is drawn while waiting at the basin. Frozen-clock comparisons isolate
+the slow arrival from natural cloud motion and check continuity at the control
+release and spatial blend endpoints. The 23 focused Canal tests pass. Captures,
+motion previews and source snapshots are under `artifacts/huxin-canals-fog-v9/`.
+V10 retains that arrival timing. Moon has since been restored byte-for-byte
+to its pre-V8 version, together with the original integrity baselines. The rollback
+record is in `artifacts/huxin-moon-revert-20261020/restoration.json`.
+
+The historical V8 experiment shortened both arrivals to six seconds; its Moon
+changes have now been reverted. In that experiment, the incoming field retained its
+captured opacity while a separate, denser bank travelled behind it. After control
+returned, `g_exploration_fog.py` tracked the furthest position reached from the
+pavilion. Its spatial easing advanced only with exploration. The canal bank
+retreated gradually through the village; the smaller Moon room also counted
+vertical discovery upstairs. Leaving that room early joined the remaining bank
+to the existing causeway return, including backtracking before the midpoint.
+
+The V8 checks passed 57 targeted tests across the shared tracker, both encounters,
+reflection/blend uniforms, selection and protected baselines. Muted native
+captures covered both canal pavilion views, stationary waits, actual movement
+into a house, backtracking, and outward clearing. The Moon route walked both
+floors and the complete return in 2,709 controller steps. Source snapshots,
+captures and reports are in `artifacts/huxin-canals-fog-v8/` and
+`artifacts/huxin_moon_exploration/`. The original lake and the frozen flooded
+runtime/assets remain intact. The experimental Moon revisions remain archived
+there; the live Moon source and original provenance baselines have been restored.
+
 V5 adds front-facing rays for bank walls, house foundations, washing risers,
 stair flanks and caps; ordinary two-sided floor intersections cannot detect a
 face that disappears under back-face culling. The tread shoulders now close

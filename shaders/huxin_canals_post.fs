@@ -1,9 +1,9 @@
 #version 330
 in vec2 fragTexCoord;
-uniform sampler2D texture0,depthMap,buildingCoverage;
-uniform vec2 resolution;
-uniform vec4 coverageBounds;
-uniform float veil,time,arrival,clearing,retreatRadius,returning,crest,reflectedView,voidWorld,waterY;
+uniform sampler2D texture0,depthMap,buildingCoverage,fogGrid;
+uniform vec2 resolution,fogGridTexel;
+uniform vec4 coverageBounds,fogGridBounds;
+uniform float veil,time,arrival,sourceArrival,returning,crest,reflectedView,voidWorld,waterY,canalWorld,fogGridActive;
 uniform vec3 eye,forward,right,up,playerCenter,fogColour;
 uniform vec2 lens,clip;
 out vec4 finalColor;
@@ -62,6 +62,29 @@ float buildingBank(vec3 p,vec3 drift){
     float mapped=texture(buildingCoverage,clamp(uv,vec2(.001),vec2(.999))).r;
     return mix(mapped,1.,smoothstep(76.,94.,max(abs(xz.x),abs(xz.y))));
 }
+vec3 fieldCell(vec2 uv){
+    // Unvisited space beyond the authored map stays misty. G/B are neutral
+    // there; clamping a cleared border must not clear an infinite outer strip.
+    if(any(lessThan(uv,vec2(0.)))||any(greaterThan(uv,vec2(1.))))return vec3(0.,.5,.5);
+    return texture(fogGrid,uv).rgb;
+}
+vec4 localField(vec3 p,vec3 drift){
+    if(fogGridActive<.5)return vec4(0.,.5,.5,0.);
+    vec2 uv=(p.xz-fogGridBounds.xy)/(fogGridBounds.zw-fogGridBounds.xy);
+    vec3 centre=fieldCell(uv);
+    // Height bends just the feathered boundary. The unwarped R channel is a
+    // hard upper bound on remaining fog, so a fully discovered room can never
+    // fill again as the cloud moves or its upstairs samples shift sideways.
+    vec2 bend=vec2(sin(p.y*.39+p.z*.11),cos(p.y*.33-p.x*.13));
+    bend+=(vec2(noise(drift*.17+31.),noise(drift.zxy*.17-13.))-.5)*.55;
+    vec2 warpedUV=uv+bend*.70/(fogGridBounds.zw-fogGridBounds.xy);
+    float clear=max(centre.r,fieldCell(warpedUV).r);
+    vec2 span=fogGridTexel*1.5;
+    vec2 gradient=vec2(fieldCell(uv+vec2(span.x,0.)).r-fieldCell(uv-vec2(span.x,0.)).r,
+                       fieldCell(uv+vec2(0.,span.y)).r-fieldCell(uv-vec2(0.,span.y)).r);
+    float boundary=smoothstep(.025,.24,length(gradient))*4.*clear*(1.-clear);
+    return vec4(clear,centre.gb,boundary);
+}
 float band(float v,float steps){
     // Antialias the edges of the contour, not the broad painted tonal bands.
     float x=clamp(v,0.,1.)*steps;
@@ -103,34 +126,36 @@ vec3 rollingMist(vec3 scene,vec2 uv){
         if(lo>=finish)break;
         float stepLength=hi-lo;vec3 p=origin+ray*(lo+fullHi)*.5;
         float r=length(p.xz),shore=shoreRadius(atan(p.z,p.x));
-        float frontRadius=max(mix(shore-6.,mix(4.65,10.50,crest),arrival),retreatRadius);
+        vec3 drift=driftSpace(p);
+        vec4 field=localField(p,drift);
+        // Static, spatial lag and resistance make neighbouring banks arrive at
+        // different rates. Fade this modulation in with the following bank;
+        // the ordinary approach and the exact activation frame stay unchanged.
+        float phase=clamp((arrival-sourceArrival)/max(.0001,1.-sourceArrival),0.,1.);
+        float rate=mix(.72,1.48,field.g)*mix(.88,1.16,field.b);
+        float localArrival=mix(arrival,sourceArrival+(1.-sourceArrival)*pow(phase,rate),fogGridActive*crest);
+        float localCrest=mix(crest,pow(clamp(crest,0.,1.),rate),fogGridActive*crest);
+        // The leading bank keeps approaching the pavilion. The trailing
+        // bank's growing depth must not push this front back toward shore.
+        float frontRadius=mix(shore-6.,4.65,localArrival);
         // At the crescendo the far bank fills outward as well. Reflected rays
         // can meet the water beyond the former shore; their remaining light
         // path still needs fog, including the distant replacement rooftops.
-        float outerReach=shore+20.+390.*crest;
-        if(voidWorld<.001&&(r<frontRadius-18.||r>outerReach))continue;
+        float outerReach=shore+20.+390.*max(localCrest,canalWorld);
+        if(voidWorld<.001&&canalWorld<.001&&(r<frontRadius-18.||r>outerReach))continue;
         float cloud=billow(p);
-        vec3 drift=driftSpace(p);
         float filament=wisps(drift);
-        float retreating=smoothstep(0.,.16,clearing);
-        // Different layers and channels release at different times. The
-        // retreat travels through a warped volume, with no circular outline.
         float bank=noise(drift*vec3(.083,.12,.073));
         float folds=noise(drift.zxy*vec3(.22,.20,.25)+17.);
-        float stretch=1.+retreating*(.27*sin(atan(p.z,p.x)*3.+.8)+.19*cos(atan(p.z,p.x)*5.-.6));
-        float travel=r*stretch;
-        float foldsWidth=mix(4.,min(58.,8.+retreatRadius*.35),retreating);
-        float lobes=(cloud-.5)*mix(15.,7.5,arrival);
-        lobes+=crest*((bank-.5)*5.0+(folds-.5)*2.0);
-        lobes+=retreating*((bank-.5)*foldsWidth*2.2+(folds-.5)*12.+p.y*1.1);
-        frontRadius+=max(0.,p.y)*.8*(1.-smoothstep(.78,1.,arrival));
-        float edge=mix(mix(12.,4.5,arrival),min(25.,7.+retreatRadius*.09),retreating);
-        float front=smoothstep(-edge,edge,travel-frontRadius+lobes);
-        // Frayed ribbons remain behind the bulk of the cloud. Their crests
-        // drift sideways across successive silhouettes, instead of dissolving.
-        float tailDistance=min(42.,8.+retreatRadius*.28);
-        float wake=smoothstep(-tailDistance-edge,-tailDistance*.35,travel-frontRadius+lobes)
-                  *(1.-smoothstep(-edge*.35,edge*1.1,travel-frontRadius+lobes));
+        float lobes=(cloud-.5)*mix(15.,7.5,localArrival);
+        lobes+=localCrest*((bank-.5)*5.0+(folds-.5)*2.0);
+        frontRadius+=max(0.,p.y)*.8*(1.-smoothstep(.78,1.,localArrival));
+        float edge=mix(12.,4.5,localArrival);
+        float front=smoothstep(-edge,edge,r-frontRadius+lobes);
+        // A second bank travels behind the original leading mist. Increasing
+        // its depth does not turn up the opacity of mist already near the player.
+        float bankRadius=max(frontRadius+3.8,mix(shore+20.,14.3,localCrest));
+        float rearFront=smoothstep(-5.,5.,r-bankRadius+lobes);
         // There is no platform-shaped wall of fog. The quiet centre feathers
         // into asymmetric, height-varying lobes over several metres. Fine
         // wisps may cross the outer paving while the actor remains readable.
@@ -138,7 +163,7 @@ vec3 rollingMist(vec3 scene,vec2 uv){
         float quietDistance=length(quietXZ)+(bank-.5)*3.6+(folds-.5)*1.35
                            +.42*sin(p.y*.8+p.x*.31);
         float pocket=smoothstep(5.8,10.8,quietDistance);
-        float top=mix(2.5,11.,arrival)+(cloud-.5)*5.;
+        float top=mix(2.5,11.,localArrival)+(cloud-.5)*5.;
         float height=(1.-smoothstep(top-3.,top+2.,p.y))*exp(-max(0.,p.y)*.055);
         float outer=1.-smoothstep(outerReach-15.,outerReach,r);
         float shape=smoothstep(.23,.73,cloud);
@@ -146,45 +171,59 @@ vec3 rollingMist(vec3 scene,vec2 uv){
         // The same low, drifting field as the scene's everyday mist, enriched
         // with slowly turning 3D billows rather than a second bright cloud layer.
         float flow=.55+.22*sin(p.x*.065+p.z*.073-time*.07)+.17*sin(p.z*.16-p.x*.09+time*.035);
-        // Keep the distant bank dense. Its irregular inner edge travels out
-        // through the streets; there is no screen-wide opacity/erosion fade.
+        // Keep unvisited streets dense. Local discovery below supplies their
+        // feathered openings; there is no screen-wide opacity/erosion fade.
         float porous=pow(shape,1.35)*(.38+.62*filament);
-        float body=mix(mix(.24,1.,shape),.025+1.05*porous,crest);
+        float body=mix(.24,1.,shape);
         float density=front*pocket*height*outer*veil*body*(.72+flow*.42);
         // At the outbound midpoint the bank thickens around the building.
         // Foreground mist stays navigable from the ordinary fixed cameras.
         float pavilionBank=(1.-smoothstep(18.,34.,r))*pow(arrival,4.);
-        density*=mix(.035+.10*pow(arrival,3.)+.30*crest,.04+.16*pow(arrival,3.)+.85*pavilionBank,returning);
+        density*=mix(.035+.10*pow(sourceArrival,3.),.04+.16*pow(arrival,3.)+.85*pavilionBank,returning);
         // The denser overlapping bank sits BEHIND the translucent fringe.
         // Its coverage comes from optical depth, not an opaque surface mask.
-        float backing=smoothstep(6.8,11.2,quietDistance)
-                     *smoothstep(-6.,4.,travel-frontRadius+lobes);
+        float backing=smoothstep(6.8,11.2,quietDistance)*rearFront;
         float houses=buildingBank(p,drift);
-        density+=backing*height*outer*veil*crest*(.10+houses*(.8+1.4*cloud));
+        density+=backing*height*outer*veil*localCrest*(.10+.20*porous+houses*(.8+1.4*cloud));
+        // The unseen village waits inside its own cloud. This layer belongs
+        // only to that render endpoint, including its reflection: no timed
+        // change can expose a facade while the player waits at the basin.
+        // Its clearance is the same persistent local R field as every other
+        // layer. No hidden radial bank remains behind inside visited houses.
+        float discoveryPocket=smoothstep(5.8,9.2,quietDistance);
+        density+=canalWorld*discoveryPocket*height*outer*veil
+                 *houses*(2.2+.8*cloud);
         // A separate, porous foreground travels ahead of the main bank. These
         // finite 3D curls cross the outer posts and paving at different depths.
-        float fringe=smoothstep(-12.,-2.,travel-frontRadius+lobes)
-                    *(1.-smoothstep(1.,8.,travel-frontRadius+lobes));
+        float fringe=smoothstep(-12.,-2.,r-frontRadius+lobes)
+                    *(1.-smoothstep(1.,8.,r-frontRadius+lobes));
         float curl=smoothstep(.30,.65,cloud*.58+folds*.42)*(.18+.82*filament);
         float fringePocket=smoothstep(3.0,7.2,quietDistance);
-        float skirtDensity=fringe*fringePocket*height*outer*veil*crest*curl*.20;
+        float skirtDensity=fringe*fringePocket*height*outer*veil*curl*.035;
         density+=skirtDensity;
         // A trace of low mist crosses the water and stone edges. The worlds
         // dissolve gradually, so this no longer has to hide the water datum
         // behind an opaque skirt right beside the player.
         float lowTop=1.10+(cloud-.5)*.55+(folds-.5)*.25;
         float underDeck=(1.-smoothstep(.05,lowTop,p.y))*smoothstep(5.,9.,quietDistance);
-        float lowFront=smoothstep(-8.,1.,travel-frontRadius+lobes*.35);
-        density+=underDeck*lowFront*outer*veil*crest*(.06+.16*filament);
-        density+=wake*retreating*pocket*height*outer*veil*filament*.16;
+        float lowFront=smoothstep(-5.,5.,r-bankRadius+lobes*.35);
+        density+=underDeck*lowFront*outer*veil*localCrest*(.06+.16*filament);
+        // Small finite curls linger along the visited/unvisited boundary, not
+        // along a circle measured from the pavilion. They obey the same mask
+        // below and cannot refill the persistent, fully cleared core.
+        density+=field.a*height*outer*veil*curl*.22;
+        float remaining=1.-smoothstep(.04,1.,field.r);
+        density*=remaining;
+        skirtDensity*=remaining;
         // Low, persistent banks over the canals outlive the transition cloud.
         density+=voidWorld*(1.-front*veil)*(.0018+.024*exp(-max(0.,p.y-waterY)*.72))*filament;
         float thinScatter=clamp(skirtDensity/max(.001,density),0.,1.);
         // Keep the immediate space around the walking actor readable.
         density*=smoothstep(1.05,2.10,length((p-playerCenter)*vec3(1.,.72,1.)));
-        // Use the real camera here in both optical paths, so a reflection does
-        // not carve a second, contradictory hole in the same cloud.
-        density*=smoothstep(.75,1.65,length(p-eye));
+        // Preserve the ordinary approach's lens clearance at activation, then
+        // let persistent world-space discovery own the explored view. There
+        // is no moving camera bubble after the following bank has arrived.
+        density*=mix(smoothstep(.75,1.65,length(p-eye)),1.,fogGridActive*crest);
         if(density<.0001)continue;
         // A sample towards the dim sky gives each 3D lobe a lit edge and a
         // shaded body. Smaller eddies add soft detail instead of bright lines.

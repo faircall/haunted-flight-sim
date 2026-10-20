@@ -1,24 +1,20 @@
-"""One-way Void Canals encounter with a slowly retreating world-space fog bank."""
+"""A brief pause within a slow fog arrival; exploration discovers the canals."""
 import math
 from g_interaction_data import SLOT_COUNT
 from g_huxin_canals import DECK, can_walk, walk_height, COLUMNS, BENCHES, smooth, shore_radius, PATH
+from g_exploration_fog import ExplorationFog
+from g_canals_fog_grid import CanalFogGrid
 
-ENTRY_SWAP=8.
-ENTRY_BLEND_START=5.
-ENTRY_BLEND_END=12.
-ENTRY_CLEAR=10.
-ENTRY_DURATION=48.
-FOG_STOP_RADIUS=6.30 # Outside the columns, at the original platform's edge.
-FOG_RETREAT_DISTANCE=450. # Beyond the warped field's 240m visible horizon.
-
-def retreat_radius(progress):
-    """A bank moving away, lingering over near houses before receding into depth."""
-    t=max(0.,min(1.,progress))
-    return FOG_STOP_RADIUS+FOG_RETREAT_DISTANCE*t**2.35
-
+ENTRY_SWAP=5.
+ENTRY_DURATION=5.
+FOG_ARRIVAL_DURATION=30.
+REVEAL_START_RADIUS=4.5
+REVEAL_END_RADIUS=9.5
+ENTRY_CLEAR=ENTRY_DURATION # Player discovery can start while the fog is still arriving.
 def ease(a,b,x):
     """Quintic easing: velocity and acceleration meet without a visible corner."""
-    t=max(0.,min(1.,(x-a)/(b-a)));return t*t*t*(t*(t*6.-15.)+10.)
+    t=max(0.,min(1.,(x-a)/(b-a)))
+    return max(0.,min(1.,t*t*t*(t*(t*6.-15.)+10.)))
 
 _PATH_STATIONS=[0.]
 for a,b in zip(PATH,PATH[1:]):_PATH_STATIONS.append(_PATH_STATIONS[-1]+math.dist(a,b))
@@ -78,6 +74,10 @@ class CanalSequence:
         self.state='ordinary';self.revealed=False;self.elapsed=0.;self.approach=0.
         self.focus=False;self.yaw,self.pitch=SOLUTION;self.held=0.;self.disc_placed=False
         self.entry_veil=.72;self.entry_arrival=.93;self.locked_camera=None;self.locked_pose=None;self.locked_shot=None
+        # This short departure gate controls only the hidden world handoff.
+        # Fog itself remembers visited cells, never distance from the basin.
+        self.exploration=ExplorationFog(inner_distance=3.5,outer_distance=58.,origin=(0.,DECK,0.))
+        self.fog_grid=CanalFogGrid()
         self.inventory=[None]*SLOT_COUNT;add(self.inventory,DISC_ITEM)
         self.events=[];self.swaps=[];self.bells=0;self.world_time=0.;self.next_creak=39.
 
@@ -89,28 +89,39 @@ class CanalSequence:
     def movement_locked(self):return self.transitioning
     @property
     def world_blend(self):
-        """Visual change is gradual; the logical encounter still commits once."""
-        return ease(ENTRY_BLEND_START,ENTRY_BLEND_END,self.elapsed) if self.transitioning else float(self.revealed)
+        """Time alone never exposes the village, even after the fog settles."""
+        if self.state!='canals':return 0.
+        return ease(REVEAL_START_RADIUS,REVEAL_END_RADIUS,self.exploration.furthest_distance)
     @property
     def veil(self):
         if self.state=='ordinary':return .72*ease(0.,1.,self.approach)
-        if self.state=='entering':return self.entry_veil+(1.-self.entry_veil)*ease(0.,6.,self.elapsed)
+        if self.state in ('entering','canals'):return self.entry_veil
         return 0.
     @property
     def fog_arrival(self):
         if self.state=='ordinary':return .93*ease(0.,1.,self.approach)
-        if self.state=='entering':return self.entry_arrival+(1.-self.entry_arrival)*ease(0.,6.,self.elapsed)
+        if self.state in ('entering','canals'):
+            return self.entry_arrival+(1.-self.entry_arrival)*ease(0.,FOG_ARRIVAL_DURATION,self.elapsed)
         return 0.
     @property
-    def fog_clear(self):return max(0.,min(1.,(self.elapsed-ENTRY_CLEAR)/(ENTRY_DURATION-ENTRY_CLEAR))) if self.transitioning else 0.
+    def fog_source_arrival(self):
+        """The leading fog keeps its activation density as its front moves."""
+        return self.fog_arrival if self.state=='ordinary' else self.entry_arrival
     @property
-    def fog_retreat_radius(self):return retreat_radius(self.fog_clear)
+    def fog_depth(self):
+        """Additional, spatially trailing fog; never an opacity change to the lead."""
+        if self.state in ('entering','canals'):return ease(3.,FOG_ARRIVAL_DURATION,self.elapsed)
+        return 0.
+    @property
+    def fog_clear(self):
+        """Explored area for colour grading only; the shader clears per cell."""
+        return self.fog_grid.clear_fraction if self.state=='canals' else 0.
     @property
     def camera_stage(self):return 'continuous' if self.transitioning else None
     @property
     def warmth(self):return 0.
     @property
-    def void_tone(self):return ease(ENTRY_SWAP,ENTRY_CLEAR,self.elapsed) if self.transitioning else float(self.revealed)
+    def void_tone(self):return self.fog_clear
     @property
     def normal(self):return (math.sin(self.yaw)*math.cos(self.pitch),math.sin(self.pitch),math.cos(self.yaw)*math.cos(self.pitch))
 
@@ -132,13 +143,18 @@ class CanalSequence:
 
     def tick(self,dt,e):
         self.approach=causeway_progress(e.x,e.z)
+        if self.state in ('entering','canals'):
+            # The cloud has its own long clock. Releasing control neither
+            # completes nor resets it, and it never drives the world reveal.
+            self.elapsed=min(FOG_ARRIVAL_DURATION,self.elapsed+dt)
         if self.state=='entering':
-            self.elapsed+=dt
             if self.elapsed>=ENTRY_SWAP and not self.revealed:
                 self.revealed=True;self.swaps.append(('entering',self.veil))
             if self.elapsed>=ENTRY_DURATION:
-                self.state='canals';self.elapsed=0.;self.world_time=0.
+                self.state='canals';self.world_time=0.
         elif self.state=='canals':
+            self.exploration.update(e.x,e.height,e.z)
+            self.fog_grid.update(e.x,e.height,e.z,strength=self.world_blend)
             self.world_time+=dt
             # Sparse, low-level timber movement, separated by long silences.
             if self.world_time>=self.next_creak:

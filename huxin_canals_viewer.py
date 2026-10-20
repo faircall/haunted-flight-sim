@@ -13,7 +13,7 @@ from g_huxin_canals import Explorer,SHOTS,LIGHTS,COLUMNS,PATH,DECK,PUZZLE_RADIUS
 from g_temple_living import LivingScene
 from temple_interior_viewer import Hall,camera,snapshot
 from huxin_canals_sky import MoonSky
-from g_huxin_canals_sequence import CanalSequence,UPPER,MIRROR,BASIN,MARK,ease
+from g_huxin_canals_sequence import CanalSequence,UPPER,MIRROR,BASIN,MARK,ease,FOG_ARRIVAL_DURATION
 from huxin_canals_camera import canal_camera,mist_camera,FOCUS_EYE,FOCUS_TARGET
 from huxin_canals_audio import EncounterAudio
 from g_huxin_canals_layout import CAMERA_SHOTS,WATER_Y,START
@@ -47,6 +47,8 @@ class Lake(Hall):
     def __init__(self):
         self.models={};self.textures={};self.shader=None;self.player=None;self.sky=None;self.post=None;self.raw=None;self.frame=None;self.smoke=None;self.reflection=None;self.reflection_raw=None;self.water_shader=None;self.last_shot=0;self.sequence=CanalSequence();self.last_camera=None
         self.blend_shader=None;self.blend_old_frame=None;self.blend_new_frame=None;self.building_coverage=None
+        self.fog_grid_texture=None;self._fog_grid_source=None;self._fog_grid_revision=-1
+        self.fog_grid_bounds=(-96.,-96.,96.,96.)
         self._world_override=None;self.last_world_weights={'lake':1.,'canals':0.}
         try:
             self.manifest=json.loads((KIT/'manifest.json').read_text())
@@ -262,11 +264,48 @@ class Lake(Hall):
         pr.end_mode_3d();pr.end_texture_mode()
         self.mist_pass(self.raw,target,cam,e,clock,inspection)
 
+    def _sync_fog_grid(self):
+        """Upload the persistent field once per revision, across all four passes.
+
+        A restarted sequence can have the same revision as the previous grid,
+        so object identity is part of the cache key. Native Image memory owns
+        the initial upload; later updates borrow a Python buffer synchronously.
+        """
+        grid=getattr(self.sequence,'fog_grid',None)
+        if grid is None:return None
+        texture=getattr(self,'fog_grid_texture',None)
+        if (texture is not None and getattr(self,'_fog_grid_source',None) is grid
+                and getattr(self,'_fog_grid_revision',-1)==grid.revision):return texture
+        size=grid.size;pixels=grid.pixels()
+        if len(pixels)!=size*size*4:raise ValueError('Canal fog grid must provide size*size RGBA bytes')
+        if texture is None or texture.width!=size or texture.height!=size:
+            memory=pr.rl.MemAlloc(len(pixels))
+            if memory==pr.ffi.NULL:raise MemoryError('Cannot allocate canal fog grid pixels')
+            pr.ffi.memmove(memory,pixels,len(pixels))
+            image=pr.Image(memory,size,size,1,pr.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
+            try:new_texture=pr.load_texture_from_image(image)
+            finally:pr.unload_image(image)
+            if not new_texture.id:raise RuntimeError('Cannot upload canal fog grid texture')
+            pr.set_texture_filter(new_texture,pr.TEXTURE_FILTER_BILINEAR)
+            pr.set_texture_wrap(new_texture,pr.TEXTURE_WRAP_CLAMP)
+            self.fog_grid_texture=new_texture
+            if texture is not None:pr.unload_texture(texture)
+            texture=new_texture
+        else:
+            buffer=pr.ffi.from_buffer(pixels)
+            pr.update_texture(texture,pr.ffi.cast('void *',buffer))
+        self.fog_grid_bounds=tuple(grid.bounds)
+        self._fog_grid_source=grid;self._fog_grid_revision=grid.revision
+        return texture
+
     def mist_pass(self,source,target,cam,e,clock,inspection,reflected=False):
         """One world-space fog field for direct sight and the reflected light path."""
         q=self.sequence
-        for name,value in (('veil',q.veil),('time',clock),('arrival',q.fog_arrival),('clearing',q.fog_clear),('retreatRadius',q.fog_retreat_radius),('returning',0.),
-                           ('crest',ease(0.,6.,q.elapsed) if q.state=='entering' else 0.),
+        grid_texture=self._sync_fog_grid()
+        grid_active=float(grid_texture is not None and q.state in ('entering','canals'))
+        for name,value in (('veil',q.veil),('time',clock),('arrival',q.fog_arrival),('returning',0.),
+                           ('crest',q.fog_depth),('sourceArrival',q.fog_source_arrival),
+                           ('canalWorld',float(self.render_revealed)),('fogGridActive',grid_active),
                            ('reflectedView',float(reflected)),('voidWorld',q.void_tone),('waterY',self.water_y)):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',[value]),pr.SHADER_UNIFORM_FLOAT)
         fog_colour=tuple(a+(b-a)*q.void_tone for a,b in zip((.39,.455,.45) if inspection else (.175,.235,.248),(.165,.180,.180)))
@@ -283,6 +322,13 @@ class Lake(Hall):
         if location>=0 and self.building_coverage is not None:pr.set_shader_value_texture(self.post,location,self.building_coverage)
         location=pr.get_shader_location(self.post,'coverageBounds')
         if location>=0:pr.set_shader_value(self.post,location,pr.ffi.new('float[]',self.coverage_bounds),pr.SHADER_UNIFORM_VEC4)
+        location=pr.get_shader_location(self.post,'fogGrid')
+        if location>=0 and grid_texture is not None:pr.set_shader_value_texture(self.post,location,grid_texture)
+        location=pr.get_shader_location(self.post,'fogGridBounds')
+        if location>=0:pr.set_shader_value(self.post,location,pr.ffi.new('float[]',self.fog_grid_bounds),pr.SHADER_UNIFORM_VEC4)
+        location=pr.get_shader_location(self.post,'fogGridTexel')
+        if location>=0 and grid_texture is not None:
+            pr.set_shader_value(self.post,location,pr.ffi.new('float[]',[1./grid_texture.width,1./grid_texture.height]),pr.SHADER_UNIFORM_VEC2)
         pr.draw_texture_pro(source.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,WIDTH,HEIGHT),pr.Vector2(0,0),0,pr.WHITE)
         pr.end_shader_mode();pr.end_texture_mode()
 
@@ -292,6 +338,8 @@ class Lake(Hall):
         if self.blend_new_frame:pr.unload_render_texture(self.blend_new_frame);self.blend_new_frame=None
         if self.blend_shader:pr.unload_shader(self.blend_shader);self.blend_shader=None
         if self.building_coverage:pr.unload_texture(self.building_coverage);self.building_coverage=None
+        if self.fog_grid_texture:pr.unload_texture(self.fog_grid_texture);self.fog_grid_texture=None
+        self._fog_grid_source=None;self._fog_grid_revision=-1
         if self.reflection:pr.unload_render_texture(self.reflection);self.reflection=None
         if self.reflection_raw:pr.unload_render_texture(self.reflection_raw);self.reflection_raw=None
         if self.water_shader:pr.unload_shader(self.water_shader);self.water_shader=None
@@ -306,6 +354,11 @@ def run(review=False,direct=False):
             return review_scene(scene,e,audio,startup)
         if direct:
             e.x,e.height,e.z=START;scene.sequence.revealed=True;scene.sequence.state='canals';scene.sequence.disc_placed=True;e.encounter=scene.sequence
+            scene.sequence.elapsed=FOG_ARRIVAL_DURATION
+            # Direct scene inspection deliberately starts with the district
+            # already discovered; the ordinary launch earns this by exploring.
+            scene.sequence.exploration.update(scene.sequence.exploration.outer_distance,DECK,0.)
+            scene.sequence.fog_grid.reveal_all()
             scene.sequence.inventory[:]=[s if s is None or s.get('group')!='void_disc' else None for s in scene.sequence.inventory]
         from codex_selection import SelectionSession
         selection=SelectionSession('huxin_canals',__file__);scene.codex_selection=selection

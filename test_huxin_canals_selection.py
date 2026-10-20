@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ['HAUNTED_MUTE_AUDIO']='1'
 import pyray as pr
-from g_huxin_canals_sequence import CanalSequence
+from g_huxin_canals_sequence import CanalSequence,REVEAL_START_RADIUS,REVEAL_END_RADIUS,ENTRY_DURATION
 from huxin_canals_viewer import Lake
 from temple_interior_viewer import camera
 
@@ -15,7 +15,7 @@ from temple_interior_viewer import camera
 class CanalBlendSelectionTests(unittest.TestCase):
     def setUp(self):
         self.lake=lake=Lake.__new__(Lake)
-        lake.sequence=CanalSequence();lake.sequence.state='entering';lake.sequence.revealed=True
+        lake.sequence=CanalSequence();lake.sequence.state='canals';lake.sequence.revealed=True;lake.sequence.elapsed=ENTRY_DURATION
         lake._world_override=None;lake._codex_frame_paused=False
         lake.last_camera=camera((4.05,3.2,3.05),(-.7,1.5,-1.2),78);lake.last_shot=5
         lake.frame=SimpleNamespace(texture=object())
@@ -27,6 +27,7 @@ class CanalBlendSelectionTests(unittest.TestCase):
             register_model=lambda model,name,*args,**kwargs:self.records.append((name,kwargs.get('metadata'))))
         lake.models={name:object() for name in ('pavilion_posts','causeway','lake_bank','canal_ground')}
         self.actor=SimpleNamespace(x=1.65,height=.325,z=1.65,yaw=0.,clip='idle',phase=0.,shot=5)
+        lake.sequence.locked_camera=lake.last_camera;lake.sequence.locked_shot=lake.last_shot;lake.sequence.locked_pose=(1.65,.325,1.65,0.)
         self.endpoints=[]
 
         def endpoint(*args):
@@ -42,9 +43,10 @@ class CanalBlendSelectionTests(unittest.TestCase):
 
     def test_fade_captures_one_dominant_world_and_one_shared_pavilion(self):
         lake=self.lake;q=lake.sequence
-        for elapsed in (5.,6.,8.,8.5,10.,12.):
-            with self.subTest(elapsed=elapsed):
-                q.elapsed=elapsed;self.records.clear();self.endpoints.clear();self.poses.clear()
+        for fraction in (0.,.15,.4,.5,.75,1.):
+            radius=REVEAL_START_RADIUS+(REVEAL_END_RADIUS-REVEAL_START_RADIUS)*fraction
+            with self.subTest(radius=radius):
+                q.exploration.update(radius,.325,0.);self.records.clear();self.endpoints.clear();self.poses.clear()
                 original=lake.codex_selection;logical=(q.state,q.elapsed,q.revealed)
                 lake.render(self.actor,87.)
                 selected_world=q.world_blend>=.5
@@ -77,7 +79,7 @@ class CanalBlendSelectionTests(unittest.TestCase):
         self.assertTrue(lake.sequence.revealed)
 
     def test_selection_closing_frame_keeps_pose_frozen_until_following_frame(self):
-        lake=self.lake;lake.sequence.elapsed=8.
+        lake=self.lake;lake.sequence.exploration.update((REVEAL_START_RADIUS+REVEAL_END_RADIUS)/2,.325,0.)
         for enabled,blocked,expected in ((True,True,0.),(False,True,0.),(False,False,1/60)):
             lake.codex_selection.enabled=enabled;lake._codex_frame_paused=blocked
             self.poses.clear();lake.render(self.actor,87.)
