@@ -16,7 +16,8 @@ import numpy as np
 from g_inventory import add
 from g_huxin_canals import Explorer, DECK
 from g_huxin_canals_sequence import (CanalSequence, DISC_ITEM, ENTRY_SWAP,
-    ENTRY_DURATION, causeway_point)
+    ENTRY_DURATION, FOG_ARRIVAL_DURATION, WORLD_BLEND_START, WORLD_BLEND_END,
+    FOG_CLEAR_START, FOG_CLEAR_DURATION, SEQUENCE_DURATION, causeway_point)
 from g_huxin_moon_sequence import MoonSequence
 from test_temple_living import accessor
 from test_santana_car import intersections
@@ -229,114 +230,140 @@ def door_tours():
 
 
 class CanalSequenceTests(unittest.TestCase):
-    def test_short_reveal_keeps_activation_opacity_and_unlocks_without_clearing(self):
-        from g_huxin_canals_sequence import FOG_ARRIVAL_DURATION
+    def test_incoming_fog_keeps_activation_opacity_and_is_thick_before_handoff(self):
         q,e=at_basin();opacity=q.veil;arrival=q.fog_arrival
-        self.assertGreaterEqual(ENTRY_DURATION,5.)
-        self.assertLessEqual(ENTRY_DURATION,6.)
-        self.assertGreaterEqual(FOG_ARRIVAL_DURATION,ENTRY_DURATION*4)
+        self.assertEqual(FOG_ARRIVAL_DURATION,5.)
+        self.assertEqual(FOG_ARRIVAL_DURATION,WORLD_BLEND_START)
+        self.assertEqual(WORLD_BLEND_END-WORLD_BLEND_START,1.)
+        self.assertEqual(ENTRY_SWAP,WORLD_BLEND_END)
+        self.assertEqual(ENTRY_DURATION,WORLD_BLEND_END)
+        self.assertEqual(FOG_CLEAR_START,ENTRY_DURATION)
         self.assertTrue(q.activate(e))
         self.assertEqual(q.veil,opacity);self.assertEqual(q.fog_arrival,arrival)
         self.assertEqual(q.fog_depth,0.)
         self.assertTrue(q.movement_locked)
-        depths=[]
+        depths=[];blends=[]
         for _ in range(math.ceil((ENTRY_DURATION+.1)*60)):
             q.tick(1/60,e)
             self.assertAlmostEqual(q.veil,opacity,places=10)
             self.assertEqual(q.fog_source_arrival,arrival)
-            depths.append(q.fog_depth)
-            self.assertEqual(q.fog_clear,0.)
+            depths.append(q.fog_depth);blends.append(q.world_blend)
+            if q.elapsed<=FOG_CLEAR_START:self.assertEqual(q.fog_clear,0.)
+            else:
+                self.assertEqual(q.world_blend,1.)
+                self.assertFalse(q.movement_locked)
+            if q.elapsed<WORLD_BLEND_START:self.assertEqual(q.world_blend,0.)
+            if q.world_blend>0.:
+                self.assertEqual(q.fog_depth,1.);self.assertEqual(q.fog_arrival,1.)
+            if q.elapsed<ENTRY_DURATION:self.assertTrue(q.movement_locked)
         self.assertEqual(q.state,'canals');self.assertFalse(q.movement_locked)
-        self.assertEqual(q.world_blend,0.)
-        self.assertEqual(q.void_tone,0.)
-        self.assertLess(depths[-1],.1)
-        self.assertLess(q.fog_arrival,1.)
+        self.assertEqual(q.world_blend,1.)
+        self.assertEqual(q.void_tone,q.fog_clear)
+        self.assertLess(q.fog_clear,.001,'The first unlocked frames must join the crest gently')
+        self.assertEqual(depths[-1],1.)
+        self.assertEqual(q.fog_arrival,1.)
         self.assertGreaterEqual(q.elapsed,ENTRY_DURATION)
         self.assertTrue(all(b>=a for a,b in zip(depths,depths[1:])))
+        self.assertTrue(all(b>=a for a,b in zip(blends,blends[1:])))
+        self.assertGreater(sum(0.<b<1. for b in blends),50,
+                           'The hidden world must dissolve, not switch on a single frame')
 
-    def test_idle_does_not_clear_fog_and_real_outward_walk_does_not_refog_when_retraced(self):
-        from g_huxin_canals_layout import REVIEW_ROUTE
-        q,e=at_basin();enter(q,e)
-        before=(q.veil,q.fog_clear,q.fog_grid.revision,q.world_blend,q.void_tone)
-        for _ in range(60*60):
-            e.tick(1/60,0.,1.);q.tick(1/60,e)
-        self.assertEqual((q.veil,q.fog_clear,q.fog_grid.revision,q.world_blend,q.void_tone),before)
-        self.assertEqual(q.fog_arrival,1.);self.assertEqual(q.fog_depth,1.)
-        self.assertEqual(q.fog_clear,0.)
-        points=REVIEW_ROUTE[1:8];samples=[]
-        def walk(route):
-            for x,z in route:
-                for _ in range(2000):
-                    dx,dz=x-e.x,z-e.z
-                    if math.hypot(dx,dz)<.08:break
-                    e.yaw=math.atan2(dx,-dz)
-                    self.assertGreater(e.tick(.04,1.),1e-6,('Blocked reveal walk',(x,z),(e.x,e.z)))
-                    q.tick(.04,e);samples.append(q.fog_clear)
-                else:self.fail('Reveal walk timed out')
-        walk(points)
-        self.assertGreater(q.fog_clear,0.);self.assertLess(q.fog_clear,1.)
+    def test_stationary_player_sees_clearing_after_smooth_handoff(self):
+        q,e=at_basin();self.assertTrue(q.activate(e));q.tick(ENTRY_DURATION,e)
+        pose=(e.x,e.height,e.z,e.yaw);self.assertEqual(q.fog_clear,0.)
+        self.assertFalse(q.movement_locked);self.assertEqual(FOG_CLEAR_DURATION,40.)
+        self.assertEqual(SEQUENCE_DURATION,46.)
+        q.tick(FOG_CLEAR_START-q.elapsed,e);self.assertEqual(q.fog_clear,0.)
+        samples=[]
+        for _ in range(int(FOG_CLEAR_DURATION*30)):
+            q.tick(1/30,e);samples.append(q.fog_clear)
+            self.assertFalse(q.movement_locked)
+            self.assertEqual(q.world_blend,1.);self.assertEqual(q.void_tone,q.fog_clear)
+        self.assertEqual((e.x,e.height,e.z,e.yaw),pose)
         self.assertTrue(all(b>=a for a,b in zip(samples,samples[1:])))
-        previous=q.fog_clear;visited=q.fog_grid.sample(e.x,e.z)
-        self.assertGreater(visited,.99)
-        self.assertEqual(q.fog_grid.sample(55.,-50.),0.)
-        walk(tuple(reversed(points[:-1]))+((1.65,1.65),))
-        self.assertGreaterEqual(q.fog_clear,previous)
-        self.assertGreaterEqual(q.fog_grid.sample(*points[-1]),visited-1e-5)
-        revision=q.fog_grid.revision
-        for _ in range(120):q.tick(1/60,e)
-        self.assertEqual(q.fog_grid.revision,revision)
-        self.assertEqual(q.veil,before[0])
+        self.assertGreater(samples[6*30-1],.25)
+        self.assertLess(samples[6*30-1],.35)
+        quarter=samples[int(FOG_CLEAR_DURATION*30*.25)-1]
+        half=samples[len(samples)//2-1]
+        self.assertGreater(quarter,.4);self.assertLess(quarter,.6)
+        self.assertGreater(half,.7);self.assertLess(half,.9)
+        self.assertAlmostEqual(q.fog_clear,1.,places=9)
+        q.tick(120.,e);self.assertEqual(q.elapsed,SEQUENCE_DURATION)
+        self.assertEqual(q.fog_clear,1.);self.assertEqual(q.state,'canals')
 
-    def test_walk_and_run_begin_at_unlock_while_arrival_is_still_incomplete(self):
-        records=[]
-        for run in (False,True):
-            q,e=at_basin();enter(q,e);samples=[]
-            self.assertLess(q.fog_arrival,1.)
-            for x,z in ((1.2,3.),(0.,5.8),(0.,7.),(-1.84,12.)):
-                for _ in range(2000):
+    def test_hidden_world_blend_eases_at_both_ends_at_playback_rate(self):
+        q,e=at_basin();self.assertTrue(q.activate(e))
+        for fps in (30,60):
+            dt=1/fps
+            for boundary in (WORLD_BLEND_START,WORLD_BLEND_END):
+                samples=[]
+                for offset in (-2,-1,0,1,2):
+                    q.elapsed=boundary+offset*dt;samples.append(q.world_blend)
+                changes=[b-a for a,b in zip(samples,samples[1:])]
+                self.assertTrue(all(change>=0. for change in changes))
+                self.assertLess(max(changes),.003,'No one-frame handoff at a blend boundary')
+            q.elapsed=(WORLD_BLEND_START+WORLD_BLEND_END)/2
+            self.assertAlmostEqual(q.world_blend,.5)
+
+    def test_global_clearing_has_zero_slope_at_both_endpoints(self):
+        q,e=at_basin();self.assertTrue(q.activate(e));q.tick(ENTRY_DURATION,e)
+        h=.001
+        q.elapsed=FOG_CLEAR_START-h;self.assertEqual(q.fog_clear,0.)
+        q.elapsed=FOG_CLEAR_START+h;opening_slope=q.fog_clear/h
+        q.elapsed=SEQUENCE_DURATION-h;closing_slope=(1.-q.fog_clear)/h
+        q.elapsed=SEQUENCE_DURATION+h;self.assertEqual(q.fog_clear,1.)
+        self.assertGreaterEqual(opening_slope,0.);self.assertLess(opening_slope,.001)
+        self.assertGreaterEqual(closing_slope,0.);self.assertLess(closing_slope,.001)
+
+    def test_actual_walk_run_and_idle_have_identical_fog_at_equal_clocks(self):
+        fixtures=[];points=((1.2,3.),(0.,5.8),(0.,7.),(-1.84,12.),(-2.,16.))
+        for mode in ('idle','walk','run'):
+            q,e=at_basin();enter(q,e);fixtures.append([q,e,mode,0,0.])
+        for _ in range(20*30):
+            values=[]
+            for fixture in fixtures:
+                q,e,mode,index,_=fixture
+                self.assertFalse(q.movement_locked)
+                if mode!='idle' and index<len(points):
+                    x,z=points[index]
                     dx,dz=x-e.x,z-e.z;distance=math.hypot(dx,dz)
-                    if distance<1e-6:break
-                    e.yaw=math.atan2(dx,-dz);dt=min(.04,distance/(3.15 if run else 1.55))
-                    self.assertGreater(e.tick(dt,1.,run=run),1e-6)
-                    q.tick(dt,e)
-                else:self.fail('Immediate exploration route blocked')
-                samples.append((q.world_blend,q.fog_clear,q.void_tone,q.elapsed,q.fog_arrival,q.fog_grid.pixels()))
-            records.append(samples)
-        for slow,fast in zip(*records):
-            self.assertAlmostEqual(slow[0],fast[0],places=6)
-            # Different controller steps sample the eased initial handoff at
-            # different points; the displayed R8 field must agree to one level.
-            a=np.frombuffer(slow[5],np.uint8).astype(int)
-            b=np.frombuffer(fast[5],np.uint8).astype(int)
-            self.assertLessEqual(int(np.max(np.abs(a-b))),1)
-            for i in (1,2):self.assertAlmostEqual(slow[i],fast[i],delta=.0001)
-            self.assertGreater(slow[3],fast[3]);self.assertLess(fast[4],1.)
+                    if distance<.12:fixture[3]+=1
+                    else:
+                        e.yaw=math.atan2(dx,-dz);travel=e.tick(1/30,1.,run=mode=='run')
+                        self.assertGreater(travel,1e-6,('Blocked reveal route',mode,x,z,e.x,e.z))
+                        fixture[4]+=travel
+                q.tick(1/30,e)
+                values.append((q.world_blend,q.fog_clear,q.void_tone,q.fog_arrival,q.fog_depth,q.veil))
+            self.assertEqual(values[0],values[1]);self.assertEqual(values[0],values[2])
+        self.assertEqual(fixtures[0][4],0.)
+        self.assertGreater(fixtures[1][4],10.);self.assertGreater(fixtures[2][4],10.)
+        self.assertGreater(fixtures[0][0].fog_clear,0.)
 
-    def test_legal_outer_activation_position_does_not_discover_space_while_idle(self):
-        q,e=at_basin();e.x,e.z=3.3,0.;q.tick(.01,e)
-        self.assertTrue(q.activate(e))
-        while q.transitioning:q.tick(1/60,e)
-        baseline=(q.fog_clear,q.fog_grid.revision,q.veil)
-        self.assertEqual(q.fog_clear,0.)
-        for _ in range(60*60):q.tick(1/60,e)
-        self.assertEqual((q.fog_clear,q.fog_grid.revision,q.veil),baseline)
+    def test_different_locations_and_heights_do_not_change_global_fog_timing(self):
+        fixtures=[at_basin() for _ in range(4)]
+        for q,e in fixtures:self.assertTrue(q.activate(e))
+        positions=((1.65,DECK,1.65),(0.,DECK,24.),(-7.,DECK,16.),(5.,DECK+3.8,7.))
+        for elapsed in (3.,FOG_ARRIVAL_DURATION,(WORLD_BLEND_START+WORLD_BLEND_END)/2,
+                        ENTRY_DURATION,FOG_CLEAR_START,FOG_CLEAR_START+FOG_CLEAR_DURATION/2,SEQUENCE_DURATION):
+            values=[]
+            for (q,e),position in zip(fixtures,positions):
+                e.x,e.height,e.z=position;q.tick(elapsed-q.elapsed,e)
+                values.append((q.world_blend,q.fog_clear,q.void_tone,q.fog_arrival,q.fog_depth,q.veil))
+            self.assertTrue(all(v==values[0] for v in values))
 
-    def test_house_entry_clears_locally_without_increasing_distance_from_puzzle(self):
-        q,e=at_basin();enter(q,e)
-        # A visited quay lies farther from the puzzle than this house interior.
-        # The previous maximum-radius system could never clear it any further.
-        e.x,e.z=0.,24.;q.tick(.05,e)
-        furthest=q.exploration.furthest_distance
-        before=q.fog_grid.sample(-7.,16.)
-        remote=q.fog_grid.sample(45.,-30.)
-        e.x,e.z=-7.,16.;q.tick(.05,e)
-        self.assertEqual(q.exploration.furthest_distance,furthest)
-        self.assertGreater(q.fog_grid.sample(e.x,e.z),before)
-        self.assertGreater(q.fog_grid.sample(e.x,e.z),.99)
-        self.assertEqual(q.fog_grid.sample(45.,-30.),remote)
-        stored=q.fog_grid.pixels()
-        for _ in range(120):q.tick(1/60,e)
-        self.assertEqual(q.fog_grid.pixels(),stored)
+    def test_dt_partition_does_not_change_handoff_or_clearing(self):
+        for total in (5.,FOG_ARRIVAL_DURATION,(WORLD_BLEND_START+WORLD_BLEND_END)/2,
+                      ENTRY_DURATION,FOG_CLEAR_START,FOG_CLEAR_START+FOG_CLEAR_DURATION/2,SEQUENCE_DURATION,120.):
+            states=[]
+            for step in (1/60,.2,7.3,total):
+                q,e=at_basin();self.assertTrue(q.activate(e));remaining=total
+                while remaining>1e-9:
+                    dt=min(step,remaining);q.tick(dt,e);remaining-=dt
+                states.append((q.state,q.revealed,q.movement_locked,len(q.swaps),q.elapsed,
+                               q.world_blend,q.fog_clear,q.void_tone,q.fog_depth,q.fog_arrival))
+            for state in states[1:]:
+                self.assertEqual(state[:4],states[0][:4],(total,state,states[0]))
+                self.assertTrue(np.allclose(state[4:],states[0][4:],atol=1e-9,rtol=0.),(total,state,states[0]))
 
     def test_actual_renderer_keeps_the_preinteraction_camera_until_player_moves(self):
         from huxin_canals_viewer import Lake
@@ -362,8 +389,8 @@ class CanalSequenceTests(unittest.TestCase):
         before = camera_signature(lake.last_camera)
         shot = lake.last_shot
         self.assertTrue(q.activate(e))
-        # Exercise the actual selection branch at 60 Hz through the short
-        # transition and a stationary second, then genuinely resume movement.
+        # Exercise the actual selection branch at 60 Hz through the concealed
+        # handoff and a stationary second, then genuinely resume movement.
         for frame in range(int((ENTRY_DURATION + 1.) * 60)):
             q.tick(1 / 60, e)
             with self.assertRaises(CameraSelected):

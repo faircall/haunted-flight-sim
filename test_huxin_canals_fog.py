@@ -14,22 +14,21 @@ from unittest.mock import patch
 os.environ['HAUNTED_MUTE_AUDIO']='1'
 import pyray as pr
 from g_huxin_canals_sequence import (CanalSequence,ENTRY_SWAP,ENTRY_DURATION,
-    FOG_ARRIVAL_DURATION,REVEAL_START_RADIUS,REVEAL_END_RADIUS)
-from huxin_canals_fog import COVERAGE_BOUNDS
+    FOG_ARRIVAL_DURATION,WORLD_BLEND_START,WORLD_BLEND_END,
+    FOG_CLEAR_START,FOG_CLEAR_DURATION,SEQUENCE_DURATION)
 from huxin_canals_viewer import Lake,WIDTH,HEIGHT
 from temple_interior_viewer import camera
 
 
-class FogGridDouble:
-    """Tiny observable CPU field for the renderer's upload ownership contract."""
-    bounds=(-96.,-96.,96.,96.)
-    def __init__(self,size=192,value=0):
-        self.size=size;self.revision=0;self.value=value;self.pixel_calls=0
-    def pixels(self):
-        self.pixel_calls+=1
-        return bytes((self.value,83,171,255))*(self.size*self.size)
-    @property
-    def clear_fraction(self):return self.value/255.
+class FakePuzzleFog:
+    """CPU stand-in for the GPU target; actual Lake.mist_pass is still executed."""
+    def __init__(self):
+        self.texture=object();self.calls=[]
+
+    def render(self,source,cam,sequence,clock,colour,water_y,reflected=False):
+        self.calls.append(dict(source=source,camera=cam,sequence=sequence,clock=clock,
+                               colour=colour,water_y=water_y,reflected=reflected))
+        return self.texture
 
 
 def capture_mist_pass(lake,cam,player,clock,inspection=False,reflected=False):
@@ -74,35 +73,28 @@ class CanalFogPassTests(unittest.TestCase):
         self.lake=Lake.__new__(Lake)
         self.lake.sequence=CanalSequence()
         self.lake.post=SimpleNamespace(id=412)
-        self.lake.building_coverage=object();self.lake.coverage_bounds=COVERAGE_BOUNDS
-        self.lake.sequence.fog_grid=FogGridDouble()
-        self.lake.fog_grid_texture=SimpleNamespace(id=801,width=192,height=192)
-        self.lake.fog_grid_bounds=self.lake.sequence.fog_grid.bounds
-        self.lake._fog_grid_source=self.lake.sequence.fog_grid;self.lake._fog_grid_revision=0
+        self.lake.puzzle_fog=FakePuzzleFog()
         self.player=SimpleNamespace(x=1.65,height=.325,z=1.65)
         self.camera=camera((4.05,3.2,3.05),(-.7,1.5,-1.2),78)
 
-    def test_activation_enables_zero_clear_grid_without_changing_incoming_fog(self):
+    def test_activation_preserves_the_incoming_fog_exactly(self):
         q=self.lake.sequence;q.tick(0.,self.player)
         before=capture_mist_pass(self.lake,self.camera,self.player,87.25)
         self.assertTrue(q.activate(self.player))
         after=capture_mist_pass(self.lake,self.camera,self.player,87.25)
-        a,b=dict(before.uniforms),dict(after.uniforms)
-        self.assertEqual(a.pop('fogGridActive'),0.)
-        self.assertEqual(b.pop('fogGridActive'),1.)
-        self.assertEqual(a,b)
-        self.assertEqual(b['crest'],0.)
-        self.assertEqual(q.fog_grid.value,0)
+        self.assertEqual(before.uniforms,after.uniforms)
+        self.assertNotIn('crest',after.uniforms)
+        self.assertEqual(after.uniforms['clearing'],0.)
         self.assertEqual(before.textures[1:],after.textures[1:])
 
     def test_direct_and_reflected_views_receive_the_same_world_cloud(self):
         q=self.lake.sequence
-        # The ordinary build-up, crescendo, swap, retreat and completed scene
-        # all share one field. Reflection flips its ray only inside the shader.
+        # The growing waves, concealed handoff and individual fade share one field.
+        # Reflection flips its ray only inside the shader.
         states=(('ordinary',False,0.,.5),('entering',False,ENTRY_SWAP/2,1.),
                 ('entering',False,ENTRY_DURATION-.001,1.),('canals',True,ENTRY_DURATION,1.),
-                ('canals',True,(ENTRY_DURATION+FOG_ARRIVAL_DURATION)/2,1.),
-                ('canals',True,FOG_ARRIVAL_DURATION,1.))
+                ('canals',True,FOG_CLEAR_START+FOG_CLEAR_DURATION/2,1.),
+                ('canals',True,SEQUENCE_DURATION,1.))
         for state,revealed,elapsed,approach in states:
             q.state,q.revealed,q.elapsed,q.approach=state,revealed,elapsed,approach
             for inspection in (False,True):
@@ -116,14 +108,13 @@ class CanalFogPassTests(unittest.TestCase):
                     self.assertAlmostEqual(a['time'],87.25)
                     self.assertAlmostEqual(a['waterY'],-1.55 if revealed else 0.,places=6)
                     self.assertAlmostEqual(a['veil'],q.veil,places=6)
-                    self.assertAlmostEqual(a['arrival'],q.fog_arrival,places=6)
-                    self.assertEqual(a['fogGridActive'],float(state in ('entering','canals')))
-                    self.assertEqual(a['fogGridBounds'],q.fog_grid.bounds)
+                    self.assertAlmostEqual(a['arrival'],q.fog_source_arrival,places=6)
+                    self.assertAlmostEqual(a['clearing'],q.fog_clear,places=6)
                     self.assertAlmostEqual(a['voidWorld'],q.void_tone,places=6)
                     self.assertAlmostEqual(a['sourceArrival'],q.fog_source_arrival,places=6)
-                    self.assertAlmostEqual(a['crest'],q.fog_depth,places=6)
-                    self.assertEqual(a['canalWorld'],float(revealed))
-                    self.assertNotIn('clearing',a)
+                    self.assertNotIn('crest',a)
+                    self.assertNotIn('canalWorld',a)
+                    self.assertNotIn('fogGridActive',a)
                     self.assertNotIn('retreatRadius',a)
                     self.assertNotIn('concealRadius',a)
 
@@ -131,10 +122,8 @@ class CanalFogPassTests(unittest.TestCase):
         direct=capture_mist_pass(self.lake,self.camera,self.player,40.)
         reflected=capture_mist_pass(self.lake,self.camera,self.player,40.,reflected=True)
         for result in (direct,reflected):
-            self.assertEqual(result.textures,[('depthMap',result.source.depth),('buildingCoverage',self.lake.building_coverage),('fogGrid',self.lake.fog_grid_texture)])
-            self.assertEqual(result.uniforms['coverageBounds'],COVERAGE_BOUNDS)
-            self.assertEqual(result.uniforms['fogGridBounds'],self.lake.sequence.fog_grid.bounds)
-            for texel in result.uniforms['fogGridTexel']:self.assertAlmostEqual(texel,1./192.,places=8)
+            self.assertEqual(result.textures,[('depthMap',result.source.depth),('particleMap',self.lake.puzzle_fog.texture)])
+            self.assertNotIn('coverageBounds',result.uniforms)
             self.assertEqual(result.destinations,[result.target])
             self.assertEqual(len(result.draws),1)
             texture,source_rect,destination_rect,origin,angle,tint=result.draws[0]
@@ -143,6 +132,12 @@ class CanalFogPassTests(unittest.TestCase):
             self.assertEqual((destination_rect.width,destination_rect.height),(WIDTH,HEIGHT))
         self.assertIsNot(direct.source.depth,reflected.source.depth)
         self.assertIsNot(direct.target,reflected.target)
+        a,b=self.lake.puzzle_fog.calls[-2:]
+        self.assertIs(a['source'],direct.source)
+        self.assertIs(b['source'],reflected.source)
+        self.assertIs(a['camera'],self.camera);self.assertIs(b['camera'],self.camera)
+        self.assertFalse(a['reflected']);self.assertTrue(b['reflected'])
+        self.assertIs(a['sequence'],self.lake.sequence)
 
     def test_camera_and_player_coordinates_are_not_mirrored_before_the_shader(self):
         q=self.lake.sequence;q.state='canals';q.revealed=True
@@ -164,9 +159,8 @@ class CanalFogPassTests(unittest.TestCase):
         self.assertAlmostEqual(u['clip'][0],.01,places=6)
         self.assertEqual(u['clip'][1],1000.)
 
-    def test_endpoint_water_and_coverage_follow_render_override_without_changing_logic(self):
-        q=self.lake.sequence;q.state='canals';q.elapsed=ENTRY_SWAP;q.revealed=True
-        q.exploration.update((REVEAL_START_RADIUS+REVEAL_END_RADIUS)/2,.325,0.)
+    def test_endpoint_water_and_particle_pass_follow_render_override_without_changing_logic(self):
+        q=self.lake.sequence;q.state='entering';q.elapsed=ENTRY_DURATION-.001;q.revealed=False
         logical=(q.state,q.elapsed,q.revealed,q.world_blend)
         for endpoint,height in ((False,0.),(True,-1.55)):
             self.lake._world_override=endpoint
@@ -174,127 +168,217 @@ class CanalFogPassTests(unittest.TestCase):
             reflected=capture_mist_pass(self.lake,self.camera,self.player,87.,reflected=True)
             for result in (direct,reflected):
                 self.assertAlmostEqual(result.uniforms['waterY'],height,places=6)
-                self.assertEqual(result.uniforms['canalWorld'],float(endpoint))
-                self.assertIn(('buildingCoverage',self.lake.building_coverage),result.textures)
-                self.assertIn(('fogGrid',self.lake.fog_grid_texture),result.textures)
-                self.assertEqual(result.uniforms['coverageBounds'],COVERAGE_BOUNDS)
-                self.assertEqual(result.uniforms['fogGridBounds'],q.fog_grid.bounds)
+                self.assertIn(('particleMap',self.lake.puzzle_fog.texture),result.textures)
+                self.assertNotIn('coverageBounds',result.uniforms)
             a,b=dict(direct.uniforms),dict(reflected.uniforms)
             a.pop('reflectedView');b.pop('reflectedView');self.assertEqual(a,b)
             self.assertEqual((q.state,q.elapsed,q.revealed,q.world_blend),logical)
+            a,b=self.lake.puzzle_fog.calls[-2:]
+            self.assertEqual((a['water_y'],b['water_y']),(height,height))
+            self.assertEqual((a['clock'],b['clock']),(87.,87.))
 
 
-class CanalFogGridUploadTests(unittest.TestCase):
-    def setUp(self):
-        self.lake=Lake.__new__(Lake)
-        self.grid=FogGridDouble()
-        self.lake.sequence=SimpleNamespace(fog_grid=self.grid)
-        self.lake.fog_grid_texture=None;self.lake._fog_grid_source=None;self.lake._fog_grid_revision=-1
-
-    def test_initial_upload_updates_only_on_revision_and_reuses_same_texture(self):
-        uploads=[];updates=[]
-        def load(image):
-            uploads.append(bytes(pr.ffi.buffer(image.data,image.width*image.height*4)))
-            return SimpleNamespace(id=801,width=image.width,height=image.height)
-        def update(texture,memory):
-            updates.append((texture,bytes(pr.ffi.buffer(memory,texture.width*texture.height*4))))
-        # MemAlloc/Image/UnloadImage stay real CPU operations; all GPU calls
-        # are mocked. This also checks we release native-owned image storage.
-        with patch.object(pr,'load_texture_from_image',side_effect=load), \
-             patch.object(pr,'unload_image',wraps=pr.unload_image) as release, \
-             patch.object(pr,'set_texture_filter') as filtering, \
-             patch.object(pr,'set_texture_wrap') as wrapping, \
-             patch.object(pr,'update_texture',side_effect=update):
-            texture=self.lake._sync_fog_grid()
-            for _ in range(4):self.assertIs(self.lake._sync_fog_grid(),texture)
-            self.assertEqual(self.grid.pixel_calls,1)
-            self.assertEqual(len(uploads),1);self.assertEqual(updates,[])
-            release.assert_called_once()
-            filtering.assert_called_once_with(texture,pr.TEXTURE_FILTER_BILINEAR)
-            wrapping.assert_called_once_with(texture,pr.TEXTURE_WRAP_CLAMP)
-            self.grid.value=255;self.grid.revision+=1
-            for _ in range(4):self.assertIs(self.lake._sync_fog_grid(),texture)
-            self.assertEqual(self.grid.pixel_calls,2)
-            self.assertEqual(len(updates),1)
-            self.assertEqual(updates[0][1],bytes((255,83,171,255))*(192*192))
-            self.assertEqual(uploads[0],bytes((0,83,171,255))*(192*192))
-
-    def test_restart_with_equal_revision_refreshes_cached_field(self):
-        old_texture=SimpleNamespace(id=801,width=192,height=192)
-        self.lake.fog_grid_texture=old_texture
-        self.lake._fog_grid_source=self.grid;self.lake._fog_grid_revision=0
-        replacement=FogGridDouble(value=19);self.lake.sequence.fog_grid=replacement
-        with patch.object(pr,'update_texture') as update:
-            self.assertIs(self.lake._sync_fog_grid(),old_texture)
-            self.assertIs(self.lake._sync_fog_grid(),old_texture)
-            update.assert_called_once()
-        self.assertEqual(replacement.pixel_calls,1)
-        self.assertIs(self.lake._fog_grid_source,replacement)
-
-    def test_resize_replaces_and_unloads_the_old_texture_once(self):
-        old_texture=SimpleNamespace(id=801,width=192,height=192)
-        self.lake.fog_grid_texture=old_texture
-        self.lake.sequence.fog_grid=FogGridDouble(size=64)
-        new_texture=SimpleNamespace(id=802,width=64,height=64)
-        with patch.object(pr,'load_texture_from_image',return_value=new_texture), \
-             patch.object(pr,'set_texture_filter'),patch.object(pr,'set_texture_wrap'), \
-             patch.object(pr,'unload_texture') as unload:
-            self.assertIs(self.lake._sync_fog_grid(),new_texture)
-            self.assertIs(self.lake._sync_fog_grid(),new_texture)
-            unload.assert_called_once_with(old_texture)
-
-    def test_failed_initial_upload_frees_image_and_does_not_cache_revision(self):
-        with patch.object(pr,'load_texture_from_image',return_value=SimpleNamespace(id=0)), \
-             patch.object(pr,'unload_image',wraps=pr.unload_image) as release:
-            with self.assertRaises(RuntimeError):self.lake._sync_fog_grid()
-            release.assert_called_once()
-        self.assertIsNone(self.lake.fog_grid_texture)
-        self.assertEqual(self.lake._fog_grid_revision,-1)
-
-    def test_close_releases_grid_once_and_clears_cache(self):
-        texture=SimpleNamespace(id=801,width=192,height=192)
-        self.lake.fog_grid_texture=texture;self.lake._fog_grid_source=self.grid;self.lake._fog_grid_revision=0
-        for name in ('blend_old_frame','blend_new_frame','blend_shader','building_coverage','reflection','reflection_raw','water_shader'):
-            setattr(self.lake,name,None)
-        with patch('huxin_canals_viewer.Hall.close'),patch.object(pr,'unload_texture') as unload:
-            self.lake.close();self.lake.close()
-            unload.assert_called_once_with(texture)
-        self.assertIsNone(self.lake._fog_grid_source)
-        self.assertEqual(self.lake._fog_grid_revision,-1)
-
-
-class CanalWorldBlendTests(unittest.TestCase):
-    def test_visual_blend_is_a_continuous_outward_discovery(self):
-        q=CanalSequence();q.state='canals';q.revealed=True;q.elapsed=ENTRY_DURATION
+class CanalTimedFogRenderingTests(unittest.TestCase):
+    def test_timer_clears_every_view_identically_even_without_movement(self):
+        lake=Lake.__new__(Lake);lake.sequence=CanalSequence();lake.post=SimpleNamespace(id=412)
+        lake.puzzle_fog=FakePuzzleFog()
+        q=lake.sequence;q.state='canals';q.revealed=True
+        cam=camera((4.05,3.2,3.05),(-.7,1.5,-1.2),78)
+        players=(SimpleNamespace(x=1.65,height=.325,z=1.65),
+                 SimpleNamespace(x=-14.,height=.325,z=32.),
+                 SimpleNamespace(x=8.,height=-1.4,z=48.))
         values=[]
-        step=.025
-        for i in range(math.ceil((REVEAL_END_RADIUS+1.)/step)+1):
-            q.exploration.update(i*step,.325,0.);values.append(q.world_blend)
-        self.assertEqual(values[0],0.);self.assertEqual(values[-1],1.)
+        for elapsed in (ENTRY_DURATION,FOG_CLEAR_START,
+                        FOG_CLEAR_START+FOG_CLEAR_DURATION/4,
+                        FOG_CLEAR_START+FOG_CLEAR_DURATION/2,SEQUENCE_DURATION):
+            q.elapsed=elapsed;values.append(q.fog_clear)
+            captures=[capture_mist_pass(lake,cam,p,elapsed).uniforms for p in players]
+            for u in captures:
+                self.assertAlmostEqual(u['clearing'],q.fog_clear,places=6)
+                self.assertAlmostEqual(u['arrival'],q.fog_source_arrival,places=6)
+                self.assertNotIn('crest',u)
+            # Actor location is uploaded for the unchanged ordinary approach,
+            # but cannot alter the post-trigger timed clearing uniform.
+            for u in captures:u.pop('playerCenter')
+            self.assertEqual(captures[0],captures[1]);self.assertEqual(captures[1],captures[2])
+        self.assertEqual(values[:2],[0.,0.]);self.assertEqual(values[-1],1.)
         self.assertTrue(all(a<=b for a,b in zip(values,values[1:])))
-        self.assertLess(max(b-a for a,b in zip(values,values[1:])),2.*step/(REVEAL_END_RADIUS-REVEAL_START_RADIUS))
-        for boundary,expected in ((REVEAL_START_RADIUS,0.),(REVEAL_END_RADIUS,1.)):
-            for offset in (-.001,0.,.001):
-                q=CanalSequence();q.state='canals';q.revealed=True
-                q.exploration.update(boundary+offset,.325,0.);self.assertAlmostEqual(q.world_blend,expected,places=8)
+        self.assertGreater(values[-2],.5);self.assertLess(values[-2],1.)
 
-    def test_logical_commit_and_waiting_cannot_reveal_or_regrade_the_village(self):
-        q=CanalSequence();q.state='entering';q.elapsed=ENTRY_SWAP
-        q.revealed=False;self.assertEqual(q.world_blend,0.)
-        q.revealed=True;self.assertEqual(q.world_blend,0.)
-        q.state='canals'
-        for elapsed in (ENTRY_DURATION,FOG_ARRIVAL_DURATION,60.,600.):
-            q.elapsed=elapsed;self.assertEqual(q.world_blend,0.);self.assertEqual(q.void_tone,0.)
-        q.state='ordinary';q.revealed=False;self.assertEqual(q.world_blend,0.)
+    def test_reset_has_no_persistent_texture_or_discovery_state(self):
+        lake=Lake.__new__(Lake);lake.sequence=CanalSequence();lake.post=SimpleNamespace(id=412)
+        lake.puzzle_fog=FakePuzzleFog()
+        player=SimpleNamespace(x=1.65,height=.325,z=1.65)
+        cam=camera((4.05,3.2,3.05),(-.7,1.5,-1.2),78)
+        lake.sequence.tick(0.,player)
+        initial=capture_mist_pass(lake,cam,player,0.)
+        lake.sequence.state='canals';lake.sequence.elapsed=SEQUENCE_DURATION;lake.sequence.revealed=True
+        complete=capture_mist_pass(lake,cam,player,0.)
+        self.assertEqual(complete.uniforms['clearing'],1.)
+        lake.sequence=CanalSequence();lake.sequence.tick(0.,player)
+        reset=capture_mist_pass(lake,cam,player,0.)
+        self.assertEqual(initial.uniforms,reset.uniforms)
+        self.assertEqual([name for name,_ in reset.textures],['depthMap','particleMap'])
 
-    def test_equal_discovery_gives_equal_blend_despite_different_arrival_clocks(self):
-        a,b=CanalSequence(),CanalSequence()
-        for q in (a,b):q.state='canals';q.revealed=True
-        a.elapsed=ENTRY_DURATION;b.elapsed=FOG_ARRIVAL_DURATION
-        for radius in (3.,REVEAL_START_RADIUS,6.,8.,REVEAL_END_RADIUS,16.):
-            for q in (a,b):q.exploration.update(radius,.325,0.)
-            self.assertEqual(a.world_blend,b.world_blend)
-            self.assertEqual(a.void_tone,b.void_tone)
+    def test_renderer_blends_hidden_endpoints_then_unlocks_with_the_same_camera(self):
+        lake=Lake.__new__(Lake);lake.sequence=CanalSequence()
+        q=lake.sequence;q.state='entering';q.elapsed=(WORLD_BLEND_START+WORLD_BLEND_END)/2
+        self.assertFalse(q.revealed);self.assertEqual(q.world_blend,.5)
+        cam=camera((4.05,3.2,3.05),(-.7,1.5,-1.2),78)
+        lake.last_camera=cam;lake.last_shot=5
+        lake.player=SimpleNamespace(clips=('idle',),pose=lambda *args:None)
+        lake.player_pose_dt=lambda:0.
+        lake.blend_old_frame=SimpleNamespace(texture=object())
+        lake.blend_new_frame=SimpleNamespace(texture=object())
+        lake.frame=object();lake.blend_shader=SimpleNamespace(id=514)
+        player=SimpleNamespace(x=1.65,height=.325,z=1.65,yaw=0.,clip='idle')
+        endpoints=[]
+        lake._render_world=lambda *args:endpoints.append((args[6],args[7],args[8]))
+        with ExitStack() as stack:
+            for name in ('begin_texture_mode','clear_background','begin_shader_mode',
+                         'set_shader_value','set_shader_value_texture','draw_texture_pro',
+                         'end_shader_mode','end_texture_mode'):
+                stack.enter_context(patch.object(pr,name))
+            stack.enter_context(patch.object(pr,'get_shader_location',return_value=0))
+            result=lake.render(player,81.)
+            blended_endpoints=[(False,lake.blend_old_frame,False),(True,lake.blend_new_frame,True)]
+            self.assertEqual(endpoints,blended_endpoints)
+            self.assertEqual(lake.last_world_weights,{'lake':.5,'canals':.5})
+            self.assertTrue(q.movement_locked)
+            q.tick(ENTRY_DURATION-q.elapsed,player)
+            self.assertTrue(q.revealed);self.assertFalse(q.movement_locked)
+            result_after=lake.render(player,81.5)
+        self.assertIs(result,cam)
+        self.assertIs(result_after,cam)
+        self.assertEqual(endpoints,blended_endpoints+[(True,lake.frame,True)])
+        self.assertEqual(lake.last_world_weights,{'lake':0.,'canals':1.})
+        self.assertEqual(q.state,'canals')
+
+
+class ParticleCardIntegrationTests(unittest.TestCase):
+    def render_cards(self,sequence,water_y=0.,reflected=False,clock=87.,view=None):
+        from huxin_canals_particles import PuzzleFog
+        fog=PuzzleFog.__new__(PuzzleFog)
+        fog.width,fog.height=WIDTH,HEIGHT
+        fog.texture=SimpleNamespace(width=256,height=128,id=19)
+        fog.target=SimpleNamespace(texture=object());fog.shader=object()
+        fog.locations={'depthMap':7};fog.last_count=91;fog.last_signature=('stale',)
+        uniforms={};draws=[];bindings=[];events=[];clears=[]
+        fog.uniform=lambda name,value:uniforms.__setitem__(name,value)
+        cam=view or camera((4.05,3.2,3.05),(-.7,1.5,-1.2),78)
+        source=SimpleNamespace(depth=object())
+        class RenderState:
+            def __getattr__(self,name):
+                if name=='rlGetCullDistanceNear':return lambda:.01
+                if name=='rlGetCullDistanceFar':return lambda:1000.
+                return lambda *args:events.append(name)
+        def billboard(*args):
+            # Renderer reuses its native structs between cards. Capture their
+            # values at submission time, as the actual native draw does.
+            captured=list(args)
+            for index,fields in ((3,('x','y','z')),(4,('x','y','z')),
+                                 (5,('x','y')),(6,('x','y')),(8,('r','g','b','a'))):
+                captured[index]=SimpleNamespace(**{name:getattr(args[index],name) for name in fields})
+            events.append('card');draws.append(tuple(captured))
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(pr,'rl',RenderState()))
+            stack.enter_context(patch.object(pr,'draw_billboard_pro',side_effect=billboard))
+            stack.enter_context(patch.object(pr,'set_shader_value_texture',side_effect=lambda *args:bindings.append(args)))
+            stack.enter_context(patch.object(pr,'clear_background',side_effect=clears.append))
+            for name in ('begin_texture_mode','end_texture_mode','begin_mode_3d','end_mode_3d',
+                         'begin_shader_mode','end_shader_mode','rl_set_blend_factors_separate',
+                         'begin_blend_mode','end_blend_mode'):
+                stack.enter_context(patch.object(pr,name))
+            result=fog.render(source,cam,sequence,clock,(.175,.235,.248),water_y,reflected)
+        self.assertIs(result,fog.target.texture)
+        return SimpleNamespace(fog=fog,draws=draws,uniforms=uniforms,source=source,
+                               bindings=bindings,events=events,clears=clears,camera=cam)
+
+    def test_actual_cards_mirror_about_the_endpoint_water_and_use_its_depth(self):
+        from g_huxin_canals_particles import particles_at
+        q=CanalSequence();q.state='entering';q.elapsed=FOG_ARRIVAL_DURATION
+        clouds=particles_at(q.elapsed,87.)
+        self.assertGreater(len(clouds),0)
+        for water_y in (0.,-1.55):
+            direct=self.render_cards(q,water_y)
+            reflected=self.render_cards(q,water_y,True)
+            self.assertEqual(direct.fog.last_signature,reflected.fog.last_signature)
+            self.assertEqual(direct.fog.last_count,len(clouds))
+            for result,mirror in ((direct,False),(reflected,True)):
+                self.assertEqual(result.bindings,[(result.fog.shader,7,result.source.depth)])
+                self.assertEqual(result.uniforms['reflectionPass'],float(mirror))
+                self.assertEqual(result.uniforms['waterY'],water_y)
+                self.assertEqual(result.uniforms['nearFade'],direct.uniforms['nearFade'])
+                forward=pr.vector3_normalize(pr.vector3_subtract(result.camera.target,result.camera.position))
+                def point(p):
+                    x,y,z=p.center;return (x,2*water_y-y if mirror else y,z)
+                depths=[]
+                self.assertGreater(len(result.draws),0)
+                for args in result.draws:
+                    position=args[3];up=args[4]
+                    actual_point=(position.x,position.y,position.z)
+                    particle=min(clouds,key=lambda p:math.dist(actual_point,point(p)))
+                    for actual,wanted in zip((position.x,position.y,position.z),point(particle)):
+                        self.assertAlmostEqual(actual,wanted,places=4)
+                    depths.append(sum(a*b for a,b in zip(actual_point,(forward.x,forward.y,forward.z))))
+                    self.assertEqual(up.y,-1 if mirror else 1)
+                    self.assertAlmostEqual(args[6].x,particle.width*.5,places=4)
+                    self.assertAlmostEqual(args[6].y,particle.height*.5,places=4)
+                    self.assertAlmostEqual(args[5].x,particle.width,places=4)
+                    self.assertAlmostEqual(args[5].y,particle.height,places=4)
+                    code=math.floor(particle.alpha*65535+.5)
+                    self.assertEqual(args[-1].r,code&255)
+                    self.assertEqual(args[-1].a,code>>8)
+                    decoded=(args[-1].a*256+args[-1].r)/65535
+                    self.assertLessEqual(abs(decoded-particle.alpha),.500001/65535)
+                self.assertTrue(all(a>=b-.0001 for a,b in zip(depths,depths[1:])))
+                self.assertLess(result.events.index('rlDisableDepthMask'),result.events.index('card'))
+                self.assertGreater(result.events.index('rlEnableDepthMask'),len(result.events)-1-result.events[::-1].index('card'))
+
+    def test_ordinary_zero_time_and_finished_encounters_clear_stale_layers(self):
+        q=CanalSequence()
+        for phase_name,elapsed in (('ordinary',0.),('entering',0.),('canals',SEQUENCE_DURATION)):
+            q.state=phase_name;q.elapsed=elapsed
+            result=self.render_cards(q)
+            self.assertEqual(result.draws,[])
+            self.assertEqual(result.fog.last_count,0)
+            self.assertEqual(result.fog.last_signature,())
+            self.assertEqual(len(result.clears),1)
+            self.assertEqual(tuple(result.clears[0])[-1],0)
+
+    def test_each_submitted_card_fades_in_its_own_alpha(self):
+        q=CanalSequence();q.state='canals';q.elapsed=FOG_CLEAR_START+1.
+        early=self.render_cards(q);early_clear=q.fog_clear
+        q.elapsed=FOG_CLEAR_START+5.;late=self.render_cards(q)
+        self.assertGreater(q.fog_clear,early_clear)
+        a={p[0]:p for p in early.fog.last_signature}
+        b={p[0]:p for p in late.fog.last_signature}
+        common=a.keys()&b.keys();self.assertGreater(len(common),0)
+        self.assertTrue(all(a[i][1]==b[i][1] for i in common))
+        self.assertTrue(all(a[i][2]>=b[i][2] for i in common))
+        self.assertTrue(any(a[i][2]>b[i][2]+.001 for i in common))
+        submitted=lambda result:sum((d[-1].a*256+d[-1].r)/65535 for d in result.draws)
+        self.assertGreater(submitted(early),submitted(late))
+
+    def test_ambient_clearing_cannot_despawn_live_cards(self):
+        # The ordinary mist progress is not the particle lifecycle.
+        q=SimpleNamespace(state='canals',elapsed=FOG_ARRIVAL_DURATION,fog_clear=1.)
+        result=self.render_cards(q)
+        self.assertGreater(result.fog.last_count,0)
+        self.assertGreater(len(result.draws),0)
+
+    def test_outside_camera_softening_is_shared_with_its_reflection(self):
+        q=CanalSequence();q.state='canals';q.elapsed=FOG_CLEAR_START+1.
+        inner=self.render_cards(q)
+        view=camera((4.8,3.4,10.5),(0.,1.,7.),70)
+        outer=self.render_cards(q,view=view)
+        reflected=self.render_cards(q,reflected=True,view=view)
+        self.assertEqual(inner.uniforms['nearFade'],(.18,1.25))
+        self.assertAlmostEqual(outer.uniforms['nearFade'][0],.78)
+        self.assertAlmostEqual(outer.uniforms['nearFade'][1],10.)
+        self.assertEqual(reflected.uniforms['nearFade'],outer.uniforms['nearFade'])
+        self.assertEqual(outer.fog.last_signature,inner.fog.last_signature)
+        self.assertEqual(outer.fog.last_signature,reflected.fog.last_signature)
 
 
 if __name__=='__main__':unittest.main()

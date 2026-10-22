@@ -9,11 +9,12 @@ import json
 import time
 import argparse
 import pyray as pr
-from g_huxin_canals import Explorer,SHOTS,LIGHTS,COLUMNS,PATH,DECK,PUZZLE_RADIUS,FUTURE_RING,REVIEW_ROUTE,trees,PLAYER_SCALE,walk_height,SPAWN
+from g_huxin_canals import Explorer,SHOTS,LIGHTS,COLUMNS,PATH,DECK,PUZZLE_RADIUS,FUTURE_RING,REVIEW_ROUTE,trees,PLAYER_SCALE,walk_height,SPAWN,camera_zone
 from g_temple_living import LivingScene
 from temple_interior_viewer import Hall,camera,snapshot
 from huxin_canals_sky import MoonSky
-from g_huxin_canals_sequence import CanalSequence,UPPER,MIRROR,BASIN,MARK,ease,FOG_ARRIVAL_DURATION
+from g_huxin_canals_sequence import CanalSequence,UPPER,MIRROR,BASIN,MARK,ease,SEQUENCE_DURATION,WORLD_BLEND_START,FOG_CLEAR_START
+from g_huxin_canals_particles import NEAR_CLEAR_END,MIDDLE_CLEAR_START,MIDDLE_CLEAR_END,FAR_CLEAR_START,FAR_CLEAR_END
 from huxin_canals_camera import canal_camera,mist_camera,FOCUS_EYE,FOCUS_TARGET
 from huxin_canals_audio import EncounterAudio
 from g_huxin_canals_layout import CAMERA_SHOTS,WATER_Y,START
@@ -46,9 +47,7 @@ def auto_camera(e):
 class Lake(Hall):
     def __init__(self):
         self.models={};self.textures={};self.shader=None;self.player=None;self.sky=None;self.post=None;self.raw=None;self.frame=None;self.smoke=None;self.reflection=None;self.reflection_raw=None;self.water_shader=None;self.last_shot=0;self.sequence=CanalSequence();self.last_camera=None
-        self.blend_shader=None;self.blend_old_frame=None;self.blend_new_frame=None;self.building_coverage=None
-        self.fog_grid_texture=None;self._fog_grid_source=None;self._fog_grid_revision=-1
-        self.fog_grid_bounds=(-96.,-96.,96.,96.)
+        self.blend_shader=None;self.blend_old_frame=None;self.blend_new_frame=None;self.puzzle_fog=None
         self._world_override=None;self.last_world_weights={'lake':1.,'canals':0.}
         try:
             self.manifest=json.loads((KIT/'manifest.json').read_text())
@@ -88,8 +87,12 @@ class Lake(Hall):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,'resolution'),pr.ffi.new('float[]',[WIDTH,HEIGHT]),pr.SHADER_UNIFORM_VEC2)
             self.blend_shader=pr.load_shader(pr.ffi.NULL,str(ROOT/'shaders'/'huxin_canals_blend.fs'))
             if self.blend_shader.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Lake world blend shader compilation failed')
-            from huxin_canals_fog import create_coverage_texture,COVERAGE_BOUNDS
-            self.building_coverage=create_coverage_texture();self.coverage_bounds=COVERAGE_BOUNDS
+            # Prepare the two short-lived world views at scene load so the
+            # concealed handoff never allocates render targets mid-sequence.
+            self.blend_old_frame=pr.load_render_texture(WIDTH,HEIGHT)
+            self.blend_new_frame=pr.load_render_texture(WIDTH,HEIGHT)
+            from huxin_canals_particles import PuzzleFog
+            self.puzzle_fog=PuzzleFog(WIDTH,HEIGHT)
             self.sky=MoonSky();im=pr.gen_image_gradient_radial(32,32,0.,pr.WHITE,pr.BLANK);self.smoke=pr.load_texture_from_image(im);pr.unload_image(im)
         except Exception:self.close();raise
 
@@ -264,51 +267,16 @@ class Lake(Hall):
         pr.end_mode_3d();pr.end_texture_mode()
         self.mist_pass(self.raw,target,cam,e,clock,inspection)
 
-    def _sync_fog_grid(self):
-        """Upload the persistent field once per revision, across all four passes.
-
-        A restarted sequence can have the same revision as the previous grid,
-        so object identity is part of the cache key. Native Image memory owns
-        the initial upload; later updates borrow a Python buffer synchronously.
-        """
-        grid=getattr(self.sequence,'fog_grid',None)
-        if grid is None:return None
-        texture=getattr(self,'fog_grid_texture',None)
-        if (texture is not None and getattr(self,'_fog_grid_source',None) is grid
-                and getattr(self,'_fog_grid_revision',-1)==grid.revision):return texture
-        size=grid.size;pixels=grid.pixels()
-        if len(pixels)!=size*size*4:raise ValueError('Canal fog grid must provide size*size RGBA bytes')
-        if texture is None or texture.width!=size or texture.height!=size:
-            memory=pr.rl.MemAlloc(len(pixels))
-            if memory==pr.ffi.NULL:raise MemoryError('Cannot allocate canal fog grid pixels')
-            pr.ffi.memmove(memory,pixels,len(pixels))
-            image=pr.Image(memory,size,size,1,pr.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
-            try:new_texture=pr.load_texture_from_image(image)
-            finally:pr.unload_image(image)
-            if not new_texture.id:raise RuntimeError('Cannot upload canal fog grid texture')
-            pr.set_texture_filter(new_texture,pr.TEXTURE_FILTER_BILINEAR)
-            pr.set_texture_wrap(new_texture,pr.TEXTURE_WRAP_CLAMP)
-            self.fog_grid_texture=new_texture
-            if texture is not None:pr.unload_texture(texture)
-            texture=new_texture
-        else:
-            buffer=pr.ffi.from_buffer(pixels)
-            pr.update_texture(texture,pr.ffi.cast('void *',buffer))
-        self.fog_grid_bounds=tuple(grid.bounds)
-        self._fog_grid_source=grid;self._fog_grid_revision=grid.revision
-        return texture
-
     def mist_pass(self,source,target,cam,e,clock,inspection,reflected=False):
-        """One world-space fog field for direct sight and the reflected light path."""
+        """Preserve lake mist; composite the separate puzzle cards in both views."""
         q=self.sequence
-        grid_texture=self._sync_fog_grid()
-        grid_active=float(grid_texture is not None and q.state in ('entering','canals'))
-        for name,value in (('veil',q.veil),('time',clock),('arrival',q.fog_arrival),('returning',0.),
-                           ('crest',q.fog_depth),('sourceArrival',q.fog_source_arrival),
-                           ('canalWorld',float(self.render_revealed)),('fogGridActive',grid_active),
+        for name,value in (('veil',q.veil),('time',clock),('arrival',q.fog_source_arrival),('returning',0.),
+                           ('sourceArrival',q.fog_source_arrival),
+                           ('clearing',q.fog_clear),
                            ('reflectedView',float(reflected)),('voidWorld',q.void_tone),('waterY',self.water_y)):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',[value]),pr.SHADER_UNIFORM_FLOAT)
         fog_colour=tuple(a+(b-a)*q.void_tone for a,b in zip((.39,.455,.45) if inspection else (.175,.235,.248),(.165,.180,.180)))
+        particle_texture=self.puzzle_fog.render(source,cam,q,clock,fog_colour,self.water_y,reflected)
         pr.set_shader_value(self.post,pr.get_shader_location(self.post,'fogColour'),pr.ffi.new('float[]',fog_colour),pr.SHADER_UNIFORM_VEC3)
         forward=pr.vector3_normalize(pr.vector3_subtract(cam.target,cam.position));right=pr.vector3_normalize(pr.vector3_cross_product(forward,cam.up));up=pr.vector3_cross_product(right,forward)
         for name,value in (('eye',cam.position),('forward',forward),('right',right),('up',up)):
@@ -318,17 +286,7 @@ class Lake(Hall):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',value),pr.SHADER_UNIFORM_VEC2)
         pr.begin_texture_mode(target);pr.clear_background(pr.BLACK);pr.begin_shader_mode(self.post)
         pr.set_shader_value_texture(self.post,pr.get_shader_location(self.post,'depthMap'),source.depth)
-        location=pr.get_shader_location(self.post,'buildingCoverage')
-        if location>=0 and self.building_coverage is not None:pr.set_shader_value_texture(self.post,location,self.building_coverage)
-        location=pr.get_shader_location(self.post,'coverageBounds')
-        if location>=0:pr.set_shader_value(self.post,location,pr.ffi.new('float[]',self.coverage_bounds),pr.SHADER_UNIFORM_VEC4)
-        location=pr.get_shader_location(self.post,'fogGrid')
-        if location>=0 and grid_texture is not None:pr.set_shader_value_texture(self.post,location,grid_texture)
-        location=pr.get_shader_location(self.post,'fogGridBounds')
-        if location>=0:pr.set_shader_value(self.post,location,pr.ffi.new('float[]',self.fog_grid_bounds),pr.SHADER_UNIFORM_VEC4)
-        location=pr.get_shader_location(self.post,'fogGridTexel')
-        if location>=0 and grid_texture is not None:
-            pr.set_shader_value(self.post,location,pr.ffi.new('float[]',[1./grid_texture.width,1./grid_texture.height]),pr.SHADER_UNIFORM_VEC2)
+        pr.set_shader_value_texture(self.post,pr.get_shader_location(self.post,'particleMap'),particle_texture)
         pr.draw_texture_pro(source.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,WIDTH,HEIGHT),pr.Vector2(0,0),0,pr.WHITE)
         pr.end_shader_mode();pr.end_texture_mode()
 
@@ -337,28 +295,56 @@ class Lake(Hall):
         if self.blend_old_frame:pr.unload_render_texture(self.blend_old_frame);self.blend_old_frame=None
         if self.blend_new_frame:pr.unload_render_texture(self.blend_new_frame);self.blend_new_frame=None
         if self.blend_shader:pr.unload_shader(self.blend_shader);self.blend_shader=None
-        if self.building_coverage:pr.unload_texture(self.building_coverage);self.building_coverage=None
-        if self.fog_grid_texture:pr.unload_texture(self.fog_grid_texture);self.fog_grid_texture=None
-        self._fog_grid_source=None;self._fog_grid_revision=-1
+        if self.puzzle_fog:self.puzzle_fog.close();self.puzzle_fog=None
         if self.reflection:pr.unload_render_texture(self.reflection);self.reflection=None
         if self.reflection_raw:pr.unload_render_texture(self.reflection_raw);self.reflection_raw=None
         if self.water_shader:pr.unload_shader(self.water_shader);self.water_shader=None
 
-def run(review=False,direct=False):
+def reset_player(scene,puzzle=False):
+    """A fresh encounter; the test shortcut is ready for E without any walking."""
+    e=Explorer();scene.sequence=CanalSequence();e.encounter=scene.sequence
+    if puzzle:
+        e.x,e.height,e.z=1.65,DECK,1.65
+        e.yaw=math.atan2(MIRROR[0]-e.x,e.z-MIRROR[2])
+        e.shot=camera_zone(e.x,e.z)
+        scene.sequence.tick(0.,e)  # Match the mist reached by walking here.
+        scene.last_shot,scene.last_camera=auto_camera(e)
+    return e
+
+
+def draw_puzzle_timer(sequence,width,paused=False):
+    """Test-only clock using the same elapsed time that drives the fog."""
+    elapsed=sequence.elapsed
+    if sequence.state=='ordinary':phase='Ready - press E to start'
+    elif elapsed<WORLD_BLEND_START:phase='Fog building'
+    elif elapsed<FOG_CLEAR_START:phase='Fog crest - hidden transition'
+    elif elapsed<NEAR_CLEAR_END:phase='Nearby + middle clearing' if elapsed>=MIDDLE_CLEAR_START else 'Nearby fog clearing'
+    elif elapsed<MIDDLE_CLEAR_END:phase='Middle + distant clearing' if elapsed>=FAR_CLEAR_START else 'Middle fog clearing'
+    elif elapsed<FAR_CLEAR_END:phase='Distant fog clearing'
+    elif elapsed<SEQUENCE_DURATION:phase='Final wisps fading'
+    else:phase='Fog cleared'
+    x,y=max(12,width-326),40
+    ink=pr.Color(224,233,220,255);muted=pr.Color(155,185,180,255)
+    pr.draw_rectangle(x,y,310,120,pr.Color(9,18,22,224))
+    pr.draw_text('PUZZLE TIMER'+('  |  PAUSED' if paused else ''),x+14,y+10,14,muted)
+    pr.draw_text(f'{elapsed:05.1f} s',x+14,y+30,32,ink)
+    pr.draw_text(phase,x+14,y+70,16,ink)
+    footer=f'Clearing +{elapsed-FOG_CLEAR_START:.1f} s  |  Home resets' if elapsed>=FOG_CLEAR_START else 'Since activation  |  Home resets'
+    pr.draw_text(footer,x+14,y+98,12,muted)
+
+
+def run(review=False,direct=False,puzzle=False):
     if review:pr.set_config_flags(pr.FLAG_WINDOW_HIDDEN)
     pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1280,720,'Temple / The Void Canals');pr.set_target_fps(0 if review else 60);scene=None;audio=None;selection=None
     try:
-        start=time.perf_counter();scene=Lake();startup=time.perf_counter()-start;e=Explorer();e.encounter=scene.sequence;audio=EncounterAudio(review)
+        start=time.perf_counter();scene=Lake();startup=time.perf_counter()-start;e=reset_player(scene,puzzle);audio=EncounterAudio(review)
         if review:
             from huxin_canals_review import review_scene
             return review_scene(scene,e,audio,startup)
         if direct:
             e.x,e.height,e.z=START;scene.sequence.revealed=True;scene.sequence.state='canals';scene.sequence.disc_placed=True;e.encounter=scene.sequence
-            scene.sequence.elapsed=FOG_ARRIVAL_DURATION
-            # Direct scene inspection deliberately starts with the district
-            # already discovered; the ordinary launch earns this by exploring.
-            scene.sequence.exploration.update(scene.sequence.exploration.outer_distance,DECK,0.)
-            scene.sequence.fog_grid.reveal_all()
+            # Direct inspection skips the completed fog sequence.
+            scene.sequence.elapsed=SEQUENCE_DURATION
             scene.sequence.inventory[:]=[s if s is None or s.get('group')!='void_disc' else None for s in scene.sequence.inventory]
         from codex_selection import SelectionSession
         selection=SelectionSession('huxin_canals',__file__);scene.codex_selection=selection
@@ -385,7 +371,12 @@ def run(review=False,direct=False):
                 if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
                 if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
                 if pr.is_key_pressed(pr.KEY_F3):assembly=not assembly
-                if pr.is_key_pressed(pr.KEY_HOME):e=Explorer();scene.sequence=CanalSequence();e.encounter=scene.sequence;manual=None;free=False;pr.enable_cursor()
+                if pr.is_key_pressed(pr.KEY_HOME):
+                    e=reset_player(scene,puzzle);manual=None;free=False;pr.enable_cursor()
+                    if puzzle:
+                        clock=0.
+                        for sound in audio.sounds.values():pr.stop_sound(sound)
+                        paused_sounds=[]
                 if pr.is_key_pressed(pr.KEY_ZERO):manual=None;free=False;pr.enable_cursor()
                 for i in range(9):
                     if pr.is_key_pressed(pr.KEY_ONE+i):manual=i;free=False;pr.enable_cursor()
@@ -421,10 +412,17 @@ def run(review=False,direct=False):
                 pr.draw_text(q.prompt(e) or 'W/S move   A/D turn   Shift run   E place object   1-9 cameras   0 auto   F free look',18,h-42,16,pr.Color(206,213,198,255))
                 pr.draw_text('L daylight | Tab player | H help | Home restart encounter | F8 select | F12 capture | Esc exit',18,h-21,14,pr.Color(147,178,175,255))
                 if free:pr.draw_text('Free camera',19,18,18,pr.Color(206,213,198,255))
+            if puzzle:draw_puzzle_timer(q,w,blocked)
             selection.present(selected_camera,(0,0,w,h),{'world':'canals' if q.revealed else 'lake','world_blend':q.world_blend,'selection_world':'canals' if q.world_blend>=.5 else 'lake','phase':q.state,'clock':clock,'player':{'position':[e.x,e.height,e.z],'yaw':e.yaw,'clip':e.clip},'shot':scene.last_shot,'free_camera':free})
-            pr.end_drawing()
             if pr.is_key_pressed(pr.KEY_F12):
-                out=ROOT/'artifacts'/'huxin_canals';out.mkdir(parents=True,exist_ok=True);snapshot(scene.frame,out/('capture-'+time.strftime('%Y%m%d-%H%M%S')+'.png'))
+                out=ROOT/'artifacts'/'huxin_canals';out.mkdir(parents=True,exist_ok=True);capture=out/('capture-'+time.strftime('%Y%m%d-%H%M%S')+'.png')
+                if puzzle:
+                    pr.rl.rlDrawRenderBatchActive()
+                    image=pr.load_image_from_screen()
+                    try:pr.export_image(image,str(capture))
+                    finally:pr.unload_image(image)
+                else:snapshot(scene.frame,capture)
+            pr.end_drawing()
     finally:
         if selection:selection.close()
         pr.enable_cursor()
@@ -433,4 +431,9 @@ def run(review=False,direct=False):
         pr.close_window()
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--review',action='store_true');p.add_argument('--canals',action='store_true',help='Start directly inside the canal world');args=p.parse_args();run(args.review,args.canals)
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--review',action='store_true')
+    start=p.add_mutually_exclusive_group()
+    start.add_argument('--canals',action='store_true',help='Start directly inside the canal world')
+    start.add_argument('--puzzle',action='store_true',help='Start beside the unsolved puzzle with a timing overlay; Home resets here')
+    args=p.parse_args();run(args.review,args.canals,args.puzzle)

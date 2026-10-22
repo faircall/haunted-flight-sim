@@ -977,8 +977,8 @@ Use `HAUNTED_MUTE_AUDIO=1` for ad-hoc automation launched via stdin or `runpy`.
 Launch `play_huxin_canals.cmd` for the independent third pavilion scene. It starts
 on the same lake approach, with the established position-driven fog. The existing
 original lake remains unchanged. The Moon encounter has been restored to its
-original 24-second sequence; Canals uses the slower arrival and exploration-driven
-clearing below. Source and asset integrity is recorded in
+original 24-second sequence; Canals uses a separate particle fog layer with
+staggered births and individual fading lifetimes, described below. Source and asset integrity is recorded in
 `art/temple/huxin_canals/origin_snapshot.json`.
 The previous high-water version is a separate frozen scene, launched with
 `play_huxin_canals_flooded.cmd`. Its 81 source and asset hashes are recorded in
@@ -987,28 +987,29 @@ district does not overwrite that version.
 
 The prototype begins with the previously collected stone annulus in inventory.
 At the bronze mirror, press **E** to place it on the basin. This consumes only
-the matching object, preserves other inventory and pauses control for five
-seconds within a thirty-second fog arrival. The same mist keeps moving inward
-after control returns. Neither that release nor waiting at the basin reveals
-buildings or changes the scene's lighting. Exploration clears a persistent
-world-space grid along the places actually visited: entering a house or moving
-sideways along a quay clears that area even without moving farther from the
-puzzle. Unvisited streets and distant canals remain obscured.
-Coarse, softly posterized fog banks
-gather around the actual house footprints. Nearby water and paving receive
-lighter, broken wisps, while denser layers cover the changing streets farther
-out. The two environments blend with outward movement across the pavilion's
-edge, each with its
-own depth-aware fog and correct water reflection. The shared pavilion and player
-stay aligned throughout. Three-dimensional noise bends the broad billows and
-branching wisps; the player and basin remain readable during the crescendo.
-The grid also varies local arrival and release rates, with soft, irregular
-boundaries and lingering wisps between cleared and covered cells. Visited cells
-stay clear on backtracking; waiting does not clear more cells. The camera stays
-exactly where it was before the interaction,
-through the five-second pause and afterward until the player moves.
-Normal gameplay cameras then follow
-exploration. The complete original pavilion is its
+the matching object and preserves other inventory. Six overlapping waves of
+clouds form locally over five seconds with a soft finish. At the fog crest, both
+hidden environments blend over seconds 5–6, with the camera held and clouds
+continuing their local drift. Control returns at six seconds. Nearby fog clears
+over seconds 6–14, middle-distance fog over 12–22, and distant fog over 20–32.
+The final faint traces finish by 46 seconds after activation. The entire clearing
+clock, including overlaps and the soft fade onset, is twice as slow as V16.
+Each cloud keeps its own soft alpha fade.
+Standing still, walking, entering a house and backtracking follow the same
+timeline. Each cloud's distance from the pavilion delays its fade, so clearing
+progresses from the closest fragments to the farthest banks.
+
+The camera stays where it was before the interaction through the hidden
+handoff, and remains there until the player moves. Eight coarse noise textures
+form overlapping clouds at different depths and heights. Small transparent
+foreground wisps and smaller backing fragments replace the large moving sheets.
+Particles are born in place with gentle local drift and a soft fade-in. Nearby
+clouds begin thinning first, with overlapping delays farther out; alpha decreases slowly
+and then more slowly before each invisible card despawns. There is no second
+opacity fade applied to the completed particle image. Both
+environments receive the same concealing fog, including their water reflections.
+The player and basin remain readable in the small central space. Normal gameplay
+cameras resume with movement during the long fade. The original pavilion is its
 own twin in the other world: deck, roof, posts, brackets, ceiling, inscriptions,
 basin and lamps remain in place. The ordinary lake remains at y=0; the blend
 reveals canal water at y=-1.55, while the pavilion and quays
@@ -1041,7 +1042,14 @@ low resolution. Current exported budgets and house metadata are recorded in
 
 After entry, walking back never restores the lake. **Home** resets the standalone
 prototype for testing. `play_huxin_canals.cmd --canals` starts directly inside the
-new world. W/S move, A/D turn, Shift runs; 1–9 inspect camera stations, 0 restores
+new world. `play_huxin_canals_puzzle_test.cmd` is a muted iteration shortcut: it
+starts beside the unsolved basin with the annulus and arrival mist ready. Press
+**E** to trigger the reveal; **Home** resets at the puzzle with a fresh item and
+clock, so repeated trials need no causeway run. A timer at the upper right shows
+seconds since activation and the current fog phase; during dissipation it also
+shows time since clearing began. It stays visible when H hides the controls,
+pauses with F8 selection mode, and is included in this test mode's F12 captures.
+W/S move, A/D turn, Shift runs; 1–9 inspect camera stations, 0 restores
 automatic cameras, F enables free look, H hides controls and F12 captures an image.
 There are no inhabitants or combat encounters. Long silences are interrupted only
 by occasional quiet timber movement; the eventual exit remains open for design.
@@ -1061,12 +1069,14 @@ artifacts/temple3d-env/Scripts/python.exe huxin_canals_review.py
 artifacts/temple3d-env/Scripts/python.exe huxin_canals_review.py --flooded-smoke
 ```
 
-The muted native review walks the lake approach, places the object, checks the
-stationary camera and hidden swap in both the image and the water reflection,
-then walks the complete canal loop using the real controller.
-It verifies player visibility from every route camera and saves the reveal,
-a condensed walkthrough, a contact sheet and a JSON report under
-`artifacts/huxin-canals-grid-v10/walkthrough/`. Earlier review images remain under
+The muted native review checks the stationary camera and hidden transition
+in both the image and the water reflection, then walks during the timed fade.
+It saves the reveal, captures and a JSON report under
+`artifacts/huxin-canals-smooth-v17/`. The previous moving-card implementation is
+saved in `artifacts/huxin-canals-waves-v13/before/`, including the puzzle shortcut.
+The earlier raymarched version is saved in
+`artifacts/huxin-canals-particles-v12/before/`; its review images remain in
+`artifacts/huxin-canals-uniform-v11/`. Earlier review images remain under
 `artifacts/huxin_canals_v5/`,
 `artifacts/huxin_canals_v4/`, `artifacts/huxin_canals_v3/`, `artifacts/huxin_canals_v2/` and
 `artifacts/huxin_canals/`. `--quick` skips GIF
@@ -1081,35 +1091,132 @@ of every accessible bay, walking and running, and check actual geometry at
 both sides of the player's capsule. Rear routes are checked against the actual
 exported room boundaries before reaching their stairs; the causeway join is
 checked across its usable width against the exported floor meshes. The native
-review also checks the control-release frame and spatial blend endpoints for
+review also checks the control-release frame and timed blend endpoints for
 discontinuities. Rays immediately inside the room walls check that their floors
 meet the plaster without thin light leaks. Automated reviews never open an audio device.
 
-V10 replaces the single retreat radius with a 192x192 persistent discovery grid
-of one-metre cells. Seven-metre clear cores feather into
-uneven 17–23 metre reaches; adjacent visits merge into a trail. Deterministic
-spatial fields vary arrival lag and clearing response, while three-dimensional
-billows and edge tendrils soften the grid. Cleared interiors lose the dense
-transition fog, retaining only the scene's low ambient mist. Main and reflected
-views sample the same texture. The short departure gate still hides the
-lake-to-canals geometry handoff, but never controls the extent of fog clearing.
-`huxin_canals_grid_review.py` checks local discovery through actual house entry,
-stationary waiting, reflection consistency and the retained unseen district.
-Its outputs and the previous source snapshot live in
-`artifacts/huxin-canals-grid-v10/`.
+V17 replaces the late rush into the crest with a bounded, smooth incoming
+particle clock over five seconds. A one-second eased blend replaces the binary
+world swap; both endpoints retain their own fogged water reflections and share
+the held camera and player pose. The blend targets are allocated at scene load.
+All clearing durations are doubled, including the final fourteen-second tail.
+The puzzle-test timer includes the hidden transition stage. V16 is backed up in
+`artifacts/huxin-canals-smooth-v17/before/`.
+V17 passed 50 focused CPU checks and the hidden, muted native review in
+`artifacts/huxin-canals-smooth-v17/final/`. Both held cameras were sampled at
+30 fps across seconds 3–8, with no pose or camera discontinuity and no spike at
+the blend boundaries. The full 46-second reveals, 24 concealed-world comparisons,
+reflected fog, 345 controller steps and 82 player-visibility samples passed.
+The review also checks exact doubled clearing against V16, unchanged ordinary
+approach images, protected scene hashes, and the updated test-timer labels.
+
+V16 spreads visible fog accumulation across the full four-second arrival.
+The incoming particle clock uses a smooth curve calibrated against composited
+coverage in both held views, so overlapping early waves no longer saturate the
+image in the first second. Coverage is approximately 12%, 49%, 86% and 100%
+at seconds 1, 2, 3 and 4. Only birth timing is remapped: particle drift, the
+exact peak at four seconds, the hidden switch and all clearing packets remain
+unchanged. Metadata reports the actual retimed births. The previous version
+is preserved in `artifacts/huxin-canals-arrival-v16/before/`.
+V16 passed 15 focused particle checks and the full hidden, muted native review
+in `artifacts/huxin-canals-arrival-v16/final/`: measured arrival progression in
+both views, eight concealed world comparisons, reflection parity, all 345
+movement steps and 82 visibility samples. Peak and clearing packets match V15
+exactly at 13 sampled times; original, Moon and flooded scenes are preserved.
+
+V15 shortened the entire sequence to 24 seconds: build 0–4, concealed geometry
+switch and control release at 4, nearby clearing 4–8, middle clearing 7–12,
+distant clearing 11–17, and final traces until 24. The overlapping bands retain
+independent particle transparency curves. The puzzle-test timer labels each
+stage and its overlaps. The previous 160-second version, including its timer,
+is preserved under `artifacts/huxin-canals-fast-v15/before/`.
+V15 passed 45 focused CPU checks and the complete hidden, muted native review
+in `artifacts/huxin-canals-fast-v15/final/`. Eight concealed old/new comparisons,
+both 24-second stationary previews, stage boundaries, 345 movement steps and
+82 player-visibility samples passed. The folder includes the updated timer
+captures and full reveal GIFs. Original, Moon and flooded scenes are preserved.
+
+V14 kept V13's births, layout and full 160-second lifetime. Dissipation
+started nearest the pavilion and progressed outwards, with small overlapping
+wave offsets. The distance delay compresses toward the horizon to preserve a
+long, gentle fade there too. Each card changes alpha independently, retaining
+the irregular layered edges instead of clipping a clear boundary through them.
+V13 is preserved in `artifacts/huxin-canals-near-first-v14/before/`; its complete
+captures remain in `artifacts/huxin-canals-waves-v13/final/`.
+V14 passed 41 focused CPU checks and the hidden, muted native review in
+`artifacts/huxin-canals-near-first-v14/quick/`, including near/middle/far alpha
+ordering, the concealed transition, reflections and walking into the houses.
+
+V13 introduced six interleaved birth waves, spread across every depth rather than
+concentric regions. Near wisps are about 1.25-3.35 metres across; nearby backing
+fragments are about 4-6 metres across. Neither grows or travels from the horizon.
+Birth alpha eases in over roughly three to five seconds. Reverse wave starts
+are staggered through the first six seconds after the hidden blend; each alpha
+then follows an endpoint-normalized exponential with a gentle onset and slowing
+tail. Cards are culled only below 0.0001 alpha. Sixteen-bit vertex opacity avoids
+coarse alpha steps during the tail. The compositor applies each particle image
+once, without multiplying it by another fade. Timing and lifecycle constants
+are shared from `g_huxin_canals_particles.py`; the sequence follows its full
+lifetime, and direct inspection starts after all particles have expired.
+
+V13 passed 59 focused CPU checks and the full hidden, muted native review in
+`artifacts/huxin-canals-waves-v13/final/`. Both complete 160-second views,
+24 concealed world comparisons (including water reflections), camera changes,
+walking and house entry passed. The review also verifies that ambient clearing
+does not apply a second fade to the particle layer. Gameplay cameras amongst
+the banks soften the nearest particles so they do not cover the lens with a
+large opaque card. The folder contains separate 16-second arrival previews,
+complete reveal GIFs and `report.json`. The previous version remains in `before/`.
+
+V12 introduced a bespoke particle renderer for the puzzle crescendo, while
+retaining the existing lake haze and the approach mist. `g_huxin_canals_particles.py`
+authors the deterministic cloud packets and their 256x128 noise atlas (eight
+64x64 tiles). `huxin_canals_particles.py` sorts and draws the cards into a separate
+transparent layer, using scene depth to soften intersections. The particle
+shaders use the same fog palette as the lake. Reflection draws the same packets
+mirrored about the water; both hidden worlds receive the same packet stream.
+Particle count, size, travel, alpha, texture and coarse tonal steps can be tuned
+independently. No fog is attached to the player, and no visited-cell state exists.
+The earlier V11 source is retained in the V12 `before` directory.
+
+V11 replaced regional discovery with one continuous clock. The incoming volume
+reaches full density before any geometry changes, and the complete hidden blend
+finishes before dissipation starts. All transition fog layers share one opacity
+factor; the ordinary ambient haze remains. The fade eases in over its first
+second and slows toward completion, so a saturated bank releases the view
+throughout the minute. Timing constants are grouped at the
+top of `g_huxin_canals_sequence.py`. Direct `--canals` inspection starts at the
+completed timeline.
 
 ```powershell
 $env:HAUNTED_MUTE_AUDIO='1'
-artifacts/temple3d-env/Scripts/python.exe -m unittest test_canals_fog_grid test_huxin_canals_fog test_huxin_canals.CanalSequenceTests test_huxin_canals_selection test_huxin_moon_encounter -q
-artifacts/temple3d-env/Scripts/python.exe huxin_canals_grid_review.py
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_canals_particles test_huxin_canals_fog test_huxin_canals.CanalSequenceTests test_huxin_canals_selection test_huxin_moon_encounter -q
+artifacts/temple3d-env/Scripts/python.exe huxin_canals_particle_review.py
 ```
 
-The focused grid revision passes 59 CPU checks. Its native review walks 965
-controller steps through the quay, house and rear stairs, including backtracking.
-The lateral target clears from 0.726 to 1.0 while maximum distance from the puzzle
-stays unchanged, and the unvisited opposite district stays covered. GPU texture
-readback matches the CPU map; 133 pass audits verify shared discovery in direct
-views, reflections and both world endpoints. Tests run hidden and muted.
+The earlier V12 particle revision passed 54 focused CPU checks. Its hidden, muted native
+review covers the complete stationary reveal from both sides, low and oblique
+views, walking during dissipation and entering a house. All 24 concealed endpoint
+comparisons pass (worst difference 7/255; the remaining differences are small
+water-edge pixels). Blend and control boundaries have no frame discontinuity.
+All 82 player checks pass across 345 actual controller steps. The ordinary lake
+approach matches the V11 render pixel for pixel at three stations. Original,
+Moon and flooded sources/assets retain their recorded hashes. Reports and GIFs:
+`artifacts/huxin-canals-particles-v12/final/`.
+
+The earlier V11 timed revision passed 42 focused CPU checks. Its hidden, muted native
+review checks both held cameras through the complete 76-second timeline,
+then walks during the fade and enters a house afterward. All 24 comparisons
+between the concealed world endpoints differ by at most one RGB level,
+including the final water view. All 82 player-visibility samples pass.
+Final reports and motion previews are in
+`artifacts/huxin-canals-uniform-v11/final/`.
+
+The previous V10 grid version is archived in full under
+`artifacts/huxin-canals-uniform-v11/before/`, including its helper, tests and
+native review. Its 59 CPU checks and 965-step walkthrough passed at that time;
+captures and reports remain in `artifacts/huxin-canals-grid-v10/`. Its grid
+clearing and movement-based handoff are no longer active.
 
 V9 separated the five-second control pause from the thirty-second arrival.
 The leading mist retains its activation transparency. A denser trailing bank
@@ -1127,7 +1234,7 @@ geometry is drawn while waiting at the basin. Frozen-clock comparisons isolate
 the slow arrival from natural cloud motion and check continuity at the control
 release and spatial blend endpoints. The 23 focused Canal tests pass. Captures,
 motion previews and source snapshots are under `artifacts/huxin-canals-fog-v9/`.
-V10 retains that arrival timing. Moon has since been restored byte-for-byte
+V10 retained that arrival timing. Moon has since been restored byte-for-byte
 to its pre-V8 version, together with the original integrity baselines. The rollback
 record is in `artifacts/huxin-moon-revert-20261020/restoration.json`.
 
