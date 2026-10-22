@@ -8,8 +8,9 @@ from pathlib import Path
 import math
 import pyray as pr
 
-from g_huxin_canals_editor import DirectionEditor
+from g_huxin_canals_editor import DirectionEditor, pick_target_bounds
 from g_huxin_canals_direction import CUES, CUE_LABELS, DEFAULT_PATH, default_document, sample_camera
+from g_huxin_canals_targets import coverage_bounds
 from g_huxin_canals_sequence import CanalSequence
 from g_huxin_canals import Explorer, DECK
 from g_temple_cinematics import fly_pose, orbit_pose
@@ -24,6 +25,11 @@ ACCENT=pr.Color(228,183,113,255); BLUE=pr.Color(58,106,122,255); GREEN=pr.Color(
 AXES=(pr.Color(235,128,116,255),pr.Color(135,209,139,255),pr.Color(116,177,237,255))
 SHORT_LABELS=('Puzzle activated','Fog fully formed','Hidden blend finished','Middle starts clearing',
               'Nearby mostly clear','Distant starts clearing','Middle mostly clear','Distant mostly clear','Last traces gone')
+REFERENCE_LABELS={
+    'middle_start':'Middle reference A / camera','near_end':'Near reference / camera',
+    'far_start':'Distant reference A / camera','middle_end':'Middle reference B / camera',
+    'far_end':'Distant reference B / camera',
+}
 
 
 def pose_dict(pose):return dict(eye=list(pose.eye),target=list(pose.target),fov=pose.fov)
@@ -42,6 +48,7 @@ class Editor:
         self.tab='fog';self.speed=3.;self.guides=True;self.closed=False;self.close_prompt=False
         self.status='Select a point to jump. Drag timeline markers to retime the reveal.'
         self.preview_camera=None;self.inspection=None;self._profile=None;self._released=False
+        self.target_query='';self.target_page=0;self.search_entry=False
         self._previous_sequence=scene.sequence
         self._previous_selection=getattr(scene,'codex_selection',None)
         self._previous_paused=getattr(scene,'_codex_frame_paused',False)
@@ -73,18 +80,34 @@ class Editor:
                  ('reverse_view','Reverse view',(a['left']+150,b-60,112,27),self.inspection=='reverse'),
                  ('top_view','Overhead',(a['left']+272,b-60,94,27),self.inspection=='top'),
                  ('guides','Guides',(a['left']+376,b-60,74,27),self.guides),
-                 ('defaults','Restore V17 defaults',(12,b-47,211,29),False)]
+                 ('defaults','Restore defaults',(12,b-47,211,29),False)]
         for i,cue in enumerate(CUES):
-            buttons.append(('cue:'+cue,SHORT_LABELS[i],(10,103+i*43,216,38),cue==self.state.selected))
+            title=REFERENCE_LABELS.get(cue,SHORT_LABELS[i]) if self.state.fog_mode=='buildings' else SHORT_LABELS[i]
+            buttons.append(('cue:'+cue,title,(10,103+i*35,216,32),cue==self.state.selected))
         fields=[(('time',),(x+140,124,132,32))]
         if self.tab=='fog':
-            for i,band in enumerate(('near','middle','far')):
-                buttons.append(('bank:'+band,('Nearby','Middle','Distant')[i],(x+i*94,185,86,30),self.state.band==band))
-            fields.extend([(('offset',i),(x+i*94,253,86,32)) for i in range(3)])
-            fields.extend([(('scale',),(x+140,304,132,32)),(('opacity',),(x+140,348,132,32))])
+            buildings=self.state.fog_mode=='buildings'
+            buttons.extend([('mode:buildings','Buildings / groups',(x,177,152,29),buildings),
+                            ('mode:banks','Legacy banks',(x+160,177,112,29),not buildings)])
+            if buildings:
+                targets=self.filtered_targets();pages=max(1,math.ceil(len(targets)/5))
+                self.target_page=min(self.target_page,pages-1)
+                buttons.append(('search_targets',self.target_query or 'Search name, type or ID',(10,456,216,27),self.search_entry))
+                for i,target in enumerate(targets[self.target_page*5:self.target_page*5+5]):
+                    buttons.append(('target:'+target.id,target.label,(10,490+i*27,216,25),self.state.target_id==target.id))
+                buttons.extend([('targets_prev','<',(10,632,42,25),False),
+                                ('targets_next','>',(184,632,42,25),False),
+                                ('reset_group','Reset selected fog',(x,556,272,29),False),
+                                ('focus_target','Frame selected target',(x,594,272,29),False)])
+                fields.extend([(('reveal_start',),(x,427,131,31)),(('reveal_end',),(x+141,427,131,31))])
+            else:
+                for i,band in enumerate(('near','middle','far')):
+                    buttons.append(('bank:'+band,('Nearby','Middle','Distant')[i],(x+i*94,219,86,29),self.state.band==band))
+                buttons.append(('reset_bank','Reset this bank',(x,556,272,29),False))
+            fields.extend([(('offset',i),(x+i*94,277,86,32)) for i in range(3)])
+            fields.extend([(('scale',),(x+140,324,132,32)),(('opacity',),(x+140,365,132,32))])
             for i,(name,title) in enumerate((('x-','X -'),('y-','Y -'),('z-','Z -'),('x+','X +'),('y+','Y +'),('z+','Z +'))):
-                buttons.append(('nudge:'+name,title,(x+(i%3)*94,408+(i//3)*38,86,29),False))
-            buttons.append(('reset_bank','Reset this bank',(x,500,272,30),False))
+                buttons.append(('nudge:'+name,title,(x+(i%3)*94,479+(i//3)*35,86,28),False))
         else:
             buttons.append(('camera_enabled','Camera path in game: '+('ON' if self.state.document['cameras']['enabled'] else 'OFF'),(x,185,272,30),self.state.document['cameras']['enabled']))
             fields.extend([((prop,i),(x+i*94,y,86,32)) for prop,y in (('eye',253),('target',322)) for i in range(3)])
@@ -103,8 +126,19 @@ class Editor:
         y=self.layout()['timeline'][1]
         return [(cue,(self.x_at(self.state.document['cues'][cue])-7,y-6,14,37)) for cue in CUES]
 
+    def filtered_targets(self):
+        words=self.target_query.casefold().split()
+        return [target for target in self.state.targets
+                if all(word in (target.id+' '+target.label+' '+target.kind).casefold() for word in words)]
+
+    def reveal_handles(self):
+        if self.tab!='fog' or self.state.fog_mode!='buildings':return []
+        y=self.layout()['timeline'][1]+44
+        return [(prop,(self.x_at(self.state.group[prop])-8,y-7,16,30))
+                for prop in ('reveal_start','reveal_end')]
+
     def timeline_end(self):
-        if self.drag and self.drag['kind']=='cue':return self.drag['timeline_end']
+        if self.drag and self.drag['kind'] in ('cue','reveal'):return self.drag['timeline_end']
         return self.state.duration+max(2.,self.state.duration*.08)
 
     def x_at(self,t):
@@ -117,7 +151,7 @@ class Editor:
     def field_value(self,path):
         prop=path[0]
         if prop=='time':return self.state.document['cues'][self.state.selected]
-        source=self.state.bank if prop in ('offset','scale','opacity') else self.state.frame
+        source=self.state.placement if prop in ('offset','scale','opacity','reveal_start','reveal_end') else self.state.frame
         return source[prop][path[1]] if len(path)>1 else source[prop]
 
     def edit_number(self,path):
@@ -131,7 +165,7 @@ class Editor:
             try:
                 value=float(self.entry['text']);path=self.entry['path'];prop=path[0]
                 if prop=='time':self.state.set_time(self.state.selected,value)
-                elif prop in ('offset','scale','opacity'):self.state.set_bank(prop,value,path[1] if len(path)>1 else None)
+                elif prop in ('offset','scale','opacity','reveal_start','reveal_end'):self.state.set_placement(prop,value,path[1] if len(path)>1 else None)
                 else:
                     frame=deepcopy(self.state.frame)
                     if len(path)>1:frame[prop][path[1]]=value
@@ -165,6 +199,13 @@ class Editor:
             elif name=='loop':self.state.loop=not self.state.loop
             elif name.startswith('cue:'):self.state.select(name[4:])
             elif name.startswith('bank:'):self.state.band=name[5:]
+            elif name.startswith('mode:'):self.state.set_fog_mode(name[5:]);self.search_entry=False
+            elif name.startswith('target:'):
+                self.state.select_target(name[7:]);self.status=self.state.target.id+' / Select reveal handles below, or edit its fog placement.'
+            elif name=='search_targets':self.search_entry=True;self.state.playing=False
+            elif name in ('targets_prev','targets_next'):
+                pages=max(1,math.ceil(len(self.filtered_targets())/5))
+                self.target_page=max(0,min(pages-1,self.target_page+(1 if name=='targets_next' else -1)))
             elif name.startswith('tab:'):self.tab=name[4:]
             elif name in ('previous','next'):
                 index=CUES.index(self.state.selected)+(1 if name=='next' else -1)
@@ -172,12 +213,19 @@ class Editor:
             elif name=='save':self.state.save();self.status='Saved to direction.json. Normal play uses these settings.'
             elif name=='reload':self.state.reload();self.status='Reloaded saved direction. Undo restores your previous edits.'
             elif name in ('undo','redo'):getattr(self.state,name)();self.status=name.title()+' applied.'
-            elif name=='defaults':self.state.defaults();self.status='V17 defaults restored in the editor. Undo or save as needed.'
+            elif name=='defaults':self.state.defaults();self.status='Defaults restored for this fog mode. Undo or save as needed.'
+            elif name=='reset_group':self.state.reset_group()
+            elif name=='focus_target':
+                target=self.state.target;settings=self.state.group
+                centre=[target.center[i]+settings['offset'][i] for i in range(3)]
+                size=max(target.half_extents)*max(1.,settings['scale'])
+                self.inspection=dict(eye=[centre[0]+size*1.7,centre[1]+size*1.3,centre[2]+size*2.2],target=centre,fov=58.)
+                self.state.playing=False
             elif name=='reset_bank':
                 self.state.change(lambda:self.state.document['banks'].__setitem__(self.state.band,deepcopy(default_document()['banks'][self.state.band])))
             elif name.startswith('nudge:'):
                 axis='xyz'.index(name[-2]);amount=(-.25 if name[-1]=='-' else .25)
-                self.state.set_bank('offset',self.state.bank['offset'][axis]+amount,axis)
+                self.state.set_placement('offset',self.state.placement['offset'][axis]+amount,axis)
             elif name=='camera_enabled':self.state.change(lambda:self.state.document['cameras'].__setitem__('enabled',not self.state.document['cameras']['enabled']))
             elif name=='match_camera':
                 frame=deepcopy(self.state.frame)
@@ -202,19 +250,51 @@ class Editor:
         except (OSError,ValueError,TypeError,KeyError) as exc:self.status=str(exc)
         self.sync()
 
+    def project(self,p):
+        if self.preview_camera is None:return None
+        view=self.layout()['viewport'];eye=self.preview_camera.position;target=self.preview_camera.target
+        if sum((p[i]-(eye.x,eye.y,eye.z)[i])*((target.x,target.y,target.z)[i]-(eye.x,eye.y,eye.z)[i]) for i in range(3))<=0:return None
+        point=pr.get_world_to_screen_ex(pr.Vector3(*p),self.preview_camera,WIDTH,HEIGHT)
+        return (view[0]+point.x/WIDTH*view[2],view[1]+point.y/HEIGHT*view[3])
+
+    def pick_target(self,mouse):
+        if self.preview_camera is None or self.state.fog_mode!='buildings':return None
+        view=self.layout()['viewport']
+        if not contains(view,mouse):return None
+        cam=self.preview_camera;origin=(cam.position.x,cam.position.y,cam.position.z)
+        def unit(v):
+            length=math.sqrt(sum(x*x for x in v));return tuple(x/length for x in v)
+        def cross(a,b):return (a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0])
+        forward=unit(tuple((cam.target.x,cam.target.y,cam.target.z)[i]-origin[i] for i in range(3)))
+        right=unit(cross(forward,(cam.up.x,cam.up.y,cam.up.z)));up=cross(right,forward)
+        tangent=math.tan(math.radians(cam.fovy)*.5)
+        u=((mouse[0]-view[0])/view[2]*2.-1.)*tangent*WIDTH/HEIGHT
+        v=(1.-(mouse[1]-view[1])/view[3]*2.)*tangent
+        direction=unit(tuple(forward[i]+right[i]*u+up[i]*v for i in range(3)))
+        # Broad water/backdrop envelopes overlap architecture by design. Pick
+        # the physical structures first; the list reaches non-structural groups.
+        physical=[target for target in self.state.targets if target.kind in ('house','bridge')]
+        identity=pick_target_bounds(origin,direction,physical)
+        if identity is None:
+            identity=pick_target_bounds(origin,direction,[target for target in self.state.targets if target.kind in ('water','quay')])
+        if identity:
+            self.state.select_target(identity)
+            targets=self.filtered_targets()
+            if self.state.target not in targets:self.target_query='';targets=self.filtered_targets()
+            self.target_page=targets.index(self.state.target)//5
+            self.status=identity+' selected. Its own fog settings and reveal interval are shown at right.'
+        return identity
+
     def gizmo_handles(self):
-        if not self.guides or self.tab!='fog' or self.state.playing or self.preview_camera is None:return []
-        view=self.layout()['viewport'];base=list(self.state.bank['offset']);base[1]+=2.
-        def project(p):
-            eye=self.preview_camera.position;target=self.preview_camera.target
-            if sum((p[i]-(eye.x,eye.y,eye.z)[i])*((target.x,target.y,target.z)[i]-(eye.x,eye.y,eye.z)[i]) for i in range(3))<=0:return None
-            point=pr.get_world_to_screen_ex(pr.Vector3(*p),self.preview_camera,WIDTH,HEIGHT)
-            return (view[0]+point.x/WIDTH*view[2],view[1]+point.y/HEIGHT*view[3])
-        origin=project(base)
+        if not self.guides or self.tab!='fog' or self.state.playing or self.preview_camera is None or self.selection.enabled:return []
+        view=self.layout()['viewport'];base=list(self.state.placement['offset'])
+        if self.state.fog_mode=='buildings':base=[base[i]+self.state.target.center[i] for i in range(3)]
+        else:base[1]+=2.
+        origin=self.project(base)
         if origin is None:return []
         handles=[]
         for axis in range(3):
-            point=base[:];point[axis]+=3.;end=project(point)
+            point=base[:];point[axis]+=3.;end=self.project(point)
             if end is None or not contains(view,end):continue
             if math.dist(origin,end)<8:continue
             handles.append((axis,(end[0]-9,end[1]-9,18,18),origin,end))
@@ -236,6 +316,14 @@ class Editor:
             if 'ESCAPE' in event.pressed:self.selection.set_enabled(False)
             elif 'BACKSPACE' in event.pressed:self.selection.clear()
             return
+        if self.search_entry:
+            for char in event.chars:
+                if char.isprintable() and len(self.target_query)<64:self.target_query+=char
+            if 'BACKSPACE' in event.pressed:self.target_query=self.target_query[:-1]
+            self.target_page=0
+            if event.pressed&{'ESCAPE','ENTER'}:self.search_entry=False;return
+            if event.left_pressed and not contains((10,456,216,27),event.mouse):self.search_entry=False
+            else:return
         if self.entry:
             for char in event.chars:
                 if char in '0123456789+-.eE':
@@ -257,15 +345,25 @@ class Editor:
                 if drag['moved']:
                     cue=drag['cue'];value=round(self.time_at(event.mouse[0]),2 if shift else 1)
                     self.state.document['cues'][cue]=self.state.clamp_time(cue,value)
+                    if 'fog' in drag['before']:
+                        self.state.document['fog']['groups']=deepcopy(drag['before']['fog']['groups'])
+                    self.state.fit_group_times()
                     self.state.elapsed=self.state.document['cues'][cue]
                 if event.left_released or not event.left_down:self.finish_drag()
             elif kind=='seek':
                 self.state.seek(self.time_at(event.mouse[0]))
                 if event.left_released or not event.left_down:self.finish_drag()
+            elif kind=='reveal':
+                if abs(event.mouse[0]-drag['mouse'][0])>2:drag['moved']=True
+                if drag['moved']:
+                    value=round(self.time_at(event.mouse[0]),2 if shift else 1)
+                    self.state.group[drag['prop']]=self.state.clamp_group_time(drag['prop'],value)
+                    self.state.seek(self.state.group[drag['prop']])
+                if event.left_released or not event.left_down:self.finish_drag()
             elif kind=='bank':
                 dx,dy=drag['vector'];length=dx*dx+dy*dy
                 travel=((event.mouse[0]-drag['mouse'][0])*dx+(event.mouse[1]-drag['mouse'][1])*dy)/length*3.
-                self.state.bank['offset'][drag['axis']]=max(-1000.,min(1000.,drag['value']+travel))
+                self.state.placement['offset'][drag['axis']]=max(-1000.,min(1000.,drag['value']+travel))
                 if event.left_released or not event.left_down:self.finish_drag()
             elif kind in ('fly','inspect_fly'):
                 if event.right_released or not event.right_down:self.finish_drag()
@@ -304,8 +402,14 @@ class Editor:
                 if contains(rect,event.mouse):
                     self.state.playing=False
                     self.drag=dict(kind='bank',axis=axis,mouse=event.mouse,vector=(end[0]-origin[0],end[1]-origin[1]),
-                                   value=self.state.bank['offset'][axis],before=self.state.checkpoint(),elapsed=self.state.elapsed)
+                                   value=self.state.placement['offset'][axis],before=self.state.checkpoint(),elapsed=self.state.elapsed)
                     return
+            hits=[(abs(rect[0]+rect[2]/2-event.mouse[0]),prop) for prop,rect in self.reveal_handles() if contains(rect,event.mouse)]
+            if hits:
+                prop=min(hits)[1];self.state.seek(self.state.group[prop])
+                self.drag=dict(kind='reveal',prop=prop,before=self.state.checkpoint(),elapsed=self.state.elapsed,
+                               timeline_end=self.timeline_end(),mouse=event.mouse,moved=False)
+                return
             hits=[(abs(rect[0]+rect[2]/2-event.mouse[0]),cue) for cue,rect in self.cue_handles() if contains(rect,event.mouse)]
             if hits:
                 cue=min(hits)[1];self.state.select(cue)
@@ -314,6 +418,11 @@ class Editor:
             timeline=self.layout()['timeline']
             if contains((timeline[0],timeline[1]-23,timeline[2],113),event.mouse):
                 self.state.seek(self.time_at(event.mouse[0]));self.drag=dict(kind='seek');return
+            if self.tab=='fog' and self.state.fog_mode=='buildings' and contains(self.layout()['viewport'],event.mouse):
+                self.pick_target(event.mouse);return
+        if self.tab=='fog' and self.state.fog_mode=='buildings' and event.wheel and contains((0,435,236,222),event.mouse):
+            pages=max(1,math.ceil(len(self.filtered_targets())/5))
+            self.target_page=max(0,min(pages-1,self.target_page-int(event.wheel)))
         if contains(self.layout()['viewport'],event.mouse):
             if event.right_pressed or event.middle_pressed:
                 if self.tab=='camera':
@@ -372,33 +481,72 @@ class Editor:
         title=label(title,rect[2]-12,size)
         pr.draw_text(title,int(rect[0]+(rect[2]-pr.measure_text(title,size))/2),int(rect[1]+(rect[3]-size)/2),size,INK)
 
+    def draw_target_guides(self):
+        if not self.guides or self.tab!='fog' or self.state.fog_mode!='buildings' or self.selection.enabled:return
+        target=self.state.target;view=self.layout()['viewport']
+        lower=tuple(target.center[i]-target.half_extents[i] for i in range(3))
+        upper=tuple(target.center[i]+target.half_extents[i] for i in range(3))
+        envelope=coverage_bounds(target,self.state.profile.group(self.state.target_id))
+        pr.begin_scissor_mode(int(view[0]),int(view[1]),int(view[2]),int(view[3]))
+        for (lo,hi),colour,dashed in (((lower,upper),ACCENT,False),(envelope,AXES[2],True)):
+            points=[self.project(tuple(hi[a] if index&(1<<a) else lo[a] for a in range(3))) for index in range(8)]
+            for index in range(8):
+                for axis in range(3):
+                    other=index^(1<<axis)
+                    if other<index or points[index] is None or points[other] is None:continue
+                    start,end=points[index],points[other]
+                    if not dashed:pr.draw_line_ex(pr.Vector2(*start),pr.Vector2(*end),1.4,colour)
+                    else:
+                        length=math.dist(start,end);count=max(1,min(300,int(length/8)))
+                        for segment in range(0,count,2):
+                            a=segment/count;b=min(1.,(segment+1)/count)
+                            p=tuple(start[i]+(end[i]-start[i])*a for i in range(2))
+                            q=tuple(start[i]+(end[i]-start[i])*b for i in range(2))
+                            pr.draw_line_ex(pr.Vector2(*p),pr.Vector2(*q),1.,colour)
+        pr.draw_rectangle(int(view[0])+5,int(view[1])+5,min(375,int(view[2])-10),35,pr.Color(13,20,23,215))
+        pr.draw_text(label(target.id+' / '+target.kind,view[2]-24,12),int(view[0])+11,int(view[1])+9,12,ACCENT)
+        pr.draw_text('Solid: target bounds   Dashed: fog envelope',int(view[0])+11,int(view[1])+25,10,AXES[2])
+        pr.end_scissor_mode()
+
     def draw(self):
         a=self.layout();w,h,b=a['w'],a['h'],a['bottom'];x=a['right']+14
         pr.clear_background(BG);pr.draw_rectangle(0,0,w,57,PANEL)
         pr.draw_rectangle(0,58,a['left'],b-58,PANEL);pr.draw_rectangle(a['right'],58,w-a['right'],b-58,PANEL)
         pr.draw_text('VOID CANALS'+(' *' if self.state.dirty else ''),14,12,21,INK)
         pr.draw_text('FOG / DIRECTION EDITOR',14,37,10,MUTED)
-        pr.draw_text('JUMP POINTS',13,76,15,INK)
+        pr.draw_text('GLOBAL / CAMERA POINTS' if self.state.fog_mode=='buildings' else 'JUMP POINTS',13,76,13,INK)
         buttons,fields=self.controls()
         # Draw the standard interface underneath a dirty-close dialog as well.
         prompt=self.close_prompt;self.close_prompt=False;normal_buttons,normal_fields=self.controls();self.close_prompt=prompt
         for name,title,rect,active in normal_buttons:
             if name.startswith('cue:'):
                 cue=name[4:];self.draw_button('',rect,active)
-                pr.draw_text(title,int(rect[0]+8),int(rect[1]+6),12,INK)
-                pr.draw_text(f"{self.state.document['cues'][cue]:05.2f} s",int(rect[0]+8),int(rect[1]+22),11,ACCENT)
-            else:self.draw_button(title,rect,active)
+                pr.draw_text(title,int(rect[0]+8),int(rect[1]+4),11,INK)
+                pr.draw_text(f"{self.state.document['cues'][cue]:05.2f} s",int(rect[0]+8),int(rect[1]+18),10,ACCENT)
+            else:self.draw_button(title+('_' if name=='search_targets' and self.search_entry else ''),rect,active)
         pr.draw_text('POINT TIME / seconds',x,107,11,MUTED)
-        pr.draw_text('Fixed start' if self.state.selected=='start' else 'Exact time',x,135,13,MUTED)
+        time_label='Fixed start' if self.state.selected=='start' else 'Camera / jump only' if self.state.fog_mode=='buildings' and self.state.selected in REFERENCE_LABELS else 'Exact time'
+        pr.draw_text(time_label,x,135,11,MUTED)
         pr.draw_text(f'{self.state.elapsed:06.2f} s',a['right']-123,76,18,ACCENT)
         if self.tab=='fog':
-            pr.draw_text('SPAWN BANK',x,165,12,MUTED)
-            pr.draw_text('OFFSET / world metres',x,233,12,MUTED)
-            pr.draw_text('Spread / size',x,314,13,INK);pr.draw_text('Opacity multiplier',x,358,13,INK)
-            pr.draw_text('NUDGE / 0.25 metres',x,387,11,MUTED)
-            pr.draw_text('Drag the coloured X / Y / Z handles',x,548,11,MUTED)
-            pr.draw_text('to move this entire spawn bank.',x,565,11,MUTED)
-            pr.draw_text('RMB + WASD: inspect without editing',x,584,10,MUTED)
+            buildings=self.state.fog_mode=='buildings'
+            if buildings:
+                pr.draw_text('FOG TARGETS / click scene or search',13,436,11,INK)
+                targets=self.filtered_targets();pages=max(1,math.ceil(len(targets)/5))
+                pr.draw_text(f'{self.target_page+1} / {pages}  ({len(targets)})',66,640,11,MUTED)
+                if not targets:pr.draw_text('No matching targets',16,502,12,MUTED)
+                pr.draw_text(label(self.state.target.label,272,13),x,219,13,INK)
+                pr.draw_text(self.state.target_id+' / '+self.state.target.kind,x,239,11,ACCENT)
+                pr.draw_text('Reveal starts / s',x,409,11,MUTED)
+                pr.draw_text('Mostly clear / s',x+141,409,11,MUTED)
+                pr.draw_text('Click a structure to select its fog.',x,639,11,MUTED)
+                pr.draw_text('RMB + WASD: inspect without editing',x,657,10,MUTED)
+            else:
+                pr.draw_text('Saved building groups are retained.',x,605,11,MUTED)
+                pr.draw_text('Switch modes to compare the old banks.',x,624,10,MUTED)
+            pr.draw_text('OFFSET / world metres',x,261,11,MUTED)
+            pr.draw_text('Spread / size',x,335,13,INK);pr.draw_text('Opacity multiplier',x,376,13,INK)
+            pr.draw_text('NUDGE / 0.25 metres',x,465,10,MUTED)
         else:
             pr.draw_text('POSITION / world metres',x,233,12,MUTED)
             pr.draw_text('LOOK AT / world metres',x,302,12,MUTED)
@@ -414,11 +562,13 @@ class Editor:
             pr.draw_text(label(prefix+value,rect[2]-10,13),int(rect[0]+5),int(rect[1]+10),13,INK)
         viewport=a['viewport']
         pr.draw_texture_pro(self.scene.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(*viewport),pr.Vector2(0,0),0,pr.WHITE)
+        self.draw_target_guides()
         for axis,rect,origin,end in self.gizmo_handles():
             pr.draw_line_ex(pr.Vector2(*origin),pr.Vector2(*end),2,AXES[axis])
             pr.draw_rectangle_rec(pr.Rectangle(*rect),AXES[axis])
             pr.draw_text('XYZ'[axis],int(rect[0]+5),int(rect[1]+3),12,BG)
-        pr.draw_text(label(CUE_LABELS[self.state.selected],a['right']-a['left']-44,14),a['left']+18,b-86,14,INK)
+        title=REFERENCE_LABELS.get(self.state.selected,CUE_LABELS[self.state.selected]) if self.state.fog_mode=='buildings' else CUE_LABELS[self.state.selected]
+        pr.draw_text(label(title,a['right']-a['left']-44,14),a['left']+18,b-86,14,INK)
         pr.draw_text('F8: Codex selection  /  Space: play  /  arrows: frame step',a['left']+18,b-21,11,MUTED)
         pr.draw_rectangle(0,b,w,h-b,PANEL)
         pr.draw_text(label(self.status,w-230,13),16,b+10,13,ACCENT)
@@ -433,17 +583,26 @@ class Editor:
             pr.draw_rectangle(int(left),int(ty),max(1,int(right-left)-1),24,BLUE if i<2 else FIELD)
         for cue,rect in self.cue_handles():
             px=rect[0]+7;pr.draw_rectangle(int(px)-2,int(ty)-3,4,30,ACCENT if cue==self.state.selected else INK)
-        tracks=(('near','blend_end','near_end'),('middle','middle_start','middle_end'),('far','far_start','far_end'))
-        for i,(band,start,end) in enumerate(tracks):
-            left=self.x_at(self.state.document['cues'][start]);right=self.x_at(self.state.document['cues'][end]);y=ty+36+i*18
-            pr.draw_rectangle(int(left),int(y),max(1,int(right-left)),13,GREEN if band==self.state.band else BLUE)
-            pr.draw_text(band.upper(),int(left)+4,int(y)+1,10,INK)
+        if self.tab=='fog' and self.state.fog_mode=='buildings':
+            left=self.x_at(self.state.group['reveal_start']);right=self.x_at(self.state.group['reveal_end']);y=ty+44
+            pr.draw_rectangle(int(left),int(y),max(1,int(right-left)),17,GREEN)
+            for prop,rect in self.reveal_handles():
+                pr.draw_rectangle_rec(pr.Rectangle(*rect),ACCENT)
+                pr.draw_text('S' if prop=='reveal_start' else 'E',int(rect[0])+4,int(rect[1])+8,12,BG)
+            pr.draw_text(label(self.state.target_id+' / drag S / E to retime this target only',w-52,12),26,int(ty+76),12,INK)
+        else:
+            tracks=(('near','blend_end','near_end'),('middle','middle_start','middle_end'),('far','far_start','far_end'))
+            for i,(band,start,end) in enumerate(tracks):
+                left=self.x_at(self.state.document['cues'][start]);right=self.x_at(self.state.document['cues'][end]);y=ty+36+i*18
+                pr.draw_rectangle(int(left),int(y),max(1,int(right-left)),13,GREEN if band==self.state.band else BLUE)
+                pr.draw_text(band.upper(),int(left)+4,int(y)+1,10,INK)
         cursor=self.x_at(self.state.elapsed)
         pr.draw_line_ex(pr.Vector2(cursor,ty-23),pr.Vector2(cursor,ty+91),2,ACCENT)
         pr.draw_text('MARKERS: drag to retime  /  TRACKS: click to scrub  /  Shift: finer adjustments',16,h-18,11,MUTED)
         if self.preview_camera is not None:
             self.selection.present(self.preview_camera,viewport,{'world':'canals' if self.scene.sequence.world_blend>=.5 else 'lake',
-                'phase':self.scene.sequence.state,'time':self.state.elapsed,'cue':self.state.selected,'fog_bank':self.state.band})
+                'phase':self.scene.sequence.state,'time':self.state.elapsed,'cue':self.state.selected,
+                'fog_mode':self.state.fog_mode,'fog_bank':self.state.band,'fog_target':self.state.target_id})
         if prompt:
             pr.draw_rectangle(0,0,w,h,pr.Color(0,0,0,195));x0,y0=w/2-252,h/2-96
             pr.draw_rectangle(int(x0),int(y0),504,170,PANEL)
@@ -479,7 +638,7 @@ def run_embedded(scene,e,audio,clock):
     elapsed=scene.sequence.elapsed if scene.sequence.state!='ordinary' else 0.
     if audio:
         for sound in audio.sounds.values():pr.stop_sound(sound)
-    pr.enable_cursor();pr.set_window_size(max(1280,old_size[0]),max(800,old_size[1]))
+    pr.enable_cursor();pr.set_window_size(max(1360,old_size[0]),max(900,old_size[1]))
     editor=Editor(scene,e)
     editor.state.selected=max((cue for cue in CUES if editor.state.document['cues'][cue]<=elapsed),key=lambda cue:editor.state.document['cues'][cue],default='start')
     editor.state.seek(elapsed)
@@ -500,7 +659,7 @@ def run_embedded(scene,e,audio,clock):
 def run():
     pr.set_config_flags(pr.FLAG_WINDOW_RESIZABLE)
     pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1440,900,'Void Canals / Fog direction editor')
-    pr.set_window_min_size(1280,800);pr.set_target_fps(60);pr.set_exit_key(pr.KEY_NULL)
+    pr.set_window_min_size(1360,900);pr.set_target_fps(60);pr.set_exit_key(pr.KEY_NULL)
     scene=editor=None
     try:
         scene=Lake();editor=Editor(scene);editor_loop(editor)

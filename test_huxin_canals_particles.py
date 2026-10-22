@@ -4,6 +4,7 @@ from hashlib import sha256
 import math
 import json
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -13,7 +14,10 @@ from g_huxin_canals_particles import (
     FAR_CLEAR_START, FAR_CLEAR_END,
     ATLAS_VARIANTS, CloudParticle, atlas_rect, build_particle_atlas,
     particle_schedule, particles_at, _arrival_clock, _arrival_time,
+    building_frame_at,
 )
+from g_huxin_canals_direction import building_document,profile_from_document,DEFAULT_DIRECTION
+from g_huxin_canals_targets import target_groups,target_group,coverage_bounds
 
 
 class ParticleFieldTests(unittest.TestCase):
@@ -332,6 +336,175 @@ class ParticleAtlasTests(unittest.TestCase):
             with self.assertRaises(ValueError):build_particle_atlas(tile_size)
         for variant in (True, -1, 8, .5):
             with self.assertRaises(ValueError):atlas_rect(variant)
+
+
+class BuildingParticleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.document=building_document()
+        cls.direction=profile_from_document(cls.document)
+
+    def test_every_target_has_unique_stable_world_packets_and_an_exact_crest(self):
+        a=particles_at(5.,37.5,self.direction)
+        self.assertGreater(len(a),4000);self.assertLess(len(a),8000)
+        self.assertIs(a,particles_at(5.,37.5,self.direction))
+        self.assertEqual(a,particles_at(6.,37.5,self.direction))
+        self.assertEqual({p.group_id for p in a},{target.id for target in target_groups()})
+        self.assertEqual(len({p.id for p in a}),len(a))
+        self.assertEqual(len(particle_schedule(self.direction)),len(a))
+        expected=a
+        particles_at(2.,89.,self.direction);particles_at(30.,3.,self.direction)
+        self.assertEqual(expected,particles_at(5.,37.5,self.direction))
+        # All packets, including IDs and positions, serialize without a
+        # runtime-specific object, camera reference or GPU dependency.
+        json.dumps([p._asdict() for p in a])
+        with self.assertRaises(AttributeError):a[0].alpha=0.
+        self.assertEqual(particles_at(0.,37.5,self.direction),())
+        self.assertEqual(particles_at(46.,37.5,self.direction),())
+        self.assertEqual(particles_at(100.,37.5,self.direction),())
+
+    def test_a_single_group_placement_edit_changes_only_that_group(self):
+        ident='house-410';doc=building_document()
+        doc['fog']['groups'][ident].update(offset=[1.25,-.5,2.],scale=1.4,opacity=.5)
+        edited=profile_from_document(doc)
+        before={p.id:p for p in particles_at(5.,71.,self.direction)}
+        after={p.id:p for p in particles_at(5.,71.,edited)}
+        self.assertEqual(set(before),set(after))
+        center=target_group(ident).center
+        for pid,a in before.items():
+            b=after[pid]
+            if a.group_id!=ident:self.assertEqual(a,b);continue
+            expected=tuple(c+(v-c)*1.4+o for c,v,o in zip(center,a.center,(1.25,-.5,2.)))
+            for x,y in zip(expected,b.center):self.assertAlmostEqual(x,y,places=11)
+            self.assertAlmostEqual(b.width,a.width*1.4)
+            self.assertAlmostEqual(b.height,a.height*1.4)
+            self.assertAlmostEqual(b.alpha,a.alpha*.5)
+
+    def test_a_single_reveal_edit_does_not_clear_other_houses(self):
+        ident='house-410';doc=building_document()
+        doc['fog']['groups'][ident].update(reveal_start=22.,reveal_end=32.)
+        edited=profile_from_document(doc)
+        before={p.id:p for p in particles_at(16.,71.,self.direction)}
+        after={p.id:p for p in particles_at(16.,71.,edited)}
+        self.assertEqual(set(before),set(after))
+        changed=0
+        for pid,a in before.items():
+            if a.group_id!=ident:self.assertEqual(a,after[pid])
+            else:
+                self.assertGreater(after[pid].alpha,a.alpha*10.)
+                changed+=1
+        self.assertGreater(changed,50)
+
+    def test_group_lifetimes_keep_handoff_covered_and_finish_with_a_faint_tail(self):
+        schedule=particle_schedule(self.direction)
+        self.assertTrue(all(s.clear_start>=6. for s in schedule))
+        self.assertTrue(all(s.opaque_at<=5. for s in schedule))
+        by_id={p.id:p for p in particles_at(5.,31.,self.direction)}
+        # Sample representative houses on both arms and every non-house type.
+        ids=('house-110','house-410','house-423','house-449','house-1000',
+             'water-approach','quay-west-near','bridge-reverse','backdrop-east','foreground-wisps')
+        for ident in ids:
+            group=self.direction.group(ident)
+            remaining={p.id:p for p in particles_at(group.reveal_end,31.,self.direction)}
+            members=[p for p in by_id.values() if p.group_id==ident]
+            self.assertTrue(members)
+            self.assertLess(max(remaining[p.id].alpha/p.alpha if p.id in remaining else 0. for p in members),.01)
+        final=particles_at(45.99,31.,self.direction)
+        self.assertTrue(all(p.alpha<.0002 for p in final))
+
+    def test_envelopes_are_outside_every_house_and_within_editor_bounds(self):
+        packets=particles_at(5.,31.,self.direction)
+        grouped={target.id:[] for target in target_groups()}
+        for p in packets:grouped[p.group_id].append(p)
+        for target in target_groups():
+            bounds=coverage_bounds(target,self.direction.group(target.id))
+            for p in grouped[target.id]:
+                radius=.5*math.hypot(p.width,p.height)
+                for axis in range(3):
+                    self.assertGreaterEqual(p.center[axis]-radius,bounds[0][axis])
+                    self.assertLessEqual(p.center[axis]+radius,bounds[1][axis])
+            if target.kind!='house':continue
+            cx,cy,cz=target.center;hx,hy,hz=target.half_extents
+            members=grouped[target.id]
+            self.assertTrue(any(p.center[0]<cx-hx for p in members))
+            self.assertTrue(any(p.center[0]>cx+hx for p in members))
+            self.assertTrue(any(p.center[2]<cz-hz for p in members))
+            self.assertTrue(any(p.center[2]>cz+hz for p in members))
+            self.assertTrue(any(p.center[1]>cy+hy for p in members))
+        wisps=grouped['foreground-wisps']
+        self.assertLess(len(wisps),60)
+        self.assertTrue(all(p.alpha<=.2 and p.width<=3.5 for p in wisps))
+
+    def test_retained_group_settings_cannot_change_legacy_bank_mode(self):
+        doc=building_document();doc['fog']['mode']='banks'
+        doc['fog']['groups']['house-110']['offset']=[2.,3.,4.]
+        legacy=profile_from_document(doc)
+        for t in (0.,2.,5.,6.,12.,22.,32.,45.,46.):
+            self.assertEqual(particles_at(t,71.),particles_at(t,71.,legacy))
+
+    def test_birth_and_crest_continuity_use_actual_per_card_alpha(self):
+        schedule={s.id:s for s in particle_schedule(self.direction)}
+        previous={};maximum=0.;late=0.
+        for frame in range(1,151):
+            t=frame/30.
+            current={p.id:p.alpha for p in particles_at(t,77.,self.direction)}
+            self.assertTrue(set(previous)<=set(current))
+            for ident,alpha in current.items():
+                rate=(alpha-previous.get(ident,0.))*30./schedule[ident].max_alpha
+                self.assertGreaterEqual(rate,0.)
+                maximum=max(maximum,rate)
+                if t>=4.8:late=max(late,rate)
+            previous=current
+        self.assertLess(maximum,4.2)
+        self.assertLess(late,.025)
+
+    def test_array_frames_match_packets_and_share_each_time_sample(self):
+        for elapsed in (0.,2.,5.,16.,32.,46.):
+            frame=building_frame_at(elapsed,71.5,self.direction)
+            packets=particles_at(elapsed,71.5,self.direction)
+            self.assertIs(frame,building_frame_at(elapsed,71.5,self.direction))
+            self.assertEqual(len(frame),len(packets))
+            self.assertEqual(frame.centers.shape,(len(packets),3))
+            self.assertEqual(frame.ids.dtype,np.dtype(np.int64))
+            self.assertEqual(frame.group_ids.dtype,np.dtype(object))
+            self.assertEqual(frame.layers.dtype,np.dtype(object))
+            for field,attribute in (('ids','id'),('centers','center'),('widths','width'),
+                                    ('heights','height'),('rotations','rotation'),('alphas','alpha'),
+                                    ('variants','variant'),('group_ids','group_id'),('layers','layer')):
+                actual=getattr(frame,field).tolist()
+                expected=[getattr(p,attribute) for p in packets]
+                if field=='centers':expected=[list(center) for center in expected]
+                self.assertEqual(actual,expected)
+        self.assertLessEqual(building_frame_at.cache_info().currsize,4)
+
+    def test_array_frames_are_readonly_finite_and_do_not_construct_packets(self):
+        with patch('g_huxin_canals_particles.BuildingCloudParticle',side_effect=AssertionError('packet allocation')):
+            frame=building_frame_at(5.023,63.719,self.direction)
+        self.assertGreater(len(frame),7000)
+        for field in dataclasses.fields(frame):
+            array=getattr(frame,field.name)
+            self.assertFalse(array.flags.writeable)
+            if array.dtype!=object:self.assertTrue(np.isfinite(array).all())
+            with self.assertRaises(ValueError):array[0]=array[0]
+        with self.assertRaises(dataclasses.FrozenInstanceError):frame.ids=np.empty(0)
+        self.assertTrue((frame.alphas>ALPHA_CUTOFF).all())
+        self.assertTrue((frame.alphas<=1.).all())
+        self.assertTrue((frame.widths>0.).all() and (frame.heights>0.).all())
+        saved=frame.centers.copy()
+        building_frame_at(6.1,100.,self.direction)
+        np.testing.assert_array_equal(saved,frame.centers)
+
+    def test_array_frame_empty_lifecycle_and_invalid_inputs(self):
+        for elapsed in (-1.,0.,46.,200.):
+            frame=building_frame_at(elapsed,17.,self.direction)
+            self.assertEqual(len(frame),0)
+            self.assertEqual(frame.centers.shape,(0,3))
+            self.assertTrue(all(not getattr(frame,field.name).flags.writeable for field in dataclasses.fields(frame)))
+        for elapsed,clock in ((float('nan'),1.),(1.,float('inf'))):
+            with self.assertRaisesRegex(ValueError,'finite'):
+                building_frame_at(elapsed,clock,self.direction)
+        with self.assertRaisesRegex(ValueError,'buildings'):
+            building_frame_at(5.,17.,DEFAULT_DIRECTION)
 
 
 if __name__ == '__main__':unittest.main()

@@ -4,8 +4,34 @@ import math
 
 from g_huxin_canals_direction import (
     CUES, DEFAULT_PATH, default_document, load_direction, save_direction,
-    validate_document, profile_from_document, sample_camera,
+    validate_document, profile_from_document, sample_camera, building_document,
 )
+from g_huxin_canals_targets import target_groups
+
+
+def pick_target_bounds(origin, direction, targets=None):
+    """Pick the nearest positive ray/AABB hit in the semantic target catalog.
+
+    This is independent of draw batching, visible fog cards, and F8 selection.
+    The boxes describe architecture; fog offsets never move the pick target.
+    """
+    if not all(math.isfinite(v) for v in (*origin, *direction)):
+        raise ValueError('Picking ray must be finite.')
+    if sum(v*v for v in direction) < 1e-16:return None
+    hits=[]
+    for target in target_groups() if targets is None else targets:
+        lo,hi=0.,float('inf')
+        for axis in range(3):
+            minimum=target.center[axis]-target.half_extents[axis]
+            maximum=target.center[axis]+target.half_extents[axis]
+            if abs(direction[axis])<1e-10:
+                if not minimum<=origin[axis]<=maximum:hi=-1.;break
+            else:
+                a=(minimum-origin[axis])/direction[axis]
+                b=(maximum-origin[axis])/direction[axis]
+                lo=max(lo,min(a,b));hi=min(hi,max(a,b))
+        if hi>=lo:hits.append((lo,target.id))
+    return min(hits)[1] if hits else None
 
 
 class DirectionEditor:
@@ -15,6 +41,9 @@ class DirectionEditor:
         self.saved = deepcopy(self.document)
         self.selected = CUES[0]
         self.band = 'near'
+        self.targets = tuple(target_groups())
+        self._targets = {target.id:target for target in self.targets}
+        self.target_id = self.targets[0].id
         self.elapsed = 0.
         self.playing = False
         self.loop = False
@@ -36,6 +65,14 @@ class DirectionEditor:
     @property
     def bank(self):return self.document['banks'][self.band]
     @property
+    def fog_mode(self):return self.document.get('fog',{}).get('mode','banks')
+    @property
+    def target(self):return self._targets[self.target_id]
+    @property
+    def group(self):return self.document['fog']['groups'][self.target_id]
+    @property
+    def placement(self):return self.group if self.fog_mode=='buildings' else self.bank
+    @property
     def profile(self):
         if self._profile_document != self.document:
             self._profile = profile_from_document(self.document)
@@ -45,7 +82,8 @@ class DirectionEditor:
     def checkpoint(self):return deepcopy(self.document)
 
     def _record(self, document):
-        return dict(document=document, selected=self.selected, band=self.band, elapsed=self.elapsed)
+        return dict(document=document, selected=self.selected, band=self.band,
+                    target_id=self.target_id, elapsed=self.elapsed)
 
     def commit(self, before):
         try:self.document = validate_document(self.document)
@@ -71,6 +109,7 @@ class DirectionEditor:
     def _restore(self, record):
         self.document = deepcopy(record['document'])
         self.selected, self.band = record['selected'], record['band']
+        self.target_id=record.get('target_id',self.target_id)
         self.seek(record['elapsed'])
 
     def undo(self):
@@ -104,9 +143,56 @@ class DirectionEditor:
         return max(lo, min(hi, value))
 
     def set_time(self, cue, value):
-        result = self.change(lambda:self.document['cues'].__setitem__(cue, value))
+        def apply():
+            self.document['cues'][cue]=value
+            self.fit_group_times()
+        result = self.change(apply)
         self.select(cue)
         return result
+
+    def fit_group_times(self):
+        """Keep absolute group times unless a global edit makes them invalid.
+
+        Called within the cue's transaction, including each live drag update.
+        Undo restores both the cue and every affected group together.
+        """
+        low=self.document['cues']['blend_end'];high=self.duration
+        if not all(math.isfinite(v) for v in (low,high)) or high-low<.1:return
+        for group in self.document.get('fog',{}).get('groups',{}).values():
+            start=max(low,min(high-.1,group['reveal_start']))
+            end=max(start+.1,min(high,group['reveal_end']))
+            group['reveal_start'],group['reveal_end']=start,end
+
+    def select_target(self, identity):
+        if identity not in self._targets:raise ValueError('Unknown fog target.')
+        self.target_id=identity;self.playing=False
+
+    def set_fog_mode(self, mode):
+        if mode not in ('banks','buildings'):raise ValueError('Unknown fog mode.')
+        def apply():
+            if mode=='buildings':self.document=building_document(self.document)
+            elif 'fog' in self.document:self.document['fog']['mode']='banks'
+        return self.change(apply)
+
+    def clamp_group_time(self, prop, value):
+        if not math.isfinite(value):raise ValueError('Reveal time must be finite.')
+        if prop=='reveal_start':return max(self.document['cues']['blend_end'],min(self.group['reveal_end']-.1,value))
+        if prop=='reveal_end':return max(self.group['reveal_start']+.1,min(self.duration,value))
+        raise ValueError('Unknown reveal time.')
+
+    def set_group(self, prop, value, axis=None):
+        def apply():
+            if axis is None:self.group[prop]=value
+            else:self.group[prop][axis]=value
+        return self.change(apply)
+
+    def set_placement(self, prop, value, axis=None):
+        return (self.set_group if self.fog_mode=='buildings' else self.set_bank)(prop,value,axis)
+
+    def reset_group(self):
+        base=deepcopy(self.document);base.pop('fog',None)
+        group=building_document(base)['fog']['groups'][self.target_id]
+        return self.change(lambda:self.document['fog']['groups'].__setitem__(self.target_id,group))
 
     def set_camera(self, frame):
         def apply():
@@ -131,7 +217,8 @@ class DirectionEditor:
         self.seek(self.elapsed)
 
     def defaults(self):
-        self.change(lambda:setattr(self, 'document', default_document()))
+        document=building_document() if self.fog_mode=='buildings' else default_document()
+        self.change(lambda:setattr(self, 'document', document))
         self.seek(self.elapsed)
 
     def tick(self, dt):

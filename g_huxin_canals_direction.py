@@ -15,6 +15,7 @@ import json
 import math
 import os
 import tempfile
+from hashlib import sha256
 
 
 VERSION = 1
@@ -55,6 +56,16 @@ class BandPlacement:
 
 
 @dataclass(frozen=True, slots=True)
+class FogGroupSettings:
+    id: str
+    offset: tuple[float, float, float]
+    scale: float
+    opacity: float
+    reveal_start: float
+    reveal_end: float
+
+
+@dataclass(frozen=True, slots=True)
 class CameraPose:
     eye: tuple[float, float, float]
     target: tuple[float, float, float]
@@ -76,6 +87,8 @@ class DirectionProfile:
     bank_settings: tuple[BandPlacement, ...]
     camera_enabled: bool
     camera_keys: tuple[CameraKey, ...]
+    fog_mode: str = 'banks'
+    groups: tuple[FogGroupSettings, ...] = ()
 
     def cue(self, name):
         try:return self.cue_times[CUES.index(name)]
@@ -92,6 +105,11 @@ class DirectionProfile:
         if name not in CUES:raise KeyError(name)
         return next((key for key in self.camera_keys if key.cue == name), None)
 
+    def group(self, ident):
+        for group in self.groups:
+            if group.id == ident:return group
+        raise KeyError(ident)
+
 
 def default_document():
     """Return an independently editable JSON document with exact V17 values."""
@@ -105,6 +123,48 @@ def default_document():
                    'target': list(DEFAULT_CAMERA_TARGET), 'fov': DEFAULT_CAMERA_FOV}
             for name in CUES}},
     }
+
+
+def _default_groups(cues):
+    from g_huxin_canals_targets import target_groups
+    # Alternate the two sides in the important held pavilion view, then the
+    # main canal. This is a sequence of individual houses, not a radial wipe.
+    authored = {
+        'house-410':(8.,16.), 'house-423':(10.,18.),
+        'house-437':(12.,20.), 'house-449':(14.,23.),
+        'house-110':(7.,15.), 'house-211':(9.,17.),
+        'house-121':(11.,19.), 'house-224':(13.,22.),
+        'house-461':(15.,24.), 'house-473':(17.,26.),
+    }
+    def remap(t):
+        for i, end in enumerate(DEFAULT_CUE_TIMES[1:]):
+            if t <= end:
+                a, b = DEFAULT_CUE_TIMES[i], end
+                return cues[CUES[i]]+(cues[CUES[i+1]]-cues[CUES[i]])*(t-a)/(b-a)
+        return cues['end']
+    result = {}
+    for target in target_groups():
+        noise = int.from_bytes(sha256(target.id.encode()).digest()[:4],'big') / 4294967295.
+        if target.id in authored:start,end = authored[target.id]
+        elif target.kind == 'foreground':start,end = 6.,11.
+        elif target.kind in ('water','quay','bridge'):
+            start,end = (6.+noise*1.8,12.+noise*3.) if target.band=='near' else (9.+noise*2.,17.+noise*4.)
+        elif target.kind == 'backdrop':start,end = 23.+noise*3.,38.+noise*3.
+        elif target.band == 'near':start,end = 10.+noise*5.,19.+noise*5.
+        elif target.band == 'middle':start,end = 15.+noise*7.,25.+noise*8.
+        else:start,end = 23.+noise*7.,34.+noise*7.
+        result[target.id] = {'offset':[0.,0.,0.],'scale':1.,'opacity':1.,
+                             'reveal_start':remap(start),'reveal_end':remap(end)}
+    return result
+
+
+def building_document(base=None):
+    """Enable building fog without losing bank, camera, timing or group edits."""
+    doc = validate_document(default_document() if base is None else base)
+    groups = _default_groups(doc['cues'])
+    groups.update(doc.get('fog',{}).get('groups',{}))
+    doc['fog'] = {'mode':'buildings','groups':groups}
+    return validate_document(doc)
 
 
 def _object(value, path, required, optional=()):
@@ -135,7 +195,7 @@ def _vector(value, path):
 
 def validate_document(document):
     """Validate and return a fresh normalized copy without mutating the input."""
-    doc = _object(document, 'direction', ('version', 'cues', 'banks', 'cameras'))
+    doc = _object(document, 'direction', ('version', 'cues', 'banks', 'cameras'), ('fog',))
     if isinstance(doc['version'], bool) or not isinstance(doc['version'], int) or doc['version'] != VERSION:
         raise DirectionError(f'version: expected supported version {VERSION}')
     cue_data = _object(doc['cues'], 'cues', CUES)
@@ -183,8 +243,33 @@ def validate_document(document):
         closest = math.sqrt(sum((d+t*v)**2 for d, v in zip(direction, change)))
         if closest < .01:
             raise DirectionError(f'cameras.keys.{name_b}: camera path from {name_a} crosses its target; add an intermediate key')
-    return {'version': VERSION, 'cues': cues, 'banks': banks,
-            'cameras': {'enabled': camera_data['enabled'], 'keys': keys}}
+    result = {'version': VERSION, 'cues': cues, 'banks': banks,
+              'cameras': {'enabled': camera_data['enabled'], 'keys': keys}}
+    if 'fog' in doc:
+        from g_huxin_canals_targets import target_groups
+        fog = _object(doc['fog'],'fog',('mode','groups'))
+        if fog['mode'] not in ('banks','buildings'):raise DirectionError('fog.mode: expected banks or buildings')
+        ids = tuple(target.id for target in target_groups())
+        groups = _object(fog['groups'],'fog.groups', (), ids)
+        # A regenerated scene may add target IDs. Supply defaults only for
+        # absent new groups, preserving every explicit authored value and
+        # still rejecting misspelled IDs or invalid existing settings.
+        if fog['mode']=='buildings':groups={**_default_groups(cues),**groups}
+        normalized = {}
+        for ident in ids:
+            if ident not in groups:continue
+            path = f'fog.groups.{ident}'
+            value = _object(groups[ident],path,('offset','scale','opacity','reveal_start','reveal_end'))
+            start = _number(value['reveal_start'],f'{path}.reveal_start',cues['blend_end'],cues['end'])
+            end = _number(value['reveal_end'],f'{path}.reveal_end',cues['blend_end'],cues['end'])
+            if end-start < MIN_CUE_SPACING-1e-9:
+                raise DirectionError(f'{path}.reveal_end: must be at least .1s after reveal_start')
+            normalized[ident] = {'offset':_vector(value['offset'],f'{path}.offset'),
+                'scale':_number(value['scale'],f'{path}.scale',MIN_SCALE,MAX_SCALE),
+                'opacity':_number(value['opacity'],f'{path}.opacity',MIN_OPACITY,MAX_OPACITY),
+                'reveal_start':start,'reveal_end':end}
+        result['fog'] = {'mode':fog['mode'],'groups':normalized}
+    return result
 
 
 def profile_from_document(document):
@@ -195,12 +280,16 @@ def profile_from_document(document):
                             doc['banks'][name]['opacity']) for name in BANDS),
         doc['cameras']['enabled'],
         tuple(CameraKey(name, tuple(key['eye']), tuple(key['target']), key['fov'])
-              for name, key in doc['cameras']['keys'].items()))
+              for name, key in doc['cameras']['keys'].items()),
+        doc.get('fog',{}).get('mode','banks'),
+        tuple(FogGroupSettings(ident,tuple(value['offset']),value['scale'],value['opacity'],
+                               value['reveal_start'],value['reveal_end'])
+              for ident,value in doc.get('fog',{}).get('groups',{}).items()))
 
 
 def document_from_profile(profile):
     if not isinstance(profile, DirectionProfile):raise DirectionError('profile: expected DirectionProfile')
-    return validate_document({
+    document = {
         'version': VERSION,
         'cues': dict(zip(CUES, profile.cue_times)),
         'banks': {name: {'offset': list(bank.offset), 'scale': bank.scale, 'opacity': bank.opacity}
@@ -208,7 +297,13 @@ def document_from_profile(profile):
         'cameras': {'enabled': profile.camera_enabled, 'keys': {
             key.cue: {'eye': list(key.eye), 'target': list(key.target), 'fov': key.fov}
             for key in profile.camera_keys}},
-    })
+    }
+    if profile.fog_mode != 'banks' or profile.groups:
+        document['fog'] = {'mode':profile.fog_mode, 'groups':{
+            group.id:{'offset':list(group.offset),'scale':group.scale,'opacity':group.opacity,
+                      'reveal_start':group.reveal_start,'reveal_end':group.reveal_end}
+            for group in profile.groups}}
+    return validate_document(document)
 
 
 DEFAULT_DIRECTION = profile_from_document(default_document())

@@ -160,16 +160,43 @@ Click or drag the tracks to scrub freely, including backward through the blend.
 selected point to the next. Left/right arrows step one frame; Shift + arrow
 steps one second. Shift while dragging a marker gives finer timing adjustments.
 
-### Move fog spawn layouts
+### Give each building its own fog
 
-The **Fog placement** tab is the primary workspace. Choose **Nearby**, **Middle**
-or **Distant**, then drag the coloured **X/Y/Z handles** in the image, type
-coordinates, or use the 0.25-metre nudge buttons. These move the selected bank's
-whole spawn layout; the particles keep their individual, staggered lifetimes.
-**Spread / size** scales that layout and its clouds. **Opacity multiplier**
-changes that bank's transparency. **Reset this bank** restores only its placement,
-size and opacity, leaving the timeline intact. These controls edit banks, rather
-than individual particle cards or the architecture.
+The **Fog placement** tab opens in **Buildings / groups** mode for the current
+scene. Click a building in the preview, or use the searchable target list on the
+left. The list includes every house individually, plus water, quays, bridges,
+foreground wisps and distant backdrop groups. Search by house number, ID, name
+or type; scroll over the list or use its page buttons. This selection uses the
+building catalog, so the scene's batched model exports do not merge the houses
+into one selectable object. Broad foreground/backdrop groups are selected from
+the list. F8 remains the separate Codex object-selection tool.
+
+Use **Frame selected target** to inspect it, then drag the coloured **X/Y/Z
+handles**, type an offset, or use the 0.25-metre nudge buttons. Offsets are world
+metres. **Spread / size** scales the selected fog locally about that target's
+centre. **Opacity multiplier** adjusts only that group's transparency. The
+solid outline marks the target bounds; the dashed outline is a conservative
+fog envelope including the billows' reach. It is not the exact noisy edge.
+
+**Reveal starts** and **Mostly clear** set that target's independent clearing
+interval in seconds after puzzle activation. The selected target also has an
+**S / E** timeline bar; click a handle to jump to its exact time, or drag it to
+change that time. Clearing cannot
+start before the hidden world blend ends, and its end must remain within the
+whole sequence. The faint tail finishes at the final sequence point. A click
+without dragging does not round or change a time.
+
+The near/middle/distant reference points on the left remain useful jump points
+and camera keys; in building mode they do not drive individual clearing times.
+Changing a global blend/end point preserves the groups' absolute times unless
+they no longer fit, in which case affected intervals are clamped in the same
+undo step. **Reset selected fog** restores just that target's settings using
+the current global timing.
+
+**Legacy banks** switches to the earlier Nearby / Middle / Distant layout for
+comparison. Both configurations are retained when switching modes. Its handles,
+size, opacity and **Reset this bank** still affect a whole bank; the original
+near/middle/distant cue timing applies in that mode.
 
 **Reverse view** and **Overhead** help inspect the layout. On the Fog tab,
 hold right mouse and use WASD / Q / E to fly around, or middle mouse to orbit.
@@ -191,27 +218,33 @@ player moves after control returns.
 puzzle launcher read the same file at startup or **Home** reset; no asset rebuild
 is needed. **Ctrl+Z / Ctrl+Y** undo and redo; one drag is one undo step.
 **Reload / Ctrl+O** reads the saved values and can itself be undone.
-**Restore V17 defaults** restores the approved 5-second build, 1-second blend
-and 40-second clearing timeline in the editor; saving makes it permanent.
+**Restore defaults** restores the current mode's initial placement and the
+5-second build, 1-second blend and 40-second clearing timeline in the editor;
+saving makes it permanent. Undo restores the preceding configuration.
 
 **Return / exit**, F2 or Escape offers **Save and return**, **Discard and return**,
 or **Keep editing** if changes are unsaved. When opened from play, returning resumes
 at the chosen playhead without replaying sound cues or consuming another object.
 The player's position is retained. F8 provides the existing Codex selection mode
-and records the selected timeline point, time and fog bank with the selection.
+and records the selected timeline point, time, fog mode and target with the
+selection. The editor uses at least 1360 x 900 pixels so its target list,
+placement fields and independent timeline controls remain readable.
 
 Focused checks:
 
 ```powershell
-artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_canals_direction test_huxin_canals_editor -q
-artifacts/temple3d-env/Scripts/python.exe huxin_canals_editor_review.py
+$env:HAUNTED_MUTE_AUDIO='1'
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_canals_direction test_huxin_canals_targets test_huxin_canals_editor test_huxin_canals_building_runtime -q
+artifacts/temple3d-env/Scripts/python.exe huxin_canals_building_review.py --label editor-check
 ```
 
-The native review is hidden and muted and saves screenshots and its report under
-`artifacts/huxin-canals-editor/`. It edits an isolated temporary direction file,
-leaving the actual game's saved direction unchanged.
-The first editor pass passed 16 new CPU checks and the 50 existing focused
-Canals checks. Native verification exercised 37 widget actions, seven repeated
-forward/backward seeks and 18 direct/reflected fog passes. Repeated seeks were
-pixel-identical; fog placement, saved gameplay, selection and embedded return
-were verified with the actual renderer.
+The building review is hidden and muted and saves screenshots and its report
+under `artifacts/huxin-canals-buildings/editor-check/`. It exercises the actual
+target picker, transform gizmo, reveal handles, fields, undo/save/reload and
+fresh-game playback, alongside direct/reflected fog and performance checks.
+It edits an isolated temporary direction file, leaving the game's saved
+direction unchanged. Add `--quick` for a shorter native pass.
+
+The earlier bank-mode editor review remains available with
+`artifacts/temple3d-env/Scripts/python.exe huxin_canals_editor_review.py`; its
+screenshots and report go under `artifacts/huxin-canals-editor/`.

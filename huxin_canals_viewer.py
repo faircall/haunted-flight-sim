@@ -333,6 +333,11 @@ def draw_puzzle_timer(sequence,width,paused=False):
     if sequence.state=='ordinary':phase='Ready - press E to start'
     elif elapsed<cue('build_end'):phase='Fog building'
     elif elapsed<cue('blend_end'):phase='Fog crest - hidden transition'
+    elif getattr(sequence.direction,'fog_mode','banks')=='buildings' and elapsed<sequence.duration:
+        groups=sequence.direction.groups
+        clearing=sum(g.reveal_start<=elapsed<g.reveal_end for g in groups)
+        cleared=sum(elapsed>=g.reveal_end for g in groups)
+        phase=f'{cleared} revealed  |  {clearing} clearing'
     elif elapsed<cue('near_end'):phase='Nearby + middle clearing' if elapsed>=cue('middle_start') else 'Nearby fog clearing'
     elif elapsed<cue('middle_end'):phase='Middle + distant clearing' if elapsed>=cue('far_start') else 'Middle fog clearing'
     elif elapsed<cue('far_end'):phase='Distant fog clearing'

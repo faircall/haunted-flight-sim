@@ -1,14 +1,18 @@
-"""Deterministic local cloud births and near-to-far dissipation for the canals.
+"""Deterministic cloud births and independent target reveals for the canals.
 
-No graphics, filesystem, player, or sequence dependencies live here. The
-renderer owns depth-tested billboards and the fixed pavilion pocket. Each
-particle owns its entire alpha lifecycle; there is no global opacity fade.
-Atlas pixels are unchanged straight-alpha RGBA8.
+Legacy bank mode preserves its original layout, near-to-far timing and renderer
+pocket. Building mode lazily reads a small authored target catalog and places
+separate world-anchored envelopes around houses, roofs and water. Each target
+has its own editable reveal times. Neither mode depends on a camera or player;
+the renderer supplies depth-tested billboards. Atlas pixels are unchanged
+straight-alpha RGBA8, and each particle owns its alpha without a global fade.
 """
 from dataclasses import dataclass
 from functools import lru_cache
 import math
 import random
+from hashlib import sha256
+from typing import NamedTuple
 
 import numpy as np
 from g_huxin_canals_direction import DEFAULT_DIRECTION
@@ -44,6 +48,36 @@ class CloudParticle:
     layer: str
 
 
+class BuildingCloudParticle(NamedTuple):
+    """Immutable C-allocated packets keep thousands of target cards affordable."""
+    id: int
+    center: tuple[float, float, float]
+    width: float
+    height: float
+    rotation: float
+    alpha: float
+    variant: int
+    layer: str
+    group_id: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class BuildingFrame:
+    """Shared read-only arrays; native rendering allocates no card objects."""
+    ids: np.ndarray
+    centers: np.ndarray
+    widths: np.ndarray
+    heights: np.ndarray
+    rotations: np.ndarray
+    alphas: np.ndarray
+    variants: np.ndarray
+    group_ids: np.ndarray
+    layers: np.ndarray
+
+    def __len__(self):
+        return len(self.ids)
+
+
 @dataclass(frozen=True, slots=True)
 class ParticleLifetime:
     id: int
@@ -57,6 +91,31 @@ class ParticleLifetime:
     band: str
     clear_end: float  # Dominant clearing is complete; only a faint tail remains.
     radius: float  # Authored anchor radius, unaffected by local animation drift.
+
+
+@dataclass(frozen=True, slots=True)
+class BuildingParticleLifetime(ParticleLifetime):
+    group_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class _TargetSeed:
+    id: int
+    group_id: str
+    center: tuple[float,float,float]
+    width: float
+    height: float
+    alpha: float
+    variant: int
+    layer: str
+    wave: int
+    birth: float
+    fade_in: float
+    phase: float
+    speed: float
+    drift: float
+    stagger: float
+    density: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +325,8 @@ def _direction_bands(direction):
 @lru_cache(maxsize=4)
 def particle_schedule(direction=None):
     """Immutable lifetime metadata for diagnostics and native review reports."""
+    if direction is not None and direction.fog_mode == 'buildings':
+        return _building_schedule(direction)
     if direction is not None and direction != DEFAULT_DIRECTION:
         bands = _direction_bands(direction)
         result = []
@@ -308,15 +369,17 @@ def _decay(elapsed, start, tau):
 def particles_at(elapsed, clock, direction=None):
     """Sample independent cloud lifetimes without simulation or player state.
 
-    Overlapping birth waves accumulate throughout the five-second arrival. Clock-driven
-    displacement is bounded local drift, with no radial inward motion or scale
-    growth. Nearby clouds dissipate first, with overlapping starts farther out.
-    Surviving cards are submitted
-    until their own alpha reaches ``ALPHA_CUTOFF``; all are gone by DURATION.
+    Waves accumulate throughout the authored arrival with bounded local drift,
+    never a travelling radial curtain. Legacy banks retain their depth stages;
+    building envelopes follow independent group reveal windows. Surviving
+    cards are submitted until their alpha reaches ``ALPHA_CUTOFF``; all are
+    gone at the authored end cue (DURATION for the default legacy profile).
     """
     elapsed, clock = float(elapsed), float(clock)
     if not math.isfinite(elapsed) or not math.isfinite(clock):
         raise ValueError('Particle times must be finite')
+    if direction is not None and direction.fog_mode == 'buildings':
+        return _building_particles(elapsed,clock,direction)
     custom = direction is not None and direction != DEFAULT_DIRECTION
     duration = direction.cue('end') if custom else DURATION
     if elapsed <= 0. or elapsed >= duration:return ()
@@ -353,6 +416,295 @@ def particles_at(elapsed, clock, direction=None):
         result.append(CloudParticle(
             seed.id, (x, y, z), width, height,
             seed.rotation + .022 * math.sin(phase * .53), alpha, seed.variant, seed.layer))
+    return tuple(result)
+
+
+@lru_cache(maxsize=1)
+def _building_layout():
+    """Separate envelopes outside each target, never one pavilion-wide shell."""
+    from g_huxin_canals_targets import target_groups
+    result = []
+    for target in target_groups():
+        stable = int.from_bytes(sha256(target.id.encode()).digest()[:4],'big')
+        rng = random.Random(stable)
+        local = []
+        cx,cy,cz = target.center
+        hx,hy,hz = target.half_extents
+
+        def add(x,y,z,width,height,alpha,layer='bank',drift=.25,variant=None):
+            index = len(local)
+            wave = (index*5+rng.randrange(3))%WAVE_COUNT
+            birth = max(0.,(0.,.95,2.1,3.35,4.8,6.25)[wave]+rng.uniform(-.20,.45))/3.
+            fade = rng.uniform(3.1,4.9)/3.
+            tile=rng.randrange(4) if layer=='wisp' else rng.randrange(4,8)
+            local.append(_TargetSeed(stable*4096+index,target.id,(x,y,z),width,height,alpha,
+                                     tile if variant is None else variant,
+                                     layer,wave,birth,fade,rng.uniform(-math.pi,math.pi),
+                                     rng.uniform(.055,.105),drift,rng.uniform(0.,.06),rng.uniform(.0018,.0032)))
+
+        if target.kind == 'house':
+            shells = 3 if target.band=='near' else 2 if target.band=='middle' else 1
+            if target.id in ('house-410','house-423','house-437','house-449'):shells+=1
+            columns = 3 if target.band=='near' else 2
+            rows = 3 if target.band!='far' else 2
+            # Each side has overlapping layers OUTSIDE the padded house
+            # footprint. Scene depth cannot discard this fog inside a wall.
+            for shell in range(shells):
+                for axis in (0,2):
+                    across = hz if axis==0 else hx
+                    outward = hx if axis==0 else hz
+                    for side in (-1,1):
+                        for row in range(rows):
+                            y = cy-hy+(row+.5)*2*hy/rows+rng.uniform(-.2,.2)
+                            for col in range(columns):
+                                along = -across+(col+.5)*2*across/columns+rng.uniform(-.25,.25)
+                                normal = side*(outward+.65+shell*.85+rng.uniform(-.15,.15))
+                                x,z = (cx+normal,cz+along) if axis==0 else (cx+along,cz+normal)
+                                width = max(4.3,2*across/columns*1.85)*rng.uniform(.94,1.08)
+                                height = max(4.2,2*hy/rows*1.85)*rng.uniform(.94,1.08)
+                                add(x,y,z,width,height,rng.uniform(.80,.94))
+            # Staggered overhead layers soften and obscure the roof silhouette
+            # as well as windows. These are not clipped at the target bounds.
+            for roof in range(2 if target.band!='far' else 1):
+                for sx in (-.55,.55):
+                    for sz in (-.55,.55):
+                        add(cx+sx*hx+rng.uniform(-.25,.25),cy+hy+.45+roof*.65,
+                            cz+sz*hz+rng.uniform(-.25,.25),max(5.,hx*1.5),max(4.5,hy*1.25),
+                            rng.uniform(.78,.91))
+            if target.id in ('house-437','house-110'):
+                # These upper east corners sit between facade rows and the
+                # two perpendicular envelopes. Local overlap covers the actual
+                # exposed corner without thickening every house or the centre.
+                # Appending preserves all existing seeds and their stable IDs.
+                for side in (-1,1):
+                    for corner_layer in range(4):
+                        distance=.4+corner_layer*.6
+                        add(cx+hx+distance,cy+hy*.4,cz+side*(hz+distance),
+                            4.8,4.2,.94,drift=.08,variant=4+corner_layer)
+            if target.id=='house-410':
+                # Two gaps between the east-facing rows look across the
+                # basin. Fill only those local wall strips, below the eaves.
+                for y in (cy-hy+4.1,cy-hy+7.4):
+                    for facade_layer in range(4):
+                        add(cx+hx+.45+facade_layer*.6,y,cz+hz-2.1,
+                            4.5,3.2,.94,drift=.08,variant=4+facade_layer)
+                for facade_layer in range(4):
+                    add(cx+hx+.45+facade_layer*.6,cy-hy+5.65,cz+hz-2.1,
+                        4.5,3.2,.94,drift=.08,variant=4+facade_layer)
+            if target.id=='house-211':
+                for facade_layer in range(4):
+                    add(cx-.8,cy+hy*.34,cz-hz-.5-facade_layer*.6,
+                        4.3,3.6,.94,drift=.08,variant=4+facade_layer)
+                for facade_layer in range(4):
+                    add(cx-2.8,cy+hy*.34,cz-hz-.5-facade_layer*.6,
+                        4.3,3.6,.94,drift=.08,variant=4+facade_layer)
+        elif target.id.startswith('waterline-'):
+            # Follow each real hex edge, not a tall radial wall. Small low
+            # overlapping fragments cover the narrow strip between the deck
+            # and the first depth-visible water sample in either endpoint.
+            edge=int(target.id.rsplit('-',1)[1])-1
+            a=(7.2*math.cos(edge*math.tau/6),7.2*math.sin(edge*math.tau/6))
+            b=(7.2*math.cos((edge+1)*math.tau/6),7.2*math.sin((edge+1)*math.tau/6))
+            normal=(math.cos((edge+.5)*math.tau/6),math.sin((edge+.5)*math.tau/6))
+            for layer in range(3):
+                for column in range(9):
+                    t=(column+.5+rng.uniform(-.12,.12))/9.
+                    distance=-.12+layer*.47+rng.uniform(-.05,.05)
+                    x=a[0]+(b[0]-a[0])*t+normal[0]*distance
+                    z=a[1]+(b[1]-a[1])*t+normal[1]*distance
+                    add(x,-.55+rng.uniform(-.05,.05),z,rng.uniform(2.7,3.3),rng.uniform(2.7,3.1),
+                        rng.uniform(.84,.94),'low',.08)
+            # The submerged layer's soft upper fringe cannot conceal the old
+            # y=0 water by itself. A second shallow layer puts actual cloud
+            # cores above that surface, while its top remains below eye height.
+            # Append it so existing edge-card seeds and IDs stay unchanged.
+            for layer in range(3):
+                for column in range(9):
+                    t=(column+.5+rng.uniform(-.12,.12))/9.
+                    distance=.35+layer*.55+rng.uniform(-.05,.05)
+                    x=a[0]+(b[0]-a[0])*t+normal[0]*distance
+                    z=a[1]+(b[1]-a[1])*t+normal[1]*distance
+                    add(x,.45+rng.uniform(-.05,.05),z,rng.uniform(3.,3.6),rng.uniform(1.9,2.2),
+                        rng.uniform(.86,.95),'low',.08)
+            if edge in (0,2,5):
+                # The northwest rim and two eastern tips show the water
+                # through the soft upper fringe. Place small cloud cores just
+                # over these actual stone edges; their tops stay at ~2m.
+                columns=range(9) if edge==2 else range(3)
+                for layer in range(3):
+                    for column in columns:
+                        t=(column+.5+rng.uniform(-.04,.04))/9.
+                        distance=-.45+layer*.42
+                        x=a[0]+(b[0]-a[0])*t+normal[0]*distance
+                        z=a[1]+(b[1]-a[1])*t+normal[1]*distance
+                        add(x,.95,z,3.8,2.2,.94,'low',.05,variant=4+layer)
+        elif target.kind == 'backdrop':
+            # Large distant fragments sit on actual outer world strips, not
+            # near the camera. Their horizon coverage hides old lake hills.
+            nx,nz = max(2,math.ceil(2*hx/24)),max(2,math.ceil(2*hz/24))
+            for iz in range(nz):
+                for ix in range(nx):
+                    for row in range(2):
+                        add(cx-hx+(ix+.5)*2*hx/nx+rng.uniform(-3.,3.),
+                            cy-hy*.35+row*hy*.75,
+                            cz-hz+(iz+.5)*2*hz/nz+rng.uniform(-3.,3.),
+                            rng.uniform(30.,39.),rng.uniform(25.,34.),rng.uniform(.69,.85),'far',.6)
+        elif target.kind == 'foreground':
+            for _ in range(42):
+                x,z = cx+rng.uniform(-hx,hx),cz+rng.uniform(-hz,hz)
+                if abs(x)<6.7 and abs(z)<7.4:continue
+                add(x,rng.uniform(.4,2.),z,rng.uniform(1.7,3.4),rng.uniform(1.1,2.3),
+                    rng.uniform(.08,.19),'wisp',.23)
+        else:
+            # A low, broad overlap across BOTH water datums. Quay/bridge
+            # volumes follow authored rectangles; none crosses the pavilion.
+            spacing = 3. if target.kind=='water' else 2.8
+            nx,nz = max(2,math.ceil(2*hx/spacing)),max(2,math.ceil(2*hz/spacing))
+            for iz in range(nz):
+                for ix in range(nx):
+                    for row in range(2):
+                        x = cx-hx+(ix+.5)*2*hx/nx+rng.uniform(-.25,.25)
+                        z = cz-hz+(iz+.5)*2*hz/nz+rng.uniform(-.25,.25)
+                        if abs(x)<6.7 and abs(z)<7.4:continue
+                        y = (.45 if row==0 else 1.1)+rng.uniform(-.15,.15)
+                        if target.kind=='bridge':y+=.45
+                        add(x,y,z,rng.uniform(4.1,5.2),rng.uniform(3.2,4.4),
+                            rng.uniform(.64,.82),'low',.18)
+            if target.id=='water-west-basin':
+                # Short north-cap overlap joins the basin's low layer to the
+                # adjacent rim. It covers the oblique water sightline while
+                # staying well below the surrounding house envelopes.
+                for cap_layer in range(4):
+                    add(-7.0-cap_layer*.6,1.55,5.35+cap_layer*.15,
+                        4.5,2.2,.94,'low',.05,variant=4+cap_layer)
+        if len(local)>=4096:raise ValueError(f'Too many particles for target {target.id}')
+        result.extend(local)
+    return tuple(result)
+
+
+@lru_cache(maxsize=4)
+def _building_parameters(direction):
+    from g_huxin_canals_targets import target_groups
+    targets = {target.id:target for target in target_groups()}
+    settings = {group.id:group for group in direction.groups}
+    result = []
+    end = direction.cue('end')
+    for seed in _building_layout():
+        target,setting = targets[seed.group_id],settings[seed.group_id]
+        span = setting.reveal_end-setting.reveal_start
+        start = setting.reveal_start+span*seed.stagger
+        onset = span*.05
+        effective = setting.reveal_end-start-onset*(-math.expm1(-(setting.reveal_end-start)/onset))
+        tau = effective/-math.log(seed.density)
+        duration = end-start
+        total = duration-onset*(-math.expm1(-duration/onset))
+        tail_tau = max(.1,(end-setting.reveal_start)*.35)
+        fast_endpoint,tail_endpoint = math.exp(-total/tau),math.exp(-total/tail_tau)
+        result.append((seed,target,setting,start,onset,tau,tail_tau,fast_endpoint,tail_endpoint))
+    return tuple(result)
+
+
+def _building_decay(elapsed,start,onset,tau,tail_tau,fast_endpoint,tail_endpoint):
+    if elapsed<=start:return 1.
+    age=elapsed-start
+    age-=onset*(-math.expm1(-age/onset))
+    fast=max(0.,(math.exp(-age/tau)-fast_endpoint)/(1.-fast_endpoint))
+    tail=max(0.,(math.exp(-age/tail_tau)-tail_endpoint)/(1.-tail_endpoint))
+    return .994*fast+.006*tail
+
+
+@lru_cache(maxsize=4)
+def _building_arrays(direction):
+    """Cache immutable profile data; only vectorized time samples vary/frame."""
+    parameters=_building_parameters(direction)
+    seeds=tuple(p[0] for p in parameters)
+    target=np.array([p[1].center for p in parameters])
+    scale=np.array([p[2].scale for p in parameters])
+    offset=np.array([p[2].offset for p in parameters])
+    centers=np.array([seed.center for seed in seeds])
+    arrays={name:np.array([getattr(seed,name) for seed in seeds])
+            for name in ('birth','fade_in','phase','speed','drift','alpha','width','height')}
+    arrays.update({name:np.array([p[index] for p in parameters]) for name,index in
+                   (('start',3),('onset',4),('tau',5),('tail_tau',6),('fast_end',7),('tail_end',8))})
+    arrays['base']=target+(centers-target)*scale[:,None]+offset
+    arrays['drift']*=scale
+    arrays['width']*=scale;arrays['height']*=scale
+    arrays['opacity']=np.array([p[2].opacity for p in parameters])
+    arrays['ids']=np.array([seed.id for seed in seeds],dtype=np.int64)
+    arrays['variants']=np.array([seed.variant for seed in seeds],dtype=np.int32)
+    arrays['group_ids']=np.array([seed.group_id for seed in seeds],dtype=object)
+    arrays['layers']=np.array([seed.layer for seed in seeds],dtype=object)
+    for array in arrays.values():array.setflags(write=False)
+    return seeds,arrays
+
+
+@lru_cache(maxsize=1)
+def _empty_building_frame():
+    arrays=(np.empty(0,dtype=np.int64),np.empty((0,3)),
+            *(np.empty(0) for _ in range(4)),np.empty(0,dtype=np.int32),
+            np.empty(0,dtype=object),np.empty(0,dtype=object))
+    for array in arrays:array.setflags(write=False)
+    return BuildingFrame(*arrays)
+
+
+@lru_cache(maxsize=4)
+def building_frame_at(elapsed,clock,direction):
+    """Sample a camera-independent array frame shared by every render pass.
+
+    Float64 values match the diagnostic packet API exactly. Static IDs and
+    strings are cached once per profile; only the live array slices and drift
+    are produced for a new time sample. No per-particle Python object is made.
+    """
+    elapsed,clock=float(elapsed),float(clock)
+    if not math.isfinite(elapsed) or not math.isfinite(clock):
+        raise ValueError('Particle times must be finite')
+    if direction.fog_mode!='buildings':
+        raise ValueError('Building frames require a buildings fog profile')
+    if elapsed<=0. or elapsed>=direction.cue('end'):return _empty_building_frame()
+    born=_arrival_clock(elapsed*ARRIVAL_DURATION/direction.cue('build_end'))
+    _,a=_building_arrays(direction)
+    u=np.clip((born-a['birth'])/a['fade_in'],0.,1.)
+    alpha=a['alpha']*u*u*u*(u*(u*6.-15.)+10.)
+    age=np.maximum(0.,elapsed-a['start'])
+    age-=a['onset']*(-np.expm1(-age/a['onset']))
+    fast=np.maximum(0.,(np.exp(-age/a['tau'])-a['fast_end'])/(1.-a['fast_end']))
+    tail=np.maximum(0.,(np.exp(-age/a['tail_tau'])-a['tail_end'])/(1.-a['tail_end']))
+    alpha=np.minimum(1.,alpha*(.994*fast+.006*tail)*a['opacity'])
+    live=np.flatnonzero(alpha>ALPHA_CUTOFF)
+    if not len(live):return _empty_building_frame()
+    phase=a['phase'][live]+clock*a['speed'][live]
+    drift=a['drift'][live]
+    centers=a['base'][live]
+    centers[:,0]+=np.sin(phase*.73)*drift
+    centers[:,1]+=np.sin(phase*.61+1.2)*drift*.45
+    centers[:,2]+=np.cos(phase*.91)*drift
+    arrays=(a['ids'][live],centers,a['width'][live],a['height'][live],
+            .065*np.sin(phase*.53),alpha[live],a['variants'][live],
+            a['group_ids'][live],a['layers'][live])
+    for array in arrays:array.setflags(write=False)
+    return BuildingFrame(*arrays)
+
+
+def _building_particles(elapsed,clock,direction):
+    # CPU consumers can still request serializable immutable packets. Native
+    # rendering consumes building_frame_at directly and skips this conversion.
+    frame=building_frame_at(elapsed,clock,direction)
+    rows=zip(frame.ids.tolist(),frame.centers.tolist(),frame.widths.tolist(),
+             frame.heights.tolist(),frame.rotations.tolist(),frame.alphas.tolist(),
+             frame.variants.tolist(),frame.layers.tolist(),frame.group_ids.tolist())
+    return tuple(BuildingCloudParticle(ident,tuple(center),width,height,rotation,alpha,
+                                      variant,layer,group_id)
+                 for ident,center,width,height,rotation,alpha,variant,layer,group_id in rows)
+
+
+def _building_schedule(direction):
+    result=[]
+    arrival_scale=direction.cue('build_end')/ARRIVAL_DURATION
+    for seed,target,setting,start,*_ in _building_parameters(direction):
+        result.append(BuildingParticleLifetime(seed.id,seed.wave,_arrival_time(seed.birth)*arrival_scale,
+                        _arrival_time(seed.birth+seed.fade_in)*arrival_scale,start,direction.cue('end'),
+                        min(1.,seed.alpha*setting.opacity),seed.layer,target.band,setting.reveal_end,
+                        math.hypot(seed.center[0],seed.center[2]),seed.group_id))
     return tuple(result)
 
 

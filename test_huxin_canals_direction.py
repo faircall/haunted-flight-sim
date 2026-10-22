@@ -12,7 +12,7 @@ from g_huxin_canals_direction import (
     BANDS, CUES, CUE_LABELS, DEFAULT_DIRECTION, DEFAULT_PROFILE, DEFAULT_PATH,
     CameraPose, DirectionError, default_document, document_from_profile,
     load_direction, profile_from_document, sample_camera, save_direction,
-    validate_document,
+    validate_document, building_document,
 )
 
 
@@ -22,7 +22,7 @@ class DirectionDocumentTests(unittest.TestCase):
         self.assertEqual(default_document()['cues'], expected)
         self.assertEqual(set(CUE_LABELS), set(CUES))
         self.assertIs(DEFAULT_PROFILE, DEFAULT_DIRECTION)
-        self.assertEqual(profile_from_document(load_direction(DEFAULT_PATH)), DEFAULT_DIRECTION)
+        self.assertEqual(profile_from_document(default_document()), DEFAULT_DIRECTION)
         self.assertEqual(document_from_profile(DEFAULT_DIRECTION), default_document())
         self.assertFalse(DEFAULT_DIRECTION.camera_enabled)
         for name in CUES:
@@ -142,6 +142,67 @@ class DirectionPersistenceTests(unittest.TestCase):
                 path.write_text(payload,encoding='utf-8')
                 with self.assertRaises(DirectionError):load_direction(path)
                 self.assertEqual(path.read_text(encoding='utf-8'),payload)
+
+
+class BuildingDirectionTests(unittest.TestCase):
+    def test_optional_legacy_schema_and_building_migration_preserve_existing_edits(self):
+        base=default_document();base['cues']['end']=60.
+        base['banks']['near']['offset']=[2.,1.,-3.]
+        base['cameras']['keys']['end']['fov']=90.
+        self.assertEqual(profile_from_document(base).fog_mode,'banks')
+        self.assertEqual(profile_from_document(base).groups,())
+        changed=building_document(base)
+        for key in ('version','cues','banks','cameras'):self.assertEqual(changed[key],base[key])
+        profile=profile_from_document(changed)
+        self.assertEqual(profile.fog_mode,'buildings')
+        self.assertEqual(len(profile.groups),170)
+        self.assertEqual(document_from_profile(profile),changed)
+        self.assertEqual(hash(profile),hash(profile_from_document(changed)))
+        changed['fog']['groups']['house-110']['offset'][0]=3.
+        self.assertEqual(profile.group('house-110').offset,(0.,0.,0.))
+        self.assertEqual(building_document(changed)['fog']['groups']['house-110']['offset'][0],3.)
+        changed['fog']['mode']='banks'
+        self.assertEqual(profile_from_document(changed).fog_mode,'banks')
+        self.assertEqual(building_document(changed)['fog']['groups'],changed['fog']['groups'])
+        with self.assertRaises(KeyError):profile.group('missing-house')
+        with self.assertRaises(FrozenInstanceError):profile.group('house-110').opacity=0.
+
+    def test_group_validation_rejects_unsafe_or_unknown_timing_and_values(self):
+        for field,value in (('reveal_start',5.9),('reveal_end',47.),('reveal_end',7.),
+                            ('opacity',math.nan),('scale',0.),('offset',[0,0,math.inf])):
+            doc=building_document();doc['fog']['groups']['house-110'][field]=value
+            with self.subTest(field=field,value=value):
+                with self.assertRaisesRegex(DirectionError,'house-110'):validate_document(doc)
+        doc=building_document();del doc['fog']['groups']['house-110']
+        self.assertEqual(validate_document(doc)['fog']['groups']['house-110'],
+                         building_document()['fog']['groups']['house-110'])
+        doc=building_document();doc['fog']['groups']['typo']=doc['fog']['groups']['house-110']
+        with self.assertRaisesRegex(DirectionError,'unknown field typo'):validate_document(doc)
+        doc=building_document();doc['fog']['mode']='circle'
+        with self.assertRaisesRegex(DirectionError,'fog.mode'):validate_document(doc)
+        doc=building_document();doc['fog']['groups']['house-110']['reveal_end']=doc['cues']['end']
+        self.assertEqual(validate_document(doc)['fog']['groups']['house-110']['reveal_end'],46.)
+
+    def test_new_catalog_targets_get_defaults_without_losing_authored_groups(self):
+        doc=building_document();authored=doc['fog']['groups']['house-410']
+        authored.update(offset=[1.,2.,3.],opacity=.4,reveal_start=12.,reveal_end=24.)
+        for ident in tuple(doc['fog']['groups']):
+            if ident.startswith('waterline-'):del doc['fog']['groups'][ident]
+        migrated=validate_document(doc)
+        self.assertEqual(migrated['fog']['groups']['house-410'],authored)
+        self.assertEqual(len(migrated['fog']['groups']),170)
+        self.assertEqual(migrated['fog']['groups']['waterline-1'],
+                         building_document()['fog']['groups']['waterline-1'])
+
+    def test_building_config_roundtrips_to_a_fresh_runtime_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'direction.json';doc=building_document()
+            doc['fog']['groups']['house-410'].update(offset=[1.,2.,3.],opacity=.4,reveal_start=12.,reveal_end=24.)
+            save_direction(doc,path)
+            fresh=profile_from_document(load_direction(path))
+            self.assertEqual(fresh.group('house-410').offset,(1.,2.,3.))
+            self.assertEqual(fresh.group('house-410').reveal_start,12.)
+            self.assertEqual(fresh.group('house-410').reveal_end,24.)
 
 
 class DirectionCameraTests(unittest.TestCase):
