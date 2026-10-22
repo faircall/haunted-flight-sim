@@ -11,6 +11,7 @@ import math
 import random
 
 import numpy as np
+from g_huxin_canals_direction import DEFAULT_DIRECTION
 
 
 ARRIVAL_DURATION = 5.0
@@ -235,9 +236,47 @@ def _layout():
     return tuple(result)
 
 
-@lru_cache(maxsize=1)
-def particle_schedule():
+_BAND_CUES = {
+    'near': ('start', 'build_end', 'blend_end', 'near_end', 'end'),
+    'middle': ('start', 'build_end', 'middle_start', 'middle_end', 'end'),
+    'far': ('start', 'build_end', 'far_start', 'far_end', 'end'),
+}
+
+
+def _map_time(value, source, target):
+    """Map one bank's lifecycle without changing its authored birth pattern."""
+    if source == target:return value
+    if value <= source[0]:return target[0]
+    if value >= source[-1]:return target[-1]
+    for index, end in enumerate(source[1:]):
+        if value <= end:
+            if value == end:return target[index + 1]
+            t = (value - source[index]) / (end - source[index])
+            return target[index] + t * (target[index + 1] - target[index])
+    return target[-1]
+
+
+@lru_cache(maxsize=8)
+def _direction_bands(direction):
+    return {name: (tuple(direction.cue(cue) for cue in cues),
+                   tuple(DEFAULT_DIRECTION.cue(cue) for cue in cues),
+                   direction.band(name)) for name, cues in _BAND_CUES.items()}
+
+
+@lru_cache(maxsize=4)
+def particle_schedule(direction=None):
     """Immutable lifetime metadata for diagnostics and native review reports."""
+    if direction is not None and direction != DEFAULT_DIRECTION:
+        bands = _direction_bands(direction)
+        result = []
+        for s in particle_schedule():
+            edited, authored, placement = bands[s.band]
+            remap = lambda value: _map_time(value, authored, edited)
+            result.append(ParticleLifetime(s.id, s.wave, remap(s.birth), remap(s.opaque_at),
+                                          remap(s.clear_start), direction.cue('end'),
+                                          min(1., s.max_alpha * placement.opacity), s.layer,
+                                          s.band, remap(s.clear_end), s.radius))
+        return tuple(result)
     return tuple(ParticleLifetime(s.id, s.wave, _arrival_time(s.birth), _arrival_time(s.birth + s.fade_in),
                                   s.clear_start, DURATION, s.alpha, s.layer,
                                   s.band, s.clear_end, math.hypot(s.center[0], s.center[2]))
@@ -266,7 +305,7 @@ def _decay(elapsed, start, tau):
 
 
 @lru_cache(maxsize=4)
-def particles_at(elapsed, clock):
+def particles_at(elapsed, clock, direction=None):
     """Sample independent cloud lifetimes without simulation or player state.
 
     Overlapping birth waves accumulate throughout the five-second arrival. Clock-driven
@@ -278,13 +317,23 @@ def particles_at(elapsed, clock):
     elapsed, clock = float(elapsed), float(clock)
     if not math.isfinite(elapsed) or not math.isfinite(clock):
         raise ValueError('Particle times must be finite')
-    if elapsed <= 0. or elapsed >= DURATION:return ()
-    birth_clock = _arrival_clock(elapsed)
+    custom = direction is not None and direction != DEFAULT_DIRECTION
+    duration = direction.cue('end') if custom else DURATION
+    if elapsed <= 0. or elapsed >= duration:return ()
+    bands = _direction_bands(direction) if custom else None
+    times = {name: _map_time(elapsed, edited, authored)
+             for name, (edited, authored, _) in bands.items()} if custom else None
+    births = {name: _arrival_clock(value) for name, value in times.items()} if custom else None
+    birth_clock = _arrival_clock(elapsed) if not custom else 0.
     result = []
     for seed in _layout():
-        if birth_clock <= seed.birth:continue
-        opacity = _ease((birth_clock - seed.birth) / seed.fade_in)
-        alpha = seed.alpha * opacity * _decay(elapsed, seed.clear_start, seed.tau)
+        local_time = times[seed.band] if custom else elapsed
+        born = births[seed.band] if custom else birth_clock
+        if born <= seed.birth:continue
+        opacity = _ease((born - seed.birth) / seed.fade_in)
+        alpha = seed.alpha * opacity * _decay(local_time, seed.clear_start, seed.tau)
+        placement = bands[seed.band][2] if custom else None
+        if custom:alpha = min(1., alpha * placement.opacity)
         if alpha <= ALPHA_CUTOFF:continue
         x, y, z = seed.center
         radius = math.hypot(x, z)
@@ -295,8 +344,14 @@ def particles_at(elapsed, clock):
         x += nx * radial - nz * tangent
         z += nz * radial + nx * tangent
         y += math.sin(phase * .89 + 1.3) * (.10 if seed.layer == 'low' else .18)
+        width, height = seed.width, seed.height
+        if custom:
+            x = x * placement.scale + placement.offset[0]
+            y = y * placement.scale + placement.offset[1]
+            z = z * placement.scale + placement.offset[2]
+            width *= placement.scale; height *= placement.scale
         result.append(CloudParticle(
-            seed.id, (x, y, z), seed.width, seed.height,
+            seed.id, (x, y, z), width, height,
             seed.rotation + .022 * math.sin(phase * .53), alpha, seed.variant, seed.layer))
     return tuple(result)
 

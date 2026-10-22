@@ -42,7 +42,7 @@ class PuzzleFog:
     def render(self,source,cam,sequence,clock,colour,water_y,reflected=False):
         """Premultiplied cloud colour and coverage, without modifying scene depth."""
         active=sequence.state in ('entering','canals')
-        clouds=particles_at(sequence.elapsed,clock) if active else ()
+        clouds=particles_at(sequence.elapsed,clock,getattr(sequence,'direction',None)) if active else ()
         self.last_count=len(clouds)
         self.last_draw_count=0
         self.last_signature=tuple((p.id,p.center,p.alpha) for p in clouds)

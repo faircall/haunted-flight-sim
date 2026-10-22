@@ -1,5 +1,8 @@
 # Intro cinematics editor
 
+For the Void Canals fog reveal, use `edit_huxin_canals.cmd` or **F2** in the
+Canals scene. Its timeline and fog-placement controls are described below.
+
 Double-click `edit_intro_cinematics.cmd`, or run:
 
 ```powershell
@@ -138,3 +141,77 @@ scrubbing, splitting/removing, undo/redo, save/reload, looping and the F2 round
 trip. It uses an isolated, reproducible timeline and confirms that game playback
 reads the saved camera. It leaves the actual cinematic file untouched. Screenshots
 and a report go to `artifacts/cinematics-editor/`.
+
+## Void Canals fog editor
+
+Double-click **`edit_huxin_canals.cmd`**, run `python huxin_canals_viewer.py --editor`,
+or press **F2** during ordinary Canals play or the puzzle test. The standalone
+editor opens at full fog strength so placement changes are immediately visible.
+It uses the actual game renderer, including the water reflections, with sound muted.
+
+The left list contains nine jump points, from puzzle activation through the
+hidden world blend, the overlapping near/middle/distant clearing phases, and
+the last traces. Click a point to jump there. Drag its marker along the bottom
+timeline, or click **Point time** to type an exact value. The phase order is
+preserved; markers stop short of their neighbours. Activation stays at zero.
+Click or drag the tracks to scrub freely, including backward through the blend.
+
+**Space** plays or pauses. **Loop interval** repeats the section from the
+selected point to the next. Left/right arrows step one frame; Shift + arrow
+steps one second. Shift while dragging a marker gives finer timing adjustments.
+
+### Move fog spawn layouts
+
+The **Fog placement** tab is the primary workspace. Choose **Nearby**, **Middle**
+or **Distant**, then drag the coloured **X/Y/Z handles** in the image, type
+coordinates, or use the 0.25-metre nudge buttons. These move the selected bank's
+whole spawn layout; the particles keep their individual, staggered lifetimes.
+**Spread / size** scales that layout and its clouds. **Opacity multiplier**
+changes that bank's transparency. **Reset this bank** restores only its placement,
+size and opacity, leaving the timeline intact. These controls edit banks, rather
+than individual particle cards or the architecture.
+
+**Reverse view** and **Overhead** help inspect the layout. On the Fog tab,
+hold right mouse and use WASD / Q / E to fly around, or middle mouse to orbit.
+Shift + middle mouse pans; the wheel changes the lens. These inspection moves
+do not change the saved camera path. **Authored view** returns to it. **Guides**
+toggles the placement handles; they hide during playback.
+
+The optional **Camera** tab provides a camera key at each timeline point.
+Editing its position, target or lens, or flying/orbiting while that tab is open,
+enables the camera path for game playback. **Hold this view at all points**
+copies the selected framing throughout. The path is initially disabled, preserving
+the existing game cameras. Once enabled it plays during the reveal until the
+player moves after control returns.
+
+### Save and return to play
+
+**Save to game / Ctrl+S** atomically writes
+[`direction.json`](art/temple/huxin_canals/direction.json). Normal gameplay and the
+puzzle launcher read the same file at startup or **Home** reset; no asset rebuild
+is needed. **Ctrl+Z / Ctrl+Y** undo and redo; one drag is one undo step.
+**Reload / Ctrl+O** reads the saved values and can itself be undone.
+**Restore V17 defaults** restores the approved 5-second build, 1-second blend
+and 40-second clearing timeline in the editor; saving makes it permanent.
+
+**Return / exit**, F2 or Escape offers **Save and return**, **Discard and return**,
+or **Keep editing** if changes are unsaved. When opened from play, returning resumes
+at the chosen playhead without replaying sound cues or consuming another object.
+The player's position is retained. F8 provides the existing Codex selection mode
+and records the selected timeline point, time and fog bank with the selection.
+
+Focused checks:
+
+```powershell
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_canals_direction test_huxin_canals_editor -q
+artifacts/temple3d-env/Scripts/python.exe huxin_canals_editor_review.py
+```
+
+The native review is hidden and muted and saves screenshots and its report under
+`artifacts/huxin-canals-editor/`. It edits an isolated temporary direction file,
+leaving the actual game's saved direction unchanged.
+The first editor pass passed 16 new CPU checks and the 50 existing focused
+Canals checks. Native verification exercised 37 widget actions, seven repeated
+forward/backward seeks and 18 direct/reflected fog passes. Repeated seeks were
+pixel-identical; fog placement, saved gameplay, selection and embedded return
+were verified with the actual renderer.

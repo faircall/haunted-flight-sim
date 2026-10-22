@@ -4,6 +4,7 @@ from g_interaction_data import SLOT_COUNT
 from g_huxin_canals import DECK, can_walk, walk_height, COLUMNS, BENCHES, smooth, shore_radius, PATH
 from g_huxin_canals_particles import (ARRIVAL_DURATION as FOG_ARRIVAL_DURATION,
     CLEAR_START as WORLD_BLEND_END, CLEAR_DURATION as FOG_CLEAR_DURATION)
+from g_huxin_canals_direction import DEFAULT_DIRECTION
 WORLD_BLEND_START=FOG_ARRIVAL_DURATION
 ENTRY_SWAP=WORLD_BLEND_END
 ENTRY_DURATION=WORLD_BLEND_END
@@ -68,13 +69,42 @@ def support(x,z,previous,revealed,r=.19):
 
 
 class CanalSequence:
-    def __init__(self):
+    def __init__(self,direction=None):
         from g_inventory import add
+        self.direction=DEFAULT_DIRECTION if direction is None else direction
         self.state='ordinary';self.revealed=False;self.elapsed=0.;self.approach=0.
         self.focus=False;self.yaw,self.pitch=SOLUTION;self.held=0.;self.disc_placed=False
         self.entry_veil=.72;self.entry_arrival=.93;self.locked_camera=None;self.locked_pose=None;self.locked_shot=None
         self.inventory=[None]*SLOT_COUNT;add(self.inventory,DISC_ITEM)
         self.events=[];self.swaps=[];self.bells=0;self.world_time=0.;self.next_creak=39.
+        self._direction_camera_released=False
+
+    def cue(self,name):return self.direction.cue(name)
+    @property
+    def duration(self):return self.cue('end')
+    @property
+    def entry_duration(self):return self.cue('blend_end')
+
+    def seek(self,elapsed):
+        """Preview an activated encounter without playing cues or simulating time.
+
+        Zero is the moment the object has been placed. A fresh ordinary game
+        remains the constructor/reset path, so scrubbing never consumes a
+        second item or replays the bell.
+        """
+        elapsed=float(elapsed)
+        if not math.isfinite(elapsed):raise ValueError('Encounter time must be finite')
+        self.elapsed=max(0.,min(self.duration,elapsed))
+        self.revealed=self.elapsed>=self.entry_duration
+        self.state='canals' if self.revealed else 'entering'
+        self.disc_placed=True;self.focus=False;self.held=0.
+        self.inventory[:]=[s if s is None or s.get('group')!='void_disc' else None for s in self.inventory]
+        self.events.clear();self.swaps.clear();self.bells=0
+        self.world_time=max(0.,self.elapsed-self.entry_duration);self.next_creak=39.
+        while self.next_creak<=self.world_time:
+            self.next_creak+=47.+17.*math.sin(self.next_creak*.13)**2
+        self.locked_camera=None;self.locked_pose=None;self.locked_shot=None
+        self._direction_camera_released=False
 
     @property
     def world(self):return 'canals' if self.revealed else 'lake'
@@ -86,7 +116,7 @@ class CanalSequence:
     def world_blend(self):
         """Join both fully fogged worlds gently while the clouds keep drifting."""
         if self.state not in ('entering','canals'):return 0.
-        return ease(WORLD_BLEND_START,WORLD_BLEND_END,self.elapsed)
+        return ease(self.cue('build_end'),self.entry_duration,self.elapsed)
     @property
     def veil(self):
         if self.state=='ordinary':return .72*ease(0.,1.,self.approach)
@@ -96,7 +126,7 @@ class CanalSequence:
     def fog_arrival(self):
         if self.state=='ordinary':return .93*ease(0.,1.,self.approach)
         if self.state in ('entering','canals'):
-            return self.entry_arrival+(1.-self.entry_arrival)*ease(0.,FOG_ARRIVAL_DURATION,self.elapsed)
+            return self.entry_arrival+(1.-self.entry_arrival)*ease(0.,self.cue('build_end'),self.elapsed)
         return 0.
     @property
     def fog_source_arrival(self):
@@ -105,21 +135,22 @@ class CanalSequence:
     @property
     def fog_depth(self):
         """Progress of the overlapping particle births toward full coverage."""
-        if self.state in ('entering','canals'):return ease(0.,FOG_ARRIVAL_DURATION,self.elapsed)
+        if self.state in ('entering','canals'):return ease(0.,self.cue('build_end'),self.elapsed)
         return 0.
     @property
     def fog_clear(self):
         """Ambient approach haze and grade; particle waves own their own alpha."""
         if self.state not in ('entering','canals'):return 0.
-        seconds=self.elapsed-FOG_CLEAR_START
+        duration=self.duration-self.entry_duration
+        seconds=self.elapsed-self.entry_duration
         if seconds<=0.:return 0.
-        if seconds>=FOG_CLEAR_DURATION:return 1.
+        if seconds>=duration:return 1.
         # The complete clearing clock is twice as slow, including its onset.
         # This controls only the retained approach haze. The new puzzle clouds
         # fade per particle, with staggered exponential tails on this clock.
-        onset=2.
+        onset=duration*.05
         travelled=seconds*seconds/(2.*onset) if seconds<onset else seconds-onset*.5
-        t=travelled/(FOG_CLEAR_DURATION-onset*.5)
+        t=travelled/(duration-onset*.5)
         return max(0.,min(1.,3.*t-2.*t**1.5))
     @property
     def camera_stage(self):return 'continuous' if self.transitioning else None
@@ -151,15 +182,15 @@ class CanalSequence:
         if self.state in ('entering','canals'):
             # Keep the same clock through arrival, hidden handoff, control
             # release and dissipation. Walking cannot accelerate the clearing.
-            self.elapsed=min(SEQUENCE_DURATION,self.elapsed+max(0.,dt))
+            self.elapsed=min(self.duration,self.elapsed+max(0.,dt))
             # Summed frame intervals can land a few ulps below an authored
             # boundary. Commit on that frame at every supported frame rate.
-            for boundary in (FOG_ARRIVAL_DURATION,ENTRY_DURATION,FOG_CLEAR_START,SEQUENCE_DURATION):
+            for boundary in (self.cue('build_end'),self.entry_duration,self.duration):
                 if abs(self.elapsed-boundary)<1e-9:self.elapsed=boundary
         if self.state=='entering':
-            if self.elapsed>=ENTRY_SWAP and not self.revealed:
+            if self.elapsed>=self.entry_duration and not self.revealed:
                 self.revealed=True;self.swaps.append(('entering',self.veil))
-            if self.elapsed>=ENTRY_DURATION:
+            if self.elapsed>=self.entry_duration:
                 self.state='canals';self.world_time=0.
         elif self.state=='canals':
             self.world_time+=dt

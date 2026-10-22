@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "cues": {
+    "start": 0.0,
+    "build_end": 5.0,
+    "blend_end": 6.0,
+    "middle_start": 12.0,
+    "near_end": 14.0,
+    "far_start": 20.0,
+    "middle_end": 22.0,
+    "far_end": 32.0,
+    "end": 46.0
+  },
+  "banks": {
+    "near": {"offset": [0.0, 0.0, 0.0], "scale": 1.0, "opacity": 1.0},
+    "middle": {"offset": [0.0, 0.0, 0.0], "scale": 1.0, "opacity": 1.0},
+    "far": {"offset": [0.0, 0.0, 0.0], "scale": 1.0, "opacity": 1.0}
+  },
+  "cameras": {
+    "enabled": false,
+    "keys": {
+      "start": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0},
+      "build_end": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0},
+      "blend_end": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0},
+      "middle_start": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0},
+      "near_end": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0},
+      "far_start": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0},
+      "middle_end": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0},
+      "far_end": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0},
+      "end": {"eye": [4.05, 3.2, 3.05], "target": [-0.7, 1.5, -1.2], "fov": 78.0}
+    }
+  }
+}

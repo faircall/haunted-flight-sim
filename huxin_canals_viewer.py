@@ -19,6 +19,7 @@ from huxin_canals_camera import canal_camera,mist_camera,FOCUS_EYE,FOCUS_TARGET
 from huxin_canals_audio import EncounterAudio
 from g_huxin_canals_layout import CAMERA_SHOTS,WATER_Y,START
 from temple_intro_fog import depth_target
+from g_huxin_canals_direction import load_direction,profile_from_document,sample_camera
 
 ROOT=Path(__file__).parent;KIT=ROOT/'art'/'temple'/'huxin_canals';WIDTH,HEIGHT=640,360
 
@@ -176,17 +177,29 @@ class Lake(Hall):
             pr.draw_model_ex(self.player.player,pr.Vector3(e.x,2*self.water_y-e.height-.01 if reflection else e.height+.01,e.z),pr.Vector3(0,1,0),180-math.degrees(e.yaw),pr.Vector3(PLAYER_SCALE,-PLAYER_SCALE if reflection else PLAYER_SCALE,PLAYER_SCALE),pr.WHITE)
             if not reflection:self.register_player_selection((e.x,e.height+.01,e.z),PLAYER_SCALE,180-math.degrees(e.yaw))
 
-    def render(self,e,clock,inspection=False,override=None,show_player=True,assembly=False):
+    def render(self,e,clock,inspection=False,override=None,show_player=True,assembly=False,editor_override=False):
         q=self.sequence
         pose=(e.x,e.height,e.z,e.yaw)
         selection_paused=getattr(self,'_codex_frame_paused',False) or getattr(getattr(self,'codex_selection',None),'enabled',False)
-        if not selection_paused:
-            if q.locked_camera is not None and not q.transitioning and q.locked_pose!=pose:q.locked_camera=None
-            if override is not None and not q.transitioning:q.locked_camera=None
-        if selection_paused and override is not None:
+        if not selection_paused and not editor_override:
+            if q.locked_camera is not None and not q.transitioning and q.locked_pose!=pose:
+                q.locked_camera=None;q._direction_camera_released=True
+            if override is not None and not q.transitioning:
+                q.locked_camera=None;q._direction_camera_released=True
+        directed=None
+        if (not editor_override and not selection_paused and q.disc_placed
+                and q.direction.camera_enabled and not q._direction_camera_released):
+            directed=sample_camera(q.direction,q.elapsed)
+        if editor_override and override is not None:
+            shot,cam=self.last_shot,override
+        elif selection_paused and override is not None:
             # Inspect the displayed frame without dismissing a retained reveal
             # camera. The encounter resumes with its original camera state.
             shot,cam=self.last_shot,override
+        elif directed is not None:
+            shot,cam=5,camera(directed.eye,directed.target,directed.fov)
+            if q.locked_pose is None:q.locked_pose=pose
+            q.locked_camera=cam;q.locked_shot=shot
         elif q.transitioning:
             # Capture the actual preceding frame, including an inspection view.
             # Nothing reframes during the fog: near pavilion geometry is the
@@ -300,9 +313,11 @@ class Lake(Hall):
         if self.reflection_raw:pr.unload_render_texture(self.reflection_raw);self.reflection_raw=None
         if self.water_shader:pr.unload_shader(self.water_shader);self.water_shader=None
 
-def reset_player(scene,puzzle=False):
+def reset_player(scene,puzzle=False,direction=None):
     """A fresh encounter; the test shortcut is ready for E without any walking."""
-    e=Explorer();scene.sequence=CanalSequence();e.encounter=scene.sequence
+    if direction is None:direction=profile_from_document(load_direction())
+    e=Explorer();scene.sequence=CanalSequence(direction);e.encounter=scene.sequence
+    scene.last_camera=None;scene.last_shot=0
     if puzzle:
         e.x,e.height,e.z=1.65,DECK,1.65
         e.yaw=math.atan2(MIRROR[0]-e.x,e.z-MIRROR[2])
@@ -314,14 +329,14 @@ def reset_player(scene,puzzle=False):
 
 def draw_puzzle_timer(sequence,width,paused=False):
     """Test-only clock using the same elapsed time that drives the fog."""
-    elapsed=sequence.elapsed
+    elapsed=sequence.elapsed;cue=sequence.cue
     if sequence.state=='ordinary':phase='Ready - press E to start'
-    elif elapsed<WORLD_BLEND_START:phase='Fog building'
-    elif elapsed<FOG_CLEAR_START:phase='Fog crest - hidden transition'
-    elif elapsed<NEAR_CLEAR_END:phase='Nearby + middle clearing' if elapsed>=MIDDLE_CLEAR_START else 'Nearby fog clearing'
-    elif elapsed<MIDDLE_CLEAR_END:phase='Middle + distant clearing' if elapsed>=FAR_CLEAR_START else 'Middle fog clearing'
-    elif elapsed<FAR_CLEAR_END:phase='Distant fog clearing'
-    elif elapsed<SEQUENCE_DURATION:phase='Final wisps fading'
+    elif elapsed<cue('build_end'):phase='Fog building'
+    elif elapsed<cue('blend_end'):phase='Fog crest - hidden transition'
+    elif elapsed<cue('near_end'):phase='Nearby + middle clearing' if elapsed>=cue('middle_start') else 'Nearby fog clearing'
+    elif elapsed<cue('middle_end'):phase='Middle + distant clearing' if elapsed>=cue('far_start') else 'Middle fog clearing'
+    elif elapsed<cue('far_end'):phase='Distant fog clearing'
+    elif elapsed<sequence.duration:phase='Final wisps fading'
     else:phase='Fog cleared'
     x,y=max(12,width-326),40
     ink=pr.Color(224,233,220,255);muted=pr.Color(155,185,180,255)
@@ -329,7 +344,7 @@ def draw_puzzle_timer(sequence,width,paused=False):
     pr.draw_text('PUZZLE TIMER'+('  |  PAUSED' if paused else ''),x+14,y+10,14,muted)
     pr.draw_text(f'{elapsed:05.1f} s',x+14,y+30,32,ink)
     pr.draw_text(phase,x+14,y+70,16,ink)
-    footer=f'Clearing +{elapsed-FOG_CLEAR_START:.1f} s  |  Home resets' if elapsed>=FOG_CLEAR_START else 'Since activation  |  Home resets'
+    footer=f'Clearing +{elapsed-sequence.entry_duration:.1f} s  |  Home resets' if elapsed>=sequence.entry_duration else 'Since activation  |  Home resets'
     pr.draw_text(footer,x+14,y+98,12,muted)
 
 
@@ -344,7 +359,7 @@ def run(review=False,direct=False,puzzle=False):
         if direct:
             e.x,e.height,e.z=START;scene.sequence.revealed=True;scene.sequence.state='canals';scene.sequence.disc_placed=True;e.encounter=scene.sequence
             # Direct inspection skips the completed fog sequence.
-            scene.sequence.elapsed=SEQUENCE_DURATION
+            scene.sequence.elapsed=scene.sequence.duration
             scene.sequence.inventory[:]=[s if s is None or s.get('group')!='void_disc' else None for s in scene.sequence.inventory]
         from codex_selection import SelectionSession
         selection=SelectionSession('huxin_canals',__file__);scene.codex_selection=selection
@@ -363,6 +378,12 @@ def run(review=False,direct=False,puzzle=False):
             elif was_selecting and not selection.enabled:
                 for sound in paused_sounds:pr.resume_sound(sound)
                 paused_sounds=[]
+            if not blocked and pr.is_key_pressed(pr.KEY_F2):
+                from huxin_canals_editor import run_embedded
+                manual=None;free=False;pr.enable_cursor()
+                clock=run_embedded(scene,e,audio,clock)
+                selected_camera=scene.last_camera
+                continue
             if blocked:
                 override=selected_camera
             else:
@@ -410,7 +431,7 @@ def run(review=False,direct=False,puzzle=False):
             if help_visible and not q.movement_locked:
                 pr.draw_rectangle(0,h-52,w,52,pr.Color(10,20,22,226))
                 pr.draw_text(q.prompt(e) or 'W/S move   A/D turn   Shift run   E place object   1-9 cameras   0 auto   F free look',18,h-42,16,pr.Color(206,213,198,255))
-                pr.draw_text('L daylight | Tab player | H help | Home restart encounter | F8 select | F12 capture | Esc exit',18,h-21,14,pr.Color(147,178,175,255))
+                pr.draw_text('L daylight | Tab player | H help | Home restart | F2 scene editor | F8 select | F12 capture | Esc exit',18,h-21,14,pr.Color(147,178,175,255))
                 if free:pr.draw_text('Free camera',19,18,18,pr.Color(206,213,198,255))
             if puzzle:draw_puzzle_timer(q,w,blocked)
             selection.present(selected_camera,(0,0,w,h),{'world':'canals' if q.revealed else 'lake','world_blend':q.world_blend,'selection_world':'canals' if q.world_blend>=.5 else 'lake','phase':q.state,'clock':clock,'player':{'position':[e.x,e.height,e.z],'yaw':e.yaw,'clip':e.clip},'shot':scene.last_shot,'free_camera':free})
@@ -436,4 +457,9 @@ if __name__=='__main__':
     start=p.add_mutually_exclusive_group()
     start.add_argument('--canals',action='store_true',help='Start directly inside the canal world')
     start.add_argument('--puzzle',action='store_true',help='Start beside the unsolved puzzle with a timing overlay; Home resets here')
-    args=p.parse_args();run(args.review,args.canals,args.puzzle)
+    start.add_argument('--editor',action='store_true',help='Open the Void Canals scene timeline and placement editor')
+    args=p.parse_args()
+    if args.editor:
+        from huxin_canals_editor import run as run_editor
+        run_editor()
+    else:run(args.review,args.canals,args.puzzle)
