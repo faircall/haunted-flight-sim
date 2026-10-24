@@ -161,9 +161,14 @@ def _house(scene, hit, manifest):
     for axis in (0, 2):
         bounds['min'][axis] -= .55; bounds['max'][axis] += .55
     near = index < manifest.get('near_houses', 24)
-    return _record(scene, hit, house['id'], 'House '+str(house['seed'])+' ('+house['variant'].replace('_', ' ')+')',
+    identity = house['id']
+    duplicate = sum(other['id']==identity for other in manifest.get('houses', ())) > 1
+    side = 'west' if house['center'][0]<0 else 'east'
+    if duplicate:identity += '-'+side
+    label = 'House '+str(house['seed'])+(' '+side if duplicate else '')+' ('+house['variant'].replace('_', ' ')+')'
+    return _record(scene, hit, identity, label,
         'building', bounds, 'g_huxin_canals_layout.py' if near else 'build_huxin_canals.py',
-        house_seed=house['seed'], surface_part=model.removeprefix('canal_'),
+        house_seed=house['seed'], fog_target=identity, surface_part=model.removeprefix('canal_'),
         source={'builder': 'build_huxin_canals.py', 'generator': 'canals_housekit.py:build_house',
                 'definition': 'HOUSE_SPECS' if near else 'build:far_specs',
                 'seed': house['seed'], 'manifest': 'art/temple/'+scene+'/canals_manifest.json',
@@ -261,6 +266,9 @@ def resolve_hit(scene_id, hit):
     if not isinstance(scene_id,str) or not isinstance(hit,dict):
         return {}
     scene=scene_id.replace('-','_')
+    # The editor keeps its own session/context identity while displaying the
+    # same authored canal geometry as gameplay. Resolve against that manifest.
+    if scene=='huxin_canals_editor':scene='huxin_canals'
     if scene not in _LAKE_SCENES or not isinstance(hit.get('model_name'),str):
         return {}
     p=hit.get('hit_position')

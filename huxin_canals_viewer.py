@@ -19,9 +19,64 @@ from huxin_canals_camera import canal_camera,mist_camera,FOCUS_EYE,FOCUS_TARGET
 from huxin_canals_audio import EncounterAudio
 from g_huxin_canals_layout import CAMERA_SHOTS,WATER_Y,START
 from temple_intro_fog import depth_target
-from g_huxin_canals_direction import load_direction,profile_from_document,sample_camera
+from g_huxin_canals_direction import (load_direction,profile_from_document,document_from_profile,
+                                    sample_camera,DEFAULT_PATH,DirectionError)
+from g_huxin_canals_live import DirectionWatcher,apply_live_direction
 
 ROOT=Path(__file__).parent;KIT=ROOT/'art'/'temple'/'huxin_canals';WIDTH,HEIGHT=640,360
+
+class LiveDirectionReload:
+    """Apply saved direction data without rebuilding the running encounter."""
+    def __init__(self,path=DEFAULT_PATH,document=None):
+        self.path=Path(path)
+        if document is None:document=load_direction(self.path)
+        self.watcher=DirectionWatcher(self.path,document=document)
+        self._message=None;self._message_until=0.
+
+    def poll(self,scene,now=None):
+        now=time.monotonic() if now is None else float(now)
+        document=self.watcher.poll(now)
+        if document is None:return False
+        changed=apply_live_direction(scene.sequence,profile_from_document(document))
+        if changed:
+            self._message='Direction updated from saved file'
+            self._message_until=now+5.
+        return changed
+
+    def load_for_reset(self):
+        """Home uses the latest complete save, or the last good file on error."""
+        try:document=load_direction(self.path)
+        except DirectionError as error:
+            self.watcher.error=str(error)
+            document=self.watcher.document
+        else:self.watcher.acknowledge(document)
+        return profile_from_document(document)
+
+    def acknowledge_scene(self,scene):
+        # The editor may have saved this profile. The watcher only accepts it
+        # if the bytes still match, so an external save during F2 isn't lost.
+        return self.watcher.acknowledge(document_from_profile(scene.sequence.direction))
+
+    def status(self,now=None):
+        if self.watcher.error:
+            error=str(self.watcher.error).replace(str(self.path),self.path.name)
+            return ('Direction reload: '+error,True)
+        now=time.monotonic() if now is None else float(now)
+        if self._message and now<self._message_until:return (self._message,False)
+        return None
+
+
+def draw_live_direction_status(live,width,height):
+    status=live.status()
+    if status is None:return
+    text,is_error=status
+    max_width=max(80,width-36)
+    while text and pr.measure_text(text,12)>max_width:
+        text=text[:-4]+'...'
+    y=max(12,height-76)
+    pr.draw_rectangle(12,y-5,min(max_width+12,pr.measure_text(text,12)+12),24,pr.Color(10,20,22,215))
+    pr.draw_text(text,18,y,12,pr.Color(235,164,144,255) if is_error else pr.Color(180,210,195,255))
+
 
 def clear_view(eye,body):
     dx,dz=body[0]-eye[0],body[2]-eye[2];length=dx*dx+dz*dz
@@ -48,7 +103,7 @@ def auto_camera(e):
 class Lake(Hall):
     def __init__(self):
         self.models={};self.textures={};self.shader=None;self.player=None;self.sky=None;self.post=None;self.raw=None;self.frame=None;self.smoke=None;self.reflection=None;self.reflection_raw=None;self.water_shader=None;self.last_shot=0;self.sequence=CanalSequence();self.last_camera=None
-        self.blend_shader=None;self.blend_old_frame=None;self.blend_new_frame=None;self.puzzle_fog=None
+        self.blend_shader=None;self.blend_old_frame=None;self.blend_new_frame=None;self.puzzle_fog=None;self.volume_fog=None
         self._world_override=None;self.last_world_weights={'lake':1.,'canals':0.}
         try:
             self.manifest=json.loads((KIT/'manifest.json').read_text())
@@ -94,6 +149,8 @@ class Lake(Hall):
             self.blend_new_frame=pr.load_render_texture(WIDTH,HEIGHT)
             from huxin_canals_particles import PuzzleFog
             self.puzzle_fog=PuzzleFog(WIDTH,HEIGHT)
+            from huxin_canals_volumes import FogVolumes
+            self.volume_fog=FogVolumes(WIDTH,HEIGHT)
             self.sky=MoonSky();im=pr.gen_image_gradient_radial(32,32,0.,pr.WHITE,pr.BLANK);self.smoke=pr.load_texture_from_image(im);pr.unload_image(im)
         except Exception:self.close();raise
 
@@ -281,7 +338,7 @@ class Lake(Hall):
         self.mist_pass(self.raw,target,cam,e,clock,inspection)
 
     def mist_pass(self,source,target,cam,e,clock,inspection,reflected=False):
-        """Preserve lake mist; composite the separate puzzle cards in both views."""
+        """Mix lake mist, bounded 3D volumes and puzzle cards in both views."""
         q=self.sequence
         for name,value in (('veil',q.veil),('time',clock),('arrival',q.fog_source_arrival),('returning',0.),
                            ('sourceArrival',q.fog_source_arrival),
@@ -289,7 +346,14 @@ class Lake(Hall):
                            ('reflectedView',float(reflected)),('voidWorld',q.void_tone),('waterY',self.water_y)):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',[value]),pr.SHADER_UNIFORM_FLOAT)
         fog_colour=tuple(a+(b-a)*q.void_tone for a,b in zip((.39,.455,.45) if inspection else (.175,.235,.248),(.165,.180,.180)))
-        particle_texture=self.puzzle_fog.render(source,cam,q,clock,fog_colour,self.water_y,reflected)
+        volumes=getattr(q.direction,'volumes',None)
+        volume_renderer=getattr(self,'volume_fog',None)
+        volume_active=bool(volumes and volumes.enabled and volume_renderer)
+        particle_mix=volumes.particle_mix if volume_active else 1.
+        particle_texture=self.puzzle_fog.render(source,cam,q,clock,fog_colour,self.water_y,reflected) if particle_mix>0. else self.puzzle_fog.clear()
+        volume_texture=volume_renderer.render(source,cam,q,clock,fog_colour,self.water_y,reflected) if volume_active else None
+        for name,value in (('volumeActive',float(volume_active)),('particleMix',particle_mix)):
+            pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',[value]),pr.SHADER_UNIFORM_FLOAT)
         pr.set_shader_value(self.post,pr.get_shader_location(self.post,'fogColour'),pr.ffi.new('float[]',fog_colour),pr.SHADER_UNIFORM_VEC3)
         forward=pr.vector3_normalize(pr.vector3_subtract(cam.target,cam.position));right=pr.vector3_normalize(pr.vector3_cross_product(forward,cam.up));up=pr.vector3_cross_product(right,forward)
         for name,value in (('eye',cam.position),('forward',forward),('right',right),('up',up)):
@@ -300,6 +364,7 @@ class Lake(Hall):
         pr.begin_texture_mode(target);pr.clear_background(pr.BLACK);pr.begin_shader_mode(self.post)
         pr.set_shader_value_texture(self.post,pr.get_shader_location(self.post,'depthMap'),source.depth)
         pr.set_shader_value_texture(self.post,pr.get_shader_location(self.post,'particleMap'),particle_texture)
+        if volume_texture is not None:pr.set_shader_value_texture(self.post,pr.get_shader_location(self.post,'volumeMap'),volume_texture)
         pr.draw_texture_pro(source.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(0,0,WIDTH,HEIGHT),pr.Vector2(0,0),0,pr.WHITE)
         pr.end_shader_mode();pr.end_texture_mode()
 
@@ -309,6 +374,7 @@ class Lake(Hall):
         if self.blend_new_frame:pr.unload_render_texture(self.blend_new_frame);self.blend_new_frame=None
         if self.blend_shader:pr.unload_shader(self.blend_shader);self.blend_shader=None
         if self.puzzle_fog:self.puzzle_fog.close();self.puzzle_fog=None
+        if self.volume_fog:self.volume_fog.close();self.volume_fog=None
         if self.reflection:pr.unload_render_texture(self.reflection);self.reflection=None
         if self.reflection_raw:pr.unload_render_texture(self.reflection_raw);self.reflection_raw=None
         if self.water_shader:pr.unload_shader(self.water_shader);self.water_shader=None
@@ -353,11 +419,13 @@ def draw_puzzle_timer(sequence,width,paused=False):
     pr.draw_text(footer,x+14,y+98,12,muted)
 
 
-def run(review=False,direct=False,puzzle=False):
+def run(review=False,direct=False,puzzle=False,direction_path=DEFAULT_PATH):
     if review:pr.set_config_flags(pr.FLAG_WINDOW_HIDDEN)
     pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1280,720,'Temple / The Void Canals');pr.set_target_fps(0 if review else 60);scene=None;audio=None;selection=None
     try:
-        start=time.perf_counter();scene=Lake();startup=time.perf_counter()-start;e=reset_player(scene,puzzle);audio=EncounterAudio(review)
+        start=time.perf_counter();scene=Lake();startup=time.perf_counter()-start
+        scene.direction_path=Path(direction_path)
+        e=reset_player(scene,puzzle,profile_from_document(load_direction(scene.direction_path)));audio=EncounterAudio(review)
         if review:
             from huxin_canals_review import review_scene
             return review_scene(scene,e,audio,startup)
@@ -368,10 +436,14 @@ def run(review=False,direct=False,puzzle=False):
             scene.sequence.inventory[:]=[s if s is None or s.get('group')!='void_disc' else None for s in scene.sequence.inventory]
         from codex_selection import SelectionSession
         selection=SelectionSession('huxin_canals',__file__);scene.codex_selection=selection
+        live_direction=LiveDirectionReload(scene.direction_path,document=document_from_profile(scene.sequence.direction))
         pr.set_exit_key(pr.KEY_NULL);selected_camera=None
         paused_sounds=[]
         clock=0.;inspection=False;manual=None;free=False;eye=None;yaw=0.;pitch=0.;help_visible=True;show_player=True;assembly=False
         while not pr.window_should_close():
+            # Saved data continues to reload while F8 pauses gameplay. This
+            # does not advance time, release the held camera or replay cues.
+            live_direction.poll(scene)
             was_selecting=selection.enabled
             if selection.handle_keys():break
             blocked=was_selecting or selection.enabled
@@ -387,6 +459,7 @@ def run(review=False,direct=False,puzzle=False):
                 from huxin_canals_editor import run_embedded
                 manual=None;free=False;pr.enable_cursor()
                 clock=run_embedded(scene,e,audio,clock)
+                live_direction.acknowledge_scene(scene)
                 selected_camera=scene.last_camera
                 continue
             if blocked:
@@ -398,7 +471,7 @@ def run(review=False,direct=False,puzzle=False):
                 if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
                 if pr.is_key_pressed(pr.KEY_F3):assembly=not assembly
                 if pr.is_key_pressed(pr.KEY_HOME):
-                    e=reset_player(scene,puzzle);manual=None;free=False;pr.enable_cursor()
+                    e=reset_player(scene,puzzle,live_direction.load_for_reset());manual=None;free=False;pr.enable_cursor()
                     if puzzle:
                         clock=0.
                         for sound in audio.sounds.values():pr.stop_sound(sound)
@@ -439,6 +512,7 @@ def run(review=False,direct=False,puzzle=False):
                 pr.draw_text('L daylight | Tab player | H help | Home restart | F2 scene editor | F8 select | F12 capture | Esc exit',18,h-21,14,pr.Color(147,178,175,255))
                 if free:pr.draw_text('Free camera',19,18,18,pr.Color(206,213,198,255))
             if puzzle:draw_puzzle_timer(q,w,blocked)
+            draw_live_direction_status(live_direction,w,h)
             selection.present(selected_camera,(0,0,w,h),{'world':'canals' if q.revealed else 'lake','world_blend':q.world_blend,'selection_world':'canals' if q.world_blend>=.5 else 'lake','phase':q.state,'clock':clock,'player':{'position':[e.x,e.height,e.z],'yaw':e.yaw,'clip':e.clip},'shot':scene.last_shot,'free_camera':free})
             if pr.is_key_pressed(pr.KEY_F12):
                 out=ROOT/'artifacts'/'huxin_canals';out.mkdir(parents=True,exist_ok=True);capture=out/('capture-'+time.strftime('%Y%m%d-%H%M%S')+'.png')
@@ -459,6 +533,7 @@ def run(review=False,direct=False,puzzle=False):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--review',action='store_true')
+    p.add_argument('--direction',type=Path,default=DEFAULT_PATH,help='Independent scene direction and fog preset')
     start=p.add_mutually_exclusive_group()
     start.add_argument('--canals',action='store_true',help='Start directly inside the canal world')
     start.add_argument('--puzzle',action='store_true',help='Start beside the unsolved puzzle with a timing overlay; Home resets here')
@@ -466,5 +541,5 @@ if __name__=='__main__':
     args=p.parse_args()
     if args.editor:
         from huxin_canals_editor import run as run_editor
-        run_editor()
-    else:run(args.review,args.canals,args.puzzle)
+        run_editor(args.direction)
+    else:run(args.review,args.canals,args.puzzle,args.direction)

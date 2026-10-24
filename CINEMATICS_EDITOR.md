@@ -186,6 +186,13 @@ start before the hidden world blend ends, and its end must remain within the
 whole sequence. The faint tail finishes at the final sequence point. A click
 without dragging does not round or change a time.
 
+In building mode, **Reveal starts** begins a curved retreat of that target's
+clouds. Opacity holds briefly while they move (up to 1.4 seconds, shortened for
+small intervals), then fades to **Mostly clear**. Continuous rolling motion
+runs through the five-second density crest and the world blend. The dashed
+envelope includes the retreat path; scaling or moving a group also transforms
+that path. Pausing the timeline freezes motion, and scrubbing reproduces it.
+
 The near/middle/distant reference points on the left remain useful jump points
 and camera keys; in building mode they do not drive individual clearing times.
 Changing a global blend/end point preserves the groups' absolute times unless
@@ -215,8 +222,9 @@ player moves after control returns.
 
 **Save to game / Ctrl+S** atomically writes
 [`direction.json`](art/temple/huxin_canals/direction.json). Normal gameplay and the
-puzzle launcher read the same file at startup or **Home** reset; no asset rebuild
-is needed. **Ctrl+Z / Ctrl+Y** undo and redo; one drag is one undo step.
+puzzle launcher watch the same file while running, so a save updates the current
+scene without a restart or **Home** reset. **Ctrl+Z / Ctrl+Y** undo and redo;
+one drag is one undo step.
 **Reload / Ctrl+O** reads the saved values and can itself be undone.
 **Restore defaults** restores the current mode's initial placement and the
 5-second build, 1-second blend and 40-second clearing timeline in the editor;
@@ -230,12 +238,45 @@ and records the selected timeline point, time, fog mode and target with the
 selection. The editor uses at least 1360 x 900 pixels so its target list,
 placement fields and independent timeline controls remain readable.
 
+### Edit the direction file while the editor stays open
+
+Leave **Live ON** enabled and keep the editor open while changing
+[`direction.json`](art/temple/huxin_canals/direction.json) in a text editor or
+asking Codex to change it. Complete, valid saves appear after a brief settling
+delay. The preview keeps its playhead, selected house, inspection camera and
+F8 object selection. Live updates also work while the preview is paused.
+In normal play, the player keeps their position and elapsed sequence time;
+updating the file does not restart the puzzle or replay its sounds.
+Once the village has been revealed, moving the blend time later does not turn
+the running game back into the lake. Scrub in the editor or reset with **Home**
+to replay that transition with the new timing.
+
+Fog placement, size, opacity, independent reveal times, global timing and camera
+keys are live data. Edited camera keys affect the authored camera view; a free
+inspection view stays where you placed it. Python code, shaders, model exports
+and texture assets still require restarting the running scene.
+
+Unsaved editor changes and external changes to different fields merge. If both
+edit the same field, or their combined timings would be invalid, the editor
+holds the current preview and shows a conflict. **Use file** loads the complete
+file version, discarding unsaved editor changes; **Keep mine** explicitly saves
+the current editor version over the file. An ordinary save refuses to overwrite
+an unresolved conflict. **Live OFF** pauses automatic updates, but saves still
+check for external changes.
+
+A missing, incomplete or invalid file leaves the last good scene running and
+shows an error. Correcting and saving the file resumes live updates. During a
+drag, numeric entry or the exit dialog, valid external changes wait until that
+interaction finishes. **Home** remains an explicit game reset, rather than a
+requirement for seeing a direction edit.
+
 Focused checks:
 
 ```powershell
 $env:HAUNTED_MUTE_AUDIO='1'
 artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_canals_direction test_huxin_canals_targets test_huxin_canals_editor test_huxin_canals_building_runtime -q
 artifacts/temple3d-env/Scripts/python.exe huxin_canals_building_review.py --label editor-check
+artifacts/temple3d-env/Scripts/python.exe huxin_canals_live_review.py
 ```
 
 The building review is hidden and muted and saves screenshots and its report
@@ -245,6 +286,78 @@ fresh-game playback, alongside direct/reflected fog and performance checks.
 It edits an isolated temporary direction file, leaving the game's saved
 direction unchanged. Add `--quick` for a shorter native pass.
 
+The live review uses a temporary direction file and a temporary F8 selection
+file. It verifies rendered updates in the open editor and normal play,
+last-good recovery, independent merging and conflict protection. Its hidden,
+muted screenshots and report are under `artifacts/huxin-canals-live/`.
+
 The earlier bank-mode editor review remains available with
 `artifacts/temple3d-env/Scripts/python.exe huxin_canals_editor_review.py`; its
 screenshots and report go under `artifacts/huxin-canals-editor/`.
+
+### Authored volumetric fog alongside the quad layers
+
+The **Volumes** tab edits a separate, bounded three-dimensional fog layer.
+Existing direction files keep the previous appearance until volumes are added
+or enabled. **Quads only**, **Volumes only** and **Hybrid** compare the techniques
+without discarding either setup. The independent **Volume amount** and **Quad
+amount** fields control the mix; **Quality** cycles Draft, Balanced and High.
+The ordinary ambient lake mist remains in all three modes.
+
+The new layer integrates animated three-dimensional density between each
+volume's boundaries and the visible scene surface. It supports entering a
+volume, depth occlusion and the same world-space fog in water reflections.
+Broad rolling noise, smaller moving eddies and stepped shading retain the
+painted appearance. Balanced renders at half resolution with depth-aware
+upsampling; High uses full resolution and more samples. Up to 24 independently
+authored regions are supported.
+
+Use **+ Box volume** for a room, lane or sheet over the water, or **+ Ellipsoid
+volume** for a softer cloud bank. Click a building in the preview, then choose
+**+ Fit selected building** to make a shell around it. F8 semantic building
+selections also transfer to this target when leaving selection mode. New volumes
+enable the volumetric layer automatically. The region list supports paging and
+the mouse wheel; **Duplicate**, **Remove** and **Frame selected volume** act on
+the selected region. Click its name at the top of the properties to rename it.
+
+The three property pages keep the controls grouped:
+
+- **Shape**: centre, half-size, rotation and hollow core. Half-size is the distance
+  from the centre to each side, in metres. The gold wireframe shows the authored
+  volume bounds; the blue inner frame shows the hollow core. Drag XYZ handles to
+  move it. Right mouse + WASD / Q / E inspects without altering the game camera.
+- **Flow**: density, edge softness, noise size, turbulence and XYZ wind speed.
+  Wind moves the internal noise; it does not move the bounds.
+- **Timing**: build start/full density, clearing start/gone, and a total retreat
+  displacement. The two additional timeline tracks provide draggable handles
+  for build and clearing. Retreat moves the region while it clears.
+
+Volume controls share the same Save, Undo, Redo, Reload, Live and conflict handling
+as the quad controls. F8 records the current volume ID and editor tab as well as
+the selected scene objects. To work on an independent experiment rather than the
+main direction file, use **`edit_huxin_canals_volumetric.cmd`**. Its companion
+**`play_huxin_canals_volumetric_test.cmd`** starts at the puzzle. Both are muted
+and use the separate, live-reloaded
+[`direction-volumetric.json`](art/temple/huxin_canals/direction-volumetric.json),
+leaving the existing saved quad setup intact. The equivalent editor command is:
+
+```powershell
+artifacts/temple3d-env/Scripts/python.exe huxin_canals_editor.py --direction art/temple/huxin_canals/direction-volumetric.json
+```
+
+The included experiment starts in Hybrid, with fourteen regions around houses,
+over the canals and along a passage. It leaves the pavilion centre clear. The
+quad layer still supplies distant-building coverage; Volumes only is useful
+for inspecting and shaping the new layer independently.
+
+That editor saves and watches the specified file. Embedded editing returns to
+the same direction path that its game session is using. Data edits hot-reload;
+the first installation of the new renderer still requires restarting the game.
+
+The headless UI checks exercise actual controls, one-step drag undo, timing
+constraints, fit-to-building, layer comparison, custom-file saving and F8-paused
+live updates:
+
+```powershell
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_canals_volume_ui -q
+```

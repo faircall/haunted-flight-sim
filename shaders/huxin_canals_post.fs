@@ -1,8 +1,9 @@
 #version 330
 in vec2 fragTexCoord;
-uniform sampler2D texture0,depthMap,particleMap;
+uniform sampler2D texture0,depthMap,particleMap,volumeMap;
 uniform vec2 resolution;
 uniform float veil,time,arrival,sourceArrival,returning,reflectedView,voidWorld,waterY,clearing;
+uniform float volumeActive,particleMix;
 uniform vec3 eye,forward,right,up,playerCenter,fogColour;
 uniform vec2 lens,clip;
 out vec4 finalColor;
@@ -171,18 +172,44 @@ vec3 rollingMist(vec3 scene,vec2 uv){
     // and camera. Only the low-contrast illumination carries painted bands.
     return mix(baseline,colour,alpha*(1.-clamp(clearing,0.,1.)));
 }
+float viewDepth(vec2 uv){
+    float z=texture(depthMap,uv).r;
+    return 2.*clip.x*clip.y/(clip.y+clip.x-(z*2.-1.)*(clip.y-clip.x));
+}
+vec4 spatialFog(vec2 uv){
+    if(volumeActive<.5)return vec4(0.);
+    // Depth-aware upsampling keeps half-resolution banks off nearby posts,
+    // faces and window edges. We interpolate premultiplied radiance/opacity.
+    vec2 size=vec2(textureSize(volumeMap,0));
+    vec2 pixel=uv*size-.5,base=floor(pixel),f=fract(pixel);
+    float depth=viewDepth(uv),total=0.;vec4 sum=vec4(0.);
+    for(int x=0;x<2;x++)for(int y=0;y<2;y++){
+        vec2 tap=(base+vec2(x,y)+.5)/size;
+        float spatial=(x==0?1.-f.x:f.x)*(y==0?1.-f.y:f.y);
+        float weight=spatial*exp(-abs(viewDepth(tap)-depth)/max(.12,depth*.012));
+        sum+=texture(volumeMap,tap)*weight;total+=weight;
+    }
+    return total>.001?sum/total:vec4(0.);
+}
+vec3 puzzleLayers(vec3 scene,vec2 uv,vec4 particles){
+    vec4 volume=spatialFog(uv);
+    scene=scene*(1.-volume.a)+volume.rgb;
+    return scene*(1.-particles.a)+particles.rgb;
+}
 void main(){
     vec2 uv=fragTexCoord;vec3 c=texture(texture0,uv).rgb,bloom=vec3(0.);
     // Reflections feed the water material in scene colour space. Bloom, gamma
     // and vignette are applied once, after the complete scene is assembled.
     vec4 particles=texture(particleMap,uv);
+    // Preserve the exact existing path at 1; boosts retain the cloud's colour.
+    if(particleMix!=1.)particles*=particles.a>.00001?min(particleMix,1./particles.a):particleMix;
     if(reflectedView>.5){
         c=rollingMist(c,uv);
-        finalColor=vec4(c*(1.-particles.a)+particles.rgb,1.);return;
+        finalColor=vec4(puzzleLayers(c,uv,particles),1.);return;
     }
     for(int x=-2;x<=2;x++)for(int y=-2;y<=2;y++)bloom+=max(texture(texture0,uv+vec2(x,y)*2./resolution).rgb-vec3(.74),vec3(0.))/25.;
     c=rollingMist(c,uv);
-    c=c*(1.-particles.a)+particles.rgb;
+    c=puzzleLayers(c,uv,particles);
     c=pow(max(c+bloom*.24,vec3(0.)),vec3(.94))*(1.-.095*dot(uv*2.-1.,uv*2.-1.));
     finalColor=vec4(c,1.);
 }

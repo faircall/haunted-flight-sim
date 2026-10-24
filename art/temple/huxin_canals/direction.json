@@ -1734,7 +1734,7 @@
           0.0
         ],
         "scale": 1.0,
-        "opacity": 1.0,
+        "opacity": 0.0,
         "reveal_start": 7.221602730178647,
         "reveal_end": 14.036004550297745
       },
@@ -1745,7 +1745,7 @@
           0.0
         ],
         "scale": 1.0,
-        "opacity": 1.0,
+        "opacity": 0.0,
         "reveal_start": 6.291200573484227,
         "reveal_end": 12.48533428914038
       },
@@ -1756,7 +1756,7 @@
           0.0
         ],
         "scale": 1.0,
-        "opacity": 1.0,
+        "opacity": 0.0,
         "reveal_start": 6.144096904607513,
         "reveal_end": 12.240161507679186
       },
@@ -1965,73 +1965,73 @@
           0.0
         ],
         "scale": 1.0,
-        "opacity": 1.0,
+        "opacity": 0.0,
         "reveal_start": 6.0,
         "reveal_end": 11.0
       },
       "waterline-1": {
         "offset": [
           0.0,
-          0.0,
+          -0.4,
           0.0
         ],
-        "scale": 1.0,
-        "opacity": 1.0,
+        "scale": 0.7,
+        "opacity": 0.68,
         "reveal_start": 6.827342818264697,
         "reveal_end": 13.378904697107828
       },
       "waterline-2": {
         "offset": [
           0.0,
-          0.0,
+          -0.4,
           0.0
         ],
-        "scale": 1.0,
-        "opacity": 1.0,
+        "scale": 0.7,
+        "opacity": 0.68,
         "reveal_start": 6.138916072887116,
         "reveal_end": 12.231526788145194
       },
       "waterline-3": {
         "offset": [
           0.0,
-          0.0,
+          -0.4,
           0.0
         ],
-        "scale": 1.0,
-        "opacity": 1.0,
+        "scale": 0.7,
+        "opacity": 0.68,
         "reveal_start": 7.387636665019122,
         "reveal_end": 14.31272777503187
       },
       "waterline-4": {
         "offset": [
           0.0,
-          0.0,
+          -0.4,
           0.0
         ],
-        "scale": 1.0,
-        "opacity": 1.0,
+        "scale": 0.7,
+        "opacity": 0.68,
         "reveal_start": 6.505206109514741,
         "reveal_end": 12.842010182524568
       },
       "waterline-5": {
         "offset": [
           0.0,
-          0.0,
+          -0.4,
           0.0
         ],
-        "scale": 1.0,
-        "opacity": 1.0,
+        "scale": 0.7,
+        "opacity": 0.68,
         "reveal_start": 7.726489041588849,
         "reveal_end": 14.877481735981416
       },
       "waterline-6": {
         "offset": [
           0.0,
-          0.0,
+          -0.4,
           0.0
         ],
-        "scale": 1.0,
-        "opacity": 1.0,
+        "scale": 0.7,
+        "opacity": 0.68,
         "reveal_start": 6.945633882318073,
         "reveal_end": 13.576056470530121
       }

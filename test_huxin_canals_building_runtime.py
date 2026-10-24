@@ -144,6 +144,19 @@ class BuildingFogRuntimeTests(unittest.TestCase):
                     self.assertEqual(result.fog.last_signature,
                                      tuple((p.id, p.center, p.alpha) for p in packets))
 
+    def test_internal_flow_uses_shared_scene_clock_not_reveal_time(self):
+        from test_huxin_canals_fog import ParticleCardIntegrationTests
+        sequence = CanalSequence(profile_from_document(self.document))
+        sequence.seek(5.5)
+        helper = ParticleCardIntegrationTests()
+        for clock in (87., 87.125):
+            for water in (0., -1.55):
+                for reflected in (False, True):
+                    result = helper.render_cards(sequence, water, reflected, clock=clock)
+                    self.assertEqual(result.uniforms['flowTime'], clock)
+                    self.assertEqual(result.uniforms['targetedFog'], 1.)
+        self.assertEqual(sequence.elapsed, 5.5)
+
 
 if __name__ == '__main__':
     unittest.main()

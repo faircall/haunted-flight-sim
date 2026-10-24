@@ -78,6 +78,7 @@ class CanalSequence:
         self.inventory=[None]*SLOT_COUNT;add(self.inventory,DISC_ITEM)
         self.events=[];self.swaps=[];self.bells=0;self.world_time=0.;self.next_creak=39.
         self._direction_camera_released=False
+        self._live_world_committed=False
 
     def cue(self,name):return self.direction.cue(name)
     @property
@@ -105,6 +106,7 @@ class CanalSequence:
             self.next_creak+=47.+17.*math.sin(self.next_creak*.13)**2
         self.locked_camera=None;self.locked_pose=None;self.locked_shot=None
         self._direction_camera_released=False
+        self._live_world_committed=False
 
     @property
     def world(self):return 'canals' if self.revealed else 'lake'
@@ -116,6 +118,9 @@ class CanalSequence:
     def world_blend(self):
         """Join both fully fogged worlds gently while the clouds keep drifting."""
         if self.state not in ('entering','canals'):return 0.
+        # Retiming a live game cannot remove the ground beneath a player who
+        # has already entered the canals. Editor seeks reset this protection.
+        if self._live_world_committed:return 1.
         return ease(self.cue('build_end'),self.entry_duration,self.elapsed)
     @property
     def veil(self):
@@ -182,7 +187,7 @@ class CanalSequence:
         if self.state in ('entering','canals'):
             # Keep the same clock through arrival, hidden handoff, control
             # release and dissipation. Walking cannot accelerate the clearing.
-            self.elapsed=min(self.duration,self.elapsed+max(0.,dt))
+            self.elapsed=max(self.elapsed,min(self.duration,self.elapsed+max(0.,dt)))
             # Summed frame intervals can land a few ulps below an authored
             # boundary. Commit on that frame at every supported frame rate.
             for boundary in (self.cue('build_end'),self.entry_duration,self.duration):

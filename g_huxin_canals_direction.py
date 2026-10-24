@@ -16,6 +16,8 @@ import math
 import os
 import tempfile
 from hashlib import sha256
+from g_huxin_canals_volumes import (VolumeSettings, DEFAULT_VOLUME_SETTINGS,
+    validate_volume_document, settings_from_document, document_from_settings)
 
 
 VERSION = 1
@@ -89,6 +91,8 @@ class DirectionProfile:
     camera_keys: tuple[CameraKey, ...]
     fog_mode: str = 'banks'
     groups: tuple[FogGroupSettings, ...] = ()
+    volumes: VolumeSettings = DEFAULT_VOLUME_SETTINGS
+    volume_authored: bool = False
 
     def cue(self, name):
         try:return self.cue_times[CUES.index(name)]
@@ -195,7 +199,7 @@ def _vector(value, path):
 
 def validate_document(document):
     """Validate and return a fresh normalized copy without mutating the input."""
-    doc = _object(document, 'direction', ('version', 'cues', 'banks', 'cameras'), ('fog',))
+    doc = _object(document, 'direction', ('version', 'cues', 'banks', 'cameras'), ('fog','volumes'))
     if isinstance(doc['version'], bool) or not isinstance(doc['version'], int) or doc['version'] != VERSION:
         raise DirectionError(f'version: expected supported version {VERSION}')
     cue_data = _object(doc['cues'], 'cues', CUES)
@@ -269,6 +273,8 @@ def validate_document(document):
                 'opacity':_number(value['opacity'],f'{path}.opacity',MIN_OPACITY,MAX_OPACITY),
                 'reveal_start':start,'reveal_end':end}
         result['fog'] = {'mode':fog['mode'],'groups':normalized}
+    if 'volumes' in doc:
+        result['volumes']=validate_volume_document(doc['volumes'],cues,DirectionError)
     return result
 
 
@@ -284,7 +290,9 @@ def profile_from_document(document):
         doc.get('fog',{}).get('mode','banks'),
         tuple(FogGroupSettings(ident,tuple(value['offset']),value['scale'],value['opacity'],
                                value['reveal_start'],value['reveal_end'])
-              for ident,value in doc.get('fog',{}).get('groups',{}).items()))
+              for ident,value in doc.get('fog',{}).get('groups',{}).items()),
+        settings_from_document(doc.get('volumes')),
+        'volumes' in doc)
 
 
 def document_from_profile(profile):
@@ -303,6 +311,8 @@ def document_from_profile(profile):
             group.id:{'offset':list(group.offset),'scale':group.scale,'opacity':group.opacity,
                       'reveal_start':group.reveal_start,'reveal_end':group.reveal_end}
             for group in profile.groups}}
+    if profile.volume_authored or profile.volumes != DEFAULT_VOLUME_SETTINGS:
+        document['volumes']=document_from_settings(profile.volumes)
     return validate_document(document)
 
 

@@ -108,11 +108,11 @@ def target_group(ident):return _by_id()[ident]
 
 
 def coverage_bounds(target, settings):
-    """Conservative editor envelope, including outside lobes and local drift."""
-    padding = 8. if target.band=='near' else 11. if target.band=='middle' else 20.
+    """Editor envelope including rolling lobes and the full retreat path."""
+    padding = 14. if target.band=='near' else 17. if target.band=='middle' else 26.
     if target.id in ('house-410','house-423','house-437','house-449'):padding+=1.5
-    if target.kind=='backdrop':padding=30.
-    if target.kind in ('water','quay','bridge','foreground'):padding=5.
+    if target.kind=='backdrop':padding=40.
+    if target.kind in ('water','quay','bridge','foreground'):padding=9.
     center = tuple(a+b for a,b in zip(target.center,settings.offset))
     extent = tuple((half+padding)*settings.scale for half in target.half_extents)
     return (tuple(c-e for c,e in zip(center,extent)),tuple(c+e for c,e in zip(center,extent)))

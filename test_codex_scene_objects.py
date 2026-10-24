@@ -38,6 +38,51 @@ class SemanticObjectTests(unittest.TestCase):
             self.assertLessEqual(value['bounds']['min'][1],house['foundation_bottom'])
             self.assertGreater(value['bounds']['max'][1],house['center'][1]+house['height'])
 
+    def test_fog_editor_hits_resolve_to_the_same_houses_and_stairs_as_gameplay(self):
+        for seed in (110,133,1901):
+            house=self.houses[seed]
+            source=hit('canal_interiors',(house['center'][0],house['center'][1]+1.4,house['center'][2]))
+            gameplay=objects.resolve_hit('huxin_canals',source)
+            editor=objects.resolve_hit('huxin_canals_editor',source)
+            self.assertEqual(editor,gameplay)
+            self.assertEqual(editor['id'],'huxin_canals/house-'+str(seed))
+            self.assertEqual(editor['fog_target'],'house-'+str(seed))
+            self.assertIn('/houses/',editor['source']['pointer'])
+        for stair in (self.manifest['washing_steps'][0],self.manifest['washing_steps'][-1]):
+            source=hit('canal_masonry',stair['treads'][0]['center'])
+            self.assertEqual(objects.resolve_hit('huxin_canals_editor',source),
+                             objects.resolve_hit('huxin_canals',source))
+            self.assertEqual(objects.resolve_hit('huxin_canals_editor',source)['kind'],'stairs')
+
+    def test_duplicate_seed_houses_match_fog_ids_and_can_both_be_shift_selected(self):
+        from codex_selection import SelectionSession
+        from g_huxin_canals_targets import target_groups
+        houses=[house for house in self.manifest['houses'] if house['id']=='house-2309']
+        self.assertEqual(len(houses),2)
+        records=[]
+        for house in houses:
+            source=hit('canal_interiors',(house['center'][0],house['center'][1]+1.4,house['center'][2]))
+            resolved=objects.resolve_hit('huxin_canals_editor',source)
+            records.append({**source,**resolved})
+            self.assertEqual(resolved,objects.resolve_hit('huxin_canals',source))
+            self.assertEqual(resolved['source']['object_id'],'house-2309')
+            self.assertIn(resolved['fog_target'],{target.id for target in target_groups()})
+        self.assertEqual({record['id'] for record in records},
+                         {'huxin_canals/house-2309-east','huxin_canals/house-2309-west'})
+        self.assertNotEqual(records[0]['source']['pointer'],records[1]['source']['pointer'])
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'selection.json'
+            session=SelectionSession('huxin_canals_editor',__file__,path)
+            session.select_hit(records[0])
+            session.select_hit(records[1],additive=True)
+            self.assertEqual(len(session.selected),2)
+            saved=json.loads(path.read_text(encoding='utf8'))
+            self.assertEqual(saved['scene'],'huxin_canals_editor')
+            self.assertEqual({record['id'] for record in saved['selected']},
+                             {record['id'] for record in records})
+            session.select_hit(records[0],additive=True)
+            self.assertEqual(session.selected,[records[1]])
+
     def test_water_ground_and_below_foundation_do_not_become_houses(self):
         house=self.houses[110];x,_,z=house['center']
         for model,point in (('canal_water',(x,-1.55,z)),('canal_ground',(x,.325,z)),

@@ -56,7 +56,7 @@ class PuzzleFog:
             self.target=pr.load_render_texture(width,height)
             self.shader=pr.load_shader(str(ROOT/'shaders/huxin_canals_particles.vs'),str(ROOT/'shaders/huxin_canals_particles.fs'))
             if self.shader.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Puzzle particle shader compilation failed')
-            self.locations={n:pr.get_shader_location(self.shader,n) for n in ('depthMap','resolution','clip','fogColour','reflectionPass','waterY','nearFade','targetedFog')}
+            self.locations={n:pr.get_shader_location(self.shader,n) for n in ('depthMap','resolution','clip','fogColour','reflectionPass','waterY','nearFade','targetedFog','flowTime')}
         except Exception:
             self.close();raise
 
@@ -65,6 +65,13 @@ class PuzzleFog:
             kind={2:pr.SHADER_UNIFORM_VEC2,3:pr.SHADER_UNIFORM_VEC3}[len(value)]
         else:value=(value,);kind=pr.SHADER_UNIFORM_FLOAT
         pr.set_shader_value(self.shader,self.locations[name],pr.ffi.new('float[]',value),kind)
+
+    def clear(self):
+        """An explicitly disabled quad layer need not evaluate or submit cards."""
+        self.last_count=0;self.last_draw_count=0;self.last_signature=();self.last_groups={}
+        self._render_data=None
+        pr.begin_texture_mode(self.target);pr.clear_background(pr.BLANK);pr.end_texture_mode()
+        return self.target.texture
 
     def render(self,source,cam,sequence,clock,colour,water_y,reflected=False):
         """Premultiplied cloud colour and coverage, without modifying scene depth."""
@@ -144,6 +151,9 @@ class PuzzleFog:
         self.uniform('clip',(pr.rl.rlGetCullDistanceNear(),pr.rl.rlGetCullDistanceFar()))
         self.uniform('fogColour',colour);self.uniform('reflectionPass',float(reflected));self.uniform('waterY',water_y)
         self.uniform('targetedFog',float(targeted))
+        # The shared scene clock keeps internal cloud flow identical across
+        # both worlds and their reflections. Editor scrubbing stays repeatable.
+        self.uniform('flowTime',float(clock))
         # Once a gameplay camera is amongst the banks, nearest cards become
         # transparent wisps instead of a stretched texture against the lens.
         # Pavilion cameras remain in the authored central pocket. This only

@@ -592,7 +592,9 @@ def _building_parameters(direction):
     for seed in _building_layout():
         target,setting = targets[seed.group_id],settings[seed.group_id]
         span = setting.reveal_end-setting.reveal_start
-        start = setting.reveal_start+span*seed.stagger
+        # Reveal begins with spatial recession. Give that movement a readable
+        # lead before thinning the cloud; the authored end still means clear.
+        start = setting.reveal_start+span*seed.stagger+min(1.4,span*.18)
         onset = span*.05
         effective = setting.reveal_end-start-onset*(-math.expm1(-(setting.reveal_end-start)/onset))
         tau = effective/-math.log(seed.density)
@@ -611,6 +613,55 @@ def _building_decay(elapsed,start,onset,tau,tail_tau,fast_endpoint,tail_endpoint
     fast=max(0.,(math.exp(-age/tau)-fast_endpoint)/(1.-fast_endpoint))
     tail=max(0.,(math.exp(-age/tail_tau)-tail_endpoint)/(1.-tail_endpoint))
     return .994*fast+.006*tail
+
+
+def _target_motion(seed,target):
+    """Local retreat destination and circulation, independent of any camera.
+
+    House clouds recede into their district, away from the adjacent canal.
+    Water runs along its channel. This is deliberately not an expanding ring
+    from the puzzle, nor a displacement towards a facade's outward normal.
+    """
+    cx,_,cz=target.center
+    variation=.5+.5*math.sin(seed.phase*1.7)
+    side=-1. if cx<0. else 1.
+    arm=-1. if cz<0. else 1.
+    if target.kind=='house':
+        axis=(side,.24*math.sin(cx*.31+cz*.19))
+        distance=3.8+variation*1.6
+        lift=.35+variation*.65
+    elif target.kind=='backdrop':
+        axis=(side,0.) if abs(cx)>abs(cz) else (0.,arm)
+        distance=6.+variation*2.;lift=.8
+    elif target.id.startswith('waterline-'):
+        # Shallow fragments slip along the rim towards the side basins; they
+        # never rise into another chest-high enclosure around the player.
+        axis=(side,.35*math.sin(cx+cz))
+        distance=1.4+variation*.7;lift=-.10
+    else:
+        axis=(.23*math.sin(cx*.3),arm)
+        distance=2.+variation*1.4;lift=0. if seed.layer=='low' else .3
+    length=math.hypot(*axis)
+    normal=(axis[0]/length,0.,axis[1]/length)
+    tangent=(-normal[2],0.,normal[0])
+    low=seed.layer=='low'
+    amplitude=(max(.24,min(.65,seed.drift*3.5)) if low
+               else max(.65,min(2.,seed.drift*4.2)))
+    rise=.025 if low else .18 if target.kind=='house' else .28
+    rate=seed.speed*(4. if seed.layer=='far' else 6.)
+    retreat=(normal[0]*distance,lift,normal[2]*distance)
+    bend_amount=(.35 if low else 1.15)*math.sin(seed.phase*1.3)
+    bend=(tangent[0]*bend_amount,0. if low else .25*variation,tangent[2]*bend_amount)
+    if target.kind=='house':
+        # Circulate along each individual facade until its reveal, keeping
+        # the shallow depth component outside the padded building bounds.
+        # The later retreat still follows the districtward destination above.
+        dx,dz=seed.center[0]-cx,seed.center[2]-cz
+        hx,_,hz=target.half_extents
+        normal=((math.copysign(1.,dx),0.,0.) if abs(dx)-hx>abs(dz)-hz
+                else (0.,0.,math.copysign(1.,dz)))
+        tangent=(-normal[2],0.,normal[0])
+    return normal,tangent,amplitude,rise,rate,retreat,bend
 
 
 @lru_cache(maxsize=4)
@@ -634,6 +685,17 @@ def _building_arrays(direction):
     arrays['variants']=np.array([seed.variant for seed in seeds],dtype=np.int32)
     arrays['group_ids']=np.array([seed.group_id for seed in seeds],dtype=object)
     arrays['layers']=np.array([seed.layer for seed in seeds],dtype=object)
+    motion=tuple(_target_motion(p[0],p[1]) for p in parameters)
+    for index,name in enumerate(('normal','tangent','roll','rise','flow_rate','retreat','bend')):
+        arrays[name]=np.array([m[index] for m in motion])
+    for name in ('roll','rise'):arrays[name]*=scale
+    for name in ('retreat','bend'):arrays[name]*=scale[:,None]
+    spans=np.array([p[2].reveal_end-p[2].reveal_start for p in parameters])
+    arrays['move_start']=np.array([p[2].reveal_start+p[0].stagger*span
+                                   for p,span in zip(parameters,spans)])
+    arrays['move_duration']=spans*(.48+.10*(.5+.5*np.sin(arrays['phase'])))
+    arrays['stretch']=np.array([.025 if s.layer=='low' else .055 for s in seeds])
+    arrays['vertical_stretch']=np.array([0. if s.layer=='low' else .045 for s in seeds])
     for array in arrays.values():array.setflags(write=False)
     return seeds,arrays
 
@@ -672,14 +734,26 @@ def building_frame_at(elapsed,clock,direction):
     alpha=np.minimum(1.,alpha*(.994*fast+.006*tail)*a['opacity'])
     live=np.flatnonzero(alpha>ALPHA_CUTOFF)
     if not len(live):return _empty_building_frame()
-    phase=a['phase'][live]+clock*a['speed'][live]
-    drift=a['drift'][live]
+    # This independent clock never eases to a stop at the five-second crest.
+    # Neighbouring layers slide past one another in three dimensions while
+    # births, world blending and each building's reveal keep their own times.
+    phase=a['phase'][live]+clock*a['flow_rate'][live]
+    roll=a['roll'][live]
     centers=a['base'][live]
-    centers[:,0]+=np.sin(phase*.73)*drift
-    centers[:,1]+=np.sin(phase*.61+1.2)*drift*.45
-    centers[:,2]+=np.cos(phase*.91)*drift
-    arrays=(a['ids'][live],centers,a['width'][live],a['height'][live],
-            .065*np.sin(phase*.53),alpha[live],a['variants'][live],
+    slide=roll*(np.sin(phase)+.22*np.sin(phase*.47+a['phase'][live]))
+    depth=roll*.38*np.cos(phase*.83+1.1)
+    centers+=a['tangent'][live]*slide[:,None]+a['normal'][live]*depth[:,None]
+    centers[:,1]+=np.sin(phase*.71+1.2)*a['rise'][live]
+    progress=np.clip((elapsed-a['move_start'][live])/a['move_duration'][live],0.,1.)
+    progress=progress*progress*progress*(progress*(progress*6.-15.)+10.)
+    centers+=a['retreat'][live]*progress[:,None]
+    centers+=a['bend'][live]*(4.*progress*(1.-progress))[:,None]
+    width=a['width'][live]*(1.+a['stretch'][live]*np.sin(phase*.67))
+    height=a['height'][live]*(1.+a['vertical_stretch'][live]*np.cos(phase*.79+.8))
+    rotation=(.075*np.sin(phase*.53)+.018*np.sin(phase*1.13))
+    rotation*=np.where(a['layers'][live]=='low',.3,1.)
+    arrays=(a['ids'][live],centers,width,height,
+            rotation,alpha[live],a['variants'][live],
             a['group_ids'][live],a['layers'][live])
     for array in arrays:array.setflags(write=False)
     return BuildingFrame(*arrays)

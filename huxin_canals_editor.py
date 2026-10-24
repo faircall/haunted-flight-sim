@@ -18,6 +18,7 @@ from temple_cinematics_editor import Input, contains, label
 from temple_interior_viewer import camera
 from huxin_canals_viewer import Lake, WIDTH, HEIGHT
 from codex_selection import SelectionSession
+from huxin_canals_volume_editor import VolumePanel
 
 BG=pr.Color(13,20,23,255); PANEL=pr.Color(21,30,34,255); FIELD=pr.Color(31,43,48,255)
 INK=pr.Color(221,232,229,255); MUTED=pr.Color(133,160,163,255)
@@ -45,10 +46,13 @@ class Editor:
             for name in ('x','height','z','yaw','phase','shot'):setattr(self.actor,name,getattr(actor,name))
         self.actor.clip='idle'
         self.live_input=live_input;self.events=Input();self.drag=None;self.entry=None
-        self.tab='fog';self.speed=3.;self.guides=True;self.closed=False;self.close_prompt=False
+        self.tab='volumes' if self.state.volume_settings['enabled'] else 'fog'
+        self.speed=3.;self.guides=True;self.closed=False;self.close_prompt=False
         self.status='Select a point to jump. Drag timeline markers to retime the reveal.'
         self.preview_camera=None;self.inspection=None;self._profile=None;self._released=False
         self.target_query='';self.target_page=0;self.search_entry=False
+        self.volume_panel=VolumePanel(self)
+        self.live_enabled=True
         self._previous_sequence=scene.sequence
         self._previous_selection=getattr(scene,'codex_selection',None)
         self._previous_paused=getattr(scene,'_codex_frame_paused',False)
@@ -71,21 +75,30 @@ class Editor:
                  ('loop','Loop interval',(324,14,108,30),self.state.loop),
                  ('save','Save to game',(448,14,122,30),False),('reload','Reload',(578,14,74,30),False),
                  ('undo','Undo',(660,14,66,30),False),('redo','Redo',(734,14,66,30),False),
+                 ('live','Live: ON' if self.live_enabled else 'Live: OFF',(812,14,100,30),self.live_enabled),
                  ('close','Return / exit',(w-142,14,126,30),False),
                  ('previous','Previous point',(a['left']+18,67,126,28),False),
                  ('next','Next point',(a['left']+154,67,110,28),False),
-                 ('tab:fog','FOG PLACEMENT',(x,69,134,30),self.tab=='fog'),
-                 ('tab:camera','CAMERA',(x+142,69,130,30),self.tab=='camera'),
+                 ('tab:fog','QUAD FOG',(x,69,86,30),self.tab=='fog'),
+                 ('tab:volumes','VOLUMES',(x+94,69,86,30),self.tab=='volumes'),
+                 ('tab:camera','CAMERA',(x+188,69,84,30),self.tab=='camera'),
                  ('game_view','Authored view',(a['left']+18,b-60,122,27),self.inspection is None),
                  ('reverse_view','Reverse view',(a['left']+150,b-60,112,27),self.inspection=='reverse'),
                  ('top_view','Overhead',(a['left']+272,b-60,94,27),self.inspection=='top'),
-                 ('guides','Guides',(a['left']+376,b-60,74,27),self.guides),
-                 ('defaults','Restore defaults',(12,b-47,211,29),False)]
-        for i,cue in enumerate(CUES):
-            title=REFERENCE_LABELS.get(cue,SHORT_LABELS[i]) if self.state.fog_mode=='buildings' else SHORT_LABELS[i]
-            buttons.append(('cue:'+cue,title,(10,103+i*35,216,32),cue==self.state.selected))
+                 ('guides','Guides',(a['left']+376,b-60,74,27),self.guides)]
+        if self.tab!='volumes':buttons.append(('defaults','Restore defaults',(12,b-47,211,29),False))
+        if self.state.external_pending:
+            buttons.extend([('use_file','Use file',(920,14,108,30),False),
+                            ('keep_mine','Keep mine',(1036,14,108,30),False)])
+        if self.tab!='volumes':
+            for i,cue in enumerate(CUES):
+                title=REFERENCE_LABELS.get(cue,SHORT_LABELS[i]) if self.state.fog_mode=='buildings' else SHORT_LABELS[i]
+                buttons.append(('cue:'+cue,title,(10,103+i*35,216,32),cue==self.state.selected))
         fields=[(('time',),(x+140,124,132,32))]
-        if self.tab=='fog':
+        if self.tab=='volumes':
+            volume_buttons,volume_fields=self.volume_panel.controls()
+            buttons.extend(volume_buttons);fields.extend(volume_fields)
+        elif self.tab=='fog':
             buildings=self.state.fog_mode=='buildings'
             buttons.extend([('mode:buildings','Buildings / groups',(x,177,152,29),buildings),
                             ('mode:banks','Legacy banks',(x+160,177,112,29),not buildings)])
@@ -138,7 +151,7 @@ class Editor:
                 for prop in ('reveal_start','reveal_end')]
 
     def timeline_end(self):
-        if self.drag and self.drag['kind'] in ('cue','reveal'):return self.drag['timeline_end']
+        if self.drag and self.drag['kind'] in ('cue','reveal','volume_time'):return self.drag['timeline_end']
         return self.state.duration+max(2.,self.state.duration*.08)
 
     def x_at(self,t):
@@ -150,21 +163,25 @@ class Editor:
 
     def field_value(self,path):
         prop=path[0]
+        if prop in ('vol','vol_global'):return self.volume_panel.field_value(path)
         if prop=='time':return self.state.document['cues'][self.state.selected]
         source=self.state.placement if prop in ('offset','scale','opacity','reveal_start','reveal_end') else self.state.frame
         return source[prop][path[1]] if len(path)>1 else source[prop]
 
     def edit_number(self,path):
         self.state.playing=False
-        self.entry=dict(path=path,text=f'{self.field_value(path):.3f}',replace=True)
-        self.status='Type a number. Enter applies; Escape cancels.'
+        text_field=path==('vol','label')
+        self.entry=dict(path=path,text=str(self.field_value(path)) if text_field else f'{self.field_value(path):.3f}',replace=True)
+        self.status=('Name this volume.' if text_field else 'Type a number.')+' Enter applies; Escape cancels.'
 
     def finish_entry(self,cancel=False):
         if not self.entry:return True
         if not cancel:
             try:
-                value=float(self.entry['text']);path=self.entry['path'];prop=path[0]
-                if prop=='time':self.state.set_time(self.state.selected,value)
+                path=self.entry['path'];prop=path[0]
+                value=self.entry['text'] if path==('vol','label') else float(self.entry['text'])
+                if prop in ('vol','vol_global'):self.volume_panel.set_field(path,value)
+                elif prop=='time':self.state.set_time(self.state.selected,value)
                 elif prop in ('offset','scale','opacity','reveal_start','reveal_end'):self.state.set_placement(prop,value,path[1] if len(path)>1 else None)
                 else:
                     frame=deepcopy(self.state.frame)
@@ -190,7 +207,8 @@ class Editor:
         self.finish_drag()
         if not self.finish_entry():return
         try:
-            if name=='play':
+            if name.startswith('vol:'):self.volume_panel.action(name)
+            elif name=='play':
                 if self.state.elapsed>=self.state.duration:self.state.elapsed=0.
                 if self.state.loop:
                     index=CUES.index(self.state.selected);end=self.state.document['cues'][CUES[index+1]] if index<len(CUES)-1 else self.state.duration
@@ -210,8 +228,14 @@ class Editor:
             elif name in ('previous','next'):
                 index=CUES.index(self.state.selected)+(1 if name=='next' else -1)
                 self.state.select(CUES[max(0,min(len(CUES)-1,index))])
-            elif name=='save':self.state.save();self.status='Saved to direction.json. Normal play uses these settings.'
+            elif name=='save':self.state.save();self.status='Saved to '+str(self.state.path)+'.'
             elif name=='reload':self.state.reload();self.status='Reloaded saved direction. Undo restores your previous edits.'
+            elif name=='live':
+                self.live_enabled=not self.live_enabled
+                self.status='Live reload on: external fog and camera edits appear automatically.' if self.live_enabled else 'Live reload paused. Reload still reads the file manually.'
+            elif name in ('use_file','keep_mine'):
+                self.state.resolve_external('file' if name=='use_file' else 'mine')
+                self.status=self.state.live_status
             elif name in ('undo','redo'):getattr(self.state,name)();self.status=name.title()+' applied.'
             elif name=='defaults':self.state.defaults();self.status='Defaults restored for this fog mode. Undo or save as needed.'
             elif name=='reset_group':self.state.reset_group()
@@ -245,9 +269,12 @@ class Editor:
             elif name=='close_cancel':self.close_prompt=False
             elif name=='close_save':self.state.save();self.closed=True;self.close_prompt=False
             elif name=='close_discard':
+                if self.state.external_pending:self.state.reload()
                 self.state.document=deepcopy(self.state.saved);self.state.seek(self.state.elapsed)
                 self.closed=True;self.close_prompt=False
-        except (OSError,ValueError,TypeError,KeyError) as exc:self.status=str(exc)
+        except (OSError,ValueError,TypeError,KeyError) as exc:
+            self.status=str(exc)
+            if name in ('close_save','close_discard'):self.close_prompt=False
         self.sync()
 
     def project(self,p):
@@ -286,10 +313,15 @@ class Editor:
         return identity
 
     def gizmo_handles(self):
-        if not self.guides or self.tab!='fog' or self.state.playing or self.preview_camera is None or self.selection.enabled:return []
-        view=self.layout()['viewport'];base=list(self.state.placement['offset'])
-        if self.state.fog_mode=='buildings':base=[base[i]+self.state.target.center[i] for i in range(3)]
-        else:base[1]+=2.
+        if not self.guides or self.tab not in ('fog','volumes') or self.state.playing or self.preview_camera is None or self.selection.enabled:return []
+        view=self.layout()['viewport']
+        if self.tab=='volumes':
+            if not self.state.volume:return []
+            base=list(self.state.volume['center'])
+        else:
+            base=list(self.state.placement['offset'])
+            if self.state.fog_mode=='buildings':base=[base[i]+self.state.target.center[i] for i in range(3)]
+            else:base[1]+=2.
         origin=self.project(base)
         if origin is None:return []
         handles=[]
@@ -300,8 +332,25 @@ class Editor:
             handles.append((axis,(end[0]-9,end[1]-9,18,18),origin,end))
         return handles
 
+    def poll_external(self,now=None):
+        """Keep live edits working while F8 selection or playback is paused."""
+        if not self.live_enabled:return None
+        before=self.state.document
+        message=self.state.poll_external(now=now,busy=bool(self.drag or self.entry or self.close_prompt))
+        if message:self.status=message
+        if self.state.document is not before:self.sync()
+        return message
+
+    def use_selected_building(self):
+        """Carry a semantic F8 building selection into the placement tools."""
+        for selected in reversed(self.selection.selected):
+            identity=selected.get('fog_target')
+            if identity in self.state._targets:
+                self.state.select_target(identity);return
+
     def update(self,dt,events=None):
         event=self.events=events or Input.read()
+        self.poll_external()
         control=bool(event.down&{'LEFT_CONTROL','RIGHT_CONTROL'});shift=bool(event.down&{'LEFT_SHIFT','RIGHT_SHIFT'})
         if self.close_prompt:
             if 'ESCAPE' in event.pressed:self.action('close_cancel')
@@ -311,9 +360,11 @@ class Editor:
             return
         if 'F8' in event.pressed:
             self.finish_drag();self.finish_entry(cancel=True);self.state.playing=False
-            self.selection.set_enabled(not self.selection.enabled);return
+            self.selection.set_enabled(not self.selection.enabled)
+            if not self.selection.enabled:self.use_selected_building()
+            return
         if self.selection.enabled:
-            if 'ESCAPE' in event.pressed:self.selection.set_enabled(False)
+            if 'ESCAPE' in event.pressed:self.selection.set_enabled(False);self.use_selected_building()
             elif 'BACKSPACE' in event.pressed:self.selection.clear()
             return
         if self.search_entry:
@@ -325,10 +376,11 @@ class Editor:
             if event.left_pressed and not contains((10,456,216,27),event.mouse):self.search_entry=False
             else:return
         if self.entry:
+            text_field=self.entry['path']==('vol','label')
             for char in event.chars:
-                if char in '0123456789+-.eE':
+                if char.isprintable() if text_field else char in '0123456789+-.eE':
                     if self.entry['replace']:self.entry['text']='';self.entry['replace']=False
-                    if len(self.entry['text'])<24:self.entry['text']+=char
+                    if len(self.entry['text'])<(80 if text_field else 24):self.entry['text']+=char
             if 'BACKSPACE' in event.pressed:
                 self.entry['text']='' if self.entry['replace'] else self.entry['text'][:-1];self.entry['replace']=False
             if 'ESCAPE' in event.pressed:self.finish_entry(True);return
@@ -347,6 +399,8 @@ class Editor:
                     self.state.document['cues'][cue]=self.state.clamp_time(cue,value)
                     if 'fog' in drag['before']:
                         self.state.document['fog']['groups']=deepcopy(drag['before']['fog']['groups'])
+                    if 'volumes' in drag['before']:
+                        self.state.document['volumes']=deepcopy(drag['before']['volumes'])
                     self.state.fit_group_times()
                     self.state.elapsed=self.state.document['cues'][cue]
                 if event.left_released or not event.left_down:self.finish_drag()
@@ -359,6 +413,18 @@ class Editor:
                     value=round(self.time_at(event.mouse[0]),2 if shift else 1)
                     self.state.group[drag['prop']]=self.state.clamp_group_time(drag['prop'],value)
                     self.state.seek(self.state.group[drag['prop']])
+                if event.left_released or not event.left_down:self.finish_drag()
+            elif kind=='volume_time':
+                if abs(event.mouse[0]-drag['mouse'][0])>2:drag['moved']=True
+                if drag['moved']:
+                    value=round(self.time_at(event.mouse[0]),2 if shift else 1)
+                    self.state.volume[drag['prop']]=self.volume_panel.clamp_time(drag['prop'],value)
+                    self.state.seek(self.state.volume[drag['prop']])
+                if event.left_released or not event.left_down:self.finish_drag()
+            elif kind=='volume':
+                dx,dy=drag['vector'];length=dx*dx+dy*dy
+                travel=((event.mouse[0]-drag['mouse'][0])*dx+(event.mouse[1]-drag['mouse'][1])*dy)/length*3.
+                self.state.volume['center'][drag['axis']]=max(-1000.,min(1000.,drag['value']+travel))
                 if event.left_released or not event.left_down:self.finish_drag()
             elif kind=='bank':
                 dx,dy=drag['vector'];length=dx*dx+dy*dy
@@ -401,8 +467,16 @@ class Editor:
             for axis,rect,origin,end in self.gizmo_handles():
                 if contains(rect,event.mouse):
                     self.state.playing=False
-                    self.drag=dict(kind='bank',axis=axis,mouse=event.mouse,vector=(end[0]-origin[0],end[1]-origin[1]),
-                                   value=self.state.placement['offset'][axis],before=self.state.checkpoint(),elapsed=self.state.elapsed)
+                    volume=self.tab=='volumes'
+                    self.drag=dict(kind='volume' if volume else 'bank',axis=axis,mouse=event.mouse,vector=(end[0]-origin[0],end[1]-origin[1]),
+                                   value=(self.state.volume['center'] if volume else self.state.placement['offset'])[axis],before=self.state.checkpoint(),elapsed=self.state.elapsed)
+                    return
+            if self.tab=='volumes':
+                hits=[(abs(rect[0]+rect[2]/2-event.mouse[0]),prop) for prop,rect in self.volume_panel.time_handles() if contains(rect,event.mouse)]
+                if hits:
+                    prop=min(hits)[1];self.state.seek(self.state.volume[prop])
+                    self.drag=dict(kind='volume_time',prop=prop,before=self.state.checkpoint(),elapsed=self.state.elapsed,
+                                   timeline_end=self.timeline_end(),mouse=event.mouse,moved=False)
                     return
             hits=[(abs(rect[0]+rect[2]/2-event.mouse[0]),prop) for prop,rect in self.reveal_handles() if contains(rect,event.mouse)]
             if hits:
@@ -418,8 +492,13 @@ class Editor:
             timeline=self.layout()['timeline']
             if contains((timeline[0],timeline[1]-23,timeline[2],113),event.mouse):
                 self.state.seek(self.time_at(event.mouse[0]));self.drag=dict(kind='seek');return
-            if self.tab=='fog' and self.state.fog_mode=='buildings' and contains(self.layout()['viewport'],event.mouse):
-                self.pick_target(event.mouse);return
+            if self.tab in ('fog','volumes') and self.state.fog_mode=='buildings' and contains(self.layout()['viewport'],event.mouse):
+                identity=self.pick_target(event.mouse)
+                if identity and self.tab=='volumes':self.status=identity+' selected / Fit selected building creates its own volume.'
+                return
+        if self.tab=='volumes' and event.wheel and contains((0,260,236,306),event.mouse):
+            pages=max(1,math.ceil(len(self.state.volume_regions)/8))
+            self.volume_panel.list_page=max(0,min(pages-1,self.volume_panel.list_page-int(event.wheel)))
         if self.tab=='fog' and self.state.fog_mode=='buildings' and event.wheel and contains((0,435,236,222),event.mouse):
             pages=max(1,math.ceil(len(self.filtered_targets())/5))
             self.target_page=max(0,min(pages-1,self.target_page-int(event.wheel)))
@@ -514,7 +593,7 @@ class Editor:
         pr.draw_rectangle(0,58,a['left'],b-58,PANEL);pr.draw_rectangle(a['right'],58,w-a['right'],b-58,PANEL)
         pr.draw_text('VOID CANALS'+(' *' if self.state.dirty else ''),14,12,21,INK)
         pr.draw_text('FOG / DIRECTION EDITOR',14,37,10,MUTED)
-        pr.draw_text('GLOBAL / CAMERA POINTS' if self.state.fog_mode=='buildings' else 'JUMP POINTS',13,76,13,INK)
+        pr.draw_text('SPATIAL FOG VOLUMES' if self.tab=='volumes' else 'GLOBAL / CAMERA POINTS' if self.state.fog_mode=='buildings' else 'JUMP POINTS',13,76,13,INK)
         buttons,fields=self.controls()
         # Draw the standard interface underneath a dirty-close dialog as well.
         prompt=self.close_prompt;self.close_prompt=False;normal_buttons,normal_fields=self.controls();self.close_prompt=prompt
@@ -528,7 +607,8 @@ class Editor:
         time_label='Fixed start' if self.state.selected=='start' else 'Camera / jump only' if self.state.fog_mode=='buildings' and self.state.selected in REFERENCE_LABELS else 'Exact time'
         pr.draw_text(time_label,x,135,11,MUTED)
         pr.draw_text(f'{self.state.elapsed:06.2f} s',a['right']-123,76,18,ACCENT)
-        if self.tab=='fog':
+        if self.tab=='volumes':self.volume_panel.draw_labels()
+        elif self.tab=='fog':
             buildings=self.state.fog_mode=='buildings'
             if buildings:
                 pr.draw_text('FOG TARGETS / click scene or search',13,436,11,INK)
@@ -557,12 +637,14 @@ class Editor:
         for path,rect in normal_fields:
             active=self.entry is not None and self.entry['path']==path
             pr.draw_rectangle_rec(pr.Rectangle(*rect),BLUE if active else FIELD)
-            prefix=('XYZ'[path[1]]+' ') if len(path)>1 else ''
-            value=self.entry['text']+'_' if active else f'{self.field_value(path):.2f}'
+            axis=path[2] if path[0]=='vol' and len(path)>2 else path[1] if path[0] not in ('vol','vol_global') and len(path)>1 else None
+            prefix=('XYZ'[axis]+' ') if axis is not None else ''
+            value=self.entry['text']+'_' if active else str(self.field_value(path)) if path==('vol','label') else f'{self.field_value(path):.2f}'
             pr.draw_text(label(prefix+value,rect[2]-10,13),int(rect[0]+5),int(rect[1]+10),13,INK)
         viewport=a['viewport']
         pr.draw_texture_pro(self.scene.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(*viewport),pr.Vector2(0,0),0,pr.WHITE)
         self.draw_target_guides()
+        if self.tab=='volumes':self.volume_panel.draw_guides()
         for axis,rect,origin,end in self.gizmo_handles():
             pr.draw_line_ex(pr.Vector2(*origin),pr.Vector2(*end),2,AXES[axis])
             pr.draw_rectangle_rec(pr.Rectangle(*rect),AXES[axis])
@@ -571,7 +653,8 @@ class Editor:
         pr.draw_text(label(title,a['right']-a['left']-44,14),a['left']+18,b-86,14,INK)
         pr.draw_text('F8: Codex selection  /  Space: play  /  arrows: frame step',a['left']+18,b-21,11,MUTED)
         pr.draw_rectangle(0,b,w,h-b,PANEL)
-        pr.draw_text(label(self.status,w-230,13),16,b+10,13,ACCENT)
+        status=self.state.live_status if self.state.external_pending or self.state.watcher.error else self.status
+        pr.draw_text(label(status,w-230,13),16,b+10,13,ACCENT)
         pr.draw_text('Unsaved changes' if self.state.dirty else 'Saved to game',w-166,b+10,12,ACCENT if self.state.dirty else MUTED)
         timeline=a['timeline'];ty=timeline[1]
         step=5 if self.state.duration<=90 else 10 if self.state.duration<=240 else 60
@@ -583,7 +666,8 @@ class Editor:
             pr.draw_rectangle(int(left),int(ty),max(1,int(right-left)-1),24,BLUE if i<2 else FIELD)
         for cue,rect in self.cue_handles():
             px=rect[0]+7;pr.draw_rectangle(int(px)-2,int(ty)-3,4,30,ACCENT if cue==self.state.selected else INK)
-        if self.tab=='fog' and self.state.fog_mode=='buildings':
+        if self.tab=='volumes':self.volume_panel.draw_timeline()
+        elif self.tab=='fog' and self.state.fog_mode=='buildings':
             left=self.x_at(self.state.group['reveal_start']);right=self.x_at(self.state.group['reveal_end']);y=ty+44
             pr.draw_rectangle(int(left),int(y),max(1,int(right-left)),17,GREEN)
             for prop,rect in self.reveal_handles():
@@ -602,7 +686,8 @@ class Editor:
         if self.preview_camera is not None:
             self.selection.present(self.preview_camera,viewport,{'world':'canals' if self.scene.sequence.world_blend>=.5 else 'lake',
                 'phase':self.scene.sequence.state,'time':self.state.elapsed,'cue':self.state.selected,
-                'fog_mode':self.state.fog_mode,'fog_bank':self.state.band,'fog_target':self.state.target_id})
+                'fog_mode':self.state.fog_mode,'fog_bank':self.state.band,'fog_target':self.state.target_id,
+                'fog_volume':self.state.volume_id,'editor_tab':self.tab})
         if prompt:
             pr.draw_rectangle(0,0,w,h,pr.Color(0,0,0,195));x0,y0=w/2-252,h/2-96
             pr.draw_rectangle(int(x0),int(y0),504,170,PANEL)
@@ -639,7 +724,7 @@ def run_embedded(scene,e,audio,clock):
     if audio:
         for sound in audio.sounds.values():pr.stop_sound(sound)
     pr.enable_cursor();pr.set_window_size(max(1360,old_size[0]),max(900,old_size[1]))
-    editor=Editor(scene,e)
+    editor=Editor(scene,e,path=getattr(scene,'direction_path',DEFAULT_PATH))
     editor.state.selected=max((cue for cue in CUES if editor.state.document['cues'][cue]<=elapsed),key=lambda cue:editor.state.document['cues'][cue],default='start')
     editor.state.seek(elapsed)
     try:
@@ -656,17 +741,22 @@ def run_embedded(scene,e,audio,clock):
     return 87.+elapsed
 
 
-def run():
+def run(direction_path=DEFAULT_PATH):
     pr.set_config_flags(pr.FLAG_WINDOW_RESIZABLE)
     pr.set_trace_log_level(pr.LOG_WARNING);pr.init_window(1440,900,'Void Canals / Fog direction editor')
     pr.set_window_min_size(1360,900);pr.set_target_fps(60);pr.set_exit_key(pr.KEY_NULL)
     scene=editor=None
     try:
-        scene=Lake();editor=Editor(scene);editor_loop(editor)
+        scene=Lake();scene.direction_path=Path(direction_path)
+        editor=Editor(scene,path=direction_path);editor_loop(editor)
     finally:
         if editor:editor.close()
         if scene:scene.close()
         pr.enable_cursor();pr.close_window()
 
 
-if __name__=='__main__':run()
+if __name__=='__main__':
+    import argparse
+    parser=argparse.ArgumentParser(description='Edit Void Canals fog and camera direction.')
+    parser.add_argument('--direction',type=Path,default=DEFAULT_PATH,help='Direction JSON to preview, save and live-reload.')
+    run(parser.parse_args().direction)
