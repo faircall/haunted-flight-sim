@@ -3,7 +3,7 @@ in vec2 fragTexCoord;
 uniform sampler2D texture0,depthMap,particleMap,volumeMap;
 uniform vec2 resolution;
 uniform float veil,time,arrival,sourceArrival,returning,reflectedView,voidWorld,waterY,clearing;
-uniform float volumeActive,particleMix;
+uniform float volumeActive,particleMix,waterVeilActive;
 uniform vec3 eye,forward,right,up,playerCenter,fogColour;
 uniform vec2 lens,clip;
 out vec4 finalColor;
@@ -207,7 +207,15 @@ void main(){
         c=rollingMist(c,uv);
         finalColor=vec4(puzzleLayers(c,uv,particles),1.);return;
     }
-    for(int x=-2;x<=2;x++)for(int y=-2;y<=2;y++)bloom+=max(texture(texture0,uv+vec2(x,y)*2./resolution).rgb-vec3(.74),vec3(0.))/25.;
+    for(int x=-2;x<=2;x++)for(int y=-2;y<=2;y++){
+        vec2 tap=uv+vec2(x,y)*2./resolution;
+        vec3 glow=max(texture(texture0,tap).rgb-vec3(.74),vec3(0.))/25.;
+        // Hidden water reflections must not reappear through the later bloom
+        // pass. The optional veil is full resolution, so mask each source tap
+        // before spreading its glow across neighbouring foreground pixels.
+        if(waterVeilActive>.5)glow*=1.-texture(volumeMap,tap).a;
+        bloom+=glow;
+    }
     c=rollingMist(c,uv);
     c=puzzleLayers(c,uv,particles);
     c=pow(max(c+bloom*.24,vec3(0.)),vec3(.94))*(1.-.095*dot(uv*2.-1.,uv*2.-1.));

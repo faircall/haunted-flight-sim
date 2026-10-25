@@ -361,3 +361,148 @@ live updates:
 ```powershell
 artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_canals_volume_ui -q
 ```
+
+### Fog shaped by building surfaces
+
+The **Surface** tab controls another independent layer: a distance field baked
+from the actual village geometry shapes fog around walls, roofs and stairs.
+The optional `surface_fog` section is disabled when absent, so existing saved
+quad and volume configurations keep their previous appearance. Simply opening
+the tab does not add fields or change the saved file.
+
+Use **`edit_huxin_canals_surface_fog.cmd`** to edit this experiment and
+**`play_huxin_canals_surface_fog_test.cmd`** to start next to the puzzle. Both
+are muted and share the independent, live-reloaded
+[`direction-surface.json`](art/temple/huxin_canals/direction-surface.json).
+The quad and earlier volumetric experiment files remain separate.
+The active Surface experiment uses **Condense**: slow tightening, an inward
+pull, then lingering wisps. The previous 14-second buildup is preserved in
+[`direction-surface-condense-slow.json`](art/temple/huxin_canals/direction-surface-condense-slow.json).
+The earlier fast Condense setup is preserved in
+[`direction-surface-condense-fast.json`](art/temple/huxin_canals/direction-surface-condense-fast.json).
+The previous saved Rise / resolve setup is preserved in
+[`direction-surface-rise.json`](art/temple/huxin_canals/direction-surface-rise.json).
+The older erosion setup remains in
+[`direction-surface-erode.json`](art/temple/huxin_canals/direction-surface-erode.json).
+Open a backup through `--direction` to compare without changing the active
+experiment file.
+
+The current experiment grows over **24 seconds**, then blends the hidden
+geometry from **24 to 25 seconds**. **Wispy rise** lets sparse fragments gather
+before a dense envelope forms. Vertical fog roots temporarily fill the spaces
+between the lake and the structures, so the lower surface joins the building fog.
+**Pixel grain** adds deliberate coarse grain and chunky dithering to the fog.
+The current pixel-grain amount is **0.85** and Wispy rise is enabled.
+It uses a **1.1 m** surface envelope,
+**3.8** density and **40%** initial footprint size. In Condense, the inward pull
+starts **28%** through each house's reveal window and lasts **7 seconds**.
+The house windows overlap, so multiple buildings contract in parallel. Their
+long windows leave room for the full pull and for residual wisps afterward.
+All **142** houses retain a full **7 second** pull, with up to **76** nominal
+pulls overlapping. The wisp amount is **0.55**, **Texture grit** is **0.72**,
+noise size is **2.4 m**, and pattern strength is **0.95**.
+The optional **Water veil** covers the water-level and reflection handoff;
+its clearing follows the fallback **32 to 58 second** resolve window. House
+resolve windows start between **25 and 39 seconds** and last **26 to 30 seconds**.
+The full authored timeline is **74 seconds**, leaving space for the far buildings.
+The global build/handoff cues also read **24 and 25 seconds**, so the sidebar
+markers and actual hidden blend agree.
+Only five low-water volumes remain enabled to cover the changing water level
+and reflections. Their arrival finishes at 24 seconds and their clearing spans
+roughly 35 to 59 seconds. The nine older house/alley volumes are disabled and the
+shared quad amount is **0**; their saved contents remain available for mixing
+techniques later. The earlier quad and bounded-volume experiments are separate.
+
+The baked field follows **1,321,079 triangles** from the village GLBs, retaining
+the irregular silhouettes and openings rather than substituting simplified
+building shapes. Its **142 named house groups** connect the nearest surfaces
+to existing reveal timings. Animated three-dimensional noise varies the fog
+through its depth. The motion mode determines how that fog forms and reveals
+the buildings.
+
+**Surface ON/OFF** enables the layer. **Surface amount** controls its strength;
+**Shared quad amount** edits the same quad multiplier shown in the Volume tab.
+Quality is shared too. Authored box/ellipsoid volumes retain their independent
+enable toggle and amount; the Surface toggle does not replace those regions.
+
+- **Shape** cycles **Motion: Erode**, **Motion: Rise / resolve**, and **Motion: Condense**, and controls
+  density, thickness in metres away from the geometry, and soft edge width.
+  Rise / resolve and Condense also expose **Initial size / %**: the fog begins compressed
+  around each building's footprint, rises from the lake datum, and grows into
+  the building's full shape. The tighter envelope keeps its architecture legible.
+  In Condense, **Wispy rise** enables gradual fragmented buildup with temporary
+  vertical roots connecting the lake and building envelopes.
+- **Flow** controls the scale of the three-dimensional noise, the amount of
+  its irregular pattern, and wind velocity in metres per second. Condense adds
+  **Lingering wisps / 0-1**, controlling the residual fragments after the pull,
+  **Texture grit / 0-1** for granularity in the fog, and **Pixel grain / 0-1** for
+  deliberate coarse pixels and dithering. **Water veil** on Shape
+  independently enables low fog over the changing water and its reflections.
+- **Timing** controls the build/rise window and the clearing/resolve window.
+  In Rise / resolve, the noise first settles into a stable ghostly structure,
+  then its material detail appears. **Ghost settles / %** sets the fraction of
+  the resolve interval used for that first stage; for example, 65 leaves the
+  remaining 35 percent for the material reveal. With **House reveal windows ON**,
+  each named house uses its existing individual group window. The displayed
+  resolve window is a fallback for other geometry. With the switch off, all
+  surfaces use that window. Both tracks remain draggable below the preview.
+  In Condense, **Pull starts / %** gives the portion of the window spent tightening;
+  **Pull duration / sec** controls the inward motion that reveals the material,
+  from **0.1 to 15 seconds**.
+  Short reveal windows shorten that duration to leave time for residual wisps.
+  Pulls of six seconds or longer spread movement and material emergence across
+  almost their full duration; short pulls retain the original sharper timing.
+  The window's end is labelled **Last wisps gone** in this mode. Switching modes
+  retains the controls' saved values, making comparisons reversible with Undo.
+
+The new evolution fields are optional. Older files keep Erode mode and retain
+their original JSON fields when loaded and saved. Initial size and ghost-settle
+controls display percentages in the editor; JSON stores fractions (`0.4` and
+`0.65` by default). Condense uses the same `settle_fraction` field for its pull
+start; the experiment sets it to `0.28`. Its optional `pull_duration` is in seconds
+and `wisp_amount`, `texture_grit` and `pixel_grain` are fractions from zero to one.
+The optional `wispy_formation` boolean defaults to `false`, and `pixel_grain`
+defaults to zero. These opt-in controls preserve previous saved appearances.
+The optional
+`water_mask` boolean defaults to `false`; its rise uses the surface build window
+and its clearing uses the fallback resolve window. Earlier files acquire none
+of these fields merely from loading or saving. The legacy pull default stays
+at `1.15` seconds and grit defaults to zero, preserving prior saved looks.
+The advanced optional `base_y` setting defaults to the fixed
+lake datum `0.0`; it stays fixed through the water-level transition.
+
+Click a house in the preview, or select it with F8 and leave selection mode.
+**Frame selected building** inspects it; **Edit this house timing** opens the
+existing quad/group timing controls for that house. Those windows can drive
+both its quad curtain and its surface fog without duplicating timing edits.
+The Surface tab deliberately uses the buildings themselves for spatial context.
+
+Surface settings participate in Save, Undo, Redo, custom direction paths and
+Live reload. A global blend/end retiming keeps their windows valid in the same
+undo transaction. Extending **Build / Full density** or **Rise / Full height** also delays the hidden
+geometry blend until the fog finishes forming, preserving the blend's authored
+duration. The fallback clearing window moves later when needed in that same
+undo step. For example, setting full density to 8 seconds moves the default
+geometry blend to 8–9 seconds and keeps clearing at or after 9 seconds. The
+player remains locked until that blend finishes; an already revealed live
+game never reverses back to the lake. The **Geometry blend** readout above the
+Surface property pages shows these effective times; the shared global markers
+retain their authored times for camera keys and other fog layers.
+
+The Surface pass always renders at the scene's full **640 × 360** resolution
+to protect thin roof and window edges. Draft, Balanced and High change its
+ray budget to **112 / 176 / 256** samples. The independent authored-volume
+renderer retains its own quality/resolution choices.
+
+The runtime verifies the source geometry hashes against the baked field.
+After exporting changed village meshes, regenerate it with the project runtime:
+
+```powershell
+artifacts/temple3d-env/Scripts/python.exe g_huxin_canals_surface_fog.py
+```
+
+Relevant headless checks:
+
+```powershell
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_canals_surface_settings test_huxin_canals_surface_ui test_huxin_canals_surface_timing -q
+```

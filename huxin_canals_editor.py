@@ -19,6 +19,8 @@ from temple_interior_viewer import camera
 from huxin_canals_viewer import Lake, WIDTH, HEIGHT
 from codex_selection import SelectionSession
 from huxin_canals_volume_editor import VolumePanel
+from huxin_canals_surface_editor import SurfacePanel
+from g_huxin_canals_surface_settings import fit_surface_times
 
 BG=pr.Color(13,20,23,255); PANEL=pr.Color(21,30,34,255); FIELD=pr.Color(31,43,48,255)
 INK=pr.Color(221,232,229,255); MUTED=pr.Color(133,160,163,255)
@@ -46,12 +48,13 @@ class Editor:
             for name in ('x','height','z','yaw','phase','shot'):setattr(self.actor,name,getattr(actor,name))
         self.actor.clip='idle'
         self.live_input=live_input;self.events=Input();self.drag=None;self.entry=None
-        self.tab='volumes' if self.state.volume_settings['enabled'] else 'fog'
-        self.speed=3.;self.guides=True;self.closed=False;self.close_prompt=False
+        self.tab='surface' if self.state.surface_settings['enabled'] else 'volumes' if self.state.volume_settings['enabled'] else 'fog'
+        self.speed=3.;self.guides=True;self.closed=False;self.close_prompt=False;self.close_error=None
         self.status='Select a point to jump. Drag timeline markers to retime the reveal.'
         self.preview_camera=None;self.inspection=None;self._profile=None;self._released=False
         self.target_query='';self.target_page=0;self.search_entry=False
         self.volume_panel=VolumePanel(self)
+        self.surface_panel=SurfacePanel(self)
         self.live_enabled=True
         self._previous_sequence=scene.sequence
         self._previous_selection=getattr(scene,'codex_selection',None)
@@ -79,14 +82,15 @@ class Editor:
                  ('close','Return / exit',(w-142,14,126,30),False),
                  ('previous','Previous point',(a['left']+18,67,126,28),False),
                  ('next','Next point',(a['left']+154,67,110,28),False),
-                 ('tab:fog','QUAD FOG',(x,69,86,30),self.tab=='fog'),
-                 ('tab:volumes','VOLUMES',(x+94,69,86,30),self.tab=='volumes'),
-                 ('tab:camera','CAMERA',(x+188,69,84,30),self.tab=='camera'),
+                 ('tab:fog','QUADS',(x,69,62,30),self.tab=='fog'),
+                 ('tab:volumes','VOLUME',(x+70,69,62,30),self.tab=='volumes'),
+                 ('tab:surface','SURFACE',(x+140,69,62,30),self.tab=='surface'),
+                 ('tab:camera','CAMERA',(x+210,69,62,30),self.tab=='camera'),
                  ('game_view','Authored view',(a['left']+18,b-60,122,27),self.inspection is None),
                  ('reverse_view','Reverse view',(a['left']+150,b-60,112,27),self.inspection=='reverse'),
                  ('top_view','Overhead',(a['left']+272,b-60,94,27),self.inspection=='top'),
                  ('guides','Guides',(a['left']+376,b-60,74,27),self.guides)]
-        if self.tab!='volumes':buttons.append(('defaults','Restore defaults',(12,b-47,211,29),False))
+        if self.tab not in ('volumes','surface'):buttons.append(('defaults','Restore defaults',(12,b-47,211,29),False))
         if self.state.external_pending:
             buttons.extend([('use_file','Use file',(920,14,108,30),False),
                             ('keep_mine','Keep mine',(1036,14,108,30),False)])
@@ -95,7 +99,10 @@ class Editor:
                 title=REFERENCE_LABELS.get(cue,SHORT_LABELS[i]) if self.state.fog_mode=='buildings' else SHORT_LABELS[i]
                 buttons.append(('cue:'+cue,title,(10,103+i*35,216,32),cue==self.state.selected))
         fields=[(('time',),(x+140,124,132,32))]
-        if self.tab=='volumes':
+        if self.tab=='surface':
+            surface_buttons,surface_fields=self.surface_panel.controls()
+            buttons.extend(surface_buttons);fields.extend(surface_fields)
+        elif self.tab=='volumes':
             volume_buttons,volume_fields=self.volume_panel.controls()
             buttons.extend(volume_buttons);fields.extend(volume_fields)
         elif self.tab=='fog':
@@ -151,7 +158,7 @@ class Editor:
                 for prop in ('reveal_start','reveal_end')]
 
     def timeline_end(self):
-        if self.drag and self.drag['kind'] in ('cue','reveal','volume_time'):return self.drag['timeline_end']
+        if self.drag and self.drag['kind'] in ('cue','reveal','volume_time','surface_time'):return self.drag['timeline_end']
         return self.state.duration+max(2.,self.state.duration*.08)
 
     def x_at(self,t):
@@ -163,6 +170,7 @@ class Editor:
 
     def field_value(self,path):
         prop=path[0]
+        if prop=='surface':return self.surface_panel.field_value(path)
         if prop in ('vol','vol_global'):return self.volume_panel.field_value(path)
         if prop=='time':return self.state.document['cues'][self.state.selected]
         source=self.state.placement if prop in ('offset','scale','opacity','reveal_start','reveal_end') else self.state.frame
@@ -180,7 +188,8 @@ class Editor:
             try:
                 path=self.entry['path'];prop=path[0]
                 value=self.entry['text'] if path==('vol','label') else float(self.entry['text'])
-                if prop in ('vol','vol_global'):self.volume_panel.set_field(path,value)
+                if prop=='surface':self.surface_panel.set_field(path,value)
+                elif prop in ('vol','vol_global'):self.volume_panel.set_field(path,value)
                 elif prop=='time':self.state.set_time(self.state.selected,value)
                 elif prop in ('offset','scale','opacity','reveal_start','reveal_end'):self.state.set_placement(prop,value,path[1] if len(path)>1 else None)
                 else:
@@ -204,10 +213,20 @@ class Editor:
         if drag['kind'] in ('fly','inspect_fly') and self.live_input:pr.enable_cursor()
 
     def action(self,name):
-        self.finish_drag()
-        if not self.finish_entry():return
+        if name=='close_cancel':
+            self.close_prompt=False;self.close_error=None;return
+        if name=='close':
+            self.finish_drag();self.state.playing=False;self.close_error=None
+            if self.state.dirty or self.entry:self.close_prompt=True
+            else:self.closed=True
+            return
+        self.finish_drag(cancel=name=='close_discard')
+        if not self.finish_entry(cancel=name=='close_discard'):
+            if name=='close_save':self.close_error='Cannot save. Discard to leave, or keep editing to correct the value.'
+            return
         try:
-            if name.startswith('vol:'):self.volume_panel.action(name)
+            if name.startswith('surface:'):self.surface_panel.action(name)
+            elif name.startswith('vol:'):self.volume_panel.action(name)
             elif name=='play':
                 if self.state.elapsed>=self.state.duration:self.state.elapsed=0.
                 if self.state.loop:
@@ -262,19 +281,13 @@ class Editor:
             elif name=='reverse_view':self.inspection='reverse'
             elif name=='top_view':self.inspection='top'
             elif name=='guides':self.guides=not self.guides
-            elif name=='close':
-                self.state.playing=False
-                if self.state.dirty:self.close_prompt=True
-                else:self.closed=True
-            elif name=='close_cancel':self.close_prompt=False
             elif name=='close_save':self.state.save();self.closed=True;self.close_prompt=False
             elif name=='close_discard':
-                if self.state.external_pending:self.state.reload()
-                self.state.document=deepcopy(self.state.saved);self.state.seek(self.state.elapsed)
+                self.state.discard()
                 self.closed=True;self.close_prompt=False
         except (OSError,ValueError,TypeError,KeyError) as exc:
             self.status=str(exc)
-            if name in ('close_save','close_discard'):self.close_prompt=False
+            if name=='close_save':self.close_error='Could not save. Discard to leave, or keep editing to resolve it.'
         self.sync()
 
     def project(self,p):
@@ -358,6 +371,11 @@ class Editor:
                 for name,_,rect,_ in self.controls()[0]:
                     if contains(rect,event.mouse):self.action(name);break
             return
+        # Exit stays reachable while a field is invalid or F8 selection owns
+        # viewport input. The modal decides whether unfinished edits are saved.
+        if event.left_pressed:
+            for name,_,rect,_ in self.controls()[0]:
+                if name=='close' and contains(rect,event.mouse):self.action('close');return
         if 'F8' in event.pressed:
             self.finish_drag();self.finish_entry(cancel=True);self.state.playing=False
             self.selection.set_enabled(not self.selection.enabled)
@@ -401,6 +419,8 @@ class Editor:
                         self.state.document['fog']['groups']=deepcopy(drag['before']['fog']['groups'])
                     if 'volumes' in drag['before']:
                         self.state.document['volumes']=deepcopy(drag['before']['volumes'])
+                    if 'surface_fog' in drag['before']:
+                        self.state.document['surface_fog']=deepcopy(drag['before']['surface_fog'])
                     self.state.fit_group_times()
                     self.state.elapsed=self.state.document['cues'][cue]
                 if event.left_released or not event.left_down:self.finish_drag()
@@ -420,6 +440,15 @@ class Editor:
                     value=round(self.time_at(event.mouse[0]),2 if shift else 1)
                     self.state.volume[drag['prop']]=self.volume_panel.clamp_time(drag['prop'],value)
                     self.state.seek(self.state.volume[drag['prop']])
+                if event.left_released or not event.left_down:self.finish_drag()
+            elif kind=='surface_time':
+                if abs(event.mouse[0]-drag['mouse'][0])>2:drag['moved']=True
+                if drag['moved']:
+                    if drag['prop']=='build_end':self.state.document['surface_fog']=deepcopy(drag['surface_before'])
+                    value=round(self.time_at(event.mouse[0]),2 if shift else 1)
+                    self.state.document['surface_fog'][drag['prop']]=self.surface_panel.clamp_time(drag['prop'],value)
+                    if drag['prop']=='build_end':fit_surface_times(self.state.document['surface_fog'],self.state.document['cues'])
+                    self.state.seek(self.state.surface_settings[drag['prop']])
                 if event.left_released or not event.left_down:self.finish_drag()
             elif kind=='volume':
                 dx,dy=drag['vector'];length=dx*dx+dy*dy
@@ -478,6 +507,15 @@ class Editor:
                     self.drag=dict(kind='volume_time',prop=prop,before=self.state.checkpoint(),elapsed=self.state.elapsed,
                                    timeline_end=self.timeline_end(),mouse=event.mouse,moved=False)
                     return
+            if self.tab=='surface':
+                hits=[(abs(rect[0]+rect[2]/2-event.mouse[0]),prop) for prop,rect in self.surface_panel.time_handles() if contains(rect,event.mouse)]
+                if hits:
+                    prop=min(hits)[1];self.state.seek(self.state.surface_settings[prop])
+                    self.drag=dict(kind='surface_time',prop=prop,before=self.state.checkpoint(),elapsed=self.state.elapsed,
+                                   timeline_end=self.timeline_end(),mouse=event.mouse,moved=False,
+                                   surface_before=deepcopy(self.state.surface_settings))
+                    self.surface_panel.begin_time_edit()
+                    return
             hits=[(abs(rect[0]+rect[2]/2-event.mouse[0]),prop) for prop,rect in self.reveal_handles() if contains(rect,event.mouse)]
             if hits:
                 prop=min(hits)[1];self.state.seek(self.state.group[prop])
@@ -492,9 +530,10 @@ class Editor:
             timeline=self.layout()['timeline']
             if contains((timeline[0],timeline[1]-23,timeline[2],113),event.mouse):
                 self.state.seek(self.time_at(event.mouse[0]));self.drag=dict(kind='seek');return
-            if self.tab in ('fog','volumes') and self.state.fog_mode=='buildings' and contains(self.layout()['viewport'],event.mouse):
+            if self.tab in ('fog','volumes','surface') and self.state.fog_mode=='buildings' and contains(self.layout()['viewport'],event.mouse):
                 identity=self.pick_target(event.mouse)
                 if identity and self.tab=='volumes':self.status=identity+' selected / Fit selected building creates its own volume.'
+                elif identity and self.tab=='surface':self.status=identity+' selected / its reveal window also controls surface fog.'
                 return
         if self.tab=='volumes' and event.wheel and contains((0,260,236,306),event.mouse):
             pages=max(1,math.ceil(len(self.state.volume_regions)/8))
@@ -557,6 +596,7 @@ class Editor:
         if contains(rect,self.events.mouse):colour=pr.Color(min(255,colour.r+12),min(255,colour.g+12),min(255,colour.b+12),255)
         pr.draw_rectangle_rec(pr.Rectangle(*rect),colour)
         size=13
+        while size>10 and pr.measure_text(title,size)>rect[2]-12:size-=1
         title=label(title,rect[2]-12,size)
         pr.draw_text(title,int(rect[0]+(rect[2]-pr.measure_text(title,size))/2),int(rect[1]+(rect[3]-size)/2),size,INK)
 
@@ -607,7 +647,8 @@ class Editor:
         time_label='Fixed start' if self.state.selected=='start' else 'Camera / jump only' if self.state.fog_mode=='buildings' and self.state.selected in REFERENCE_LABELS else 'Exact time'
         pr.draw_text(time_label,x,135,11,MUTED)
         pr.draw_text(f'{self.state.elapsed:06.2f} s',a['right']-123,76,18,ACCENT)
-        if self.tab=='volumes':self.volume_panel.draw_labels()
+        if self.tab=='surface':self.surface_panel.draw_labels()
+        elif self.tab=='volumes':self.volume_panel.draw_labels()
         elif self.tab=='fog':
             buildings=self.state.fog_mode=='buildings'
             if buildings:
@@ -637,7 +678,7 @@ class Editor:
         for path,rect in normal_fields:
             active=self.entry is not None and self.entry['path']==path
             pr.draw_rectangle_rec(pr.Rectangle(*rect),BLUE if active else FIELD)
-            axis=path[2] if path[0]=='vol' and len(path)>2 else path[1] if path[0] not in ('vol','vol_global') and len(path)>1 else None
+            axis=path[2] if path[0] in ('vol','surface') and len(path)>2 else path[1] if path[0] not in ('vol','vol_global','surface') and len(path)>1 else None
             prefix=('XYZ'[axis]+' ') if axis is not None else ''
             value=self.entry['text']+'_' if active else str(self.field_value(path)) if path==('vol','label') else f'{self.field_value(path):.2f}'
             pr.draw_text(label(prefix+value,rect[2]-10,13),int(rect[0]+5),int(rect[1]+10),13,INK)
@@ -666,7 +707,8 @@ class Editor:
             pr.draw_rectangle(int(left),int(ty),max(1,int(right-left)-1),24,BLUE if i<2 else FIELD)
         for cue,rect in self.cue_handles():
             px=rect[0]+7;pr.draw_rectangle(int(px)-2,int(ty)-3,4,30,ACCENT if cue==self.state.selected else INK)
-        if self.tab=='volumes':self.volume_panel.draw_timeline()
+        if self.tab=='surface':self.surface_panel.draw_timeline()
+        elif self.tab=='volumes':self.volume_panel.draw_timeline()
         elif self.tab=='fog' and self.state.fog_mode=='buildings':
             left=self.x_at(self.state.group['reveal_start']);right=self.x_at(self.state.group['reveal_end']);y=ty+44
             pr.draw_rectangle(int(left),int(y),max(1,int(right-left)),17,GREEN)
@@ -693,6 +735,7 @@ class Editor:
             pr.draw_rectangle(int(x0),int(y0),504,170,PANEL)
             pr.draw_text('Keep your scene edits?',int(x0)+20,int(y0)+19,22,INK)
             pr.draw_text('Save them to the game, discard them, or keep editing.',int(x0)+20,int(y0)+55,13,MUTED)
+            if self.close_error:pr.draw_text(self.close_error,int(x0)+20,int(y0)+78,11,ACCENT)
             for _,title,rect,active in buttons:self.draw_button(title,rect,active)
 
     def close(self):
@@ -714,7 +757,9 @@ def editor_loop(editor):
         if not requested:close_requested=False
         elif not close_requested:
             close_requested=True;editor.action('close')
+        if editor.closed:break
         editor.update(min(pr.get_frame_time(),.1))
+        if editor.closed:break
         editor.render_scene();pr.begin_drawing();editor.draw();pr.end_drawing()
 
 

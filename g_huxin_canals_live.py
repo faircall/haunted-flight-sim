@@ -159,7 +159,7 @@ def apply_live_direction(sequence,profile):
     if committed:
         sequence.state='canals';sequence.revealed=True
         sequence._live_world_committed=True
-    elif sequence.state=='entering' and sequence.elapsed>=profile.cue('blend_end'):
+    elif sequence.state=='entering' and sequence.elapsed>=sequence.entry_duration:
         sequence.state='canals';sequence.revealed=True
         sequence._live_world_committed=True
     return True

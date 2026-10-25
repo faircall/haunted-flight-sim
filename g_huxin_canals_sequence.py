@@ -5,6 +5,7 @@ from g_huxin_canals import DECK, can_walk, walk_height, COLUMNS, BENCHES, smooth
 from g_huxin_canals_particles import (ARRIVAL_DURATION as FOG_ARRIVAL_DURATION,
     CLEAR_START as WORLD_BLEND_END, CLEAR_DURATION as FOG_CLEAR_DURATION)
 from g_huxin_canals_direction import DEFAULT_DIRECTION
+from g_huxin_canals_surface_settings import surface_blend_window
 WORLD_BLEND_START=FOG_ARRIVAL_DURATION
 ENTRY_SWAP=WORLD_BLEND_END
 ENTRY_DURATION=WORLD_BLEND_END
@@ -84,7 +85,9 @@ class CanalSequence:
     @property
     def duration(self):return self.cue('end')
     @property
-    def entry_duration(self):return self.cue('blend_end')
+    def entry_duration(self):return surface_blend_window(self.direction)[1]
+    @property
+    def entry_start(self):return surface_blend_window(self.direction)[0]
 
     def seek(self,elapsed):
         """Preview an activated encounter without playing cues or simulating time.
@@ -121,7 +124,7 @@ class CanalSequence:
         # Retiming a live game cannot remove the ground beneath a player who
         # has already entered the canals. Editor seeks reset this protection.
         if self._live_world_committed:return 1.
-        return ease(self.cue('build_end'),self.entry_duration,self.elapsed)
+        return ease(self.entry_start,self.entry_duration,self.elapsed)
     @property
     def veil(self):
         if self.state=='ordinary':return .72*ease(0.,1.,self.approach)
@@ -190,7 +193,7 @@ class CanalSequence:
             self.elapsed=max(self.elapsed,min(self.duration,self.elapsed+max(0.,dt)))
             # Summed frame intervals can land a few ulps below an authored
             # boundary. Commit on that frame at every supported frame rate.
-            for boundary in (self.cue('build_end'),self.entry_duration,self.duration):
+            for boundary in (self.cue('build_end'),self.entry_start,self.entry_duration,self.duration):
                 if abs(self.elapsed-boundary)<1e-9:self.elapsed=boundary
         if self.state=='entering':
             if self.elapsed>=self.entry_duration and not self.revealed:

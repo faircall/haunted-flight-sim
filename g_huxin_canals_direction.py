@@ -18,6 +18,8 @@ import tempfile
 from hashlib import sha256
 from g_huxin_canals_volumes import (VolumeSettings, DEFAULT_VOLUME_SETTINGS,
     validate_volume_document, settings_from_document, document_from_settings)
+from g_huxin_canals_surface_settings import (SurfaceFogSettings, DEFAULT_SURFACE_SETTINGS,
+    SURFACE_OPTIONAL_FIELDS, validate_surface_document, surface_settings_from_document, document_from_surface_settings)
 
 
 VERSION = 1
@@ -93,6 +95,9 @@ class DirectionProfile:
     groups: tuple[FogGroupSettings, ...] = ()
     volumes: VolumeSettings = DEFAULT_VOLUME_SETTINGS
     volume_authored: bool = False
+    surface_fog: SurfaceFogSettings = DEFAULT_SURFACE_SETTINGS
+    surface_authored: bool = False
+    surface_optional_fields: tuple[str,...] = ()
 
     def cue(self, name):
         try:return self.cue_times[CUES.index(name)]
@@ -199,7 +204,7 @@ def _vector(value, path):
 
 def validate_document(document):
     """Validate and return a fresh normalized copy without mutating the input."""
-    doc = _object(document, 'direction', ('version', 'cues', 'banks', 'cameras'), ('fog','volumes'))
+    doc = _object(document, 'direction', ('version', 'cues', 'banks', 'cameras'), ('fog','volumes','surface_fog'))
     if isinstance(doc['version'], bool) or not isinstance(doc['version'], int) or doc['version'] != VERSION:
         raise DirectionError(f'version: expected supported version {VERSION}')
     cue_data = _object(doc['cues'], 'cues', CUES)
@@ -275,6 +280,8 @@ def validate_document(document):
         result['fog'] = {'mode':fog['mode'],'groups':normalized}
     if 'volumes' in doc:
         result['volumes']=validate_volume_document(doc['volumes'],cues,DirectionError)
+    if 'surface_fog' in doc:
+        result['surface_fog']=validate_surface_document(doc['surface_fog'],cues,DirectionError)
     return result
 
 
@@ -292,7 +299,10 @@ def profile_from_document(document):
                                value['reveal_start'],value['reveal_end'])
               for ident,value in doc.get('fog',{}).get('groups',{}).items()),
         settings_from_document(doc.get('volumes')),
-        'volumes' in doc)
+        'volumes' in doc,
+        surface_settings_from_document(doc.get('surface_fog')),
+        'surface_fog' in doc,
+        tuple(key for key in SURFACE_OPTIONAL_FIELDS if key in doc.get('surface_fog',{})))
 
 
 def document_from_profile(profile):
@@ -313,6 +323,8 @@ def document_from_profile(profile):
             for group in profile.groups}}
     if profile.volume_authored or profile.volumes != DEFAULT_VOLUME_SETTINGS:
         document['volumes']=document_from_settings(profile.volumes)
+    if profile.surface_authored or profile.surface_fog != DEFAULT_SURFACE_SETTINGS:
+        document['surface_fog']=document_from_surface_settings(profile.surface_fog,profile.surface_optional_fields)
     return validate_document(document)
 
 

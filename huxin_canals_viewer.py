@@ -103,7 +103,7 @@ def auto_camera(e):
 class Lake(Hall):
     def __init__(self):
         self.models={};self.textures={};self.shader=None;self.player=None;self.sky=None;self.post=None;self.raw=None;self.frame=None;self.smoke=None;self.reflection=None;self.reflection_raw=None;self.water_shader=None;self.last_shot=0;self.sequence=CanalSequence();self.last_camera=None
-        self.blend_shader=None;self.blend_old_frame=None;self.blend_new_frame=None;self.puzzle_fog=None;self.volume_fog=None
+        self.blend_shader=None;self.blend_old_frame=None;self.blend_new_frame=None;self.puzzle_fog=None;self.volume_fog=None;self.surface_fog=None;self.surface_material=None;self.surface_veil=None
         self._world_override=None;self.last_world_weights={'lake':1.,'canals':0.}
         try:
             self.manifest=json.loads((KIT/'manifest.json').read_text())
@@ -151,10 +151,18 @@ class Lake(Hall):
             self.puzzle_fog=PuzzleFog(WIDTH,HEIGHT)
             from huxin_canals_volumes import FogVolumes
             self.volume_fog=FogVolumes(WIDTH,HEIGHT)
+            from huxin_canals_surface_fog import SurfaceFog
+            self.surface_fog=SurfaceFog(WIDTH,HEIGHT)
+            from huxin_canals_surface_veil import LakeSurfaceVeil
+            self.surface_veil=LakeSurfaceVeil(WIDTH,HEIGHT)
+            from huxin_canals_surface_material import SurfaceMaterialReveal
+            self.surface_material=SurfaceMaterialReveal(self.shader,self.models)
             self.sky=MoonSky();im=pr.gen_image_gradient_radial(32,32,0.,pr.WHITE,pr.BLANK);self.smoke=pr.load_texture_from_image(im);pr.unload_image(im)
         except Exception:self.close();raise
 
     def environment(self,cam,clock,inspection,reflection):
+        material=getattr(self,'surface_material',None)
+        if material is not None:material.sync(self.surface_fog,self.sequence)
         lights=LIGHTS[:3] if self.render_revealed else LIGHTS
         for s in (self.shader,self.player.skin,self.water_shader):
             for name,value in (('eyePosition',(cam.position.x,cam.position.y,cam.position.z)),('time',clock),('inspection',float(inspection)),('opacity',1.),('emission',0.),('surfaceKind',0.),('reflectionPass',float(reflection)),('windStrength',0.)):self.uniform(s,name,value)
@@ -349,10 +357,20 @@ class Lake(Hall):
         volumes=getattr(q.direction,'volumes',None)
         volume_renderer=getattr(self,'volume_fog',None)
         volume_active=bool(volumes and volumes.enabled and volume_renderer)
-        particle_mix=volumes.particle_mix if volume_active else 1.
+        surface=getattr(q.direction,'surface_fog',None)
+        surface_renderer=getattr(self,'surface_fog',None)
+        surface_active=bool(surface and surface.enabled and surface_renderer)
+        particle_mix=volumes.particle_mix if volume_active or surface_active else 1.
         particle_texture=self.puzzle_fog.render(source,cam,q,clock,fog_colour,self.water_y,reflected) if particle_mix>0. else self.puzzle_fog.clear()
         volume_texture=volume_renderer.render(source,cam,q,clock,fog_colour,self.water_y,reflected) if volume_active else None
-        for name,value in (('volumeActive',float(volume_active)),('particleMix',particle_mix)):
+        if surface_active:volume_texture=surface_renderer.render(source,cam,q,clock,fog_colour,self.water_y,reflected,base_texture=volume_texture)
+        veil_renderer=getattr(self,'surface_veil',None)
+        if surface_active and veil_renderer is not None:
+            volume_texture=veil_renderer.render(source,cam,q,clock,fog_colour,self.water_y,reflected,base_texture=volume_texture)
+        water_veil_active=bool(surface_active and getattr(surface,'water_mask',False) and
+                               veil_renderer is not None and veil_renderer.last_active)
+        for name,value in (('volumeActive',float(volume_active or surface_active)),('particleMix',particle_mix),
+                           ('waterVeilActive',float(water_veil_active))):
             pr.set_shader_value(self.post,pr.get_shader_location(self.post,name),pr.ffi.new('float[]',[value]),pr.SHADER_UNIFORM_FLOAT)
         pr.set_shader_value(self.post,pr.get_shader_location(self.post,'fogColour'),pr.ffi.new('float[]',fog_colour),pr.SHADER_UNIFORM_VEC3)
         forward=pr.vector3_normalize(pr.vector3_subtract(cam.target,cam.position));right=pr.vector3_normalize(pr.vector3_cross_product(forward,cam.up));up=pr.vector3_cross_product(right,forward)
@@ -369,12 +387,16 @@ class Lake(Hall):
         pr.end_shader_mode();pr.end_texture_mode()
 
     def close(self):
+        material=getattr(self,'surface_material',None)
+        if material is not None:material.close();self.surface_material=None
         super().close()
         if self.blend_old_frame:pr.unload_render_texture(self.blend_old_frame);self.blend_old_frame=None
         if self.blend_new_frame:pr.unload_render_texture(self.blend_new_frame);self.blend_new_frame=None
         if self.blend_shader:pr.unload_shader(self.blend_shader);self.blend_shader=None
         if self.puzzle_fog:self.puzzle_fog.close();self.puzzle_fog=None
         if self.volume_fog:self.volume_fog.close();self.volume_fog=None
+        if self.surface_fog:self.surface_fog.close();self.surface_fog=None
+        if getattr(self,'surface_veil',None):self.surface_veil.close();self.surface_veil=None
         if self.reflection:pr.unload_render_texture(self.reflection);self.reflection=None
         if self.reflection_raw:pr.unload_render_texture(self.reflection_raw);self.reflection_raw=None
         if self.water_shader:pr.unload_shader(self.water_shader);self.water_shader=None
@@ -382,6 +404,13 @@ class Lake(Hall):
 def reset_player(scene,puzzle=False,direction=None):
     """A fresh encounter; the test shortcut is ready for E without any walking."""
     if direction is None:direction=profile_from_document(load_direction())
+    # Upload the baked field during scene/reset setup, never on the first
+    # animated frame after the player activates the puzzle.
+    surface_renderer=getattr(scene,'surface_fog',None)
+    if surface_renderer is not None and direction.surface_fog.enabled:surface_renderer.prepare()
+    veil_renderer=getattr(scene,'surface_veil',None)
+    if veil_renderer is not None and direction.surface_fog.enabled and direction.surface_fog.water_mask:
+        veil_renderer.prepare()
     e=Explorer();scene.sequence=CanalSequence(direction);e.encounter=scene.sequence
     scene.last_camera=None;scene.last_shot=0
     if puzzle:
@@ -397,8 +426,8 @@ def draw_puzzle_timer(sequence,width,paused=False):
     """Test-only clock using the same elapsed time that drives the fog."""
     elapsed=sequence.elapsed;cue=sequence.cue
     if sequence.state=='ordinary':phase='Ready - press E to start'
-    elif elapsed<cue('build_end'):phase='Fog building'
-    elif elapsed<cue('blend_end'):phase='Fog crest - hidden transition'
+    elif elapsed<sequence.entry_start:phase='Fog building'
+    elif elapsed<sequence.entry_duration:phase='Fog crest - hidden transition'
     elif getattr(sequence.direction,'fog_mode','banks')=='buildings' and elapsed<sequence.duration:
         groups=sequence.direction.groups
         clearing=sum(g.reveal_start<=elapsed<g.reveal_end for g in groups)

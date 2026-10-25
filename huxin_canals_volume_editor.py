@@ -23,7 +23,7 @@ class VolumePanel:
         settings=s.volume_settings;region=s.volume
         buttons=[('vol:enabled','Volumes: '+('ON' if settings['enabled'] else 'OFF'),(x,177,131,29),settings['enabled']),
                  ('vol:quality','Quality: '+settings['quality'].title(),(x+141,177,131,29),False)]
-        for i,(key,title) in enumerate((('quads','Quads only'),('volume','Volumes only'),('hybrid','Hybrid'))):
+        for i,(key,title) in enumerate((('quads','Quads'),('volume','Volumes'),('hybrid','Hybrid'))):
             active=(key=='quads' and not settings['enabled'] or key=='volume' and settings['enabled'] and settings['particle_mix']==0 or key=='hybrid' and settings['enabled'] and settings['particle_mix']>0)
             buttons.append(('vol:preset:'+key,title,(x+i*94,215,86,29),active))
         fields=[(('vol_global','mix'),(x,267,131,30)),(('vol_global','particle_mix'),(x+141,267,131,30))]

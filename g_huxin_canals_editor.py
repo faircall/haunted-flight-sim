@@ -10,6 +10,7 @@ from g_huxin_canals_direction import (
 from g_huxin_canals_targets import target_groups
 from g_huxin_canals_volumes import (MAX_VOLUMES, default_volume_document,
     default_region_document, demo_volume_document)
+from g_huxin_canals_surface_settings import default_surface_document, fit_surface_times
 from g_huxin_canals_live import (DirectionWatcher, DirectionConflictError,
     merge_directions, read_direction_snapshot, save_direction_checked)
 
@@ -93,6 +94,8 @@ class DirectionEditor:
     def volume_regions(self):return self.volume_settings['regions']
     @property
     def volume(self):return self.volume_regions.get(self.volume_id)
+    @property
+    def surface_settings(self):return self.document.get('surface_fog',default_surface_document(self.document['cues']))
     @property
     def profile(self):
         if self._profile_document != self.document:
@@ -191,6 +194,20 @@ class DirectionEditor:
             end=max(start+.1,min(high,group['reveal_end']))
             group['reveal_start'],group['reveal_end']=start,end
         self.fit_volume_times()
+        if 'surface_fog' in self.document:fit_surface_times(self.document['surface_fog'],self.document['cues'])
+
+    def set_surface(self,prop,value,axis=None):
+        def apply():
+            settings=self.document.setdefault('surface_fog',default_surface_document(self.document['cues']))
+            if prop=='build_end':
+                cues=self.document['cues'];span=cues['blend_end']-cues['build_end']
+                low=settings['build_start']+.1;high=self.duration-span-.1
+                if isinstance(value,bool) or not isinstance(value,(float,int)) or not math.isfinite(value) or not low<=value<=high:
+                    raise ValueError(f'Surface build end must be between {low:g} and {high:g} seconds.')
+            if axis is None:settings[prop]=deepcopy(value)
+            else:settings[prop][axis]=value
+            if prop=='build_end':fit_surface_times(settings,self.document['cues'])
+        return self.change(apply)
 
     def _repair_volume_selection(self):
         if self.volume_id not in self.volume_regions:
@@ -386,6 +403,21 @@ class DirectionEditor:
         _,document=read_direction_snapshot(self.path)
         self._apply_external(document,document)
         self._live_message('Loaded direction file; undo restores your prior edits.')
+
+    def discard(self):
+        """Drop local edits without requiring a readable live file or writing it.
+
+        A running editor can encounter a newer schema, a partial external
+        write, or a deleted file. None of those should prevent leaving it.
+        Prefer valid disk changes; otherwise keep the last valid saved state
+        so an embedded editor can safely return to gameplay.
+        """
+        try:_,document=read_direction_snapshot(self.path)
+        except (OSError,ValueError):document=self.saved
+        self.document=deepcopy(document);self.saved=deepcopy(document)
+        self._pending_external=None;self.external_conflicts=()
+        self.undo_stack.clear();self.redo_stack.clear()
+        self._repair_volume_selection();self.seek(self.elapsed)
 
     def resolve_external(self,choice):
         if choice=='file':

@@ -3,6 +3,10 @@ in vec2 fragTexCoord;
 in vec3 worldPosition;
 in vec3 worldNormal;
 uniform sampler2D texture0,otherStone;
+uniform sampler2D surfaceMaterialField,surfaceMaterialTiming;
+uniform vec3 surfaceMaterialOrigin,surfaceMaterialShape;
+uniform float surfaceResolveActive,surfaceResolveElapsed,surfaceResolveAmount,surfaceResolveSettle,surfaceMaterialSpacing,surfaceMaterialColumns;
+uniform float surfaceCondense,surfacePullDuration,surfaceNoiseSize,surfacePatternAmount;
 uniform vec4 colDiffuse;
 uniform vec3 eyePosition;
 uniform float time;
@@ -42,6 +46,63 @@ vec3 stoneTile(sampler2D atlas,vec2 uv,float index){
 vec3 stoneSurface(sampler2D atlas,vec3 p,vec3 n,float index,float scale){
     vec3 w=pow(abs(n),vec3(4.));w/=max(.001,w.x+w.y+w.z);
     return stoneTile(atlas,p.zy*scale,index)*w.x+stoneTile(atlas,p.xz*scale,index)*w.y+stoneTile(atlas,p.xy*scale,index)*w.z;
+}
+// BEGIN CONDENSE
+// Shared by the fog and material shaders. Keep this block identical in both:
+// the wall texture must emerge exactly where the local inward pull arrives.
+float condenseEase(float a,float b,float value){
+    float t=clamp((value-a)/max(.0001,b-a),0.,1.);
+    return t*t*t*(10.+t*(-15.+6.*t));
+}
+float condenseHash(vec3 p){
+    p=fract(p*.1031);p+=dot(p,p.yzx+33.33);
+    return fract((p.x+p.y)*p.z);
+}
+float condenseNoise(vec3 p){
+    vec3 cell=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+    return mix(mix(mix(condenseHash(cell),condenseHash(cell+vec3(1,0,0)),f.x),
+                   mix(condenseHash(cell+vec3(0,1,0)),condenseHash(cell+vec3(1,1,0)),f.x),f.y),
+               mix(mix(condenseHash(cell+vec3(0,0,1)),condenseHash(cell+vec3(1,0,1)),f.x),
+                   mix(condenseHash(cell+vec3(0,1,1)),condenseHash(cell+vec3(1,1,1)),f.x),f.y),f.z);
+}
+// x: tightening; y: physical inward pull; z: lingering wisps; w: real material.
+vec4 condensePhases(vec3 anchor,vec2 window,float now,float holdFraction,
+                    float seconds,float size,float pattern){
+    float span=max(.1,window.y-window.x);
+    float starts=window.x+span*holdFraction;
+    float duration=min(seconds,span*(1.-holdFraction)*.55);
+    duration=max(.0001,duration);
+    // A fixed 3D pattern staggers small parts of the same facade. It never
+    // scrolls back over a revealed surface, or changes when the camera moves.
+    float delay=condenseNoise(anchor/max(.3,size)+vec3(7.1,13.7,3.9))*duration*.35*pattern;
+    starts+=delay;
+    float ends=starts+duration;
+    float raw=clamp((now-starts)/duration,0.,1.);
+    // Long pulls should use their full duration, rather than reserving most
+    // visible material emergence for a short central burst.
+    float patient=condenseEase(3.,6.,duration);
+    float pull=mix(condenseEase(0.,1.,raw),raw*raw*(3.-2.*raw),patient);
+    float material=mix(condenseEase(.18,.84,raw),condenseEase(.03,.97,raw),patient);
+    return vec4(condenseEase(window.x,starts,now),pull,
+                1.-condenseEase(ends,window.y,now),material);
+}
+// END CONDENSE
+vec2 surfaceMaterialWindow(vec3 p){
+    // This is the same nearest-voxel owner used by the volume, never a
+    // filtered ID. The atlas belongs to actual roof/wall/door triangles.
+    vec3 q=floor((p-surfaceMaterialOrigin)/surfaceMaterialSpacing+.5);
+    float owner=0.;
+    if(all(greaterThanEqual(q,vec3(0.)))&&all(lessThan(q,surfaceMaterialShape))){
+        vec2 tile=vec2(mod(q.y,surfaceMaterialColumns),floor(q.y/surfaceMaterialColumns));
+        ivec2 pixel=ivec2(tile*(surfaceMaterialShape.xz+2.)+q.xz+1.);
+        owner=floor(texelFetch(surfaceMaterialField,pixel,0).b*255.+.5);
+    }
+    // Row zero is stable even when later timing rows hold roof/owner bounds.
+    return texelFetch(surfaceMaterialTiming,ivec2(int(owner),0),0).rg;
+}
+float surfaceMaterialProgress(vec3 p){
+    vec2 interval=surfaceMaterialWindow(p);
+    return clamp((surfaceResolveElapsed-interval.x)/max(.1,interval.y-interval.x),0.,1.);
 }
 void main(){
     vec4 tex=texture(texture0,fragTexCoord)*colDiffuse;
@@ -137,6 +198,23 @@ void main(){
     vec3 colour=tex.rgb*light;
     colour=mix(colour,tex.rgb*1.15+vec3(.16,.05,.002),emission);
     colour=mix(colour,vec3(dot(colour,vec3(.299,.587,.114))),voidWorld*.65);
+    if(surfaceResolveActive>.5&&worldMaterial>.5){
+        float resolved;
+        if(surfaceCondense>.5){
+            // Materials become definite where this piece of the fog finishes
+            // drawing inward. The same anchored 3D pattern drives the volume,
+            // so no second global colour fade delays or contradicts the pull.
+            resolved=condensePhases(p,surfaceMaterialWindow(p),surfaceResolveElapsed,
+                surfaceResolveSettle,surfacePullDuration,surfaceNoiseSize,surfacePatternAmount).w;
+        }else{
+            // Preserve the previous Rise / resolve experiment for comparison.
+            float progress=surfaceMaterialProgress(p);
+            float t=clamp((progress-surfaceResolveSettle)/max(.001,1.-surfaceResolveSettle),0.,1.);
+            resolved=t*t*t*(10.+t*(-15.+6.*t));
+        }
+        vec3 ghost=fogColour()*(.94+.12*max(0.,dot(n,normalize(vec3(-.7,.8,.25)))));
+        colour=mix(colour,ghost,(1.-resolved)*clamp(surfaceResolveAmount,0.,1.));
+    }
     vec3 eye=eyePosition;if(reflectionPass>.5)eye.y=2.*waterY-eye.y;
     float fog=fogAmount(eye,p);if(reflectionPass>.5)fog*=.77;
     colour=mix(colour,fogColour(),fog);
