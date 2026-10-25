@@ -6,6 +6,7 @@ hardware interpolation keeps multiple moving octaves inexpensive. The layer
 is premultiplied and is also rendered into the water's reflected view.
 """
 from functools import lru_cache
+from dataclasses import replace
 from pathlib import Path
 import math
 
@@ -16,6 +17,21 @@ from g_huxin_canals_volumes import DEFAULT_VOLUME_SETTINGS, volume_frame_at
 
 ROOT=Path(__file__).parent
 QUALITY={'draft':(.5,24),'balanced':(.5,40),'high':(1.,56)}
+
+
+def settling_water_regions(regions,profile,elapsed,state='canals'):
+    """Move the authored low water banks with the lake veil, without edits.
+
+    House/alley volumes retain their own positions and retreat paths. These
+    stable water IDs refer to the lake banks in the existing target catalog.
+    """
+    from g_huxin_canals_water_fog import lake_fog_frame
+    surface=getattr(profile,'surface_fog',None)
+    if surface is None or not getattr(surface,'water_settle',False):return regions
+    offset=lake_fog_frame(profile,elapsed,state).base_y-getattr(surface,'base_y',0.)
+    if not offset:return regions
+    return tuple(replace(region,center=(region.center[0],region.center[1]+offset,region.center[2]))
+                 if region.id.startswith('volume-water-') else region for region in regions)
 
 
 @lru_cache(maxsize=1)
@@ -98,6 +114,7 @@ class FogVolumes:
         self.quality(settings.quality)
         active=sequence.state in ('entering','canals')
         regions=volume_frame_at(sequence.elapsed,clock,settings) if active else ()
+        regions=settling_water_regions(regions,sequence.direction,sequence.elapsed,sequence.state)
         self.last_regions=regions;self.last_draw_count=0;self.last_clock=clock
         self.last_reflected=reflected;self.last_water_y=water_y
         w,h=self.target.texture.width,self.target.texture.height

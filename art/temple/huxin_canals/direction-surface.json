@@ -173,8 +173,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 25.98,
-        "reveal_end": 51.980000000000004
+        "reveal_start": 25.915,
+        "reveal_end": 52.915
       },
       "house-121": {
         "offset": [
@@ -184,8 +184,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 26.32,
-        "reveal_end": 52.32
+        "reveal_start": 26.204,
+        "reveal_end": 53.204
       },
       "house-133": {
         "offset": [
@@ -195,8 +195,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.68,
-        "reveal_end": 59.68
+        "reveal_start": 31.684,
+        "reveal_end": 58.684
       },
       "house-144": {
         "offset": [
@@ -206,8 +206,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.32,
-        "reveal_end": 56.32
+        "reveal_start": 27.904,
+        "reveal_end": 54.904
       },
       "house-157": {
         "offset": [
@@ -217,8 +217,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.72,
-        "reveal_end": 57.72
+        "reveal_start": 29.094,
+        "reveal_end": 56.094
       },
       "house-168": {
         "offset": [
@@ -228,8 +228,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.4,
-        "reveal_end": 58.4
+        "reveal_start": 29.892,
+        "reveal_end": 56.892
       },
       "house-211": {
         "offset": [
@@ -239,8 +239,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 26.3,
-        "reveal_end": 52.3
+        "reveal_start": 26.187,
+        "reveal_end": 53.187
       },
       "house-224": {
         "offset": [
@@ -250,8 +250,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 27.0,
-        "reveal_end": 53.0
+        "reveal_start": 26.782,
+        "reveal_end": 53.782
       },
       "house-237": {
         "offset": [
@@ -261,8 +261,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.36,
-        "reveal_end": 57.36
+        "reveal_start": 28.788,
+        "reveal_end": 55.788
       },
       "house-249": {
         "offset": [
@@ -272,8 +272,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.4,
-        "reveal_end": 58.4
+        "reveal_start": 29.892,
+        "reveal_end": 56.892
       },
       "house-261": {
         "offset": [
@@ -283,8 +283,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.16,
-        "reveal_end": 56.16
+        "reveal_start": 27.768,
+        "reveal_end": 54.768
       },
       "house-273": {
         "offset": [
@@ -294,8 +294,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.2,
-        "reveal_end": 57.2
+        "reveal_start": 28.652,
+        "reveal_end": 55.652
       },
       "house-310": {
         "offset": [
@@ -305,8 +305,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.52,
-        "reveal_end": 58.519999999999996
+        "reveal_start": 30.06,
+        "reveal_end": 57.06
       },
       "house-323": {
         "offset": [
@@ -316,8 +316,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.92,
-        "reveal_end": 59.92
+        "reveal_start": 32.02,
+        "reveal_end": 59.02
       },
       "house-337": {
         "offset": [
@@ -327,8 +327,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.64,
-        "reveal_end": 57.64
+        "reveal_start": 29.026,
+        "reveal_end": 56.026
       },
       "house-349": {
         "offset": [
@@ -338,8 +338,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.68,
-        "reveal_end": 58.68
+        "reveal_start": 30.284,
+        "reveal_end": 57.284
       },
       "house-410": {
         "offset": [
@@ -349,8 +349,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 26.4,
-        "reveal_end": 52.4
+        "reveal_start": 26.272,
+        "reveal_end": 53.272
       },
       "house-423": {
         "offset": [
@@ -360,8 +360,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 25.08,
-        "reveal_end": 51.08
+        "reveal_start": 25.15,
+        "reveal_end": 52.15
       },
       "house-437": {
         "offset": [
@@ -371,8 +371,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 25.96,
-        "reveal_end": 51.96
+        "reveal_start": 25.898,
+        "reveal_end": 52.898
       },
       "house-449": {
         "offset": [
@@ -382,8 +382,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 26.48,
-        "reveal_end": 52.480000000000004
+        "reveal_start": 26.34,
+        "reveal_end": 53.34
       },
       "house-461": {
         "offset": [
@@ -393,8 +393,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 25.36,
-        "reveal_end": 51.36
+        "reveal_start": 25.388,
+        "reveal_end": 52.388
       },
       "house-473": {
         "offset": [
@@ -404,8 +404,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 25.880000000000003,
-        "reveal_end": 51.88
+        "reveal_start": 25.83,
+        "reveal_end": 52.83
       },
       "house-487": {
         "offset": [
@@ -415,8 +415,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.52,
-        "reveal_end": 59.519999999999996
+        "reveal_start": 31.46,
+        "reveal_end": 58.46
       },
       "house-499": {
         "offset": [
@@ -426,8 +426,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.52,
-        "reveal_end": 56.519999999999996
+        "reveal_start": 28.074,
+        "reveal_end": 55.074
       },
       "house-1000": {
         "offset": [
@@ -437,8 +437,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.64,
-        "reveal_end": 56.64
+        "reveal_start": 28.176,
+        "reveal_end": 55.176
       },
       "house-1017": {
         "offset": [
@@ -448,8 +448,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.8,
-        "reveal_end": 59.8
+        "reveal_start": 31.852,
+        "reveal_end": 58.852
       },
       "house-1034": {
         "offset": [
@@ -459,8 +459,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.980000000000004,
-        "reveal_end": 67.98
+        "reveal_start": 40.504,
+        "reveal_end": 67.504
       },
       "house-1051": {
         "offset": [
@@ -470,8 +470,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.26,
-        "reveal_end": 67.25999999999999
+        "reveal_start": 39.496,
+        "reveal_end": 66.496
       },
       "house-1068": {
         "offset": [
@@ -481,8 +481,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.94,
-        "reveal_end": 65.94
+        "reveal_start": 37.648,
+        "reveal_end": 64.648
       },
       "house-1085": {
         "offset": [
@@ -492,8 +492,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.22,
-        "reveal_end": 65.22
+        "reveal_start": 36.64,
+        "reveal_end": 63.64
       },
       "house-1102": {
         "offset": [
@@ -503,8 +503,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.64,
-        "reveal_end": 65.64
+        "reveal_start": 37.228,
+        "reveal_end": 64.228
       },
       "house-1119": {
         "offset": [
@@ -514,8 +514,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.32,
-        "reveal_end": 64.32
+        "reveal_start": 35.38,
+        "reveal_end": 62.38
       },
       "house-1136": {
         "offset": [
@@ -525,8 +525,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.6,
-        "reveal_end": 63.6
+        "reveal_start": 34.372,
+        "reveal_end": 61.372
       },
       "house-1153": {
         "offset": [
@@ -536,8 +536,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.94,
-        "reveal_end": 68.94
+        "reveal_start": 41.848,
+        "reveal_end": 68.848
       },
       "house-1170": {
         "offset": [
@@ -547,8 +547,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.22,
-        "reveal_end": 68.22
+        "reveal_start": 40.84,
+        "reveal_end": 67.84
       },
       "house-1187": {
         "offset": [
@@ -558,8 +558,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.9,
-        "reveal_end": 66.9
+        "reveal_start": 38.992,
+        "reveal_end": 65.992
       },
       "house-1204": {
         "offset": [
@@ -569,8 +569,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.32,
-        "reveal_end": 67.32
+        "reveal_start": 39.58,
+        "reveal_end": 66.58
       },
       "house-1221": {
         "offset": [
@@ -580,8 +580,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.6,
-        "reveal_end": 66.6
+        "reveal_start": 38.572,
+        "reveal_end": 65.572
       },
       "house-1238": {
         "offset": [
@@ -591,8 +591,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.28,
-        "reveal_end": 65.28
+        "reveal_start": 36.724,
+        "reveal_end": 63.724
       },
       "house-1255": {
         "offset": [
@@ -602,8 +602,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.56,
-        "reveal_end": 64.56
+        "reveal_start": 35.716,
+        "reveal_end": 62.716
       },
       "house-1272": {
         "offset": [
@@ -613,8 +613,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.84,
-        "reveal_end": 63.84
+        "reveal_start": 34.708,
+        "reveal_end": 61.708
       },
       "house-1289": {
         "offset": [
@@ -624,8 +624,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.58,
-        "reveal_end": 68.58
+        "reveal_start": 41.344,
+        "reveal_end": 68.344
       },
       "house-1306": {
         "offset": [
@@ -635,8 +635,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 39.0,
-        "reveal_end": 69.0
+        "reveal_start": 41.932,
+        "reveal_end": 68.932
       },
       "house-1323": {
         "offset": [
@@ -646,8 +646,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.28,
-        "reveal_end": 68.28
+        "reveal_start": 40.924,
+        "reveal_end": 67.924
       },
       "house-1340": {
         "offset": [
@@ -657,8 +657,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.56,
-        "reveal_end": 67.56
+        "reveal_start": 39.916,
+        "reveal_end": 66.916
       },
       "house-1357": {
         "offset": [
@@ -668,8 +668,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.24,
-        "reveal_end": 66.24000000000001
+        "reveal_start": 38.068,
+        "reveal_end": 65.068
       },
       "house-1374": {
         "offset": [
@@ -679,8 +679,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.519999999999996,
-        "reveal_end": 65.52
+        "reveal_start": 37.06,
+        "reveal_end": 64.06
       },
       "house-1391": {
         "offset": [
@@ -690,8 +690,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.8,
-        "reveal_end": 64.8
+        "reveal_start": 36.052,
+        "reveal_end": 63.052
       },
       "house-1408": {
         "offset": [
@@ -701,8 +701,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.620000000000005,
-        "reveal_end": 64.62
+        "reveal_start": 35.8,
+        "reveal_end": 62.8
       },
       "house-1425": {
         "offset": [
@@ -712,8 +712,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.9,
-        "reveal_end": 63.9
+        "reveal_start": 34.792,
+        "reveal_end": 61.792
       },
       "house-1442": {
         "offset": [
@@ -723,8 +723,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.18,
-        "reveal_end": 63.18
+        "reveal_start": 33.784,
+        "reveal_end": 60.784
       },
       "house-1459": {
         "offset": [
@@ -734,8 +734,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.92,
-        "reveal_end": 67.92
+        "reveal_start": 40.42,
+        "reveal_end": 67.42
       },
       "house-1476": {
         "offset": [
@@ -745,8 +745,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.8,
-        "reveal_end": 58.8
+        "reveal_start": 30.452,
+        "reveal_end": 57.452
       },
       "house-1493": {
         "offset": [
@@ -756,8 +756,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.32,
-        "reveal_end": 58.32
+        "reveal_start": 29.78,
+        "reveal_end": 56.78
       },
       "house-1510": {
         "offset": [
@@ -767,8 +767,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.6,
-        "reveal_end": 58.6
+        "reveal_start": 30.172,
+        "reveal_end": 57.172
       },
       "house-1527": {
         "offset": [
@@ -778,8 +778,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.72,
-        "reveal_end": 57.72
+        "reveal_start": 29.094,
+        "reveal_end": 56.094
       },
       "house-1544": {
         "offset": [
@@ -789,8 +789,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.24,
-        "reveal_end": 57.239999999999995
+        "reveal_start": 28.686,
+        "reveal_end": 55.686
       },
       "house-1561": {
         "offset": [
@@ -800,8 +800,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.76,
-        "reveal_end": 56.760000000000005
+        "reveal_start": 28.278,
+        "reveal_end": 55.278
       },
       "house-1578": {
         "offset": [
@@ -811,8 +811,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.879999999999995,
-        "reveal_end": 68.88
+        "reveal_start": 41.764,
+        "reveal_end": 68.764
       },
       "house-1595": {
         "offset": [
@@ -822,8 +822,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.16,
-        "reveal_end": 68.16
+        "reveal_start": 40.756,
+        "reveal_end": 67.756
       },
       "house-1612": {
         "offset": [
@@ -833,8 +833,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.58,
-        "reveal_end": 68.58
+        "reveal_start": 41.344,
+        "reveal_end": 68.344
       },
       "house-1629": {
         "offset": [
@@ -844,8 +844,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.26,
-        "reveal_end": 67.25999999999999
+        "reveal_start": 39.496,
+        "reveal_end": 66.496
       },
       "house-1646": {
         "offset": [
@@ -855,8 +855,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.54,
-        "reveal_end": 66.53999999999999
+        "reveal_start": 38.488,
+        "reveal_end": 65.488
       },
       "house-1663": {
         "offset": [
@@ -866,8 +866,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.82,
-        "reveal_end": 65.82
+        "reveal_start": 37.48,
+        "reveal_end": 64.48
       },
       "house-1680": {
         "offset": [
@@ -877,8 +877,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.1,
-        "reveal_end": 65.1
+        "reveal_start": 36.472,
+        "reveal_end": 63.472
       },
       "house-1697": {
         "offset": [
@@ -888,8 +888,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.78,
-        "reveal_end": 63.78
+        "reveal_start": 34.624,
+        "reveal_end": 61.624
       },
       "house-1714": {
         "offset": [
@@ -899,8 +899,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.2,
-        "reveal_end": 64.2
+        "reveal_start": 35.212,
+        "reveal_end": 62.212
       },
       "house-1731": {
         "offset": [
@@ -910,8 +910,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.480000000000004,
-        "reveal_end": 63.480000000000004
+        "reveal_start": 34.204,
+        "reveal_end": 61.204
       },
       "house-1748": {
         "offset": [
@@ -921,8 +921,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.22,
-        "reveal_end": 68.22
+        "reveal_start": 40.84,
+        "reveal_end": 67.84
       },
       "house-1765": {
         "offset": [
@@ -932,8 +932,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.5,
-        "reveal_end": 67.5
+        "reveal_start": 39.832,
+        "reveal_end": 66.832
       },
       "house-1782": {
         "offset": [
@@ -943,8 +943,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.78,
-        "reveal_end": 66.78
+        "reveal_start": 38.824,
+        "reveal_end": 65.824
       },
       "house-1799": {
         "offset": [
@@ -954,8 +954,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.46,
-        "reveal_end": 65.46000000000001
+        "reveal_start": 36.976,
+        "reveal_end": 63.976
       },
       "house-1816": {
         "offset": [
@@ -965,8 +965,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.879999999999995,
-        "reveal_end": 65.88
+        "reveal_start": 37.564,
+        "reveal_end": 64.564
       },
       "house-1833": {
         "offset": [
@@ -976,8 +976,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.16,
-        "reveal_end": 65.16
+        "reveal_start": 36.556,
+        "reveal_end": 63.556
       },
       "house-1850": {
         "offset": [
@@ -987,8 +987,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.44,
-        "reveal_end": 64.44
+        "reveal_start": 35.548,
+        "reveal_end": 62.548
       },
       "house-1867": {
         "offset": [
@@ -998,8 +998,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.120000000000005,
-        "reveal_end": 63.120000000000005
+        "reveal_start": 33.7,
+        "reveal_end": 60.7
       },
       "house-1884": {
         "offset": [
@@ -1009,8 +1009,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.64,
-        "reveal_end": 59.64
+        "reveal_start": 31.628,
+        "reveal_end": 58.628
       },
       "house-1901": {
         "offset": [
@@ -1020,8 +1020,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 26.96,
-        "reveal_end": 52.96
+        "reveal_start": 26.748,
+        "reveal_end": 53.748
       },
       "house-1918": {
         "offset": [
@@ -1031,8 +1031,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.04,
-        "reveal_end": 59.04
+        "reveal_start": 30.788,
+        "reveal_end": 57.788
       },
       "house-1935": {
         "offset": [
@@ -1042,8 +1042,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.56,
-        "reveal_end": 58.56
+        "reveal_start": 30.116,
+        "reveal_end": 57.116
       },
       "house-1952": {
         "offset": [
@@ -1053,8 +1053,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.08,
-        "reveal_end": 58.08
+        "reveal_start": 29.444,
+        "reveal_end": 56.444
       },
       "house-1969": {
         "offset": [
@@ -1064,8 +1064,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.2,
-        "reveal_end": 57.2
+        "reveal_start": 28.652,
+        "reveal_end": 55.652
       },
       "house-1986": {
         "offset": [
@@ -1075,8 +1075,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.72,
-        "reveal_end": 56.72
+        "reveal_start": 28.244,
+        "reveal_end": 55.244
       },
       "house-2003": {
         "offset": [
@@ -1086,8 +1086,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.12,
-        "reveal_end": 58.120000000000005
+        "reveal_start": 29.5,
+        "reveal_end": 56.5
       },
       "house-2020": {
         "offset": [
@@ -1097,8 +1097,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.64,
-        "reveal_end": 57.64
+        "reveal_start": 29.026,
+        "reveal_end": 56.026
       },
       "house-2037": {
         "offset": [
@@ -1108,8 +1108,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.76,
-        "reveal_end": 56.760000000000005
+        "reveal_start": 28.278,
+        "reveal_end": 55.278
       },
       "house-2054": {
         "offset": [
@@ -1119,8 +1119,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.28,
-        "reveal_end": 56.28
+        "reveal_start": 27.87,
+        "reveal_end": 54.87
       },
       "house-2071": {
         "offset": [
@@ -1130,8 +1130,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.84,
-        "reveal_end": 59.84
+        "reveal_start": 31.908,
+        "reveal_end": 58.908
       },
       "house-2088": {
         "offset": [
@@ -1141,8 +1141,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.44,
-        "reveal_end": 67.44
+        "reveal_start": 39.748,
+        "reveal_end": 66.748
       },
       "house-2105": {
         "offset": [
@@ -1152,8 +1152,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.240000000000002,
-        "reveal_end": 59.24
+        "reveal_start": 31.068,
+        "reveal_end": 58.068
       },
       "house-2122": {
         "offset": [
@@ -1163,8 +1163,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.14,
-        "reveal_end": 67.14
+        "reveal_start": 39.328,
+        "reveal_end": 66.328
       },
       "house-2139": {
         "offset": [
@@ -1174,8 +1174,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.82,
-        "reveal_end": 65.82
+        "reveal_start": 37.48,
+        "reveal_end": 64.48
       },
       "house-2156": {
         "offset": [
@@ -1185,8 +1185,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.1,
-        "reveal_end": 65.1
+        "reveal_start": 36.472,
+        "reveal_end": 63.472
       },
       "house-2173": {
         "offset": [
@@ -1196,8 +1196,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.379999999999995,
-        "reveal_end": 64.38
+        "reveal_start": 35.464,
+        "reveal_end": 62.464
       },
       "house-2190": {
         "offset": [
@@ -1207,8 +1207,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.66,
-        "reveal_end": 63.66
+        "reveal_start": 34.456,
+        "reveal_end": 61.456
       },
       "house-2207": {
         "offset": [
@@ -1218,8 +1218,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 33.480000000000004,
-        "reveal_end": 63.480000000000004
+        "reveal_start": 34.204,
+        "reveal_end": 61.204
       },
       "house-2224": {
         "offset": [
@@ -1229,8 +1229,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.82,
-        "reveal_end": 68.82
+        "reveal_start": 41.68,
+        "reveal_end": 68.68
       },
       "house-2241": {
         "offset": [
@@ -1240,8 +1240,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.1,
-        "reveal_end": 68.1
+        "reveal_start": 40.672,
+        "reveal_end": 67.672
       },
       "house-2258": {
         "offset": [
@@ -1251,8 +1251,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.78,
-        "reveal_end": 66.78
+        "reveal_start": 38.824,
+        "reveal_end": 65.824
       },
       "house-2275": {
         "offset": [
@@ -1262,8 +1262,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.06,
-        "reveal_end": 66.06
+        "reveal_start": 37.816,
+        "reveal_end": 64.816
       },
       "house-2292": {
         "offset": [
@@ -1273,8 +1273,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 25.78,
-        "reveal_end": 51.78
+        "reveal_start": 25.745,
+        "reveal_end": 52.745
       },
       "house-2309-east": {
         "offset": [
@@ -1284,8 +1284,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.68,
-        "reveal_end": 59.68
+        "reveal_start": 31.684,
+        "reveal_end": 58.684
       },
       "house-2326": {
         "offset": [
@@ -1295,8 +1295,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 25.48,
-        "reveal_end": 51.480000000000004
+        "reveal_start": 25.49,
+        "reveal_end": 52.49
       },
       "house-2343": {
         "offset": [
@@ -1306,8 +1306,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.48,
-        "reveal_end": 56.480000000000004
+        "reveal_start": 28.04,
+        "reveal_end": 55.04
       },
       "house-2360": {
         "offset": [
@@ -1317,8 +1317,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.0,
-        "reveal_end": 56.0
+        "reveal_start": 27.632,
+        "reveal_end": 54.632
       },
       "house-2377": {
         "offset": [
@@ -1328,8 +1328,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.16,
-        "reveal_end": 59.16
+        "reveal_start": 30.956,
+        "reveal_end": 57.956
       },
       "house-2394": {
         "offset": [
@@ -1339,8 +1339,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.68,
-        "reveal_end": 58.68
+        "reveal_start": 30.284,
+        "reveal_end": 57.284
       },
       "house-2411": {
         "offset": [
@@ -1350,8 +1350,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.96,
-        "reveal_end": 58.96
+        "reveal_start": 30.676,
+        "reveal_end": 57.676
       },
       "house-2428": {
         "offset": [
@@ -1361,8 +1361,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.08,
-        "reveal_end": 58.08
+        "reveal_start": 29.444,
+        "reveal_end": 56.444
       },
       "house-2445": {
         "offset": [
@@ -1372,8 +1372,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.6,
-        "reveal_end": 57.6
+        "reveal_start": 28.992,
+        "reveal_end": 55.992
       },
       "house-2462": {
         "offset": [
@@ -1383,8 +1383,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.12,
-        "reveal_end": 57.120000000000005
+        "reveal_start": 28.584,
+        "reveal_end": 55.584
       },
       "house-2479": {
         "offset": [
@@ -1394,8 +1394,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.24,
-        "reveal_end": 56.239999999999995
+        "reveal_start": 27.836,
+        "reveal_end": 54.836
       },
       "house-2496": {
         "offset": [
@@ -1405,8 +1405,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.8,
-        "reveal_end": 59.8
+        "reveal_start": 31.852,
+        "reveal_end": 58.852
       },
       "house-2513": {
         "offset": [
@@ -1416,8 +1416,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.04,
-        "reveal_end": 56.04
+        "reveal_start": 27.666,
+        "reveal_end": 54.666
       },
       "house-2530": {
         "offset": [
@@ -1427,8 +1427,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.4,
-        "reveal_end": 68.4
+        "reveal_start": 41.092,
+        "reveal_end": 68.092
       },
       "house-2547": {
         "offset": [
@@ -1438,8 +1438,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.08,
-        "reveal_end": 67.08
+        "reveal_start": 39.244,
+        "reveal_end": 66.244
       },
       "house-2564": {
         "offset": [
@@ -1449,8 +1449,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.36,
-        "reveal_end": 66.36
+        "reveal_start": 38.236,
+        "reveal_end": 65.236
       },
       "house-2581": {
         "offset": [
@@ -1460,8 +1460,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 35.64,
-        "reveal_end": 65.64
+        "reveal_start": 37.228,
+        "reveal_end": 64.228
       },
       "house-2598": {
         "offset": [
@@ -1471,8 +1471,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.32,
-        "reveal_end": 64.32
+        "reveal_start": 35.38,
+        "reveal_end": 62.38
       },
       "house-2615": {
         "offset": [
@@ -1482,8 +1482,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.739999999999995,
-        "reveal_end": 64.74
+        "reveal_start": 35.968,
+        "reveal_end": 62.968
       },
       "house-2632": {
         "offset": [
@@ -1493,8 +1493,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 34.019999999999996,
-        "reveal_end": 64.02
+        "reveal_start": 34.96,
+        "reveal_end": 61.96
       },
       "house-2649": {
         "offset": [
@@ -1504,8 +1504,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.76,
-        "reveal_end": 68.75999999999999
+        "reveal_start": 41.596,
+        "reveal_end": 68.596
       },
       "house-2666": {
         "offset": [
@@ -1515,8 +1515,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 38.04,
-        "reveal_end": 68.03999999999999
+        "reveal_start": 40.588,
+        "reveal_end": 67.588
       },
       "house-2683": {
         "offset": [
@@ -1526,8 +1526,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.32,
-        "reveal_end": 67.32
+        "reveal_start": 39.58,
+        "reveal_end": 66.58
       },
       "house-2700": {
         "offset": [
@@ -1537,8 +1537,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 37.74,
-        "reveal_end": 67.74000000000001
+        "reveal_start": 40.168,
+        "reveal_end": 67.168
       },
       "house-2717": {
         "offset": [
@@ -1548,8 +1548,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 36.42,
-        "reveal_end": 66.42
+        "reveal_start": 38.32,
+        "reveal_end": 65.32
       },
       "house-2302": {
         "offset": [
@@ -1559,8 +1559,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.68,
-        "reveal_end": 58.68
+        "reveal_start": 30.284,
+        "reveal_end": 57.284
       },
       "house-2303": {
         "offset": [
@@ -1570,8 +1570,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.08,
-        "reveal_end": 59.08
+        "reveal_start": 30.844,
+        "reveal_end": 57.844
       },
       "house-2304": {
         "offset": [
@@ -1581,8 +1581,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.48,
-        "reveal_end": 59.480000000000004
+        "reveal_start": 31.404,
+        "reveal_end": 58.404
       },
       "house-2305": {
         "offset": [
@@ -1592,8 +1592,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.88,
-        "reveal_end": 59.879999999999995
+        "reveal_start": 31.964,
+        "reveal_end": 58.964
       },
       "house-2306": {
         "offset": [
@@ -1603,8 +1603,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.24,
-        "reveal_end": 56.239999999999995
+        "reveal_start": 27.836,
+        "reveal_end": 54.836
       },
       "house-2307": {
         "offset": [
@@ -1614,8 +1614,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.64,
-        "reveal_end": 56.64
+        "reveal_start": 28.176,
+        "reveal_end": 55.176
       },
       "house-2308": {
         "offset": [
@@ -1625,8 +1625,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.04,
-        "reveal_end": 57.04
+        "reveal_start": 28.516,
+        "reveal_end": 55.516
       },
       "house-2309-west": {
         "offset": [
@@ -1636,8 +1636,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.28,
-        "reveal_end": 58.28
+        "reveal_start": 29.724,
+        "reveal_end": 56.724
       },
       "house-2310": {
         "offset": [
@@ -1647,8 +1647,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.240000000000002,
-        "reveal_end": 58.24
+        "reveal_start": 29.668,
+        "reveal_end": 56.668
       },
       "house-2311": {
         "offset": [
@@ -1658,8 +1658,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 30.64,
-        "reveal_end": 58.64
+        "reveal_start": 30.228,
+        "reveal_end": 57.228
       },
       "house-2312": {
         "offset": [
@@ -1669,8 +1669,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.04,
-        "reveal_end": 59.04
+        "reveal_start": 30.788,
+        "reveal_end": 57.788
       },
       "house-2313": {
         "offset": [
@@ -1680,8 +1680,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.44,
-        "reveal_end": 59.44
+        "reveal_start": 31.348,
+        "reveal_end": 58.348
       },
       "house-2314": {
         "offset": [
@@ -1691,8 +1691,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 31.84,
-        "reveal_end": 59.84
+        "reveal_start": 31.908,
+        "reveal_end": 58.908
       },
       "house-2315": {
         "offset": [
@@ -1702,8 +1702,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.2,
-        "reveal_end": 56.2
+        "reveal_start": 27.802,
+        "reveal_end": 54.802
       },
       "house-2316": {
         "offset": [
@@ -1713,8 +1713,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 28.6,
-        "reveal_end": 56.6
+        "reveal_start": 28.142,
+        "reveal_end": 55.142
       },
       "house-2317": {
         "offset": [
@@ -1724,8 +1724,8 @@
         ],
         "scale": 1.0,
         "opacity": 1.0,
-        "reveal_start": 29.0,
-        "reveal_end": 57.0
+        "reveal_start": 28.482,
+        "reveal_end": 55.482
       },
       "water-west-basin": {
         "offset": [
@@ -2355,8 +2355,8 @@
         "hollow": 0.0,
         "fade_in_start": 0.0,
         "fade_in_end": 24.0,
-        "reveal_start": 35.0,
-        "reveal_end": 59.0
+        "reveal_start": 25.0,
+        "reveal_end": 49.0
       },
       "volume-water-east-basin": {
         "label": "East basin water / low volume",
@@ -2390,8 +2390,8 @@
         "hollow": 0.0,
         "fade_in_start": 0.0,
         "fade_in_end": 24.0,
-        "reveal_start": 35.0,
-        "reveal_end": 59.0
+        "reveal_start": 25.8,
+        "reveal_end": 50.5
       },
       "volume-water-reverse": {
         "label": "Reverse canal water / low volume",
@@ -2425,8 +2425,8 @@
         "hollow": 0.0,
         "fade_in_start": 0.0,
         "fade_in_end": 24.0,
-        "reveal_start": 35.0,
-        "reveal_end": 59.0
+        "reveal_start": 26.6,
+        "reveal_end": 52.0
       },
       "volume-water-approach": {
         "label": "Main canal near bridge / low volume",
@@ -2460,8 +2460,8 @@
         "hollow": 0.0,
         "fade_in_start": 0.0,
         "fade_in_end": 24.0,
-        "reveal_start": 35.0,
-        "reveal_end": 59.0
+        "reveal_start": 27.4,
+        "reveal_end": 53.5
       },
       "volume-water-upper": {
         "label": "Main canal upper water / low volume",
@@ -2495,8 +2495,8 @@
         "hollow": 0.0,
         "fade_in_start": 0.0,
         "fade_in_end": 24.0,
-        "reveal_start": 35.0,
-        "reveal_end": 59.0
+        "reveal_start": 28.2,
+        "reveal_end": 55.0
       },
       "volume-west-passage": {
         "label": "West washing passage / drifting channel",
@@ -2540,6 +2540,7 @@
     "use_building_timing": true,
     "water_mask": true,
     "wispy_formation": true,
+    "water_settle": true,
     "amount": 1.0,
     "density": 3.8,
     "thickness": 1.1,
@@ -2548,8 +2549,8 @@
     "pattern_amount": 0.95,
     "build_start": 0.0,
     "build_end": 24.0,
-    "reveal_start": 32.0,
-    "reveal_end": 58.0,
+    "reveal_start": 25.0,
+    "reveal_end": 55.0,
     "wind": [
       0.26,
       0.05,
@@ -2557,11 +2558,14 @@
     ],
     "evolution": "condense",
     "initial_scale": 0.4,
-    "settle_fraction": 0.28,
+    "settle_fraction": 0.06,
     "base_y": 0.0,
-    "pull_duration": 7.0,
+    "pull_duration": 12.0,
     "wisp_amount": 0.55,
     "texture_grit": 0.72,
-    "pixel_grain": 0.85
+    "pixel_grain": 0.85,
+    "foot_curve": 4.8,
+    "water_settle_start": 25.0,
+    "water_settle_end": 42.0
   }
 }

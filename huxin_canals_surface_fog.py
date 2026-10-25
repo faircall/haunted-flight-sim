@@ -97,8 +97,12 @@ class SurfaceFog:
                    'spacing','distanceCap','atlasColumns','clock','elapsed','waterY','reflectedView',
                    'amount','density','thickness','edge','noiseSize','patternAmount','buildStart','buildEnd','stepCount',
                    'riseResolve','initialScale','settleFraction','baseY','condenseMode','pullDuration','wispAmount','textureGrit',
-                   'wispyFormation','pixelGrain')
+                   'wispyFormation','pixelGrain','footCurve','lakeBaseY','causeway','lakeOwnsCurve','progressiveLake')
             self.locations={name:pr.get_shader_location(self.shader,name) for name in names}
+            from g_huxin_canals_water_fog import shared_causeway_points
+            points=shared_causeway_points()
+            pr.set_shader_value_v(self.shader,self.locations['causeway'],
+                pr.ffi.new('float[]',[value for point in points for value in point]),pr.SHADER_UNIFORM_VEC2,len(points))
             self.quality('balanced')
         except Exception:self.close();raise
 
@@ -168,6 +172,9 @@ class SurfaceFog:
 
     def render(self,source,cam,sequence,clock,colour,water_y,reflected=False,base_texture=None):
         settings=getattr(sequence.direction,'surface_fog',DEFAULT_SURFACE_SETTINGS)
+        progressive_lake=bool(getattr(settings,'water_mask',False) and getattr(settings,'water_settle',False))
+        from g_huxin_canals_water_fog import lake_fog_frame
+        lake_frame=lake_fog_frame(sequence.direction,sequence.elapsed,sequence.state)
         self.quality(sequence.direction.volumes.quality)
         active=settings.enabled and settings.amount>0 and sequence.state in ('entering','canals')
         self.last_clock=clock;self.last_elapsed=sequence.elapsed;self.last_water_y=water_y
@@ -202,6 +209,10 @@ class SurfaceFog:
             ('textureGrit',getattr(settings,'texture_grit',0.)),
             ('wispyFormation',float(getattr(settings,'wispy_formation',False))),
             ('pixelGrain',getattr(settings,'pixel_grain',0.)),
+            ('footCurve',getattr(settings,'foot_curve',0.)),
+            ('progressiveLake',float(progressive_lake)),
+            ('lakeOwnsCurve',float(progressive_lake and getattr(settings,'foot_curve',0.)>0.)),
+            ('lakeBaseY',lake_frame.base_y),
             ('initialScale',getattr(settings,'initial_scale',.4)),
             ('settleFraction',getattr(settings,'settle_fraction',.65)),('baseY',getattr(settings,'base_y',0.)),
             ('stepCount',self.last_steps)):self.uniform(name,value)

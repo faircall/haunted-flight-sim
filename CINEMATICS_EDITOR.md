@@ -376,7 +376,11 @@ are muted and share the independent, live-reloaded
 [`direction-surface.json`](art/temple/huxin_canals/direction-surface.json).
 The quad and earlier volumetric experiment files remain separate.
 The active Surface experiment uses **Condense**: slow tightening, an inward
-pull, then lingering wisps. The previous 14-second buildup is preserved in
+pull, then lingering wisps. The previous delayed reveal is preserved in
+[`direction-surface-delayed-reveal.json`](art/temple/huxin_canals/direction-surface-delayed-reveal.json).
+The earlier flat lake/building junction is preserved in
+[`direction-surface-wispy-flat.json`](art/temple/huxin_canals/direction-surface-wispy-flat.json).
+The previous 14-second buildup is preserved in
 [`direction-surface-condense-slow.json`](art/temple/huxin_canals/direction-surface-condense-slow.json).
 The earlier fast Condense setup is preserved in
 [`direction-surface-condense-fast.json`](art/temple/huxin_canals/direction-surface-condense-fast.json).
@@ -395,21 +399,39 @@ between the lake and the structures, so the lower surface joins the building fog
 The current pixel-grain amount is **0.85** and Wispy rise is enabled.
 It uses a **1.1 m** surface envelope,
 **3.8** density and **40%** initial footprint size. In Condense, the inward pull
-starts **28%** through each house's reveal window and lasts **7 seconds**.
+starts **6%** through each house's reveal window and lasts **12 seconds**.
 The house windows overlap, so multiple buildings contract in parallel. Their
 long windows leave room for the full pull and for residual wisps afterward.
-All **142** houses retain a full **7 second** pull, with up to **76** nominal
-pulls overlapping. The wisp amount is **0.55**, **Texture grit** is **0.72**,
+All **142** houses retain a full **12 second** pull. Each 27-second house window
+reserves **1.62 seconds** for tightening before the local noise delay. The wisp
+amount is **0.55**, **Texture grit** is **0.72**,
 noise size is **2.4 m**, and pattern strength is **0.95**.
 The optional **Water veil** covers the water-level and reflection handoff;
-its clearing follows the fallback **32 to 58 second** resolve window. House
-resolve windows start between **25 and 39 seconds** and last **26 to 30 seconds**.
+its clearing follows the fallback **25 to 55 second** resolve window. With
+Lower lake enabled, optical thinning begins after the hidden blend and continues
+gradually across this window. The
+**4.8 m Foot curve** gives the lake/building junction a rounded quadratic profile.
+**Lower lake** starts at **25 seconds** and reaches the actual canal water level
+at **42 seconds**, lowering the floating layer to **−1.55 m**. It travels at
+almost constant speed through the middle, with short endpoint ramps that keep
+velocity and acceleration continuous. The visible lake veil owns the curved
+join; the building fog omits its duplicate curve while this layer is active.
+The water mesh now descends continuously over the same interval, with its
+reflection plane and fog reflections following the moving surface. The foot
+curve and enabled low-water banks descend together; the vertical building
+formation stays anchored to its original datum so roofs and materials remain
+aligned. The first **41** houses lead the reveal, with the remaining **101**
+spread across a longer later sequence. House resolve windows start between
+**25.15 and 41.932 seconds** and last **27 seconds**, with their final faint
+wisps gone by **68.932 seconds**.
 The full authored timeline is **74 seconds**, leaving space for the far buildings.
 The global build/handoff cues also read **24 and 25 seconds**, so the sidebar
 markers and actual hidden blend agree.
 Only five low-water volumes remain enabled to cover the changing water level
-and reflections. Their arrival finishes at 24 seconds and their clearing spans
-roughly 35 to 59 seconds. The nine older house/alley volumes are disabled and the
+and reflections. Their arrival finishes at 24 seconds. Their staggered retreat
+starts between **25 and 28.2 seconds**; density starts falling between **31 and
+34.9 seconds**, after the initial movement portion of each volume's window.
+They finish clearing between **49 and 55 seconds**. The nine older house/alley volumes are disabled and the
 shared quad amount is **0**; their saved contents remain available for mixing
 techniques later. The earlier quad and bounded-volume experiments are separate.
 
@@ -436,8 +458,7 @@ enable toggle and amount; the Surface toggle does not replace those regions.
   its irregular pattern, and wind velocity in metres per second. Condense adds
   **Lingering wisps / 0-1**, controlling the residual fragments after the pull,
   **Texture grit / 0-1** for granularity in the fog, and **Pixel grain / 0-1** for
-  deliberate coarse pixels and dithering. **Water veil** on Shape
-  independently enables low fog over the changing water and its reflections.
+  deliberate coarse pixels and dithering.
 - **Timing** controls the build/rise window and the clearing/resolve window.
   In Rise / resolve, the noise first settles into a stable ghostly structure,
   then its material detail appears. **Ghost settles / %** sets the fraction of
@@ -446,7 +467,8 @@ enable toggle and amount; the Surface toggle does not replace those regions.
   each named house uses its existing individual group window. The displayed
   resolve window is a fallback for other geometry. With the switch off, all
   surfaces use that window. Both tracks remain draggable below the preview.
-  In Condense, **Pull starts / %** gives the portion of the window spent tightening;
+  In Condense, **Pull starts / %** gives the portion of the window spent tightening,
+  from **2 to 90 percent**; a shorter hold begins the visible pull earlier.
   **Pull duration / sec** controls the inward motion that reveals the material,
   from **0.1 to 15 seconds**.
   Short reveal windows shorten that duration to leave time for residual wisps.
@@ -454,22 +476,45 @@ enable toggle and amount; the Surface toggle does not replace those regions.
   almost their full duration; short pulls retain the original sharper timing.
   The window's end is labelled **Last wisps gone** in this mode. Switching modes
   retains the controls' saved values, making comparisons reversible with Undo.
+- **Lake** holds **Water veil**, which independently enables low fog over the
+  changing water and its reflections. **Foot curve / metres** rounds the join
+  on that visible layer where it meets the building fog; zero retains the earlier
+  shape. With Water veil enabled, **Lower lake** also lowers the actual water mesh
+  and reflection plane continuously to the scene's canal water level,
+  with separate **Starts** and **At canal water** times. The target height is
+  automatic. Enabling it fits its times to the current timeline, after the hidden
+  geometry handoff. These controls apply in Condense mode; switching modes keeps
+  their values for later comparison. All four pages can be inspected without
+  changing the saved preset.
 
 The new evolution fields are optional. Older files keep Erode mode and retain
 their original JSON fields when loaded and saved. Initial size and ghost-settle
 controls display percentages in the editor; JSON stores fractions (`0.4` and
 `0.65` by default). Condense uses the same `settle_fraction` field for its pull
-start; the experiment sets it to `0.28`. Its optional `pull_duration` is in seconds
+start; the experiment sets it to `0.06`. Its optional `pull_duration` is in seconds
 and `wisp_amount`, `texture_grit` and `pixel_grain` are fractions from zero to one.
 The optional `wispy_formation` boolean defaults to `false`, and `pixel_grain`
 defaults to zero. These opt-in controls preserve previous saved appearances.
 The optional
 `water_mask` boolean defaults to `false`; its rise uses the surface build window
-and its clearing uses the fallback resolve window. Earlier files acquire none
+and its clearing uses the fallback resolve window. Optional `foot_curve` accepts
+**0 to 8 metres** and defaults to zero. `water_settle` defaults to `false`, with
+optional `water_settle_start` and `water_settle_end` defaults of **35 and 47 seconds**.
+The lowering window must stay after the effective hidden blend, have at least
+**0.1 seconds** duration, and finish within the authored timeline when enabled.
+Turning it on authors both fitted endpoints in one undoable edit. Global timing
+edits fit an existing lowering window as needed; Undo restores all affected times.
+Earlier files acquire none
 of these fields merely from loading or saving. The legacy pull default stays
 at `1.15` seconds and grit defaults to zero, preserving prior saved looks.
-The advanced optional `base_y` setting defaults to the fixed
-lake datum `0.0`; it stays fixed through the water-level transition.
+The advanced optional `base_y` setting defaults to the starting lake datum `0.0`.
+The building formation remains anchored there; Lower lake moves only the lake
+veil, its curved foot join, and the enabled low-water banks. With Water veil
+enabled it also moves the physical water from **0.0 m to −1.55 m**; editing the
+fog's `base_y` does not move the water's starting height. The banks' authored
+positions and timings remain intact. Without Lower lake, the previous fog
+height and hidden water-level switch are preserved. Both worlds keep the same
+water height during the concealed handoff, before the later descent begins.
 
 Click a house in the preview, or select it with F8 and leave selection mode.
 **Frame selected building** inspects it; **Edit this house timing** opens the

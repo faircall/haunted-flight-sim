@@ -3,9 +3,11 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch,Mock
 import unittest
+import math
 
 from g_huxin_canals_direction import default_document,profile_from_document
 from g_huxin_canals_surface_settings import SurfaceFogSettings,surface_blend_window
+from g_huxin_canals_water_fog import lake_fog_frame
 from huxin_canals_surface_veil import LakeSurfaceVeil,shared_causeway_points,veil_frame
 
 
@@ -59,6 +61,23 @@ class SurfaceVeilTimingTests(unittest.TestCase):
         self.assertTrue(all(a>=b for a,b in zip(values,values[1:])))
         self.assertEqual(values[-1],0.)
         self.assertFalse(veil_frame(p,46.).active)
+
+    def test_settling_veil_reveals_a_thick_ray_progressively_instead_of_saturating(self):
+        p=profile();p.surface_fog.water_settle=True
+        for t in (14.,15.,21.,22.):
+            self.assertEqual(veil_frame(p,t).strength,1.)
+        for t in (24.,27.,30.,33.,36.,39.,42.,44.):
+            frame=veil_frame(p,t)
+            opacity=1.-math.exp(-12.*frame.strength)
+            self.assertAlmostEqual(opacity,(1.-frame.clearing)*(1.-math.exp(-12.)),places=12)
+        middle=veil_frame(p,33.)
+        self.assertAlmostEqual(1.-math.exp(-12.*middle.strength),.5*(1.-math.exp(-12.)),places=12)
+        self.assertEqual(veil_frame(p,44.).strength,0.)
+        # Ordinary saved profiles retain their previous density envelope.
+        p.surface_fog.water_settle=False
+        legacy=veil_frame(p,33.)
+        self.assertEqual(legacy.strength,(1.-legacy.clearing)**2.2)
+        self.assertGreater(1.-math.exp(-12.*legacy.strength),.9)
 
     def test_old_profiles_and_inactive_modes_have_exact_texture_identity(self):
         scene=SimpleNamespace(direction=profile_from_document(default_document()),elapsed=14.,state='canals')
@@ -116,8 +135,80 @@ class SurfaceVeilTimingTests(unittest.TestCase):
                     values=dict(call.args for call in layer.uniform.call_args_list)
                     self.assertEqual(values['wispyFormation'],float(bool(setting)))
                     self.assertEqual(values['baseY'],0.)
+                    self.assertEqual(values['formationBaseY'],0.)
+                    self.assertEqual(values['depthHold'],1.)
                     self.assertEqual(values['waterY'],-1.55)
                     self.assertEqual(values['reflectedView'],float(reflected))
+
+            p.surface_fog.wispy_formation=True
+            p.surface_fog.water_settle=True
+            p.surface_fog.water_settle_start=35.
+            p.surface_fog.water_settle_end=47.
+            p.surface_fog.build_end=24.
+            p.surface_fog.reveal_start=28.
+            p.surface_fog.reveal_end=60.
+            for elapsed in (24.,24.5,25.,35.,41.,47.):
+                sequence.elapsed=elapsed
+                expected=lake_fog_frame(p,elapsed)
+                for water_y in (0.,-1.55):
+                    for reflected in (False,True):
+                        layer.uniform.reset_mock()
+                        layer.render(source,cam,sequence,elapsed,(.3,.4,.5),water_y,reflected=reflected)
+                        values=dict(call.args for call in layer.uniform.call_args_list)
+                        self.assertEqual(values['baseY'],expected.base_y)
+                        self.assertEqual(values['formationBaseY'],0.)
+                        self.assertEqual(values['depthHold'],expected.depth_hold)
+                        self.assertEqual(layer.last_frame.descent,expected.descent)
+
+    def test_visible_curve_borrows_the_prepared_field_and_releases_only_own_resources(self):
+        p=profile()
+        p.surface_fog.foot_curve=4.8
+        p.surface_fog.wispy_formation=True
+        p.surface_fog.evolution='condense'
+        sequence=SimpleNamespace(direction=p,elapsed=14.,state='canals')
+        vector=SimpleNamespace(x=0.,y=0.,z=1.)
+        cam=SimpleNamespace(position=SimpleNamespace(x=-4.8,y=1.9,z=-2.2),
+                            target=vector,up=vector,fovy=78.)
+        field_texture=SimpleNamespace(width=2048,height=1024)
+        timing_texture=object()
+        surface=SimpleNamespace(field=SimpleNamespace(origin=(-120.,-14.,-180.),shape=(244,68,627),
+                                spacing=.6,distance_cap=16.),field_texture=field_texture,
+                                timing_texture=timing_texture,atlas_columns=7)
+        layer=LakeSurfaceVeil(640,360)
+        layer.prepare=Mock();layer.uniform=Mock()
+        layer.shader=object();own_noise=layer.noise=object()
+        layer.target=SimpleNamespace(texture=object())
+        layer.locations={'depthMap':1,'noiseMap':2,'fieldMap':3,'timingMap':4}
+        source=SimpleNamespace(depth=object())
+        with patch('huxin_canals_surface_veil.pr') as api:
+            api.vector3_normalize.return_value=vector
+            api.vector3_cross_product.return_value=vector
+            for reflected in (False,True):
+                layer.uniform.reset_mock();api.set_shader_value_texture.reset_mock()
+                layer.render(source,cam,sequence,14.,(.3,.4,.5),0.,reflected=reflected,surface_renderer=surface)
+                values=dict(call.args for call in layer.uniform.call_args_list)
+                self.assertEqual(values['curveRadius'],4.8)
+                self.assertEqual(values['curveBuild'],1.)
+                self.assertEqual(values['curveDescent'],0.)
+                self.assertEqual(values['fieldOrigin'],surface.field.origin)
+                self.assertEqual(values['atlasSize'],(2048,1024))
+                self.assertEqual(values['atlasColumns'],7)
+                maps={call.args[1]:call.args[2] for call in api.set_shader_value_texture.call_args_list}
+                self.assertIs(maps[3],field_texture)
+                self.assertIs(maps[4],timing_texture)
+                self.assertEqual(layer.last_curve_radius,4.8)
+
+            p.surface_fog.foot_curve=0.
+            layer.uniform.reset_mock();api.set_shader_value_texture.reset_mock()
+            layer.render(source,cam,sequence,14.,(.3,.4,.5),0.,surface_renderer=surface)
+            values=dict(call.args for call in layer.uniform.call_args_list)
+            self.assertEqual(values['curveRadius'],0.)
+            self.assertEqual([call.args[1] for call in api.set_shader_value_texture.call_args_list],[1,2])
+            self.assertNotIn('fieldOrigin',values)
+            layer.close()
+            api.unload_texture.assert_called_once_with(own_noise)
+            self.assertIs(surface.field_texture,field_texture)
+            self.assertIs(surface.timing_texture,timing_texture)
 
 
 if __name__=='__main__':unittest.main()

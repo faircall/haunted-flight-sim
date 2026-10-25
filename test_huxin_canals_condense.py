@@ -41,12 +41,35 @@ class CondensationTimingTests(unittest.TestCase):
 
     def test_extreme_valid_controls_still_finish_within_the_authored_window(self):
         for span in (.1,.3,1.,10.,30.):
-            for hold in (.2,.5,.9):
+            for hold in (.02,.06,.2,.5,.9):
                 for duration in (.1,1.15,5.,7.,15.):
                     with self.subTest(span=span,hold=hold,duration=duration):
                         window=(8.5,8.5+span)
                         phases=condense_phases((35.1,2.7,-22.6),window,window[1],hold,duration,pattern=1.)
                         self.assertEqual(phases,(1.,1.,0.,1.))
+
+    def test_short_holds_leave_a_continuous_long_pull_and_finish_all_residuals(self):
+        window=(25.,51.);point=(8.,4.,20.)
+        for hold in (.02,.06):
+            start,duration=condense_window(window,hold,12.)
+            self.assertLess(start-window[0],2.)
+            self.assertEqual(duration,12.)
+            self.assertEqual(condense_phases(point,window,25.,hold,12.),(0.,0.,1.,0.))
+            early=condense_phases(point,window,start+duration*.1,hold,12.,pattern=0.)
+            late=condense_phases(point,window,start+duration*.9,hold,12.,pattern=0.)
+            self.assertGreater(early[1],0.);self.assertGreater(early[3],0.)
+            self.assertLess(late[1],1.);self.assertLess(late[3],1.)
+            samples=[condense_phases(point,window,25.+i*.01,hold,12.,pattern=1.) for i in range(2601)]
+            for a,b in zip(samples,samples[1:]):
+                self.assertTrue(all(0.<=v<=1.+1.e-12 for v in b))
+                self.assertLessEqual(a[0],b[0]+1.e-10)
+                self.assertLessEqual(a[1],b[1]+1.e-10)
+                self.assertGreaterEqual(a[2],b[2]-1.e-10)
+                self.assertLessEqual(a[3],b[3]+1.e-10)
+                self.assertLess(max(abs(x-y) for x,y in zip(a,b)),.04)
+            self.assertEqual(samples[-1],(1.,1.,0.,1.))
+            for index in (2600,100,1400,0,2300):
+                self.assertEqual(samples[index],condense_phases(point,window,25.+index*.01,hold,12.,pattern=1.))
 
     def test_spatial_delay_is_smooth_and_scrubbing_is_deterministic(self):
         point=(8.,4.,20.);window=(8.5,18.)

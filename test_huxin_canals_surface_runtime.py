@@ -83,6 +83,34 @@ class SurfaceTimingRowsTests(unittest.TestCase):
 
 
 class SurfaceOwnerRowsTests(unittest.TestCase):
+    def test_progressive_pacing_and_curve_ownership_are_independent_runtime_uniforms(self):
+        renderer=SurfaceFog.__new__(SurfaceFog)
+        renderer.width=640;renderer.height=360
+        renderer.shader=object();renderer.noise=object()
+        renderer.field_texture=object();renderer.timing_texture=object()
+        renderer.target=SimpleNamespace(texture=SimpleNamespace(width=640,height=360))
+        renderer.locations={name:i for i,name in enumerate(('depthMap','noiseMap','fieldMap','timingMap'))}
+        renderer.quality=Mock();renderer.sync_profile=Mock();renderer.uniform=Mock()
+        renderer.last_rows=np.array([[11.,55.]],dtype=np.float32);renderer.last_steps=176
+        source=SimpleNamespace(depth=object())
+        vector=SimpleNamespace(x=0.,y=0.,z=1.)
+        cam=SimpleNamespace(position=SimpleNamespace(x=0.,y=1.9,z=0.),target=vector,up=vector,fovy=78.)
+        with patch('huxin_canals_surface_fog.pr') as api:
+            api.vector3_normalize.return_value=vector
+            api.vector3_cross_product.return_value=vector
+            for water_mask in (False,True):
+                for water_settle in (False,True):
+                    for foot_curve in (0.,4.8):
+                        p=fixture_profile(water_mask=water_mask,water_settle=water_settle,foot_curve=foot_curve)
+                        sequence=SimpleNamespace(direction=p,elapsed=14.,state='canals')
+                        renderer.uniform.reset_mock()
+                        renderer.render(source,cam,sequence,14.,(.3,.4,.5),0.)
+                        values=dict(call.args for call in renderer.uniform.call_args_list)
+                        progressive=water_mask and water_settle
+                        self.assertEqual(values['progressiveLake'],float(progressive))
+                        self.assertEqual(values['lakeOwnsCurve'],float(progressive and foot_curve>0.))
+                        self.assertEqual(values['footCurve'],foot_curve)
+
     def test_metadata_uses_actual_unpadded_roof_and_horizontal_dimensions(self):
         profile=fixture_profile(base_y=-1.5)
         target=TargetGroup('house-b','Test house','house',(9.,3.,14.),(4.05,4.,6.05),'near')

@@ -1,8 +1,13 @@
 #version 330
-uniform sampler2D depthMap,noiseMap;
+uniform sampler2D depthMap,noiseMap,fieldMap,timingMap;
 uniform vec2 resolution,lens,clip,causeway[6];
 uniform vec3 eye,forward,right,up,fogColour;
 uniform float clock,waterY,reflectedView,baseY,strength,textureGrit,wispyFormation;
+uniform float formationBaseY,depthHold;
+uniform vec3 fieldOrigin,fieldShape;
+uniform vec2 atlasSize;
+uniform float fieldSpacing,fieldDistanceCap,atlasColumns;
+uniform float curveRadius,curveBuild,curveDescent,curveInitialScale,curveThickness;
 out vec4 finalColor;
 
 vec3 noise3(vec3 p){
@@ -44,6 +49,38 @@ float waterFootprint(vec2 p){
     float shared=(1.-smoothstep(.90,1.04,path))*(1.-smoothstep(11.7,12.,p.y));
     return water*(1.-shared);
 }
+vec2 fieldUV(vec2 xz,float y){
+    vec2 tile=vec2(mod(y,atlasColumns),floor(y/atlasColumns));
+    return (tile*(fieldShape.xz+2.)+xz+1.5)/atlasSize;
+}
+float projectedSupport(vec2 xz){
+    vec3 q=(vec3(xz.x,formationBaseY+.30,xz.y)-fieldOrigin)/fieldSpacing;
+    if(any(lessThan(q,vec3(0.)))||any(greaterThan(q,fieldShape-1.)))return fieldDistanceCap;
+    float y=floor(q.y),nextY=min(y+1.,fieldShape.y-1.);
+    return mix(texture(fieldMap,fieldUV(q.xz,y)).a,
+               texture(fieldMap,fieldUV(q.xz,nextY)).a,fract(q.y))*fieldDistanceCap;
+}
+vec2 lakeCurve(vec2 xz){
+    // Bend the visible lake layer itself into the rising architectural mist.
+    // The same real roof projection and growing per-house center keep this
+    // continuous with the building banks, rather than an opaque flat lid.
+    vec3 fieldPoint=(vec3(xz.x,formationBaseY+.30,xz.y)-fieldOrigin)/fieldSpacing;
+    if(any(lessThan(fieldPoint,vec3(0.)))||any(greaterThan(fieldPoint,fieldShape-1.)))return vec2(0.);
+    vec3 cell=clamp(floor(fieldPoint+.5),vec3(0.),fieldShape-1.);
+    float owner=floor(texture(fieldMap,fieldUV(cell.xz,cell.y)).b*255.+.5);
+    vec4 bounds=texelFetch(timingMap,ivec2(int(owner),1),0);
+    vec2 halfSize=texelFetch(timingMap,ivec2(int(owner),2),0).rg;
+    float scale=(owner>.5&&min(halfSize.x,halfSize.y)>0.)?mix(curveInitialScale,1.,curveBuild):1.;
+    vec2 q=bounds.xz+(xz-bounds.xz)/scale;
+    float d=max(0.,projectedSupport(q)*scale-curveThickness*.65);
+    float width=max(.1,curveRadius*scale);
+    // Quadratic Bezier from vertical wall to horizontal water:
+    // x=W*t^2, h=H*(1-t)^2. Its outer tangent is exactly horizontal.
+    float t=sqrt(clamp(d/width,0.,1.));
+    float height=curveRadius*.65*curveBuild*(1.-.85*curveDescent);
+    float slope=height*(1.-t)/(width*max(.06,t));
+    return vec2(height*(1.-t)*(1.-t),slope);
+}
 void main(){
     vec2 uv=gl_FragCoord.xy/resolution,ndc=uv*2.-1.;
     vec3 ray=normalize(forward+right*ndc.x*lens.x*lens.y+up*ndc.y*lens.x);
@@ -56,11 +93,15 @@ void main(){
     // pavilion/eaves and the exact curved causeway retain normal depth tests,
     // as do both water levels. This is a transient medium, never a depth write.
     vec3 hit=eye+ray*depth;
-    if(wispyFormation>.5 && length(hit.xz)>9. && hit.y>baseY+.07 && waterFootprint(hit.xz)>.5)
+    float pathHold=0.;
+    if(wispyFormation>.5 && length(hit.xz)>9. && hit.y>formationBaseY+.07 && waterFootprint(hit.xz)>.5)
+        pathHold=clamp(depthHold,0.,1.);
+    if(pathHold>0.)
         finish=260.;
-    // Every density sample is above the ORIGINAL lake. Both old and lowered
-    // water therefore sit behind exactly the same complete optical path.
-    float low=baseY+.025,high=baseY+1.45;
+    // The shared timeline holds this slab at the ORIGINAL lake through the
+    // whole handoff, then slowly lowers it toward the canal water afterwards.
+    float maximumLift=curveRadius*.65*curveBuild*(1.-.85*curveDescent);
+    float low=baseY+.025,high=baseY+1.45+maximumLift+(curveRadius>0.?.5:0.);
     if(abs(ray.y)<.000001){
         if(eye.y<low||eye.y>high){finalColor=vec4(0.);return;}
     }else{
@@ -78,31 +119,70 @@ void main(){
     // depth. Thus a water-height change cannot redraw the fog's pattern.
     float stepLength=clamp(.028/max(.005,abs(ray.y)),.028,1.);
     float jitter=fract(52.9829189*fract(dot(floor(gl_FragCoord.xy),vec2(.06711056,.00583715))));
-    for(int i=0;i<96;i++){
-        float lo=start+float(i)*stepLength;
+    float travel=start;
+    for(int i=0;i<384;i++){
+        if(curveRadius<=0.&&i>=96)break;
+        float lo=curveRadius>0.?travel:start+float(i)*stepLength;
         if(lo>=finish||transmission<.0004)break;
+        if(curveRadius>0.){
+            // A vertical sample interval alone aliases the steep side of a
+            // curved bank into contour ribs. Resolve its quadratic slope in
+            // world space; only the thin cap needs these finer samples.
+            vec3 probe=eye+ray*lo;
+            vec2 section=lakeCurve(probe.xz);
+            float relative=probe.y-baseY-section.x;
+            float rate=max(.008,abs(ray.y)+section.y*length(ray.xz)+smoothstep(.02,.5,section.x)*.45);
+            float empty=max(relative-1.95,.20-relative);
+            stepLength=clamp(max(.036,empty*.6)/rate,.018,1.25);
+        }
+        travel=lo+stepLength;
         float lengthHere=min(stepLength,finish-lo);
+        // Fade only the optical contribution behind actual geometry. Keep
+        // slab-anchored samples fixed instead of sliding the ray endpoint
+        // through its noise pattern as normal depth occlusion is restored.
+        if(pathHold>0.)
+            lengthHere=mix(clamp(depth-lo,0.,lengthHere),lengthHere,pathHold);
+        if(lengthHere<=0.)continue;
         vec3 p=eye+ray*(lo+stepLength*(.3+.4*jitter));
         float footprint=waterFootprint(p.xz);
         if(footprint<.0001)continue;
-        vec3 flow=p*vec3(.30,.86,.30)+vec3(-clock*.035,clock*.011,clock*.026);
+        float lift=curveRadius>0.?lakeCurve(p.xz).x:0.;
+        vec3 flowPoint=p;
+        // Keep three-dimensional clouds independent of the profile. Draping
+        // their coordinates over the cap makes it resemble a solid surface.
+        if(curveRadius>0.)flowPoint.y-=baseY;
+        vec3 flow=flowPoint*vec3(.30,.86,.30)+vec3(-clock*.035,clock*.011,clock*.026);
         vec3 broad=noise3(flow);
         vec3 detail=noise3(flow*2.11+vec3(11,7,23)+(broad-.5)*.7);
         float height=p.y-baseY;
+        float curvedWeight=smoothstep(.05,.65,lift);
+        float capNoise=curvedWeight*((broad.g-.5)*.65+(detail.r-.5)*.20);
+        float curvedHeight=height-lift-capNoise;
         float bottom=smoothstep(.025,.065,height);
         // The minimum top of the dense core is above the new quay's .325m
         // paving. Its appearance therefore cannot shorten the opaque part of
         // a water ray. Modulated tops and tall sparse lobes avoid a flat sheet.
         float coreTop=.44+.10*broad.g;
-        float core=bottom*(1.-smoothstep(coreTop,coreTop+.22,height));
+        float core=bottom*(1.-smoothstep(coreTop,coreTop+.22,curvedHeight));
         float upper=1.03+.25*broad.r+.10*detail.g;
-        float fringe=bottom*(1.-smoothstep(.44,upper,height));
+        float fringe=bottom*(1.-smoothstep(.44,upper,curvedHeight));
         fringe*=smoothstep(.22,.75,.72*broad.g+.28*detail.r);
         float filaments=exp(-((broad.g-.49)*(broad.g-.49)+(detail.b-.51)*(detail.b-.51))*64.);
-        float wisps=bottom*(1.-smoothstep(.55,upper+.06,height))*filaments;
+        float wisps=bottom*(1.-smoothstep(.55,upper+.06,curvedHeight))*filaments;
         // A guaranteed low core masks glints and the level drop. Sparse
         // rolling lobes above it connect to the existing lake mist.
-        float sigma=strength*footprint*(30.*core*(.94+.12*broad.b)+3.5*fringe+1.4*wisps);
+        float coreDensity=30.*core*(.94+.12*broad.b);
+        float fringeDensity=3.5*fringe;
+        if(curveRadius>0.){
+            // Preserve the proven low water mask, but make the raised part a
+            // porous cloud rather than extruding that opaque core into hills.
+            float lowCore=bottom*(1.-smoothstep(coreTop,coreTop+.22,height));
+            float pores=smoothstep(.25,.72,broad.r*.58+detail.g*.42);
+            float extension=max(0.,core-lowCore);
+            coreDensity=30.*lowCore*(.94+.12*broad.b)+5.5*extension*(.08+.92*pores);
+            fringeDensity*=mix(1.,.42,curvedWeight);
+        }
+        float sigma=strength*footprint*(coreDensity+fringeDensity+1.4*wisps);
         float alpha=1.-exp(-sigma*lengthHere);
         float grain=paintedGrain(flow,broad-.5);
         float shaded=noise3(flow+vec3(-.45,.8,.3)).r;

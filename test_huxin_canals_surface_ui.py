@@ -24,7 +24,7 @@ class SurfaceEditorTests(unittest.TestCase):
 
     def test_opening_surface_tab_is_nonmutating_and_all_pages_fit(self):
         e=self.editor
-        for page in ('shape','flow','timing'):
+        for page in ('shape','flow','timing','lake'):
             e.action('surface:page:'+page)
             buttons,fields=e.controls();rects=[(name,rect) for name,_,rect,_ in buttons]+[(str(path),rect) for path,rect in fields]
             for i,(name,a) in enumerate(rects):
@@ -116,7 +116,7 @@ class SurfaceEditorTests(unittest.TestCase):
         self.assertEqual(e.field_value(('surface','settle_fraction')),65.)
         e.edit_number(('surface','settle_fraction'));e.entry['text']='72'
         self.assertTrue(e.finish_entry());self.assertEqual(e.state.profile.surface_fog.settle_fraction,.72)
-        for page in ('shape','flow','timing'):
+        for page in ('shape','flow','timing','lake'):
             e.action('surface:page:'+page)
             buttons,fields=e.controls()
             rects=[(name,rect) for name,_,rect,_ in buttons]+[(str(path),rect) for path,rect in fields]
@@ -144,7 +144,7 @@ class SurfaceEditorTests(unittest.TestCase):
             e.edit_number(path);e.entry['text']=value;self.assertTrue(e.finish_entry())
             self.assertEqual(getattr(e.state.profile.surface_fog,path[1]),expected)
         self.assertEqual(e.state.document['fog'],quads)
-        for page in ('shape','flow','timing'):
+        for page in ('shape','flow','timing','lake'):
             e.action('surface:page:'+page);buttons,fields=e.controls()
             rects=[(name,rect) for name,_,rect,_ in buttons]+[(str(path),rect) for path,rect in fields]
             for i,(name,a) in enumerate(rects):
@@ -159,8 +159,12 @@ class SurfaceEditorTests(unittest.TestCase):
                 self.assertIn(('surface','texture_grit'),paths)
                 self.assertIn(('surface','pixel_grain'),paths)
             if page=='shape':
-                self.assertIn('surface:water_mask',{name for name,_,_,_ in buttons})
                 self.assertIn('surface:wispy_formation',{name for name,_,_,_ in buttons})
+            if page=='lake':
+                self.assertIn('surface:water_mask',{name for name,_,_,_ in buttons})
+                self.assertIn('surface:water_settle',{name for name,_,_,_ in buttons})
+                for prop in ('foot_curve','water_settle_start','water_settle_end'):
+                    self.assertIn(('surface',prop),paths)
             if page=='timing':
                 self.assertIn(('surface','pull_duration'),paths)
                 self.assertIn(('surface','settle_fraction'),paths)
@@ -177,6 +181,22 @@ class SurfaceEditorTests(unittest.TestCase):
             e.action('surface:evolution')
             self.assertEqual(e.state.profile.surface_fog.evolution,mode)
             self.assertEqual(e.state.profile.surface_fog.pull_duration,1.4)
+
+    def test_short_hold_percentages_accept_two_percent_and_preserve_undo(self):
+        e=self.editor;e.action('surface:evolution');e.action('surface:evolution')
+        e.action('surface:page:timing')
+        for text,value in (('6',.06),('2',.02)):
+            e.edit_number(('surface','settle_fraction'));e.entry['text']=text
+            self.assertTrue(e.finish_entry())
+            self.assertEqual(e.state.profile.surface_fog.settle_fraction,value)
+            self.assertEqual(e.field_value(('surface','settle_fraction')),float(text))
+        before=deepcopy(e.state.document)
+        e.edit_number(('surface','settle_fraction'));e.entry['text']='1.9'
+        self.assertFalse(e.finish_entry());self.assertEqual(e.state.document,before)
+        e.finish_entry(cancel=True);e.action('undo')
+        self.assertEqual(e.state.profile.surface_fog.settle_fraction,.06)
+        e.action('redo');e.action('save');e.action('reload')
+        self.assertEqual(e.state.profile.surface_fog.settle_fraction,.02)
 
     def test_slow_condense_controls_accept_long_pulls_grit_and_water_toggle_with_undo(self):
         e=self.editor;e.action('surface:evolution');e.action('surface:evolution')
@@ -224,6 +244,51 @@ class SurfaceEditorTests(unittest.TestCase):
         self.assertTrue(e.state.profile.surface_fog.wispy_formation)
         self.assertEqual(e.state.profile.surface_fog.pixel_grain,.7)
         self.assertEqual(e.state.elapsed,18.5);self.assertEqual(e.inspection,before)
+        self.assertTrue(e.selection.enabled)
+
+    def test_lake_controls_toggle_from_mouse_and_edit_metres_and_seconds_with_undo(self):
+        e=self.editor;e.action('surface:evolution');e.action('surface:evolution')
+        before=deepcopy(e.state.document);e.action('surface:page:lake')
+        self.assertEqual(e.state.document,before)
+        _,rect=next((name,rect) for name,_,rect,_ in e.controls()[0] if name=='surface:water_settle')
+        e.update(0.,Input(mouse=(rect[0]+15,rect[1]+15),left_pressed=True))
+        self.assertTrue(e.state.profile.surface_fog.water_settle)
+        self.assertEqual(e.field_value(('surface','water_settle_start')),35.)
+        self.assertEqual(e.field_value(('surface','water_settle_end')),46.)
+        for key,text,value in (('foot_curve','4.8',4.8),('water_settle_start','36',36.),('water_settle_end','45',45.)):
+            e.edit_number(('surface',key));e.entry['text']=text;self.assertTrue(e.finish_entry())
+            self.assertEqual(getattr(e.state.profile.surface_fog,key),value)
+        for _ in range(4):e.action('undo')
+        self.assertEqual(e.state.document,before)
+        for _ in range(4):e.action('redo')
+        e.action('save');e.action('reload')
+        self.assertEqual(e.state.profile.surface_fog.foot_curve,4.8)
+        self.assertEqual(e.state.profile.surface_fog.water_settle_start,36.)
+        self.assertEqual(e.state.profile.surface_fog.water_settle_end,45.)
+
+    def test_lake_invalid_window_keeps_previous_values_and_modes_preserve_options(self):
+        e=self.editor;e.action('surface:evolution');e.action('surface:evolution')
+        e.action('surface:water_settle')
+        before=deepcopy(e.state.document)
+        for key,text in (('water_settle_start','5'),('water_settle_end','35'),('foot_curve','8.1')):
+            e.edit_number(('surface',key));e.entry['text']=text
+            self.assertFalse(e.finish_entry());self.assertEqual(e.state.document,before)
+            e.finish_entry(cancel=True)
+        for mode in ('erode','rise_resolve','condense'):
+            e.action('surface:evolution');self.assertEqual(e.state.profile.surface_fog.evolution,mode)
+            self.assertTrue(e.state.profile.surface_fog.water_settle)
+            self.assertEqual(e.state.profile.surface_fog.water_settle_start,35.)
+
+    def test_live_lake_controls_preserve_editor_camera_selection_and_playhead(self):
+        e=self.editor;e.action('surface:enabled');e.action('save');e.state.seek(36.)
+        e.inspection=dict(eye=[5.,2.,3.],target=[0.,1.,0.],fov=64.)
+        before=deepcopy(e.inspection);e.selection.enabled=True
+        remote=deepcopy(e.state.document)
+        remote['surface_fog'].update(foot_curve=4.8,water_settle=True,water_settle_start=35.,water_settle_end=45.)
+        save_direction(remote,self.path);e.poll_external(now=0.);e.poll_external(now=.3)
+        self.assertEqual(e.state.profile.surface_fog.foot_curve,4.8)
+        self.assertTrue(e.state.profile.surface_fog.water_settle)
+        self.assertEqual(e.state.elapsed,36.);self.assertEqual(e.inspection,before)
         self.assertTrue(e.selection.enabled)
 
 

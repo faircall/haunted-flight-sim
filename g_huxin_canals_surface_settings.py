@@ -32,11 +32,16 @@ class SurfaceFogSettings:
     water_mask: bool = False
     wispy_formation: bool = False
     pixel_grain: float = 0.
+    foot_curve: float = 0.
+    water_settle: bool = False
+    water_settle_start: float = 35.
+    water_settle_end: float = 47.
 
 
 DEFAULT_SURFACE_SETTINGS=SurfaceFogSettings()
 TIME_KEYS=('build_start','build_end','reveal_start','reveal_end')
-SURFACE_OPTIONAL_FIELDS=('evolution','initial_scale','settle_fraction','base_y','pull_duration','wisp_amount','texture_grit','water_mask','wispy_formation','pixel_grain')
+WATER_SETTLE_TIME_KEYS=('water_settle_start','water_settle_end')
+SURFACE_OPTIONAL_FIELDS=('evolution','initial_scale','settle_fraction','base_y','pull_duration','wisp_amount','texture_grit','water_mask','wispy_formation','pixel_grain','foot_curve','water_settle',*WATER_SETTLE_TIME_KEYS)
 
 
 def default_surface_document(cues=None):
@@ -59,6 +64,25 @@ def fit_surface_times(value,cues):
     reveal=max(effective_end,min(high-.1,value['reveal_start']))
     clear=max(reveal+.1,min(high,value['reveal_end']))
     value.update(build_start=start,build_end=end,reveal_start=reveal,reveal_end=clear)
+    fit_water_settle_times(value,cues)
+    return value
+
+
+def fit_water_settle_times(value,cues,author=False):
+    """Fit opted-in lake settling without adding fields to older documents.
+
+    Enabling the effect authors both endpoints in the same undo transaction.
+    Later global retimes only change authored values or an enabled effect whose
+    implicit default would otherwise fall outside its safe handoff window.
+    """
+    enabled=value.get('water_settle',False)
+    if not author and not enabled and not any(key in value for key in WATER_SETTLE_TIME_KEYS):return value
+    high=cues['end'];span=cues['blend_end']-cues['build_end']
+    low=max(cues['build_end'],value['build_end'])+span if enabled else 0.
+    start=max(low,min(high-.1,value.get('water_settle_start',DEFAULT_SURFACE_SETTINGS.water_settle_start)))
+    end=max(start+.1,min(high,value.get('water_settle_end',DEFAULT_SURFACE_SETTINGS.water_settle_end)))
+    for key,time in zip(WATER_SETTLE_TIME_KEYS,(start,end)):
+        if author or key in value or (enabled and time!=getattr(DEFAULT_SURFACE_SETTINGS,key)):value[key]=time
     return value
 
 
@@ -96,7 +120,7 @@ def validate_surface_document(document,cues,error_type=ValueError):
     for key in ('enabled','use_building_timing'):
         if not isinstance(document[key],bool):fail(key,'expected true or false')
         normalized[key]=document[key]
-    for key in ('water_mask','wispy_formation'):
+    for key in ('water_mask','wispy_formation','water_settle'):
         if key in document:
             if not isinstance(document[key],bool):fail(key,'expected true or false')
             normalized[key]=document[key]
@@ -110,8 +134,9 @@ def validate_surface_document(document,cues,error_type=ValueError):
     if 'evolution' in document:
         if document['evolution'] not in ('erode','rise_resolve','condense'):fail('evolution','expected erode, rise_resolve or condense')
         normalized['evolution']=document['evolution']
-    for key,low,high in (('initial_scale',.15,1.),('settle_fraction',.2,.9),('base_y',-1000.,1000.),
-                         ('pull_duration',.1,15.),('wisp_amount',0.,1.),('texture_grit',0.,1.),('pixel_grain',0.,1.)):
+    for key,low,high in (('initial_scale',.15,1.),('settle_fraction',.02,.9),('base_y',-1000.,1000.),
+                         ('pull_duration',.1,15.),('wisp_amount',0.,1.),('texture_grit',0.,1.),('pixel_grain',0.,1.),
+                         ('foot_curve',0.,8.),('water_settle_start',0.,cues['end']),('water_settle_end',0.,cues['end'])):
         if key in document:normalized[key]=number(key,low,high)
     if normalized['build_end']-normalized['build_start']<.1-1e-9:fail('build_end','must be at least .1s after build_start')
     span=cues['blend_end']-cues['build_end']
@@ -119,6 +144,12 @@ def validate_surface_document(document,cues,error_type=ValueError):
     earliest_clear=max(cues['build_end'],normalized['build_end'])+span
     if normalized['reveal_start']<earliest_clear-1e-9:fail('reveal_start',f'must be at or after the hidden blend at {earliest_clear:g}s')
     if normalized['reveal_end']-normalized['reveal_start']<.1-1e-9:fail('reveal_end','must be at least .1s after reveal_start')
+    if normalized.get('water_settle',False):
+        start=normalized.get('water_settle_start',DEFAULT_SURFACE_SETTINGS.water_settle_start)
+        end=normalized.get('water_settle_end',DEFAULT_SURFACE_SETTINGS.water_settle_end)
+        if not earliest_clear-1e-9<=start<=cues['end']:fail('water_settle_start',f'must be at or after the hidden blend at {earliest_clear:g}s, within the timeline')
+        if end>cues['end']:fail('water_settle_end','must be within the timeline')
+        if end-start<.1-1e-9:fail('water_settle_end','must be at least .1s after water_settle_start')
     return normalized
 
 

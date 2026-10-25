@@ -22,6 +22,7 @@ from temple_intro_fog import depth_target
 from g_huxin_canals_direction import (load_direction,profile_from_document,document_from_profile,
                                     sample_camera,DEFAULT_PATH,DirectionError)
 from g_huxin_canals_live import DirectionWatcher,apply_live_direction
+from g_huxin_canals_water_fog import render_water_height
 
 ROOT=Path(__file__).parent;KIT=ROOT/'art'/'temple'/'huxin_canals';WIDTH,HEIGHT=640,360
 
@@ -178,7 +179,16 @@ class Lake(Hall):
         override=getattr(self,'_world_override',None)
         return self.sequence.revealed if override is None else override
     @property
-    def water_y(self):return WATER_Y if self.render_revealed else 0.
+    def water_y(self):
+        q=self.sequence
+        return render_water_height(q.direction,q.elapsed,q.state,self.render_revealed)
+
+    def draw_water(self):
+        # The two GLBs are authored at different heights. Translate the canal
+        # mesh itself, not just the reflection/fog uniforms, while it settles.
+        if self.render_revealed:
+            self.draw('canal_water',(0.,self.water_y-WATER_Y,0.))
+        else:self.draw('lake_surface')
     @property
     def hold_pavilion(self):return True
 
@@ -332,7 +342,7 @@ class Lake(Hall):
         self.environment(cam,clock,inspection,False)
         pr.begin_texture_mode(self.raw);pr.clear_background(fog)
         self.sky.draw(cam,weather,fog,WIDTH,HEIGHT);pr.draw_rectangle(0,0,WIDTH,HEIGHT,pr.Color(fog.r,fog.g,fog.b,56))
-        pr.begin_mode_3d(cam);self.geometry(e,cam,clock,False,show_player);self.draw('canal_water' if self.render_revealed else 'lake_surface')
+        pr.begin_mode_3d(cam);self.geometry(e,cam,clock,False,show_player);self.draw_water()
         # Raylib batches billboards. Flush on both sides of the depth-mask
         # change, otherwise their transparent rectangles acquire near depth
         # when the batch is eventually submitted, leaking the hidden scene.
@@ -366,7 +376,8 @@ class Lake(Hall):
         if surface_active:volume_texture=surface_renderer.render(source,cam,q,clock,fog_colour,self.water_y,reflected,base_texture=volume_texture)
         veil_renderer=getattr(self,'surface_veil',None)
         if surface_active and veil_renderer is not None:
-            volume_texture=veil_renderer.render(source,cam,q,clock,fog_colour,self.water_y,reflected,base_texture=volume_texture)
+            volume_texture=veil_renderer.render(source,cam,q,clock,fog_colour,self.water_y,reflected,
+                                               base_texture=volume_texture,surface_renderer=surface_renderer)
         water_veil_active=bool(surface_active and getattr(surface,'water_mask',False) and
                                veil_renderer is not None and veil_renderer.last_active)
         for name,value in (('volumeActive',float(volume_active or surface_active)),('particleMix',particle_mix),

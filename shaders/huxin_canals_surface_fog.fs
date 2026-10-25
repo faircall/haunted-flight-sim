@@ -1,11 +1,12 @@
 #version 330
 uniform sampler2D depthMap,noiseMap,fieldMap,timingMap;
-uniform vec2 resolution,lens,clip,atlasSize;
+uniform vec2 resolution,lens,clip,atlasSize,causeway[6];
 uniform vec3 eye,forward,right,up,fogColour,fieldOrigin,fieldShape,wind;
 uniform float spacing,distanceCap,atlasColumns,clock,elapsed,waterY,reflectedView;
 uniform float amount,density,thickness,edge,noiseSize,patternAmount,buildStart,buildEnd,stepCount;
 uniform float riseResolve,initialScale,settleFraction,baseY;
 uniform float condenseMode,pullDuration,wispAmount,textureGrit,wispyFormation,pixelGrain;
+uniform float footCurve,lakeBaseY,lakeOwnsCurve,progressiveLake;
 out vec4 finalColor;
 
 // BEGIN CONDENSE
@@ -105,6 +106,24 @@ float supportField(vec3 p){
     return mix(texture(fieldMap,fieldUV(q.xz,y)).a,
                texture(fieldMap,fieldUV(q.xz,nextY)).a,fract(q.y))*distanceCap;
 }
+float footWaterSpace(vec2 p){
+    // The same exact hexagonal pavilion and curved shared path as the low
+    // veil. The new fillet belongs to water beside them, not their paving.
+    float hex=-100.;
+    for(int i=0;i<6;i++){
+        float a=(float(i)+.5)*1.04719755;
+        hex=max(hex,dot(p,vec2(cos(a),sin(a))));
+    }
+    float water=smoothstep(6.0353829,6.2353829,hex);
+    float path=100.;
+    for(int i=0;i<5;i++){
+        vec2 a=causeway[i],d=causeway[i+1]-a;
+        float t=clamp(dot(p-a,d)/max(.001,dot(d,d)),0.,1.);
+        path=min(path,length(p-a-t*d));
+    }
+    float shared=(1.-smoothstep(.90,1.04,path))*(1.-smoothstep(11.7,12.,p.y));
+    return water*(1.-shared);
+}
 float fogDistance(vec3 p,float support){
     float surface=distanceField(p);
     if(support>.0001)surface=min(surface,supportField(p)+(1.-support)*(thickness+1.8));
@@ -187,6 +206,12 @@ vec4 riseFog(vec3 ray,float start,float finish,float build,float jitter,float sc
         float marchReach=condensing?max(reach,mix(reach,thickness*.85+.6,phases.x)):reach;
         marchReach+=roughness*.8*(1.-phases.y);
         float rawDistance=fogDistance(q,support),surface=rawDistance*scaleXZ;
+        // The descending lake veil now owns the visible curved bank. Keeping
+        // a second per-house fillet here would leave a late mound underneath
+        // it, collapsing abruptly when that house reaches its inward pull.
+        bool curvedFoot=waterRooted&&footCurve>0.&&lakeOwnsCurve<.5;
+        float footRadius=footCurve*scaleXZ;
+        float footSkip=distanceCap;
         // Follow the transformed field even inside the original hollow walls.
         // Original-surface skipping would jump past the compressed seed.
         float stepLength=rawDistance*min(scaleXZ,scaleY)-marchReach-.75;
@@ -200,11 +225,19 @@ vec4 riseFog(vec3 ray,float start,float finish,float build,float jitter,float sc
             // roofs. Outside the padded growing bounds we can still advance.
             stepLength=max(stepLength,length(max(abs(p-center)-halfBounds,vec3(0.))));
         }
+        if(curvedFoot){
+            // Project the real roofed footprint to its original lake datum.
+            // This broadens only the foot of each bank, never the whole wall.
+            float projected=supportField(vec3(q.x,baseY+.30,q.z))*scaleXZ;
+            footSkip=max(projected-footRadius-thickness-1.2,
+                max(p.y-lakeBaseY-.65-footCurve*.65*build-.8,lakeBaseY-.4-p.y));
+            stepLength=min(stepLength,footSkip);
+        }
         stepLength=clamp(stepLength,.22,6.);
-        if(surface<marchReach+.75&&stepLength<1.)stepLength=.22+min(travel*.002,.22);
+        if((surface<marchReach+.75||(curvedFoot&&footSkip<1.))&&stepLength<1.)stepLength=.22+min(travel*.002,.22);
         stepLength=min(stepLength,finish-travel);
         p+=ray*stepLength*(.25+.5*jitter);travel+=stepLength;
-        if(surface>marchReach+1.4)continue;
+        if(surface>marchReach+1.4&&(!curvedFoot||footSkip>1.4))continue;
         q=growingPoint(p,owner,build,scaleXZ,scaleY,top);
         float ownership=(scaleXZ<1.&&abs(ownerAt(q)-owner)>.5)?ease(.94,1.,build):1.;
         vec3 flow=(p-wind*clock)/noiseSize;
@@ -252,6 +285,23 @@ vec4 riseFog(vec3 ray,float start,float finish,float build,float jitter,float sc
             fragments*=smoothstep(.32,.59,curls.b);
             float veins=exp(-pow((detail.g-.5)*7.,2.))*smoothstep(.30,.68,broad.b);
             float airy=(fragments*.30+veins*.10)*(.30+1.1*grain);
+            if(curvedFoot){
+                // Quadratic Bezier section: (0,H), (0,0), (W,0).
+                // x=W*t*t, y=H*(1-t)^2: vertical at the wall and horizontal
+                // at the lake. Drifting noise frays this volumetric boundary.
+                vec3 projected=vec3(q.x+warp.x/max(.25,scaleXZ),baseY+.30,
+                                    q.z+warp.z/max(.25,scaleXZ));
+                float d=max(0.,supportField(projected)*scaleXZ-reach*.65);
+                float width=max(.1,footRadius*(1.-.55*phases.y));
+                float t=sqrt(clamp(d/width,0.,1.));
+                float lift=footCurve*.65*build*(1.-.8*phases.y)*(1.-t)*(1.-t);
+                float cap=lakeBaseY+.64+lift+(.7*broad.g+.3*detail.r-.5)*.45*irregular;
+                float fillet=(1.-smoothstep(cap-.30,cap+.48,p.y));
+                fillet*=smoothstep(lakeBaseY-.25,lakeBaseY+.08,p.y);
+                fillet*=1.-smoothstep(width*.82,width+.35,d);
+                fillet*=.65+.35*smoothstep(.20,.72,broad.b*.42+detail.r*.33+grain*.25);
+                body=max(body,fillet*ownership*footWaterSpace(p.xz));
+            }
             body*=mix(airy,1.,fullHeight);
             frayed*=mix(1.6,1.,fullHeight);
             // Full-height roots hold a deep optical path through open ground
@@ -259,6 +309,7 @@ vec4 riseFog(vec3 ray,float start,float finish,float build,float jitter,float sc
             // contracts into the real walls during the existing slow pull.
             float rooted=1.-smoothstep(.05,thickness*.85,supportField(q));
             float hold=fullHeight*support*(1.-phases.y);
+            if(progressiveLake>.5)hold*=1.-.8*phases.x;
             body*=1.+rooted*hold*2.2;
         }
         // Feathery leading wisps rise from the same fixed lake datum in both
@@ -284,7 +335,20 @@ vec4 riseFog(vec3 ray,float start,float finish,float build,float jitter,float sc
             // Use the smooth envelope, not the noise-modulated reach: the
             // first instant of tightening must retain exactly unit density.
             float compression=min(mix(3.,1.5,roughness),thickness/max(.20,mix(thickness*(1.-.25*phases.x),.065,phases.y)));
+            // Once the descending-lake version begins tightening, stop
+            // compensating for every reduction in occupied fog volume. The
+            // hidden crest retains its original density; the long pull then
+            // produces visible progress instead of a late saturation break.
+            if(progressiveLake>.5)compression=mix(compression,1.,phases.x);
             float core=(body+frayed)*remaining*variation*compression;
+            if(progressiveLake>.5&&phases.x>0.){
+                // Begin admitting faint architectural silhouettes while the
+                // bank tightens. Calibrating a thick core's transmission avoids
+                // ten seconds of saturated opacity followed by a short collapse.
+                // No relief is applied at the concealed geometry handoff.
+                float earlyClear=.22*phases.x;
+                core*=-log(earlyClear+(1.-earlyClear)*exp(-8.))/8.;
+            }
             float wisps=0.;
             if(wispAmount>0.&&phases.y>.08&&phases.z>0.){
                 vec3 tailFlow=flow+normal*((1.-phases.z)*.65/noiseSize);

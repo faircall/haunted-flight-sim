@@ -10,7 +10,7 @@ from g_huxin_canals_direction import (
 from g_huxin_canals_targets import target_groups
 from g_huxin_canals_volumes import (MAX_VOLUMES, default_volume_document,
     default_region_document, demo_volume_document)
-from g_huxin_canals_surface_settings import default_surface_document, fit_surface_times
+from g_huxin_canals_surface_settings import default_surface_document, fit_surface_times, fit_water_settle_times
 from g_huxin_canals_live import (DirectionWatcher, DirectionConflictError,
     merge_directions, read_direction_snapshot, save_direction_checked)
 
@@ -207,6 +207,7 @@ class DirectionEditor:
             if axis is None:settings[prop]=deepcopy(value)
             else:settings[prop][axis]=value
             if prop=='build_end':fit_surface_times(settings,self.document['cues'])
+            if prop=='water_settle' and value is True:fit_water_settle_times(settings,self.document['cues'],author=True)
         return self.change(apply)
 
     def _repair_volume_selection(self):

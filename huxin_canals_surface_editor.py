@@ -2,7 +2,7 @@
 import math
 import pyray as pr
 from temple_cinematics_editor import label
-from g_huxin_canals_surface_settings import DEFAULT_SURFACE_SETTINGS, TIME_KEYS, surface_blend_window
+from g_huxin_canals_surface_settings import DEFAULT_SURFACE_SETTINGS, TIME_KEYS, WATER_SETTLE_TIME_KEYS, surface_blend_window
 
 INK=pr.Color(221,232,229,255);MUTED=pr.Color(133,160,163,255)
 ACCENT=pr.Color(228,183,113,255);GREEN=pr.Color(61,119,104,255)
@@ -22,18 +22,16 @@ class SurfacePanel:
                  ('surface:frame','Frame selected building',(10,565,216,29),False),
                  ('surface:house','Edit this house timing',(10,601,216,29),False)]
         fields=[(('surface','amount'),(x,247,131,30)),(('vol_global','particle_mix'),(x+141,247,131,30))]
-        for i,(page,title) in enumerate((('shape','Shape'),('flow','Flow'),('timing','Timing'))):
-            buttons.append(('surface:page:'+page,title,(x+i*94,312,86,28),self.page==page))
+        for i,(page,title) in enumerate((('shape','Shape'),('flow','Flow'),('timing','Timing'),('lake','Lake'))):
+            buttons.append(('surface:page:'+page,title,(x+i*68,312,64,28),self.page==page))
         if self.page=='shape':
             title={'erode':'Erode','rise_resolve':'Rise / resolve','condense':'Condense'}[mode]
             buttons.append(('surface:evolution','Motion: '+title,(x,357,272,29),rising))
             fields.extend([(('surface',prop),(x+140,y,132,30)) for prop,y in (('density',410),('thickness',452),('edge',494))])
             if rising:fields.append((('surface','initial_scale'),(x+140,536,132,30)))
             if condensing:
-                enabled=settings.get('water_mask',False)
-                buttons.append(('surface:water_mask','Water veil: '+('ON' if enabled else 'OFF'),(x,584,131,29),enabled))
                 wispy=settings.get('wispy_formation',False)
-                buttons.append(('surface:wispy_formation','Wispy rise: '+('ON' if wispy else 'OFF'),(x+141,584,131,29),wispy))
+                buttons.append(('surface:wispy_formation','Wispy rise: '+('ON' if wispy else 'OFF'),(x,584,272,29),wispy))
         elif self.page=='flow':
             fields.extend([(('surface',prop),(x+140,y,132,30)) for prop,y in (('noise_size',373),('pattern_amount',419))])
             fields.extend([(('surface','wind',i),(x+i*94,501,86,30)) for i in range(3)])
@@ -41,11 +39,17 @@ class SurfacePanel:
                 fields.append((('surface','wisp_amount'),(x+140,548,132,30)))
                 fields.append((('surface','texture_grit'),(x+140,590,132,30)))
                 fields.append((('surface','pixel_grain'),(x+140,632,132,30)))
-        else:
+        elif self.page=='timing':
             buttons.append(('surface:house_timing','House reveal windows: '+('ON' if settings['use_building_timing'] else 'OFF'),(x,357,272,29),settings['use_building_timing']))
             fields.extend([(('surface',prop),(x+i*141,y,131,30)) for props,y in ((TIME_KEYS[:2],432),(TIME_KEYS[2:],508)) for i,prop in enumerate(props)])
             if rising:fields.append((('surface','settle_fraction'),(x+140,554,132,30)))
             if condensing:fields.append((('surface','pull_duration'),(x+140,596,132,30)))
+        elif self.page=='lake':
+            for key,title,y in (('water_mask','Water veil',357),('water_settle','Lower lake',402)):
+                enabled=settings.get(key,False)
+                buttons.append(('surface:'+key,title+': '+('ON' if enabled else 'OFF'),(x,y,272,29),enabled))
+            fields.append((('surface','foot_curve'),(x+140,458,132,30)))
+            fields.extend([(('surface',prop),(x+i*141,540,131,30)) for i,prop in enumerate(WATER_SETTLE_TIME_KEYS)])
         return buttons,fields
 
     def field_value(self,path):
@@ -68,6 +72,7 @@ class SurfacePanel:
             s.set_surface('evolution',values[(values.index(settings.get('evolution','erode'))+1)%len(values)])
         elif key=='house_timing':s.set_surface('use_building_timing',not settings['use_building_timing'])
         elif key=='water_mask':s.set_surface('water_mask',not settings.get('water_mask',False))
+        elif key=='water_settle':s.set_surface('water_settle',not settings.get('water_settle',False))
         elif key=='wispy_formation':s.set_surface('wispy_formation',not settings.get('wispy_formation',False))
         elif key=='house':e.tab='fog';s.set_fog_mode('buildings')
         elif key=='frame':
@@ -113,9 +118,9 @@ class SurfacePanel:
             if rising:
                 text('Initial size / %',x,547,12,INK)
                 if condensing:
-                    text('Water veil covers water and reflections.',x,636,10)
-                    text('Wispy rise connects the lake to the fog.',x,655,10)
-                    text('Both follow the authored rise timing.',x,674,10)
+                    text('Wispy rise connects the lake to the fog.',x,636,10)
+                    text('Lake controls shape and lower its base.',x,655,10)
+                    text('The rise follows the authored build timing.',x,674,10)
                 else:
                     text('Grows up from each building footprint.',x,598,10)
                     text('Then settles into its ghostly structure.',x,617,10)
@@ -133,7 +138,7 @@ class SurfacePanel:
             else:
                 text('Pattern shapes the rising, unsettled fog.' if rising else 'Pattern breaks up growth and clearing.',x,563)
                 text('Wind animates the noise in world space.',x,583)
-        else:
+        elif self.page=='timing':
             text(('RISE' if rising else 'BUILD')+' / seconds',x,403,12,INK)
             text('Starts',x,419,10);text('Full height' if rising else 'Full density',x+141,419,10)
             title=('FALLBACK ' if settings['use_building_timing'] else '')+('RESOLVE' if rising else 'CLEAR')+' / seconds'
@@ -142,7 +147,7 @@ class SurfacePanel:
             if condensing:
                 text('Pull starts / %',x,565,12,INK)
                 text('Pull duration / sec',x,607,12,INK)
-                text('Tightening first; material follows the pull.',x,649,10)
+                text('Pull starts: 2-90% of the house window.',x,649,10)
                 text('Short windows shorten the pull to fit.',x,668,10)
             elif rising:
                 text('Ghost settles / %',x,565,12,INK)
@@ -153,6 +158,15 @@ class SurfacePanel:
                 text('Named houses use their own reveal windows.' if settings['use_building_timing'] else 'All surfaces use the clear window above.',x,568,10)
                 text('Other geometry uses the fallback window.' if settings['use_building_timing'] else 'Turn house windows on for staggered reveals.',x,587,10)
                 text('Drag BUILD / CLEAR handles below to retime.',x,623,10)
+        elif self.page=='lake':
+            text('Foot curve / metres',x,469,12,INK)
+            text('LOWERING / seconds',x,510,12,INK)
+            text('Starts',x,527,10);text('At canal water',x+141,527,10)
+            text('Curves the join from lake into building fog.',x,600,10)
+            text('Lower lake settles to the actual canal level.',x,619,10)
+            text('Water, fog and reflections descend together.',x,638,10)
+            text('Times stay after the hidden geometry blend.',x,657,10)
+            text('Lake controls apply in Condense mode.',x,686,10,ACCENT if not condensing else MUTED)
 
     def draw_timeline(self):
         e=self.editor;settings=self.state.surface_settings;ty=e.layout()['timeline'][1]

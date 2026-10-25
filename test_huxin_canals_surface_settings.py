@@ -104,10 +104,21 @@ class SurfaceSettingsTests(unittest.TestCase):
 
     def test_evolution_validation_rejects_invalid_modes_ranges_and_nonfinite_base(self):
         for key,value in (('evolution','rise'),('initial_scale',.149),('initial_scale',1.01),
-                          ('settle_fraction',.199),('settle_fraction',.901),('base_y',float('nan'))):
+                          ('settle_fraction',.019),('settle_fraction',.901),('base_y',float('nan'))):
             with self.subTest(key=key,value=value):
                 document=self.document();document['surface_fog'][key]=value
                 with self.assertRaises(ValueError):validate_document(document)
+
+    def test_short_hold_values_roundtrip_without_changing_defaults_or_handoff(self):
+        for hold in (.02,.06,.9):
+            document=self.document()
+            document['surface_fog'].update(enabled=True,evolution='condense',settle_fraction=hold,pull_duration=12.)
+            profile=profile_from_document(document)
+            self.assertEqual(profile.surface_fog.settle_fraction,hold)
+            self.assertEqual(profile.surface_fog.pull_duration,12.)
+            self.assertEqual(surface_blend_window(profile),(5.,6.))
+            self.assertEqual(document_from_profile(profile),document)
+        self.assertEqual(profile_from_document(self.document()).surface_fog.settle_fraction,.65)
 
     def test_live_optional_evolution_edits_merge_without_populating_other_defaults(self):
         with tempfile.TemporaryDirectory(prefix='haunted-surface-evolution-') as directory:
@@ -252,6 +263,84 @@ class SurfaceSettingsTests(unittest.TestCase):
         self.assertEqual(profile.surface_fog.reveal_end,58.)
         self.assertEqual(profile.cue('end'),74.)
         self.assertEqual(document_from_profile(profile),document)
+
+    def test_lake_options_preserve_legacy_bytes_and_explicit_defaults(self):
+        for mode in ('erode','rise_resolve','condense'):
+            document=self.document();document['surface_fog']['evolution']=mode
+            profile=profile_from_document(document)
+            self.assertEqual(profile.surface_fog.foot_curve,0.)
+            self.assertFalse(profile.surface_fog.water_settle)
+            self.assertEqual((profile.surface_fog.water_settle_start,profile.surface_fog.water_settle_end),(35.,47.))
+            self.assertEqual(document_from_profile(profile),document)
+            with tempfile.TemporaryDirectory(prefix='haunted-lake-compat-') as directory:
+                path=Path(directory)/'direction.json';save_direction(document,path)
+                before=path.read_bytes();save_direction(document_from_profile(profile),path)
+                self.assertEqual(path.read_bytes(),before)
+            # Explicit default endpoints are valid on this longer authored timeline.
+            document['cues']['end']=74.
+            document['surface_fog'].update(foot_curve=0.,water_settle=False,water_settle_start=35.,water_settle_end=47.)
+            self.assertEqual(document_from_profile(profile_from_document(document)),document)
+
+    def test_lake_controls_reject_invalid_values_and_unsafe_enabled_window(self):
+        for key,value in (('foot_curve',-.01),('foot_curve',8.01),('foot_curve',True),
+                          ('foot_curve',float('nan')),('water_settle',1),('water_settle','true'),
+                          ('water_settle_start',-1.),('water_settle_start',float('inf')),
+                          ('water_settle_end',47.),('water_settle_end',True)):
+            with self.subTest(key=key,value=value):
+                document=self.document();document['surface_fog'][key]=value
+                with self.assertRaises(ValueError):validate_document(document)
+        for start,end in ((5.,20.),(35.,35.),(35.,35.09),(35.,47.)):
+            with self.subTest(start=start,end=end):
+                document=self.document()
+                document['surface_fog'].update(water_settle=True,water_settle_start=start,water_settle_end=end)
+                with self.assertRaises(ValueError):validate_document(document)
+        document=self.document()
+        document['surface_fog'].update(foot_curve=8.,water_settle=True,water_settle_start=35.,water_settle_end=46.)
+        validate_document(document)
+        document['surface_fog'].update(enabled=True,build_end=36.,reveal_start=37.,reveal_end=46.)
+        with self.assertRaisesRegex(ValueError,'hidden blend'):validate_document(document)
+
+    def test_lowering_toggle_fits_defaults_and_undo_restores_optional_omission(self):
+        model=DirectionEditor(self.document(),Path(tempfile.gettempdir())/'unused-lake-direction.json')
+        before=deepcopy(model.document);model.set_surface('water_settle',True)
+        self.assertEqual(model.profile.surface_fog.water_settle_start,35.)
+        self.assertEqual(model.profile.surface_fog.water_settle_end,46.)
+        self.assertEqual(len(model.undo_stack),1)
+        model.undo();self.assertEqual(model.document,before)
+        model.set_time('end',34.);unsettled=deepcopy(model.document)
+        self.assertNotIn('water_settle_start',model.surface_settings)
+        self.assertNotIn('water_settle_end',model.surface_settings)
+        model.set_surface('water_settle',True)
+        self.assertAlmostEqual(model.profile.surface_fog.water_settle_start,33.9)
+        self.assertEqual(model.profile.surface_fog.water_settle_end,34.)
+        model.undo();self.assertEqual(model.document,unsettled)
+
+    def test_surface_and_global_retimes_keep_lowering_after_handoff_in_one_undo(self):
+        document=self.document()
+        document['surface_fog'].update(water_settle=True,water_settle_start=35.,water_settle_end=46.)
+        model=DirectionEditor(document,Path(tempfile.gettempdir())/'unused-lake-retime.json')
+        before=deepcopy(model.document);model.set_surface('build_end',38.)
+        self.assertEqual(model.profile.surface_fog.water_settle_start,39.)
+        self.assertEqual(model.profile.surface_fog.water_settle_end,46.)
+        self.assertEqual(len(model.undo_stack),1)
+        model.undo();self.assertEqual(model.document,before)
+        model.set_time('end',34.)
+        self.assertAlmostEqual(model.profile.surface_fog.water_settle_start,33.9)
+        self.assertEqual(model.profile.surface_fog.water_settle_end,34.)
+        model.undo();self.assertEqual(model.document,before)
+
+    def test_lake_live_edits_merge_independently_and_preserve_other_options(self):
+        with tempfile.TemporaryDirectory(prefix='haunted-lake-live-') as directory:
+            path=Path(directory)/'direction.json';document=self.document();save_direction(document,path)
+            model=DirectionEditor(path=path);model.set_surface('foot_curve',4.8)
+            remote=deepcopy(document)
+            remote['surface_fog'].update(water_settle=True,water_settle_start=35.,water_settle_end=45.)
+            save_direction(remote,path);model.poll_external(0.);model.poll_external(.3)
+            self.assertFalse(model.external_pending)
+            self.assertEqual(model.profile.surface_fog.foot_curve,4.8)
+            self.assertTrue(model.profile.surface_fog.water_settle)
+            self.assertEqual(model.profile.surface_fog.water_settle_end,45.)
+            self.assertNotIn('pixel_grain',model.surface_settings)
 
 
 if __name__=='__main__':unittest.main()
