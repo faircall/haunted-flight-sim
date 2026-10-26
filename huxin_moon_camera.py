@@ -5,8 +5,18 @@ from temple_interior_viewer import camera
 FOCUS_EYE=(2.85,3.60,2.4)
 FOCUS_TARGET=(.35,1.16,-.05)
 
+REVEAL_EYE=(18.,7.6,26.)
+REVEAL_TARGET=(2.,4.5,0.)
+REVEAL_FOV=51.
+
+
+def wide_reveal_camera():
+    """One held exterior composition for the entire targeted-fog reveal."""
+    return 23,camera(REVEAL_EYE,REVEAL_TARGET,REVEAL_FOV)
+
+
 def mist_camera(q,e):
-    """Frame the basin crescendo. Departure keeps the ordinary gameplay cameras."""
+    """Previous basin choreography, retained for the legacy-fog preview."""
     stage=q.camera_stage
     if stage=='basin':
         if q.elapsed<4.:return 22,camera(FOCUS_EYE,FOCUS_TARGET,57)

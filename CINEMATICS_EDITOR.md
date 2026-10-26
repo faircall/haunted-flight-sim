@@ -142,6 +142,93 @@ trip. It uses an isolated, reproducible timeline and confirms that game playback
 reads the saved camera. It leaves the actual cinematic file untouched. Screenshots
 and a report go to `artifacts/cinematics-editor/`.
 
+## Moon scene cinematographer
+
+Open **`edit_huxin_moon_cameras.cmd`**, or press **F2** in the Moon scene. The
+standalone editor is muted. It uses the actual lake, teahouse, reflections and
+fog renderer, with its own test player and encounter state. Moving the preview
+actor, scrubbing the reveal or closing the editor never moves the real player,
+consumes inventory or advances the running puzzle.
+
+The shot list contains the nine lake cameras, eleven teahouse cameras, puzzle
+focus and reveal shot. Scroll the list to reach more shots. **Duplicate** starts
+from an existing composition; **New zone** makes a copy activated by a volume
+around the test actor.
+
+The **CAMERA** tab edits **START** and **END** poses directly. Hold right mouse
+over the image, then use WASD and the mouse to fly; Q/E moves down/up, Shift
+moves faster and Ctrl slower. Right mouse + wheel changes flying speed. Middle
+mouse orbits around the target; Shift + middle mouse pans. Without a mouse
+button, the wheel adjusts the lens. Position, target and lens fields accept
+exact numbers. **Aim this key at player** points the selected key at the test
+actor. **Match other key** copies this pose to its other endpoint. **Hold this
+shot** also selects locked movement, fixed aim and a fixed lens.
+
+To capture a composition found while playing, position the game's free camera
+with F, then open F2 and click **Use game view**. It copies the view captured
+when the editor opened into the selected key. Movement, aim and activation
+remain as authored; use **Hold this shot** if you want a completely fixed shot.
+For Follow shots, the captured player's position becomes the reference so the
+camera does not acquire an unintended position offset. Standalone editing has
+no previous game view to capture.
+
+The view explicitly distinguishes **Edit camera keys** from **Preview behavior**.
+Camera gestures edit saved key data only in Edit mode. Preview runs the selected
+shot's behavior and disables camera gestures; WASD instead moves and turns the
+isolated test actor, using the normal collision rules. **Reset test actor**
+restores its starting position. Click the mode button again to resume editing.
+
+In **BEHAVIOR**, movement, aiming and lens are independent:
+
+- **Movement:** Locked holds the eye position; Path travels from the start eye
+  to the end eye; Follow moves the eye with the player's displacement from the
+  shot's reference position, in world axes. Reset the test actor before composing
+  a Follow key, or use **Use actor as follow reference** to re-anchor it while
+  preserving the current camera position.
+- **Aim:** Fixed holds the start target; Pan interpolates the target; Player
+  continually aims at the player plus the editable offset; Keep visible holds
+  its composition until the player approaches the edge of the frame.
+- **Lens:** Fixed keeps the start FOV; Zoom interpolates the two lens values.
+- **Easing** chooses constant or eased motion. **Duration** controls the shot's
+  move; it does not retime the puzzle or the fog.
+
+**ACTIVATION** controls whether the shot overrides the game and when it is selected.
+Lake and Room replace a numbered existing camera (indices start at zero).
+Focus and Reveal follow the puzzle phase. Zone uses editable minimum/maximum
+XYZ bounds and can apply to the lake, teahouse or both. Higher priority wins
+between competing shots. **Centre zone on test actor** positions its bounds
+without changing their size. The Activation preview outlines the zone and shows
+whether the test actor is inside it, including disabled or mismatched-world cases.
+**Override in game: OFF** restores the normal game camera; it does not remove
+the underlying lake or room camera zone. A disabled custom zone stops overriding
+the camera selected underneath it.
+
+The **Scene** button previews Lake, Teahouse or Reveal. The timeline scrubs the
+selected shot; Reveal includes the complete 24-second fog sequence even when
+the camera move is shorter. **Space** plays/pauses, **Loop** repeats, arrows step
+one frame, Shift + arrows step one second, and Home returns to the beginning.
+Scrubbing and playback use Preview behavior; selecting START or END returns
+to direct key editing.
+
+**Save to game / Ctrl+S** writes
+[`cameras.json`](art/temple/huxin_moon/cameras.json). Normal Moon playback reads
+that file. Nothing is written until Save. **Ctrl+Z / Ctrl+Y** undo/redo, with a
+whole mouse gesture treated as one edit. **Reload / Ctrl+O** reads the saved
+file. F2, Escape or **Return / exit** offers **Save and return**, **Discard and
+return**, or **Keep editing** when there are unsaved changes. A failed save
+keeps the dialog open and shows the error.
+
+**Live ON** also picks up camera-file changes made outside the editor. Clean
+previews retain their shot, key and playhead while reloading. If external edits
+arrive while your preview has unsaved changes, it keeps your work and reports
+the conflict: **Reload** accepts the file, while **Keep mine / save** explicitly
+overwrites it with your editor version. Ordinary Save refuses that conflict.
+Invalid external files retain the last valid preview and display the error.
+
+The previous hardcoded framing remains the fallback if no authored camera is
+enabled or applicable. This editor does not alter the Canals camera or fog
+documents, or the car intro's cinematic file.
+
 ## Void Canals fog editor
 
 Double-click **`edit_huxin_canals.cmd`**, run `python huxin_canals_viewer.py --editor`,

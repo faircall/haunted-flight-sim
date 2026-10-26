@@ -1,8 +1,9 @@
 #version 330
 in vec2 fragTexCoord;
-uniform sampler2D texture0,depthMap;
+uniform sampler2D texture0,depthMap,targetMap;
 uniform vec2 resolution;
 uniform float veil,time,arrival,clearing,returning,crest,travelling,reflectedView;
+uniform float targetActive;
 uniform vec3 eye,forward,right,up,playerCenter,fogColour;
 uniform vec2 lens,clip;
 out vec4 finalColor;
@@ -105,9 +106,18 @@ void main(){
     vec2 uv=fragTexCoord;vec3 c=texture(texture0,uv).rgb,bloom=vec3(0.);
     // Reflections feed the water material in scene colour space. Bloom, gamma
     // and vignette are applied once, after the complete scene is assembled.
-    if(reflectedView>.5){finalColor=vec4(rollingMist(c,uv),1.);return;}
-    for(int x=-2;x<=2;x++)for(int y=-2;y<=2;y++)bloom+=max(texture(texture0,uv+vec2(x,y)*2./resolution).rgb-vec3(.74),vec3(0.))/25.;
+    vec4 localFog=targetActive>.5?texture(targetMap,uv):vec4(0.);
+    if(reflectedView>.5){
+        c=rollingMist(c,uv);finalColor=vec4(c*(1.-localFog.a)+localFog.rgb,1.);return;
+    }
+    for(int x=-2;x<=2;x++)for(int y=-2;y<=2;y++){
+        vec2 tap=uv+vec2(x,y)*2./resolution;
+        vec3 glow=max(texture(texture0,tap).rgb-vec3(.74),vec3(0.))/25.;
+        if(targetActive>.5)glow*=1.-texture(targetMap,tap).a;
+        bloom+=glow;
+    }
     c=rollingMist(c,uv);
+    c=c*(1.-localFog.a)+localFog.rgb;
     c=pow(max(c+bloom*.24,vec3(0.)),vec3(.94))*(1.-.095*dot(uv*2.-1.,uv*2.-1.));
     finalColor=vec4(c,1.);
 }

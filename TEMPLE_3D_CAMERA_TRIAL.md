@@ -883,6 +883,13 @@ The independent **The Moon in the Water** encounter is available through
 `play_huxin_moon.cmd` (or `python huxin_moon_viewer.py`). The original lake scene
 remains available through `play_huxin.cmd`; its 29 original files are recorded
 and checked against `art/temple/huxin_moon/origin_snapshot.json`.
+The normal Moon launcher uses localized architectural fog. For comparison,
+`play_huxin_moon_legacy.cmd` selects the previous fog with `--legacy-fog`.
+`play_huxin_moon_puzzle_test.cmd` is muted, starts beside the aligned mirror,
+and shows a timer: press E, hold the alignment for 1.1 seconds, then watch the
+sequence. Home returns to that test position. F2 opens the cinematographer to
+edit and save camera shots; `edit_huxin_moon_cameras.cmd` opens it directly.
+See [the camera editor controls](CINEMATICS_EDITOR.md#moon-scene-cinematographer).
 
 Walk along the causeway with W/S, turn with A/D, and hold Shift to run. At the
 basin, press E to examine the bronze mirror. Arrow keys rotate and tilt it;
@@ -892,17 +899,35 @@ projected distance along the curved causeway and quintic easing. It shares the
 existing scene fog's blue-green colour, with slowly evolving three-dimensional
 billows and restrained stepped lighting adapted from `illuminated_fog.fs`.
 Opacity remains continuous, preventing visible jumps between tonal bands.
-The first alignment plays one distant bell and adds a six-second crescendo
-to the already thick bank. The hidden swap happens at eight seconds, then the
-mist dissipates through the rest of a 24-second sequence. The basin, original
-columns and central floor remain visible as the larger room emerges. The basin
-shot tightens during the swap to keep the new overhead lantern out of frame;
-the later pullback reveals it with the room.
+The first alignment plays one distant bell. In the normal version, 24 small
+three-dimensional banks gather around the changing walls, timber stair, east
+annex, upper floor, roofs, column heads, lanterns and footings. They do not form
+a lake-wide curtain. The original lake and causeway remain intact, and the
+central basin, player and lower columns retain a clear pocket. Lantern banks
+begin later in the buildup, before the concealed handoff.
+
+Formation follows visible opacity rather than raw density, keeping the early
+build subtle instead of becoming opaque halfway through its rise. These banks
+reach full concealment by 7.2 seconds. The original logical swap remains at
+eight seconds, hidden beneath the same full fog before and after the handoff.
+Only the active world is rendered, avoiding a doubled scene cost during the
+transition. The front windows begin to emerge after 8.6 seconds, followed by
+the annex and upper structure; the final roof mist clears at 24 seconds.
+Density is reduced according to visible transmission, so details emerge during
+each bank's window rather than waiting behind an opaque layer until its end.
+After the mirror aligns, one wide exterior shot holds throughout the full
+24-second entry: camera position, target and lens remain fixed while the fog
+gathers and reveals the complete architecture, including the roof and annex.
+The shot stays held after the reveal until the player moves; normal gameplay
+cameras then resume. Movement remains locked during the entry sequence.
+The legacy-fog launcher retains its previous basin cuts and zoom.
 
 Explore the tea room, timber stairs, upper chamber and balcony. On the return
 causeway, fog builds with outbound distance and reaches its peak halfway along
 the route. A denser bank around the pavilion conceals the one-time swap at that
-midpoint. Fog then eases away throughout the second half, revealing the original
+midpoint. In the targeted version, the same architectural banks reach full
+coverage before halfway and hold it throughout 47–53% of the walk, concealing
+the original midpoint handoff. Fog then eases away throughout the second half, revealing the original
 pavilion by the shore. Normal gameplay cameras remain in use throughout, with
 no transition close-up. Walking, running, turning and stopping remain available.
 Walking the causeway takes about 46 seconds; running reaches the same fog stages
@@ -912,13 +937,18 @@ reconstructs the house after it. Neither swap changes position or inventory.
 The water reflection has its own depth-aware pass through the same moving fog
 field. Its rays run from the water toward the reflected scenery; the main view
 then adds the camera-to-water fog. Both views conceal the building change, while
-colour grading and bloom are applied once to the assembled scene.
+colour grading and bloom are applied once to the assembled scene. Targeted
+banks use identical world positions, densities and noise time in both views.
+The lake surface, water height and ambient approach mist are unchanged.
 
 The previous cinematic fog version is preserved in
 `artdev/scene_backups/huxin_moon_cinematic_fog_20261015.zip`, including its source,
 assets and preview GIFs. Its `BACKUP_MANIFEST.json` records hashes and restoration
 instructions. The current teahouse has paired supports beside the entrance and
 an overhead lintel, leaving the causeway clear underneath the balcony.
+The pre-targeting source snapshot and asset hashes are also retained under
+`artifacts/huxin-moon-targeted-fog/before`. This Moon revision does not change
+the approved Canals sequence or its authored fog controls.
 
 The extended floor joins the
 original platform at its boundary, without overlapping floor caps underneath.
@@ -938,12 +968,16 @@ Rebuild its GLBs with Blender's background Python runner and
 `build_huxin_teahouse.py`; the builder reuses the pavilion's 128px painted
 material tiles. Navigation, mirror optics and transition timing live in
 `g_huxin_moon_sequence.py`; interior camera stations are in
-`huxin_moon_camera.py`. The layered roof, lattice windows and waterside rooms
+`huxin_moon_camera.py`. Localized bounds and deterministic timing live in
+`g_huxin_moon_fog.py`, with rendering in `huxin_moon_target_fog.py` and
+`shaders/huxin_moon_target_fog.fs`. The 24 bounds are fitted to the exported
+geometry, including the balcony's supports at the front of the building.
+The layered roof, lattice windows and waterside rooms
 take their architectural cues from the historical Huxinting Teahouse
 ([Shanghai tourism reference](https://www.meet-in-shanghai.net/en/news/hai-streets-the-ancient-and-little-known-history-of-yuyuan-garden-575580/)).
 
 ```powershell
-artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_moon test_huxin_moon_encounter test_huxin_moon_clearance -v
+artifacts/temple3d-env/Scripts/python.exe -m unittest test_huxin_moon test_huxin_moon_encounter test_huxin_moon_clearance test_huxin_moon_fog test_huxin_moon_target_fog_runtime test_huxin_moon_target_runtime -v
 python huxin_moon_viewer.py --review
 artifacts/temple3d-env/Scripts/python.exe huxin_moon_fog_review.py
 ```

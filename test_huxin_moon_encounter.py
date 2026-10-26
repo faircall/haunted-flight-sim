@@ -215,7 +215,8 @@ class EncounterTests(unittest.TestCase):
         # work. A return-specific tracking shot must not silently reappear.
         lake=Lake.__new__(Lake);lake.sequence=q;lake.last_camera=None;lake.last_shot=0
         lake.player=SimpleNamespace(clips={'idle','walk'},pose=lambda *args:None)
-        lake.environment=stop_before_drawing
+        lake.frame=None
+        lake._render_world=stop_before_drawing
         for progress in np.linspace(.97,.002,100):
             station(q,e,progress);e.tick(0.)
             expected_shot,expected=auto_camera(e)

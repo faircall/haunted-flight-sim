@@ -1,0 +1,1214 @@
+{
+  "version": 1,
+  "scene": "huxin_moon",
+  "shots": [
+    {
+      "id": "lake-0",
+      "label": "A pavilion in the mist",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -8.2,
+          4.0,
+          86.0
+        ],
+        "target": [
+          -11.0,
+          1.9,
+          66.0
+        ],
+        "fov": 66.0
+      },
+      "end": {
+        "eye": [
+          -8.2,
+          4.0,
+          86.0
+        ],
+        "target": [
+          -11.0,
+          1.9,
+          66.0
+        ],
+        "fov": 66.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          -12.45,
+          0.715,
+          82.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 0
+      }
+    },
+    {
+      "id": "lake-1",
+      "label": "Leaving the pines",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -18.0,
+          3.2,
+          67.0
+        ],
+        "target": [
+          -9.0,
+          2.2,
+          49.0
+        ],
+        "fov": 69.0
+      },
+      "end": {
+        "eye": [
+          -18.0,
+          3.2,
+          67.0
+        ],
+        "target": [
+          -9.0,
+          2.2,
+          49.0
+        ],
+        "fov": 69.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          -10.5,
+          0.325,
+          60.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 1
+      }
+    },
+    {
+      "id": "lake-2",
+      "label": "Water on every side",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          1.0,
+          3.3,
+          49.0
+        ],
+        "target": [
+          -7.0,
+          2.5,
+          33.0
+        ],
+        "fov": 70.0
+      },
+      "end": {
+        "eye": [
+          1.0,
+          3.3,
+          49.0
+        ],
+        "target": [
+          -7.0,
+          2.5,
+          33.0
+        ],
+        "fov": 70.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          -8.0,
+          0.325,
+          43.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 2
+      }
+    },
+    {
+      "id": "lake-3",
+      "label": "The long approach",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -12.0,
+          2.85,
+          28.0
+        ],
+        "target": [
+          0.0,
+          3.8,
+          3.0
+        ],
+        "fov": 71.0
+      },
+      "end": {
+        "eye": [
+          -12.0,
+          2.85,
+          28.0
+        ],
+        "target": [
+          0.0,
+          3.8,
+          3.0
+        ],
+        "fov": 71.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          -4.5,
+          0.325,
+          29.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 3
+      }
+    },
+    {
+      "id": "lake-4",
+      "label": "Under the flying eaves",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          9.5,
+          3.5,
+          14.0
+        ],
+        "target": [
+          0.0,
+          3.9,
+          0.5
+        ],
+        "fov": 75.0
+      },
+      "end": {
+        "eye": [
+          9.5,
+          3.5,
+          14.0
+        ],
+        "target": [
+          0.0,
+          3.9,
+          0.5
+        ],
+        "fov": 75.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          -2.0,
+          0.325,
+          11.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 4
+      }
+    },
+    {
+      "id": "lake-5",
+      "label": "The empty centre",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          4.05,
+          3.2,
+          3.05
+        ],
+        "target": [
+          -0.7,
+          1.5,
+          -1.2
+        ],
+        "fov": 78.0
+      },
+      "end": {
+        "eye": [
+          4.05,
+          3.2,
+          3.05
+        ],
+        "target": [
+          -0.7,
+          1.5,
+          -1.2
+        ],
+        "fov": 78.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          1.0,
+          0.325,
+          1.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 5
+      }
+    },
+    {
+      "id": "lake-6",
+      "label": "Only the path home",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          3.5,
+          3.1,
+          -3.5
+        ],
+        "target": [
+          -1.0,
+          2.1,
+          7.0
+        ],
+        "fov": 78.0
+      },
+      "end": {
+        "eye": [
+          3.5,
+          3.1,
+          -3.5
+        ],
+        "target": [
+          -1.0,
+          2.1,
+          7.0
+        ],
+        "fov": 78.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          0.0,
+          0.325,
+          5.8
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 6
+      }
+    },
+    {
+      "id": "lake-7",
+      "label": "The far shore fades",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -11.0,
+          3.2,
+          -12.0
+        ],
+        "target": [
+          0.0,
+          4.4,
+          0.0
+        ],
+        "fov": 65.0
+      },
+      "end": {
+        "eye": [
+          -11.0,
+          3.2,
+          -12.0
+        ],
+        "target": [
+          0.0,
+          4.4,
+          0.0
+        ],
+        "fov": 65.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          0.0,
+          0.325,
+          -1.5
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 7
+      }
+    },
+    {
+      "id": "lake-8",
+      "label": "Reflected in the lake",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "keep_visible",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          20.0,
+          2.0,
+          23.0
+        ],
+        "target": [
+          0.0,
+          4.0,
+          0.0
+        ],
+        "fov": 56.0
+      },
+      "end": {
+        "eye": [
+          20.0,
+          2.0,
+          23.0
+        ],
+        "target": [
+          0.0,
+          4.0,
+          0.0
+        ],
+        "fov": 56.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          1.0,
+          0.325,
+          1.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.93,
+        0.0
+      ],
+      "activation": {
+        "type": "lake",
+        "priority": 0,
+        "index": 8
+      }
+    },
+    {
+      "id": "room-0",
+      "label": "The room within the pavilion",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -0.13134610205452493,
+          1.8957319162464505,
+          6.786545967393355
+        ],
+        "target": [
+          0.7825318272109865,
+          1.194919792564713,
+          -1.3084333097698568
+        ],
+        "fov": 73.0
+      },
+      "end": {
+        "eye": [
+          5.9,
+          3.35,
+          5.35
+        ],
+        "target": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "fov": 73.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          0.0,
+          0.325,
+          1.8
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 0
+      }
+    },
+    {
+      "id": "room-1",
+      "label": "Three empty chairs",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          7.370222667565957,
+          3.548503673197509,
+          -1.526779163525228
+        ],
+        "target": [
+          8.72399332977871,
+          0.6842126757683773,
+          1.2495749342401594
+        ],
+        "fov": 84.0
+      },
+      "end": {
+        "eye": [
+          11.7,
+          3.15,
+          2.65
+        ],
+        "target": [
+          9.5,
+          1.1,
+          -0.3
+        ],
+        "fov": 74.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          8.0,
+          0.325,
+          1.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 1
+      }
+    },
+    {
+      "id": "room-2",
+      "label": "The timber stair",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "fixed",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -6.293992975253919,
+          6.383828788647221,
+          -6.498697252343099
+        ],
+        "target": [
+          -3.4891182641646257,
+          4.727268820851738,
+          0.4716161518721078
+        ],
+        "fov": 48.0
+      },
+      "end": {
+        "eye": [
+          -5.65,
+          7.1,
+          -5.4
+        ],
+        "target": [
+          -5.65,
+          2.8,
+          1.8
+        ],
+        "fov": 72.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          -5.65,
+          1.8795454545454544,
+          1.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 2
+      }
+    },
+    {
+      "id": "room-3",
+      "label": "Upper gallery",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -5.345758114232591,
+          5.522897640347767,
+          5.336091236652611
+        ],
+        "target": [
+          2.2030499511607946,
+          5.418300134450954,
+          0.9566442220613185
+        ],
+        "fov": 76.0
+      },
+      "end": {
+        "eye": [
+          -3.85,
+          6.95,
+          5.4
+        ],
+        "target": [
+          1.2,
+          5.2,
+          -1.5
+        ],
+        "fov": 76.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          0.0,
+          4.125,
+          1.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 3
+      }
+    },
+    {
+      "id": "room-4",
+      "label": "The empty tray",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          5.085922477028164,
+          6.445071414824392,
+          -4.916639657091194
+        ],
+        "target": [
+          5.098312819005317,
+          4.053536902573761,
+          -3.1255759630423516
+        ],
+        "fov": 80.0
+      },
+      "end": {
+        "eye": [
+          6.35,
+          6.65,
+          -2.55
+        ],
+        "target": [
+          4.7,
+          5.1,
+          -4.5
+        ],
+        "fov": 80.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          5.8,
+          4.125,
+          -2.6
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 4
+      }
+    },
+    {
+      "id": "room-5",
+      "label": "Water beyond the balcony",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          5.9100155656995526,
+          5.465239604831561,
+          7.393589008036856
+        ],
+        "target": [
+          0.599827153749863,
+          5.562894106209175,
+          10.346953636381254
+        ],
+        "fov": 59.0
+      },
+      "end": {
+        "eye": [
+          5.9,
+          6.5,
+          7.7
+        ],
+        "target": [
+          0.0,
+          5.1,
+          7.3
+        ],
+        "fov": 75.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          0.0,
+          4.125,
+          7.3
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 5
+      }
+    },
+    {
+      "id": "room-6",
+      "label": "A house upon the water",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          25.0,
+          10.0,
+          28.0
+        ],
+        "target": [
+          1.0,
+          5.0,
+          0.0
+        ],
+        "fov": 60.0
+      },
+      "end": {
+        "eye": [
+          25.0,
+          10.0,
+          28.0
+        ],
+        "target": [
+          1.0,
+          5.0,
+          0.0
+        ],
+        "fov": 60.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          1.0,
+          0.325,
+          1.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 6
+      }
+    },
+    {
+      "id": "room-7",
+      "label": "The narrow landing",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -3.1,
+          6.85,
+          -5.25
+        ],
+        "target": [
+          -5.4,
+          5.1,
+          -4.7
+        ],
+        "fov": 75.0
+      },
+      "end": {
+        "eye": [
+          -3.1,
+          6.85,
+          -5.25
+        ],
+        "target": [
+          -5.4,
+          5.1,
+          -4.7
+        ],
+        "fov": 75.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          -5.6,
+          4.125,
+          -5.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 7
+      }
+    },
+    {
+      "id": "room-8",
+      "label": "The other side of the hall",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          -3.95,
+          3.45,
+          -4.7
+        ],
+        "target": [
+          0.8,
+          1.5,
+          1.0
+        ],
+        "fov": 76.0
+      },
+      "end": {
+        "eye": [
+          -3.95,
+          3.45,
+          -4.7
+        ],
+        "target": [
+          0.8,
+          1.5,
+          1.0
+        ],
+        "fov": 76.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          -3.0,
+          0.325,
+          -2.0
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 8
+      }
+    },
+    {
+      "id": "room-9",
+      "label": "The open doorway",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          0.15,
+          3.3,
+          4.4
+        ],
+        "target": [
+          0.0,
+          1.2,
+          7.0
+        ],
+        "fov": 76.0
+      },
+      "end": {
+        "eye": [
+          0.15,
+          3.3,
+          4.4
+        ],
+        "target": [
+          0.0,
+          1.2,
+          7.0
+        ],
+        "fov": 76.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          0.0,
+          0.325,
+          5.7
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 9
+      }
+    },
+    {
+      "id": "room-10",
+      "label": "The eastern gallery",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "player",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          6.25,
+          6.9,
+          5.2
+        ],
+        "target": [
+          3.0,
+          5.1,
+          1.0
+        ],
+        "fov": 76.0
+      },
+      "end": {
+        "eye": [
+          6.25,
+          6.9,
+          5.2
+        ],
+        "target": [
+          3.0,
+          5.1,
+          1.0
+        ],
+        "fov": 76.0
+      },
+      "preview": {
+        "phase": "teahouse",
+        "actor": [
+          5.5,
+          4.125,
+          4.8
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.92,
+        0.0
+      ],
+      "activation": {
+        "type": "room",
+        "priority": 0,
+        "index": 10
+      }
+    },
+    {
+      "id": "focus",
+      "label": "The mirror",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "fixed",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 4.0,
+      "start": {
+        "eye": [
+          2.85,
+          3.6,
+          2.4
+        ],
+        "target": [
+          0.35,
+          1.16,
+          -0.05
+        ],
+        "fov": 57.0
+      },
+      "end": {
+        "eye": [
+          2.85,
+          3.6,
+          2.4
+        ],
+        "target": [
+          0.35,
+          1.16,
+          -0.05
+        ],
+        "fov": 57.0
+      },
+      "preview": {
+        "phase": "lake",
+        "actor": [
+          1.3,
+          0.325,
+          1.3
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.95,
+        0.0
+      ],
+      "activation": {
+        "type": "focus",
+        "priority": 0
+      }
+    },
+    {
+      "id": "reveal",
+      "label": "The house takes shape",
+      "enabled": true,
+      "movement": "locked",
+      "aim": "fixed",
+      "lens": "fixed",
+      "easing": "smooth",
+      "duration": 24.0,
+      "start": {
+        "eye": [
+          18.0,
+          7.6,
+          26.0
+        ],
+        "target": [
+          2.0,
+          4.5,
+          0.0
+        ],
+        "fov": 51.0
+      },
+      "end": {
+        "eye": [
+          18.0,
+          7.6,
+          26.0
+        ],
+        "target": [
+          2.0,
+          4.5,
+          0.0
+        ],
+        "fov": 51.0
+      },
+      "preview": {
+        "phase": "reveal",
+        "actor": [
+          1.3,
+          0.325,
+          1.3
+        ],
+        "yaw": 3.141592653589793
+      },
+      "aim_offset": [
+        0.0,
+        0.95,
+        0.0
+      ],
+      "activation": {
+        "type": "reveal",
+        "priority": 0
+      }
+    }
+  ]
+}
