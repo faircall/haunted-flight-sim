@@ -190,12 +190,32 @@ class CameraDocument:
         return changed
 
     def change(self,operation):
+        return self.change_document(lambda document:operation(self.shot))
+
+    def change_document(self,operation):
+        """Group one whole-document operation into one validated undo step."""
         before=self.checkpoint()
-        try:operation(self.shot);return self.commit(before)
+        try:operation(self.document);return self.commit(before)
         except Exception:
             self.document=before
             if not any(s['id']==self.selected for s in before['shots']):self.selected=before['shots'][0]['id']
             raise
+
+    def add_marker(self):
+        used={m['id'] for m in self.document['markers']};n=1
+        while f'marker-{n}' in used:n+=1
+        x,y,z=self.shot['preview']['actor'];identity=f'marker-{n}'
+        marker=dict(id=identity,label=f'Marker {n}',phase='any',bounds={'min':[x-1,y-.5,z-1],'max':[x+1,y+2.5,z+1]})
+        self.change_document(lambda document:document['markers'].append(marker))
+        return next(m for m in self.document['markers'] if m['id']==identity)
+
+    def remove_marker(self,identity):
+        marker=next((m for m in self.document['markers'] if m['id']==identity),None)
+        if marker is None:raise KeyError(identity)
+        # Conditions referring to removed markers deliberately remain visible
+        # and fail closed, instead of silently changing their meaning.
+        self.change_document(lambda document:document['markers'].remove(marker))
+        return marker
 
     def set_frame(self,pose):return self.change(lambda shot:shot.__setitem__(self.key,deepcopy(pose)))
     def select(self,identity):

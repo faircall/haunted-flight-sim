@@ -6,7 +6,8 @@ import json
 import math
 from datetime import datetime
 
-from photo_asset_pipeline.temple3d.living.gait import SETTINGS, HAND
+from g_player_locomotion import SETTINGS
+from photo_asset_pipeline.temple3d.living.gait import HAND
 
 ROOT=Path(__file__).resolve().parent
 OUTPUT=ROOT/'artifacts'/'animation-viewer-3d'

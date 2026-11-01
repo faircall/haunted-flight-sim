@@ -1,0 +1,27 @@
+{
+  "player": {
+    "clips": {
+      "idle": 2.0,
+      "walk": 1.0,
+      "run": 1.0,
+      "walk_back": 1.0,
+      "turn_left": 1.0,
+      "turn_right": 1.0,
+      "aim": 1.0,
+      "aim_walk": 1.0,
+      "aim_back": 1.0,
+      "aim_left": 1.0,
+      "aim_right": 1.0,
+      "recoil": 0.23333333333333334,
+      "reload": 1.15,
+      "hurt": 0.3,
+      "death": 0.9
+    },
+    "vertices": 1656,
+    "triangles": 3178,
+    "bones": 15,
+    "height": 25.65,
+    "atlas": "player_atlas.png",
+    "description": "Independent refined player; original rest rig and authored combat clips retained."
+  }
+}

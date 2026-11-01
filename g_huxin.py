@@ -2,7 +2,7 @@
 import math
 import random
 from functools import lru_cache
-from photo_asset_pipeline.temple3d.living.gait import SETTINGS as GAIT
+from g_player_locomotion import SETTINGS as GAIT
 
 PLAYER_SCALE=1.73/25.65
 DECK=.325
@@ -112,7 +112,7 @@ class Explorer:
         for _ in range(n):
             if can_walk(self.x+dx/n,self.z):self.x+=dx/n
             if can_walk(self.x,self.z+dz/n):self.z+=dz/n
-        distance=math.hypot(self.x-old[0],self.z-old[1]);self.phase+=distance/(GAIT['run' if run else 'walk']['stride']*PLAYER_SCALE)
+        distance=math.hypot(self.x-old[0],self.z-old[1]);self.phase+=distance/(GAIT['run' if run and forward>0 else 'walk']['stride']*PLAYER_SCALE)
         self.clip=('walk_back' if forward<0 else 'run' if run else 'walk') if distance>.0001 else ('turn_right' if turn>0 else 'turn_left') if turn else 'idle'
         self.height=walk_height(self.x,self.z)
         self.shot=camera_zone(self.x,self.z,self.shot);return distance

@@ -1,0 +1,11 @@
+{
+  "player": {
+    "clips": {
+      "run": 1.0
+    },
+    "stride": 33.5,
+    "world_speed": 3.15,
+    "stance": 0.35,
+    "description": "Relaxed normal jogging; sprint preserved separately."
+  }
+}

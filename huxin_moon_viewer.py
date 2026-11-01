@@ -20,6 +20,7 @@ from huxin_moon_audio import EncounterAudio
 from temple_intro_fog import depth_target
 
 ROOT=Path(__file__).parent;KIT=ROOT/'art'/'temple'/'huxin_moon';WIDTH,HEIGHT=640,360
+PLAYER_UNIFORMS=('eyePosition','time','inspection','opacity','emission','surfaceKind','reflectionPass','lampCount','lamps','windStrength','deckHeight','veil','enclosed','warmth','flatPaving')
 
 def clear_view(eye,body):
     dx,dz=body[0]-eye[0],body[2]-eye[2];length=dx*dx+dz*dz
@@ -29,9 +30,18 @@ def clear_view(eye,body):
         if .02<t<.98 and DECK<y<DECK+3.85 and math.hypot(x-eye[0]-t*dx,z-eye[2]-t*dz)<r+.075:return False
     return True
 
-def auto_camera(e):
+def safety_camera(e):
+    """A dedicated player view when the author has disabled every usable shot."""
+    return -1,camera((e.x+4.,e.height+3.2,e.z+5.),(e.x,e.height+.95,e.z),68)
+
+
+def auto_camera(e,allowed=None):
     body=(e.x,e.height+.93,e.z);preferred=e.shot;candidates=[]
+    if allowed is not None:
+        if not allowed:return safety_camera(e)
+        preferred=min(allowed,key=lambda i:(abs(i-preferred),i))
     for i,s in enumerate(SHOTS):
+        if allowed is not None and i not in allowed:continue
         eye=s['eye'];distance=math.dist(eye,body)
         if distance<2.0 or distance>42 or not clear_view(eye,body):continue
         candidates.append((abs(i-preferred)*1.5+abs(distance-8.)*.08,i))
@@ -43,11 +53,39 @@ def auto_camera(e):
     visible=depth>1 and abs(pr.vector3_dot_product(d,right))<depth*tan*16/9*.82 and abs(pr.vector3_dot_product(d,up))+.88<depth*tan*.84
     return i,camera(s['eye'],s['target'] if visible else body,s['fov'])
 
+
+def gameplay_camera(e,sequence,director=None,include_cinematic=True,manual_shot=None):
+    """Shared game/editor trigger selection; disabled stations cannot return.
+
+    A custom rule can still win when all indexed cameras are disabled. If no
+    authored shot qualifies, the caller uses the explicit safety camera.
+    """
+    if include_cinematic and sequence.state=='entering' and (director is None or director.trigger_enabled('reveal')):
+        index,cam=wide_reveal_camera();return {'type':'reveal'},index,cam
+    if include_cinematic and sequence.focus and (director is None or director.trigger_enabled('focus')):
+        return {'type':'focus'},5,camera(FOCUS_EYE,FOCUS_TARGET,57)
+    kind='room' if sequence.revealed and (e.z<8.5 or manual_shot is not None) else 'lake'
+    stations=TEA_SHOTS if kind=='room' else SHOTS
+    allowed=director.enabled_slots(kind) if director is not None else set(range(len(stations)))
+    if not allowed:
+        index,cam=safety_camera(e)
+    elif manual_shot is not None:
+        preferred=max(0,min(len(stations)-1,int(manual_shot)))
+        index=min(allowed,key=lambda i:(abs(i-preferred),i));spec=stations[index]
+        cam=camera(spec['eye'],spec['target'],spec['fov'])
+    elif kind=='room':
+        index,cam=interior_camera(e)
+        if index not in allowed:
+            index=min(allowed,key=lambda i:(abs(i-index),i));spec=stations[index]
+            cam=camera(spec['eye'],(e.x,e.height+.92,e.z),spec['fov'])
+    else:index,cam=auto_camera(e,allowed)
+    return {'type':kind,'index':index},index,cam
+
 class Lake(Hall):
     def __init__(self,targeted=True,camera_path=None):
         self.models={};self.textures={};self.shader=None;self.player=None;self.sky=None;self.post=None;self.raw=None;self.frame=None;self.smoke=None;self.reflection=None;self.reflection_raw=None;self.water_shader=None;self.last_shot=0;self.sequence=MoonSequence();self.last_camera=None
         self.targeted=targeted;self.target_fog=None;self._world_override=None
-        self.camera_director=None;self._authored_hold=False
+        self.camera_director=None;self._authored_hold=False;self._player_variants={}
         try:
             self.manifest=json.loads((KIT/'manifest.json').read_text())
             self.shader=pr.load_shader(str(ROOT/'shaders'/'huxin_moon.vs'),str(ROOT/'shaders'/'huxin_moon.fs'))
@@ -56,8 +94,8 @@ class Lake(Hall):
                 if s.id==pr.rl.rlGetShaderIdDefault():raise RuntimeError('Lake shader compilation failed')
                 s.locs[pr.SHADER_LOC_MATRIX_MODEL]=pr.get_shader_location(s,'matModel');s.locs[pr.SHADER_LOC_MATRIX_NORMAL]=pr.get_shader_location(s,'matNormal')
             self.player=LivingScene(include_willow=False,combat=True,fragment_shader='huxin_moon.fs')
-            names=('eyePosition','time','inspection','opacity','emission','surfaceKind','reflectionPass','lampCount','lamps','windStrength','deckHeight','veil','enclosed','warmth','flatPaving')
-            self.locations={s.id:{n:pr.get_shader_location(s,n) for n in names} for s in (self.shader,self.player.skin,self.water_shader)}
+            self._player_variants[self.player.variant]=self.player
+            self.locations={s.id:{n:pr.get_shader_location(s,n) for n in PLAYER_UNIFORMS} for s in (self.shader,self.player.skin,self.water_shader)}
             for name in self.manifest['models']:self.load(name,KIT/(name+'.glb'))
             self.tea_manifest=json.loads((KIT/'teahouse_manifest.json').read_text())
             for name in self.tea_manifest['models']:self.load(name,KIT/(name+'.glb'))
@@ -85,6 +123,22 @@ class Lake(Hall):
     @property
     def render_revealed(self):
         return self.sequence.revealed if self._world_override is None else self._world_override
+
+    def set_player_variant(self,variant,clip=None,phase=0.):
+        """Swap a cached character in place; puzzle/camera/player state stays put."""
+        if variant not in ('original','refined'):raise ValueError('Unknown player variant')
+        if variant not in self._player_variants:
+            candidate=LivingScene(include_willow=False,combat=True,fragment_shader='huxin_moon.fs',variant=variant)
+            try:
+                self.locations[candidate.skin.id]={n:pr.get_shader_location(candidate.skin,n) for n in PLAYER_UNIFORMS}
+                self._player_variants[variant]=candidate
+            except Exception:
+                candidate.close();raise
+        chosen=self._player_variants[variant]
+        if clip:
+            chosen.pose(clip if clip in chosen.clips else 'idle',phase)
+        self.player=chosen
+        return chosen.variant
 
     def environment(self,cam,clock,inspection,reflection):
         lights=LIGHTS+TEA_LIGHTS
@@ -145,17 +199,20 @@ class Lake(Hall):
             return -1,override
         q=self.sequence
         director=getattr(self,'camera_director',None)
-        if director is not None:director.update(clock)
+        if director is not None:
+            director.update(clock);director.observe(e,q,clock)
+            if self._authored_hold and not director.trigger_enabled('reveal'):
+                q.locked_camera=None;self._authored_hold=False
 
         def authored(trigger,index,fallback,manual=False):
             result=director.camera(trigger,e,q,clock,include_zones=not manual) if director is not None else None
-            if result is None:return index,fallback
+            if result is None:return safety_camera(e) if director is not None else (index,fallback)
             _,pose=result
             return index,camera_from_pose(pose)
 
         def outdoor():
-            index,fallback=auto_camera(e)
-            return authored({'type':'lake','index':index},index,fallback)
+            trigger,index,fallback=gameplay_camera(e,q,director,include_cinematic=False)
+            return authored(trigger,index,fallback)
 
         pose=(e.x,e.height,e.z,e.yaw)
         if q.locked_camera is not None and not q.transitioning and q.locked_pose!=pose:
@@ -166,29 +223,27 @@ class Lake(Hall):
             if q.camera_stage=='walking':
                 self._authored_hold=False;shot,cam=outdoor()
             elif self.targeted:
-                self._authored_hold=True
-                index,fallback=wide_reveal_camera()
-                shot,cam=authored({'type':'reveal'},index,fallback)
+                trigger,index,fallback=gameplay_camera(e,q,director)
+                shot,cam=authored(trigger,index,fallback)
+                self._authored_hold=trigger['type']=='reveal' and (director is None or director.active_id is not None)
             else:shot,cam=mist_camera(q,e)
             # Hold the last cinematic view until the player next moves.
-            q.locked_camera=cam;q.locked_pose=pose
+            q.locked_camera=cam if not getattr(self,'targeted',False) or self._authored_hold else None;q.locked_pose=pose
         elif q.locked_camera is not None:
             if getattr(self,'_authored_hold',False) and director is not None:
                 shot,cam=authored({'type':'reveal'},self.last_shot,q.locked_camera)
-                q.locked_camera=cam
+                q.locked_camera=cam if director.active_id is not None else None
+                self._authored_hold=director.active_id is not None
             else:shot,cam=self.last_shot,q.locked_camera
-        elif q.focus:shot,cam=authored({'type':'focus'},5,camera(FOCUS_EYE,FOCUS_TARGET,57))
+        elif q.focus:
+            trigger,index,fallback=gameplay_camera(e,q,director)
+            shot,cam=authored(trigger,index,fallback)
         elif override is not None:
             if director is not None:director.reset()
             shot,cam=e.shot,override
         elif manual_shot is not None:
-            stations=TEA_SHOTS if q.revealed else SHOTS
-            index=max(0,min(len(stations)-1,int(manual_shot)));spec=stations[index]
-            shot,cam=authored({'type':'room' if q.revealed else 'lake','index':index},
-                              index,camera(spec['eye'],spec['target'],spec['fov']),manual=True)
-        elif q.revealed and e.z<8.5:
-            index,fallback=interior_camera(e)
-            shot,cam=authored({'type':'room','index':index},index,fallback)
+            trigger,index,fallback=gameplay_camera(e,q,director,include_cinematic=False,manual_shot=manual_shot)
+            shot,cam=authored(trigger,index,fallback,manual=True)
         else:shot,cam=outdoor()
         return shot,cam
 
@@ -268,6 +323,9 @@ class Lake(Hall):
 
     def close(self):
         if self.target_fog:self.target_fog.close();self.target_fog=None
+        for player in getattr(self,'_player_variants',{}).values():
+            if player is not self.player:player.close()
+        self._player_variants.clear()
         super().close()
         if self.reflection:pr.unload_render_texture(self.reflection);self.reflection=None
         if self.reflection_raw:pr.unload_render_texture(self.reflection_raw);self.reflection_raw=None
@@ -277,7 +335,7 @@ def reset_player(scene,puzzle=False):
     e=Explorer();scene.sequence=MoonSequence();e.encounter=scene.sequence
     scene.last_camera=None;scene.last_shot=0
     scene._authored_hold=False
-    if getattr(scene,'camera_director',None) is not None:scene.camera_director.reset()
+    if getattr(scene,'camera_director',None) is not None:scene.camera_director.reset(clear_memory=True)
     if puzzle:
         from g_huxin_moon_sequence import SOLUTION
         e.x,e.height,e.z=1.65,DECK,1.65
@@ -294,7 +352,7 @@ def edit_cameras(scene,actor,audio,clock,editor_runner=None):
         editor_runner=edit_scene
     old_size=(pr.get_screen_width(),pr.get_screen_height())
     was_resizable=pr.is_window_state(pr.FLAG_WINDOW_RESIZABLE)
-    previous={name:getattr(scene,name) for name in ('sequence','last_camera','last_shot','_authored_hold')}
+    previous={name:getattr(scene,name) for name in ('sequence','last_camera','last_shot','_authored_hold','camera_director')}
     if audio:
         for sound in audio.sounds.values():pr.stop_sound(sound)
     pr.enable_cursor();pr.set_exit_key(pr.KEY_NULL)
@@ -323,7 +381,7 @@ def run(review=False,legacy_fog=False,puzzle_test=False,muted=False):
         if review:
             from huxin_moon_review import review_scene
             return review_scene(scene,e,audio,startup)
-        clock=0.;inspection=False;manual=None;free=False;eye=None;yaw=0.;pitch=0.;help_visible=True;show_player=True;assembly=False
+        clock=0.;inspection=False;manual=None;free=False;eye=None;yaw=0.;pitch=0.;help_visible=True;show_player=True;assembly=False;variant_note='';variant_note_until=0.
         while not pr.window_should_close():
             dt=min(pr.get_frame_time(),.05);clock+=dt
             if pr.is_key_pressed(pr.KEY_F2) and scene.targeted:
@@ -334,6 +392,16 @@ def run(review=False,legacy_fog=False,puzzle_test=False,muted=False):
             if pr.is_key_pressed(pr.KEY_H):help_visible=not help_visible
             if pr.is_key_pressed(pr.KEY_TAB):show_player=not show_player
             if pr.is_key_pressed(pr.KEY_F3):assembly=not assembly
+            if pr.is_key_pressed(pr.KEY_F4):
+                try:
+                    clip=e.clip if e.clip in scene.player.clips else 'idle'
+                    phase=e.phase if clip in ('walk','run','walk_back') else clock if clip.startswith('turn') else clock/2
+                    selected='refined' if scene.player.variant=='original' else 'original'
+                    scene.set_player_variant(selected,clip,phase)
+                    variant_note='PLAYER: '+selected.upper()
+                except (OSError,RuntimeError,ValueError) as exc:
+                    variant_note='Could not switch player: '+str(exc)
+                variant_note_until=clock+4.
             if pr.is_key_pressed(pr.KEY_HOME):e=reset_player(scene,puzzle_test);manual=None;free=False;pr.enable_cursor()
             if pr.is_key_pressed(pr.KEY_ZERO):manual=None;free=False;pr.enable_cursor()
             for i in range(9):
@@ -368,8 +436,9 @@ def run(review=False,legacy_fog=False,puzzle_test=False,muted=False):
                 pr.draw_rectangle(0,h-52,w,52,pr.Color(10,20,22,226))
                 pr.draw_text(q.prompt(e) or 'W/S move   A/D turn   Shift run   E examine   1-9 cameras   0 auto   F free look',18,h-42,16,pr.Color(206,213,198,255))
                 editor_hint='F2 camera editor | ' if scene.targeted else ''
-                pr.draw_text(editor_hint+'L daylight | Tab player | H help | Home restart | F12 capture | Esc exit',18,h-21,14,pr.Color(147,178,175,255))
+                pr.draw_text(editor_hint+'F4 compare player | L daylight | Tab player | H help | Home restart | F12 capture | Esc exit',18,h-21,14,pr.Color(147,178,175,255))
                 if free:pr.draw_text('Free camera',19,18,18,pr.Color(206,213,198,255))
+            if clock<variant_note_until:pr.draw_text(variant_note,19,43,18,pr.Color(225,218,183,255))
             if puzzle_test:
                 label=('Teahouse reveal  %.2fs'%q.elapsed if q.state=='entering' else
                        'Return along causeway  %.1f%%'%(q.return_progress*100.) if q.state=='leaving' else

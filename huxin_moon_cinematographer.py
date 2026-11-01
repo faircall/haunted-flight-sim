@@ -6,6 +6,7 @@ if __name__=='__main__':
 from copy import deepcopy
 from pathlib import Path
 import math
+import json
 import pyray as pr
 
 from g_huxin_moon_direction import DEFAULT_PATH,DirectionEditor,CameraConflictError
@@ -15,6 +16,7 @@ from g_huxin_moon_sequence import MoonSequence,ENTRY_SWAP,ENTRY_DURATION,causewa
 from g_temple_cinematics import fly_pose,orbit_pose
 from temple_cinematics_editor import Input,contains,label
 from temple_intro_viewer import camera_from_pose
+from huxin_moon_director_editor import DirectorPanel,scalar
 
 WIDTH,HEIGHT=640,360
 BG=pr.Color(13,20,23,255);PANEL=pr.Color(21,30,34,255);FIELD=pr.Color(31,43,48,255)
@@ -38,6 +40,7 @@ class MoonCinematographer:
             'target':[previous_camera.target.x,previous_camera.target.y,previous_camera.target.z],'fov':previous_camera.fovy}
         self._game_actor=None if actor is None else [actor.x,actor.height,actor.z]
         self._game_yaw=None if actor is None else actor.yaw
+        self.director_panel=DirectorPanel(self)
         self.status='Select a shot. Edit its keys, then Preview behavior to test it.'
         active=getattr(getattr(scene,'camera_director',None),'active_id',None)
         selected=active if any(s['id']==active for s in self.state.document['shots']) else next((s['id'] for s in self.state.document['shots'] if s['activation']['type']=='reveal'),0)
@@ -46,11 +49,12 @@ class MoonCinematographer:
 
     @property
     def duration(self):
-        return max(self.state.shot['duration'],ENTRY_DURATION if self.state.shot['preview']['phase']=='reveal' else 0.)
+        phase=self.director_panel.phase if self.director_panel.testing else self.state.shot['preview']['phase']
+        return max(self.state.shot['duration'],ENTRY_DURATION if phase=='reveal' else 0.)
 
     def layout(self):
         w,h=pr.get_screen_width(),pr.get_screen_height();left=260;right=w-338;bottom=h-126
-        area=(left+18,135,right-left-36,bottom-258)
+        area=(left+18,135,right-left-36,bottom-(440 if self.director_panel.testing else 258))
         scale=max(.1,min(area[2]/WIDTH,area[3]/HEIGHT))
         view=(area[0]+(area[2]-WIDTH*scale)/2,area[1]+(area[3]-HEIGHT*scale)/2,WIDTH*scale,HEIGHT*scale)
         return dict(w=w,h=h,left=left,right=right,bottom=bottom,viewport=view,timeline=(26,bottom+54,w-52,26),
@@ -58,6 +62,8 @@ class MoonCinematographer:
 
     def controls(self):
         a=self.layout();x=a['right']+14;b=a['bottom'];w=a['w'];shot=self.state.shot
+        phase=self.director_panel.phase if self.director_panel.testing else shot['preview']['phase']
+        actor_y=b-74 if self.director_panel.testing else b-116
         buttons=[('save','Save to game',(264,14,122,30),False),('reload','Reload',(394,14,76,30),False),
                  ('undo','Undo',(478,14,66,30),False),('redo','Redo',(552,14,66,30),False),
                  ('play','Pause' if self.state.playing else 'Play',(632,14,70,30),self.state.playing),
@@ -65,9 +71,9 @@ class MoonCinematographer:
                  ('live','Live: ON' if self.live_enabled else 'Live: OFF',(788,14,88,30),self.live_enabled),
                  ('close','Return / exit',(w-146,14,130,30),False),
                  ('preview','Preview behavior' if self.preview else 'Edit camera keys',(a['left']+18,71,174,31),self.preview),
-                 ('phase','Scene: '+shot['preview']['phase'].title(),(a['left']+202,71,160,31),False),
-                 ('reset_actor','Reset test actor',(a['left']+18,b-116,145,28),False),
-                 ('use_game_view','Use game view',(a['left']+173,b-116,145,28),False),
+                 ('phase','Scene: '+phase.title(),(a['left']+202,71,160,31),False),
+                 ('reset_actor','Reset test actor',(a['left']+18,actor_y,145,28),False),
+                 ('use_game_view','Use game view',(a['left']+173,actor_y,145,28),False),
                  ('tab:camera','CAMERA',(x,71,96,29),self.tab=='camera'),
                  ('tab:behavior','BEHAVIOR',(x+104,71,96,29),self.tab=='behavior'),
                  ('tab:activation','ACTIVATION',(x+208,71,102,29),self.tab=='activation'),
@@ -103,20 +109,26 @@ class MoonCinematographer:
                            ('Player: always aim at the actor.',x,560),('Keep visible: pan only near frame edges.',x,584),
                            ('Follow keys use the saved test-actor reference.',x,625),('Reset test actor before composing, or re-anchor:',x,647)])
             buttons.append(('follow_reference','Use actor as follow reference',(x,678,310,30),False))
-        else:
+        elif self.tab=='activation':
             act=shot['activation']
-            buttons.extend([('enabled','Override in game: '+('ON' if shot['enabled'] else 'OFF'),(x,122,310,31),shot['enabled']),
+            buttons.extend([('enabled','Shot enabled: '+('ON' if shot['enabled'] else 'OFF'),(x,122,310,31),shot['enabled']),
                             ('activation_type','Trigger: '+act['type'].title(),(x,165,310,31),False)])
             field(('activation','priority'),'PRIORITY / higher wins',232)
             if act['type'] in ('lake','room'):field(('activation','index'),'BASE CAMERA INDEX / zero based',300)
-            if act['type']=='zone':
+            if act['type'] in ('zone','rule'):
                 buttons.append(('zone_phase','World: '+act['phase'].title(),(x,280,310,31),False))
+            if act['type']=='zone':
                 vector(('activation','bounds','min'),'ZONE MINIMUM / X Y Z',360)
                 vector(('activation','bounds','max'),'ZONE MAXIMUM / X Y Z',429)
                 buttons.append(('zone_actor','Centre zone on test actor',(x,485,310,30),False))
             buttons.append(('remove','Remove selected shot',(x,552,310,30),False))
             labels.extend([('Lake / Room replaces an existing camera slot.',x,608),('Zone overrides cameras inside its bounds.',x,630),
-                           ('Reveal and Focus follow the puzzle state.',x,652),('Disabled uses the normal game camera.',x,678)])
+                           ('Reveal and Focus follow the puzzle state.',x,652),('Disabled shots are skipped, including base slots.',x,678)])
+        buttons=[(name,title,(rx,ry+38,rw,rh) if rx>=a['right'] and ry>=110 else rect,active)
+                 for name,title,rect,active in buttons for rx,ry,rw,rh in (rect,)]
+        fields=[(path,(rx,ry+38,rw,rh)) for path,(rx,ry,rw,rh) in fields]
+        labels=[(title,lx,ly+38) for title,lx,ly in labels]
+        self.director_panel.controls(buttons,fields,labels)
         self._labels=labels
         if self.close_prompt:
             cx,cy=w/2-253,a['h']/2-90
@@ -136,19 +148,26 @@ class MoonCinematographer:
         elif index>=self.scroll+rows:self.scroll=index-rows+1
 
     def select(self,identity):
-        self.state.select(identity);self.preview=False;self.reset_actor();self.entry=None
+        elapsed=self.state.elapsed;testing=self.director_panel.testing
+        self.state.select(identity);self.preview=testing
+        if testing:self.state.elapsed=min(elapsed,self.duration)
+        else:self.reset_actor()
+        self.entry=None
         self.ensure_selected_visible()
         self.status='Editing '+self.state.shot['label']+' / '+self.state.key.upper()
 
     def seek(self,value):
         self.state.elapsed=max(0.,min(self.duration,float(value)));self.state.playing=False;self.preview=True
+        if self.director_panel.testing:self.director_panel.reset()
 
     def field_value(self,path):
+        if path[0] in ('marker','test'):return self.director_panel.field_value(path)
         value=self.state.shot
         for part in path:value=value[part]
         return value
 
     def set_value(self,path,value):
+        if path[0] in ('marker','test'):return self.director_panel.set_value(path,value)
         def operation(shot):
             node=shot
             for part in path[:-1]:node=node[part]
@@ -159,13 +178,16 @@ class MoonCinematographer:
 
     def edit_field(self,path):
         self.state.playing=False
-        self.entry=dict(path=path,text=str(self.field_value(path)) if path==('label',) else f'{self.field_value(path):.3f}',replace=True)
+        value=self.field_value(path)
+        text=json.dumps(value,ensure_ascii=False) if self.director_panel.scalar_field(path) else str(value) if isinstance(value,str) else f'{value:.3f}'
+        self.entry=dict(path=path,text=text,replace=True)
 
     def finish_entry(self,cancel=False):
         if not self.entry:return True
         if not cancel:
             try:
-                path=self.entry['path'];value=self.entry['text'] if path==('label',) else float(self.entry['text'])
+                path=self.entry['path']
+                value=scalar(self.entry['text']) if self.director_panel.scalar_field(path) else self.entry['text'] if self.director_panel.text_field(path) else float(self.entry['text'])
                 if path in (('activation','index'),('activation','priority')):
                     if value!=int(value):raise ValueError('Use a whole number for index or priority.')
                     value=int(value)
@@ -186,6 +208,7 @@ class MoonCinematographer:
     def activation(self,kind):
         old=self.state.shot['activation'];act={'type':kind,'priority':old.get('priority',0)}
         if kind in ('lake','room'):act['index']=0
+        elif kind=='rule':act.update(priority=max(10,act['priority']),phase='any')
         elif kind=='zone':
             x,y,z=self.actor.x,self.actor.height,self.actor.z
             act.update(priority=max(10,act['priority']),phase='any',bounds={'min':[x-2,y-.5,z-2],'max':[x+2,y+3,z+2]})
@@ -195,6 +218,7 @@ class MoonCinematographer:
         self.finish_drag()
         if name=='close' and not self.finish_entry():self.finish_entry(cancel=True)
         try:
+            if self.director_panel.action(name):return
             if name=='close_cancel':self.close_prompt=False;self.close_error=None;return
             if name=='close_discard':self.state.discard();self.closed=True;return
             if name=='close_save':
@@ -212,8 +236,10 @@ class MoonCinematographer:
             elif name.startswith('shot:'):self.select(name[5:])
             elif name.startswith('tab:'):self.tab=name[4:]
             elif name in ('start','end'):
+                self.director_panel.testing=False
                 self.state.key=name;self.state.elapsed=0. if name=='start' else self.state.shot['duration'];self.state.playing=False;self.preview=False
             elif name=='preview':
+                self.director_panel.testing=False
                 self.preview=not self.preview;self.state.playing=False
                 if not self.preview:self.state.elapsed=0. if self.state.key=='start' else self.state.shot['duration']
             elif name=='play':
@@ -221,8 +247,11 @@ class MoonCinematographer:
                 if self.state.elapsed>=self.duration:self.state.elapsed=0.
             elif name=='loop':self.state.loop=not self.state.loop
             elif name=='phase':
-                values=('lake','teahouse','reveal');old=self.state.shot['preview']['phase']
-                self.set_value(('preview','phase'),values[(values.index(old)+1)%3]);self.state.elapsed=min(self.state.elapsed,self.duration)
+                values=('lake','teahouse','reveal');old=self.director_panel.phase if self.director_panel.testing else self.state.shot['preview']['phase']
+                value=values[(values.index(old)+1)%3]
+                if self.director_panel.testing:self.director_panel.phase=value
+                else:self.set_value(('preview','phase'),value)
+                self.state.elapsed=min(self.state.elapsed,self.duration)
             elif name=='reset_actor':self.reset_actor()
             elif name=='use_game_view':
                 if self._game_pose is None:
@@ -250,7 +279,7 @@ class MoonCinematographer:
                 self.set_value((prop,),values[(values.index(self.state.shot[prop])+1)%len(values)])
             elif name=='enabled':self.set_value(('enabled',),not self.state.shot['enabled'])
             elif name=='activation_type':
-                values=('lake','room','focus','reveal','zone');self.activation(values[(values.index(self.state.shot['activation']['type'])+1)%5])
+                values=('lake','room','focus','reveal','zone','rule');self.activation(values[(values.index(self.state.shot['activation']['type'])+1)%len(values)])
             elif name=='zone_phase':
                 values=('any','lake','teahouse');self.set_value(('activation','phase'),values[(values.index(self.state.shot['activation']['phase'])+1)%3])
             elif name=='zone_actor':
@@ -274,6 +303,7 @@ class MoonCinematographer:
 
     def handle(self,event,dt):
         self.events=event;dt=max(0.,min(.1,float(dt)));control=bool(event.down&{'LEFT_CONTROL','RIGHT_CONTROL'});shift=bool(event.down&{'LEFT_SHIFT','RIGHT_SHIFT'})
+        if self.director_panel.testing and not self.close_prompt:self.director_panel.clock+=dt
         self._poll_elapsed+=dt
         if self.live_enabled and self._poll_elapsed>=.5 and not(self.entry or self.drag or self.close_prompt):
             self._poll_elapsed=0.;selected=self.state.selected;elapsed=self.state.elapsed
@@ -292,9 +322,9 @@ class MoonCinematographer:
                 if self.finish_entry():self.action('save')
                 return
             for char in event.chars:
-                if self.entry['path']==('label',) or char in '0123456789+-.eE':
+                if self.director_panel.text_field(self.entry['path']) or self.director_panel.scalar_field(self.entry['path']) or char in '0123456789+-.eE':
                     if self.entry['replace']:self.entry['text']='';self.entry['replace']=False
-                    if len(self.entry['text'])<100:self.entry['text']+=char
+                    if len(self.entry['text'])<120:self.entry['text']+=char
             if 'BACKSPACE' in event.pressed:self.entry['text']='' if self.entry['replace'] else self.entry['text'][:-1];self.entry['replace']=False
             if 'ESCAPE' in event.pressed:self.finish_entry(True);return
             if 'ENTER' in event.pressed:self.finish_entry();return
@@ -364,7 +394,7 @@ class MoonCinematographer:
         rect=self.layout()['timeline'];return (x-rect[0])/rect[2]*self.duration
 
     def sync(self):
-        q=self.sequence;phase=self.state.shot['preview']['phase'];t=self.state.elapsed
+        q=self.sequence;phase=self.director_panel.phase if self.director_panel.testing else self.state.shot['preview']['phase'];t=self.state.elapsed
         q.focus=False;q.elapsed=t;q.locked_camera=None;q.locked_pose=None
         q.approach=causeway_progress(self.actor.x,self.actor.z);q.return_progress=1.-q.approach
         if phase=='reveal':q.state='entering' if t<ENTRY_DURATION else 'revealed';q.revealed=t>=ENTRY_SWAP;q.entry_veil=.72;q.entry_arrival=.93
@@ -373,10 +403,10 @@ class MoonCinematographer:
 
     def render_scene(self):
         self.sync()
-        frame=sample_shot(self.state.shot,self.state.elapsed,self.actor) if self.preview else self.state.frame
+        frame=self.director_panel.sample() if self.director_panel.testing else sample_shot(self.state.shot,self.state.elapsed,self.actor) if self.preview else self.state.frame
         if not isinstance(frame,dict):frame={'eye':frame.eye,'target':frame.target,'fov':frame.fov}
         self.preview_camera=camera_from_pose(frame)
-        self.scene.render(self.actor,self.clock+self.state.elapsed,override=self.preview_camera,authoring=True)
+        self.scene.render(self.actor,self.clock+(self.director_panel.clock if self.director_panel.testing else self.state.elapsed),override=self.preview_camera,authoring=True)
         return self.preview_camera
 
     @staticmethod
@@ -386,7 +416,12 @@ class MoonCinematographer:
 
     def draw_zone_guides(self,viewport):
         activation=self.state.shot['activation'];cam=self.preview_camera
-        if self.tab!='activation' or activation['type']!='zone' or cam is None:return
+        kind='zone'
+        if self.tab=='markers':
+            activation=self.director_panel.marker;kind='marker'
+            if activation is None:return
+        elif self.tab!='activation' or activation['type']!='zone':return
+        if cam is None:return
         low,high=activation['bounds']['min'],activation['bounds']['max']
         eye=(cam.position.x,cam.position.y,cam.position.z)
         forward=(cam.target.x-eye[0],cam.target.y-eye[1],cam.target.z-eye[2]);length=math.sqrt(sum(v*v for v in forward))
@@ -400,7 +435,8 @@ class MoonCinematographer:
         actor=(self.actor.x,self.actor.height,self.actor.z)
         inside=all(a<=v<=b for a,v,b in zip(low,actor,high))
         phase='teahouse' if self.sequence.revealed else 'lake'
-        eligible=inside and self.state.shot['enabled'] and activation['phase'] in ('any',phase)
+        enabled=True if kind=='marker' else self.state.shot['enabled']
+        eligible=inside and enabled and activation['phase'] in ('any',phase)
         colour=pr.Color(129,208,173,220) if eligible else pr.Color(228,183,113,195)
         pr.begin_scissor_mode(*(int(v) for v in viewport))
         try:
@@ -408,8 +444,8 @@ class MoonCinematographer:
                 for bit in (1,2,4):
                     other=i^bit
                     if i<other and points[i] is not None and points[other] is not None:pr.draw_line_ex(points[i],points[other],1.5,colour)
-            title='Actor '+('inside' if inside else 'outside')+' zone'
-            if inside and not self.state.shot['enabled']:title+=' / override OFF'
+            title='Actor '+('inside' if inside else 'outside')+' '+kind
+            if inside and not enabled:title+=' / shot OFF'
             elif inside and not eligible:title+=' / different world'
             pr.draw_rectangle(int(viewport[0]+6),int(viewport[1]+6),min(int(viewport[2]-12),pr.measure_text(title,12)+16),25,pr.Color(13,20,23,220))
             pr.draw_text(title,int(viewport[0]+14),int(viewport[1]+13),12,colour)
@@ -433,15 +469,17 @@ class MoonCinematographer:
         for path,rect in fields:
             active=self.entry is not None and self.entry['path']==path
             pr.draw_rectangle_rec(pr.Rectangle(*rect),BLUE if active else FIELD)
-            value=self.entry['text']+'_' if active else str(self.field_value(path)) if path==('label',) else f'{self.field_value(path):.2f}'
+            raw=self.field_value(path)
+            value=self.entry['text']+'_' if active else json.dumps(raw,ensure_ascii=False) if self.director_panel.scalar_field(path) else str(raw) if isinstance(raw,str) else f'{raw:.2f}'
             if isinstance(path[-1],int):value='XYZ'[path[-1]]+' '+value
             pr.draw_text(label(value,rect[2]-12,13),int(rect[0]+6),int(rect[1]+9),13,INK)
         viewport=a['viewport']
         pr.draw_texture_pro(self.scene.frame.texture,pr.Rectangle(0,0,WIDTH,-HEIGHT),pr.Rectangle(*viewport),pr.Vector2(0,0),0,pr.WHITE)
         self.draw_zone_guides(viewport)
-        heading='PREVIEW / behavior active / mouse camera edits disabled' if self.preview else 'EDIT '+self.state.key.upper()+' / direct key editing'
+        heading='TEST DIRECTOR / real selection, isolated memory / WASD moves actor' if self.director_panel.testing else 'PREVIEW / behavior active / mouse camera edits disabled' if self.preview else 'EDIT '+self.state.key.upper()+' / direct key editing'
         pr.draw_text(label(heading,a['right']-a['left']-36,13),a['left']+18,111,13,ACCENT)
-        pr.draw_text('Preview: WASD moves / turns the test actor. Your game is untouched.',a['left']+18,b-74,11,MUTED)
+        if not self.director_panel.testing:pr.draw_text('Preview: WASD moves / turns the test actor. Your game is untouched.',a['left']+18,b-74,11,MUTED)
+        self.director_panel.draw_diagnostics(ACCENT,MUTED)
         pr.draw_text(label(self.state.shot['label'],a['right']-a['left']-36,16),a['left']+18,b-44,16,INK)
         pr.draw_text(label(getattr(self.state,'error',None) or self.status,w-220,12),16,b+12,12,ACCENT)
         pr.draw_text('Unsaved changes' if self.state.dirty else 'Saved / unchanged',w-180,b+12,12,MUTED)

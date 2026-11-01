@@ -19,7 +19,7 @@ import g_temple_structure as structure
 import g_temple_layout as layout
 from g_temple_scene import atomic_json, point
 from g_temple_combat import Combat
-from photo_asset_pipeline.temple3d.living.gait import SETTINGS
+from g_player_locomotion import SETTINGS
 
 SAVE_FILE = Path(__file__).resolve().parent / 'saved_editor_states' / 'temple3d-progress.json'
 

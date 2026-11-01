@@ -3,7 +3,6 @@
 Movement controls the eye, aim controls the target, and lens controls field of
 view. None of these routines opens a window or evaluates authored code.
 """
-from copy import deepcopy
 import math
 import re
 
@@ -11,7 +10,9 @@ MOVEMENTS=('locked','path','follow')
 AIMS=('fixed','pan','player','keep_visible')
 LENSES=('fixed','zoom')
 EASINGS=('linear','smooth')
-TRIGGERS=('reveal','focus','lake','room','zone')
+TRIGGERS=('reveal','focus','lake','room','zone','rule')
+RULE_DEFAULTS=dict(conditions=[],start_event='',repeat='always',min_hold=0.,hold='eligible',
+                   release_event='',interrupt=False,cooldown=0.,exit_margin=.25)
 
 
 class CameraValidationError(ValueError):pass
@@ -46,6 +47,52 @@ def _text(value,path,limit=100):
     return value
 
 
+def identifier(value,path='identifier',empty=False):
+    """Names are data keys, never expressions or executable snippets."""
+    if empty and value=='':return ''
+    if not isinstance(value,str) or len(value)>120 or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*',value):
+        raise CameraValidationError(path+': use a name beginning with a letter or underscore; letters, numbers, dots and hyphens are allowed')
+    return value
+
+
+def scalar(value,path='value'):
+    if type(value) is bool:return value
+    if isinstance(value,(int,float)):return _number(value,path,-1.e12,1.e12)
+    if isinstance(value,str) and len(value)<=160 and not any(ord(c)<32 for c in value):return value
+    raise CameraValidationError(path+': expected a boolean, finite number, or short string')
+
+
+def _bounds(value,path):
+    _object(value,path,('min','max'))
+    low=_vector(value['min'],path+'.min');high=_vector(value['max'],path+'.max')
+    if any(b-a<.01 for a,b in zip(low,high)):raise CameraValidationError(path+': each maximum must exceed minimum by at least .01m')
+    return {'min':low,'max':high}
+
+
+def validate_rule(rule,path='rule'):
+    _object(rule,path,(),RULE_DEFAULTS)
+    conditions=rule.get('conditions',[])
+    if not isinstance(conditions,list) or len(conditions)>32:raise CameraValidationError(path+'.conditions: expected at most 32 conditions')
+    result={**RULE_DEFAULTS,'conditions':[]}
+    for i,condition in enumerate(conditions):
+        at=f'{path}.conditions[{i}]';_object(condition,at,('fact','op','value'))
+        fact=identifier(condition['fact'],at+'.fact');op=condition['op'];value=scalar(condition['value'],at+'.value')
+        if op not in ('eq','ne','gte','lte'):raise CameraValidationError(at+'.op: expected eq, ne, gte or lte')
+        if op in ('gte','lte') and (type(value) is bool or not isinstance(value,(int,float))):
+            raise CameraValidationError(at+'.value: numeric comparisons need a number')
+        result['conditions'].append(dict(fact=fact,op=op,value=value))
+    for key in ('start_event','release_event'):result[key]=identifier(rule.get(key,''),path+'.'+key,empty=True)
+    for key,allowed in (('repeat',('always','run','visit')),('hold',('eligible','duration','event'))):
+        value=rule.get(key,RULE_DEFAULTS[key])
+        if value not in allowed:raise CameraValidationError(path+'.'+key+': expected '+', '.join(allowed))
+        result[key]=value
+    if type(rule.get('interrupt',False)) is not bool:raise CameraValidationError(path+'.interrupt: expected true or false')
+    result['interrupt']=rule.get('interrupt',False)
+    for key in ('min_hold','cooldown'):result[key]=_number(rule.get(key,0.),path+'.'+key,0.,3600.)
+    result['exit_margin']=_number(rule.get('exit_margin',.25),path+'.exit_margin',0.,20.)
+    return result
+
+
 def _pose(value,path):
     _object(value,path,('eye','target','fov'))
     result=dict(eye=_vector(value['eye'],path+'.eye'),target=_vector(value['target'],path+'.target'),
@@ -76,16 +123,28 @@ def _unit(value):
 
 def validate_document(document):
     """Return a normalized deep copy; reject unknown, singular or unsafe data."""
-    _object(document,'cameras',('version','scene','shots'))
+    _object(document,'cameras',('version','scene','shots'),('markers',))
     if type(document['version']) is not int or document['version']!=1:
         raise CameraValidationError('version: expected camera document version 1')
     scene=_text(document['scene'],'scene',64)
     if not isinstance(document['shots'],list) or not 1<=len(document['shots'])<=256:
         raise CameraValidationError('shots: expected between 1 and 256 shots')
-    result={'version':1,'scene':scene,'shots':[]};ids=set()
+    result={'version':1,'scene':scene,'shots':[],'markers':[]};ids=set()
+    markers=document.get('markers',[])
+    if not isinstance(markers,list) or len(markers)>64:raise CameraValidationError('markers: expected at most 64 markers')
+    marker_ids=set()
+    for i,marker in enumerate(markers):
+        path=f'markers[{i}]';_object(marker,path,('id','label','bounds'),('phase',))
+        identity=identifier(marker['id'],path+'.id')
+        if len(identity)>80:raise CameraValidationError(path+'.id: at most 80 characters')
+        if identity in marker_ids:raise CameraValidationError(path+'.id: duplicate marker id')
+        marker_ids.add(identity);phase=marker.get('phase','any')
+        if phase not in ('any','lake','teahouse'):raise CameraValidationError(path+'.phase: unknown marker phase')
+        result['markers'].append(dict(id=identity,label=_text(marker['label'],path+'.label'),
+                                      bounds=_bounds(marker['bounds'],path+'.bounds'),phase=phase))
     for i,shot in enumerate(document['shots']):
         path=f'shots[{i}]'
-        _object(shot,path,('id','label','enabled','activation','movement','aim','lens','easing','duration','start','end','preview'),('aim_offset',))
+        _object(shot,path,('id','label','enabled','activation','movement','aim','lens','easing','duration','start','end','preview'),('aim_offset','rule'))
         identity=_text(shot['id'],path+'.id',80)
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*',identity):
             raise CameraValidationError(path+'.id: use letters, numbers, hyphens and underscores')
@@ -103,6 +162,7 @@ def validate_document(document):
         clean['preview']=dict(phase=preview['phase'],actor=_vector(preview['actor'],path+'.preview.actor'),
                               yaw=_number(preview['yaw'],path+'.preview.yaw',-10000.,10000.))
         clean['aim_offset']=_vector(shot.get('aim_offset',(0.,.95,0.)),path+'.aim_offset')
+        clean['rule']=validate_rule(shot.get('rule',{}),path+'.rule')
         activation=shot['activation'];_object(activation,path+'.activation',('type',),('index','priority','bounds','phase'))
         kind=activation['type']
         if kind not in TRIGGERS:raise CameraValidationError(path+'.activation.type: unknown trigger')
@@ -114,14 +174,13 @@ def validate_document(document):
             if type(index) is not int or not 0<=index<=4095:raise CameraValidationError(path+'.activation.index: expected integer 0..4095')
             active['index']=index
             if 'bounds' in activation or 'phase' in activation:raise CameraValidationError(path+'.activation: indexed shot cannot have zone fields')
-        elif kind=='zone':
-            if 'index' in activation:raise CameraValidationError(path+'.activation: zone cannot have an index')
+        elif kind in ('zone','rule'):
+            if 'index' in activation:raise CameraValidationError(path+'.activation: zone or rule cannot have an index')
             phase=activation.get('phase','any')
             if phase not in ('any','lake','teahouse'):raise CameraValidationError(path+'.activation.phase: unknown zone phase')
-            bounds=activation.get('bounds');_object(bounds,path+'.activation.bounds',('min','max'))
-            low=_vector(bounds['min'],path+'.activation.bounds.min');high=_vector(bounds['max'],path+'.activation.bounds.max')
-            if any(b-a<.01 for a,b in zip(low,high)):raise CameraValidationError(path+'.activation.bounds: each maximum must exceed minimum by at least .01m')
-            active.update(phase=phase,bounds={'min':low,'max':high})
+            active['phase']=phase
+            if kind=='zone':active['bounds']=_bounds(activation.get('bounds'),path+'.activation.bounds')
+            elif 'bounds' in activation:raise CameraValidationError(path+'.activation: rule activation cannot have bounds; use a marker condition')
         elif any(key in activation for key in ('index','bounds','phase')):
             raise CameraValidationError(path+'.activation: this trigger has no spatial fields')
         clean['activation']=active

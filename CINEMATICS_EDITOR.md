@@ -192,16 +192,61 @@ In **BEHAVIOR**, movement, aiming and lens are independent:
 - **Easing** chooses constant or eased motion. **Duration** controls the shot's
   move; it does not retime the puzzle or the fog.
 
-**ACTIVATION** controls whether the shot overrides the game and when it is selected.
+**ACTIVATION** controls whether the shot is enabled and when it is selected.
 Lake and Room replace a numbered existing camera (indices start at zero).
 Focus and Reveal follow the puzzle phase. Zone uses editable minimum/maximum
 XYZ bounds and can apply to the lake, teahouse or both. Higher priority wins
 between competing shots. **Centre zone on test actor** positions its bounds
 without changing their size. The Activation preview outlines the zone and shows
 whether the test actor is inside it, including disabled or mismatched-world cases.
-**Override in game: OFF** restores the normal game camera; it does not remove
-the underlying lake or room camera zone. A disabled custom zone stops overriding
-the camera selected underneath it.
+**Shot enabled: OFF** really skips that shot, including the built-in lake/room
+slot it represents. The director picks another enabled, eligible shot. If none
+can be used, a dedicated safety view keeps the player visible instead of
+silently bringing the disabled shot back. Disabling Reveal also releases its
+held cinematic camera. A **Rule** activation has no box or numbered slot; its
+conditions/events decide when it becomes a candidate in the chosen world.
+
+**RULES** adds conditions to any shot. All conditions must match. Each row uses
+a fact name, `eq`/`ne`/`gte`/`lte`, and a literal value: `true`, `false`, a number,
+or text. Examples are `puzzle.solved eq true`, `world.phase eq teahouse`, and
+`player.height gte 4`. Built-in facts include `puzzle.revealed`, `puzzle.focused`,
+`player.moving`, `player.causeway` and `inventory.count`. Custom fact names work
+the same way; these fields never execute code.
+
+**Start event** optionally requires a fresh event as well as matching conditions.
+Built-in events are `puzzle.solved`, `world.revealed`, `world.returned`,
+`puzzle.focused` and `puzzle.unfocused`. A past event can be tested through its
+remembered fact, such as `event.puzzle.solved.seen eq true`. Focus and Reveal
+reserve the puzzle camera: an event occurring during them is not queued to
+trigger another camera later. For a shot after the reveal, combine a remembered
+condition with a later marker-entry event.
+
+**TIMING** controls how long a chosen shot owns the camera. Minimum hold avoids
+an immediate cut when the actor grazes a boundary. Eligible releases when its
+conditions/activation stop matching; Duration holds for the shot's duration;
+Event holds until **Release event** occurs. Higher priority wins between
+eligible shots, while a held shot is interrupted only by a higher-priority shot
+whose **May interrupt a held shot** option is on. Disabled shots release
+immediately. Cooldown delays reuse after release; Exit margin extends a running
+zone slightly so its edge does not chatter. Repeat Always permits reuse, Visit
+allows one activation per visit, and Run allows one activation for that run.
+
+**MARKERS** defines named volumes independently of camera zones. Add/select a
+marker, edit its ID, label, world and XYZ bounds, or centre it on the test actor.
+The viewport outlines the selected volume. Crossing it emits
+`marker.<id>.entered` or `marker.<id>.exited`; conditions can also test
+`marker.<id>.inside` and the remembered `marker.<id>.visited`. Creating a marker
+around an actor already inside establishes occupancy without inventing an entry
+event. Move out and back in to test entry. Renaming an ID updates its authored
+event/condition references in the same undo step. Deleting a marker deliberately
+leaves those references visible; they stop matching until repaired.
+
+**Add after-puzzle tracking sample** explicitly adds a Follow/Player shot and
+two causeway markers. It starts on entering the first marker after the puzzle
+is solved, holds until entry into the second, and plays once per visit. The
+markers, framing, event names and timings remain ordinary editable data. The
+sample is never inserted into an existing scene unless that button is clicked,
+and it is not written to disk until Save.
 
 The **Scene** button previews Lake, Teahouse or Reveal. The timeline scrubs the
 selected shot; Reveal includes the complete 24-second fog sequence even when
@@ -209,6 +254,22 @@ the camera move is shorter. **Space** plays/pauses, **Loop** repeats, arrows ste
 one frame, Shift + arrows step one second, and Home returns to the beginning.
 Scrubbing and playback use Preview behavior; selecting START or END returns
 to direct key editing.
+
+**Test director** is different from the selected-shot Preview: it runs the actual
+camera selector over the whole current document. Its isolated test clock keeps
+moving even while the fog timeline is paused. WASD moves the test actor. The
+panel shows the active camera, its reason, the selected shot's rejection/hold
+reason, eligible rivals, and a fact/event readout. Type any named event and
+click **Emit event**, or enter a fact/value and click **Set fact**. **Puzzle
+solved** simulates that milestone without changing the rendered world; the
+Scene button controls the preview world separately.
+
+**Reset memory** clears test facts, events and once-only history. **New visit**
+re-arms Visit shots while retaining run memory. Scrubbing starts a deterministic
+new test memory state at the requested time; it does not replay an invented
+walk through every marker. Selecting another shot for inspection does not take
+the camera away from the active director. Test changes never alter the real
+player, inventory, puzzle or running director.
 
 **Save to game / Ctrl+S** writes
 [`cameras.json`](art/temple/huxin_moon/cameras.json). Normal Moon playback reads
@@ -225,9 +286,21 @@ the conflict: **Reload** accepts the file, while **Keep mine / save** explicitly
 overwrites it with your editor version. Ordinary Save refuses that conflict.
 Invalid external files retain the last valid preview and display the error.
 
-The previous hardcoded framing remains the fallback if no authored camera is
-enabled or applicable. This editor does not alter the Canals camera or fog
-documents, or the car intro's cinematic file.
+Camera event memory lasts for the running game, and visit boundaries are
+explicit. The camera JSON stores authored shots/rules/markers, not playthrough
+history. `snapshot_memory()` / `restore_memory()` are hooks for a future game
+save system; they do not automatically save memory to disk.
+
+For custom scene logic, trusted Python can call
+`scene.camera_director.remember('story.tea_served', True)` or
+`scene.camera_director.emit('story.door_opened')`. A registered fact provider,
+`register_fact_provider(provider)`, receives `(actor, sequence)` and returns a
+dictionary of scalar facts. Use `new_visit()` at a chosen visit boundary, and
+the memory snapshot hooks when integrating actual game saves. This supports
+bespoke choreography while keeping authoring files declarative.
+
+This editor does not alter the Canals camera or fog documents, or the car intro's
+cinematic file. Existing authored camera poses are retained until explicitly edited.
 
 ## Void Canals fog editor
 

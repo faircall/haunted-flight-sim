@@ -1,0 +1,19 @@
+{
+  "chorus_grasper": {
+    "clips": {
+      "enemy_idle": 2.5,
+      "enemy_walk": 1.0,
+      "enemy_run": 1.0,
+      "enemy_attack": 1.0,
+      "enemy_stagger": 0.35,
+      "enemy_death": 0.9
+    },
+    "vertices": 1512,
+    "triangles": 2906,
+    "bones": 15,
+    "height": 27.32,
+    "atlas": "chorus_grasper_atlas.png",
+    "reference": "Far-left figure, The Chorus; artdev/ChorusReference.jpg",
+    "description": "Pale large-faced ink-dark figure, slightly taller than the player."
+  }
+}
